@@ -4975,12 +4975,13 @@ Notes:
       const autoValue = Number.isFinite(record?.adherencePercent) && record?.adherenceSource === "auto"
         ? clamp(record.adherencePercent, 0, 100)
         : null;
+      const hasSnapshot = !!record?.goalSnapshot;
 
       if (Number.isFinite(autoValue)) {
         return `
           <div class="adherence-cell">
             <div class="adherence-primary"><span class="adherence-percent">${autoValue}%</span><span class="adherence-tag auto">자동</span></div>
-            <div class="adherence-secondary">현재 입력 기준${manualValue ? ` · 수동 ${manualValue}` : ""}</div>
+            <div class="adherence-secondary">자동 계산 기준 있음 · 저장된 목표 기준으로 계산됨${manualValue ? ` · 수동 ${manualValue}` : ""}</div>
           </div>
         `;
       }
@@ -4989,11 +4990,19 @@ Notes:
         return `
           <div class="adherence-cell">
             <div class="adherence-primary"><span class="adherence-tag manual">수동</span><span>${manualValue}</span></div>
+            <div class="adherence-secondary">${hasSnapshot ? "자동 계산 기준 있음 · 아직 자동 준수율 계산 전" : "자동 계산 기준 없음 · 자동 준수율이 저장되지 않음"}</div>
           </div>
         `;
       }
 
       return `<div class="adherence-cell"><div class="adherence-secondary">기록 없음</div></div>`;
+    }
+
+    function formatRecordFeedbackMessage(message, record){
+      const text = String(message || "");
+      if (!text.includes("식사를 저장했습니다.")) return text;
+      if (record?.goalSnapshot) return `${text} 식사 변경에 따라 준수율이 자동으로 다시 계산되었습니다.`;
+      return `${text} 자동 계산 기준이 없어 준수율은 저장되지 않았습니다. 목표를 저장하면 자동 계산이 활성화됩니다.`;
     }
 
     function adherenceScore(value){
@@ -6631,8 +6640,9 @@ Notes:
       document.getElementById("recentTrend").textContent = recent7.length && previous7.length ? `${trend >= 0 ? "+" : ""}${trend}` : "-";
 
       const feedbackHost = document.getElementById("recordFeedbackHost");
+      const selectedRecord = getRecordByDate(selectedDate);
       feedbackHost.innerHTML = recordsState.feedback
-        ? `<div class="${recordsState.feedback.tone === "ok" ? "notice" : `warn ${recordsState.feedback.tone}`}"><h4>${recordsState.feedback.tone === "ok" ? "기록 안내" : "입력 확인"}</h4><ul><li>${escapeHtml(recordsState.feedback.message)}</li></ul></div>`
+        ? `<div class="${recordsState.feedback.tone === "ok" ? "notice" : `warn ${recordsState.feedback.tone}`}"><h4>${recordsState.feedback.tone === "ok" ? "기록 안내" : "입력 확인"}</h4><ul><li>${escapeHtml(formatRecordFeedbackMessage(recordsState.feedback.message, selectedRecord))}</li></ul></div>`
         : "";
 
       const table = document.getElementById("recordsTable");
