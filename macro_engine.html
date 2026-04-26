@@ -5702,26 +5702,60 @@ Notes:
     function getDailyCoachActionText(signal){
       if (!signal) return "";
       if (signal.key === "training") {
-        if (signal.severity >= 3) return "우선적으로 섭취 보완과 운동 강도 확인이 필요합니다";
-        if (signal.severity === 2) return "다음 식사에서 에너지와 단백질 보충을 먼저 챙겨보세요";
-        if (signal.severity === 1) return "운동 입력을 조금 더 구체적으로 기록해보세요";
-        return "현재 패턴을 유지해도 괜찮습니다";
+        if (signal.severity >= 3) return "운동량 대비 섭취를 충분히 보충해보세요";
+        if (signal.severity === 2) return "운동량에 맞춰 섭취량을 함께 조절해보세요";
+        if (signal.severity === 1) return "운동 정보를 조금 더 기록해보세요";
+        return "현재 운동량과 섭취 흐름을 유지해도 괜찮습니다";
       }
       if (signal.key === "dataQuality") {
-        if (signal.severity >= 2) return "정확한 분석을 위해 기록을 보완해보세요";
-        if (signal.severity === 1) return "누락된 입력이 없는지 한 번 더 확인해보세요";
-        return "현재 패턴을 유지해도 괜찮습니다";
+        if (signal.severity >= 3) return "정확한 분석을 위해 식사 기록을 충분히 입력해보세요";
+        if (signal.severity === 2) return "주요 식사를 빠짐없이 기록해보세요";
+        if (signal.severity === 1) return "식사 기록을 조금 더 보완해보세요";
+        return "현재 기록 수준을 유지해도 괜찮습니다";
       }
-      if (signal.status === "ok") return "현재 패턴을 유지해도 괜찮습니다";
-      if (signal.severity >= 3) return "우선적으로 해당 부분을 조정하는 것이 좋습니다";
-      const actionTarget = {
-        calorie: "열량",
-        protein: "단백질",
-        carb: "탄수화물",
-        fat: "지방"
-      }[signal.key] || "해당 항목";
-      if (signal.status === "low") return `다음 식사에서 ${actionTarget}을 보충해보세요`;
-      return `다음 식사에서 ${actionTarget}을 줄여보세요`;
+      const actionMap = {
+        calorie: {
+          ok: "현재 식사 패턴을 유지해도 괜찮습니다",
+          low: signal.severity >= 3
+            ? "다음 식사에서 식사량을 확실히 늘려 에너지 섭취를 보완해보세요"
+            : "다음 식사에서 전체 섭취량을 조금 늘려보세요",
+          high: signal.severity >= 3
+            ? "다음 식사에서 식사량을 줄여 총 섭취 열량을 조절해보세요"
+            : "다음 식사에서 전체 섭취량을 조금 줄여보세요"
+        },
+        protein: {
+          ok: "현재 단백질 섭취 패턴을 유지해도 괜찮습니다",
+          low: signal.severity >= 3
+            ? "매 끼니에 단백질 식품을 포함하도록 신경 써보세요"
+            : "다음 식사에 단백질 식품을 한 가지 추가해보세요",
+          high: signal.severity >= 3
+            ? "단백질 섭취 비중을 낮추고 전체 식단 균형을 확인해보세요"
+            : "단백질 섭취를 약간 줄이고 다른 영양소와 균형을 맞춰보세요"
+        },
+        carb: {
+          ok: "현재 탄수화물 섭취 패턴을 유지해도 괜찮습니다",
+          low: signal.severity >= 3
+            ? "운동 전후로 탄수화물 섭취를 늘려보세요"
+            : "탄수화물 식품을 조금 더 추가해 에너지를 보충해보세요",
+          high: signal.severity >= 3
+            ? "탄수화물 섭취를 줄이고 전체 식사량을 조절해보세요"
+            : "탄수화물 섭취량을 조금 줄여보세요"
+        },
+        fat: {
+          ok: "현재 지방 섭취 패턴을 유지해도 괜찮습니다",
+          low: signal.severity >= 3
+            ? "지방 섭취를 보완해 식단 균형을 다시 맞춰보세요"
+            : "지방이 포함된 식품을 조금 추가해 식단 균형을 맞춰보세요",
+          high: signal.severity >= 3
+            ? "지방 섭취 비중을 낮추고 다른 영양소와 균형을 맞춰보세요"
+            : "기름진 음식 섭취를 조금 줄여보세요"
+        }
+      };
+      const macroAction = actionMap[signal.key];
+      if (!macroAction) return "";
+      if (signal.status === "ok") return macroAction.ok;
+      if (signal.status === "low") return macroAction.low;
+      return macroAction.high;
     }
 
     function getDailyCoachConfidenceText(dataQualitySignal){
