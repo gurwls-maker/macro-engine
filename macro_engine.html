@@ -5589,7 +5589,8 @@ Notes:
         ],
         balance,
         currentResult,
-        state: currentState
+        state: currentState,
+        focusKey: context.focusKey || null
       };
     }
 
@@ -5692,6 +5693,9 @@ Notes:
       const signalList = Array.isArray(signals)
         ? signals.filter(Boolean)
         : (Array.isArray(signals?.signals) ? signals.signals.filter(Boolean) : []);
+      const preferredOkKey = !Array.isArray(signals) && typeof signals?.focusKey === "string"
+        ? signals.focusKey
+        : null;
       const actionable = signalList
         .filter(signal => signal.status !== "ok" && signal.severity > 0)
         .sort((a, b) => {
@@ -5720,7 +5724,16 @@ Notes:
       const severity1 = actionable
         .filter(signal => signal.severity === 1)
         .sort((a, b) => getDailyCoachSignalPriority(a) - getDailyCoachSignalPriority(b));
-      return severity1.length ? [severity1[0]] : [];
+      if (severity1.length) return [severity1[0]];
+      const okSignals = signalList
+        .filter(signal => signal.status === "ok")
+        .sort((a, b) => getDailyCoachSignalPriority(a) - getDailyCoachSignalPriority(b));
+      if (!okSignals.length) return [];
+      const preferredOkSignal = preferredOkKey
+        ? okSignals.find(signal => signal.key === preferredOkKey)
+        : null;
+      const fallbackCalorieSignal = okSignals.find(signal => signal.key === "calorie");
+      return [preferredOkSignal || fallbackCalorieSignal || okSignals[0]];
     }
 
     function generateDailyCoachOutput(signals){
@@ -5728,7 +5741,7 @@ Notes:
         ? signals.filter(Boolean)
         : (Array.isArray(signals?.signals) ? signals.signals.filter(Boolean) : []);
       const dataQualitySignal = signalList.find(signal => signal.key === "dataQuality") || null;
-      const selectedSignals = selectDailyCoachSignals(signalList);
+      const selectedSignals = selectDailyCoachSignals(signals);
       return {
         items: selectedSignals.map(signal => ({
           key: signal.key,
@@ -8245,6 +8258,283 @@ Notes:
       });
     }
 
+    function runDailyCoachTestCases(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        setValidTodayBalanceTestInputs();
+
+        function createCoachContext(config = {}){
+          const currentResult = calculate();
+          const focusKeyEntries = [
+            Object.prototype.hasOwnProperty.call(config.target || {}, "kcal") || Object.prototype.hasOwnProperty.call(config.consumed || {}, "kcal") ? "calorie" : null,
+            Object.prototype.hasOwnProperty.call(config.target || {}, "protein") || Object.prototype.hasOwnProperty.call(config.consumed || {}, "protein") ? "protein" : null,
+            Object.prototype.hasOwnProperty.call(config.target || {}, "carbs") || Object.prototype.hasOwnProperty.call(config.consumed || {}, "carbs") ? "carb" : null,
+            Object.prototype.hasOwnProperty.call(config.target || {}, "fat") || Object.prototype.hasOwnProperty.call(config.consumed || {}, "fat") ? "fat" : null
+          ].filter(Boolean);
+          const focusKey = focusKeyEntries.length === 1 ? focusKeyEntries[0] : null;
+          const target = {
+            kcal: Number.isFinite(config.target?.kcal) ? config.target.kcal : currentResult.targetCal,
+            protein: Number.isFinite(config.target?.protein) ? config.target.protein : currentResult.protein,
+            carbs: Number.isFinite(config.target?.carbs) ? config.target.carbs : currentResult.carbs,
+            fat: Number.isFinite(config.target?.fat) ? config.target.fat : currentResult.fat
+          };
+          const consumed = {
+            kcal: Number.isFinite(config.consumed?.kcal) ? config.consumed.kcal : target.kcal,
+            protein: Number.isFinite(config.consumed?.protein) ? config.consumed.protein : target.protein,
+            carbs: Number.isFinite(config.consumed?.carbs) ? config.consumed.carbs : target.carbs,
+            fat: Number.isFinite(config.consumed?.fat) ? config.consumed.fat : target.fat
+          };
+          const mealCount = Number.isFinite(config.mealCount) ? config.mealCount : 3;
+          return {
+            currentResult,
+            state: currentResult.s,
+            focusKey,
+            balance: {
+              date: getTodayDateString(),
+              todayDate: getTodayDateString(),
+              target,
+              consumed,
+              remaining: {
+                kcal: target.kcal - consumed.kcal,
+                protein: target.protein - consumed.protein,
+                carbs: target.carbs - consumed.carbs,
+                fat: target.fat - consumed.fat
+              },
+              exceeded: {
+                kcal: consumed.kcal > target.kcal,
+                protein: consumed.protein > target.protein,
+                carbs: consumed.carbs > target.carbs,
+                fat: consumed.fat > target.fat
+              },
+              isGoalAvailable: config.isGoalAvailable !== undefined ? !!config.isGoalAvailable : true,
+              mealCount,
+              hasMeals: mealCount > 0,
+              goalSnapshot: null
+            }
+          };
+        }
+
+        function replaceSignal(signals, nextSignal){
+          signals[`${nextSignal.key}Signal`] = nextSignal;
+          signals.signals = signals.signals.map(signal => signal.key === nextSignal.key ? nextSignal : signal);
+          return signals;
+        }
+
+        function logCoachCase(input, signals, output){
+          console.log("=== TEST CASE ===");
+          console.log("input:", input);
+          console.log("signals:", signals);
+          console.log("output:", output);
+        }
+
+        function assertCoachOutput(result, expected = {}){
+          console.assert(result.items.length <= 3, "Too many signals");
+          console.assert(result.items.every(item => item.state), "Missing state");
+          console.assert(result.confidence !== undefined, "Missing confidence");
+          if (expected.mustIncludeSeverity3) {
+            console.assert(result.items.some(item => item.severity === 3), "Missing severity 3 item");
+          }
+          if (expected.firstKey) {
+            console.assert(result.items[0]?.key === expected.firstKey, `Expected first key ${expected.firstKey}`);
+          }
+          if (expected.mustIncludeKeys) {
+            expected.mustIncludeKeys.forEach(key => {
+              console.assert(result.items.some(item => item.key === key), `Missing key ${key}`);
+            });
+          }
+          if (expected.expectedConfidenceContains) {
+            console.assert(result.confidence.includes(expected.expectedConfidenceContains), `Missing confidence text ${expected.expectedConfidenceContains}`);
+          }
+          if (expected.expectNoConfidence) {
+            console.assert(result.confidence === "", "Confidence should be empty");
+          }
+          if (expected.expectOkStateKey) {
+            const okItem = result.items.find(item => item.key === expected.expectOkStateKey);
+            console.assert(okItem && okItem.state.includes("적정 범위"), `Missing ok state for ${expected.expectOkStateKey}`);
+          }
+          console.assert(result.confidence === "" || !result.items.some(item => item.state === result.confidence), "Confidence should be separate from items");
+        }
+
+        function runFlowCase(name, input, expected = {}, options = {}){
+          results.push(runNamedTest(name, () => {
+            const context = createCoachContext(input);
+            let signals = getDailyCoachSignals(context);
+            if (options.trainingOverride) {
+              signals = replaceSignal(signals, {
+                key: "training",
+                status: options.trainingOverride.status || "low",
+                severity: options.trainingOverride.severity,
+                ratio: null,
+                actual: null,
+                target: null,
+                reasonCode: options.trainingOverride.reasonCode || `training_override_s${options.trainingOverride.severity}`
+              });
+            }
+            if (options.dataQualityOverride) {
+              signals = replaceSignal(signals, {
+                key: "dataQuality",
+                status: options.dataQualityOverride.status || "low",
+                severity: options.dataQualityOverride.severity,
+                ratio: null,
+                actual: null,
+                target: null,
+                reasonCode: options.dataQualityOverride.reasonCode || `data_quality_override_s${options.dataQualityOverride.severity}`
+              });
+            }
+            const result = generateDailyCoachOutput(signals);
+            logCoachCase(context, signals, result);
+            assertCoachOutput(result, expected);
+            if (expected.expectedSignal) {
+              const signal = signals[expected.expectedSignal.property];
+              console.assert(signal.status === expected.expectedSignal.status, `Unexpected ${expected.expectedSignal.property} status`);
+              console.assert(signal.severity === expected.expectedSignal.severity, `Unexpected ${expected.expectedSignal.property} severity`);
+            }
+          }));
+        }
+
+        [
+          { ratio: 0.58, status: "low", severity: 3 },
+          { ratio: 0.68, status: "low", severity: 2 },
+          { ratio: 0.82, status: "low", severity: 1 },
+          { ratio: 1.00, status: "ok", severity: 0 },
+          { ratio: 1.18, status: "high", severity: 1 },
+          { ratio: 1.32, status: "high", severity: 2 },
+          { ratio: 1.50, status: "high", severity: 3 }
+        ].forEach(testCase => {
+          runFlowCase(
+            `daily coach calorie ${Math.round(testCase.ratio * 100)}%`,
+            {
+              consumed: { kcal: 2000 * testCase.ratio },
+              target: { kcal: 2000 }
+            },
+            {
+              expectedSignal: {
+                property: "calorieSignal",
+                status: testCase.status,
+                severity: testCase.severity
+              },
+              firstKey: testCase.severity > 0 ? "calorie" : undefined,
+              mustIncludeSeverity3: testCase.severity === 3,
+              expectOkStateKey: testCase.severity === 0 ? "calorie" : undefined
+            }
+          );
+        });
+
+        [
+          { ratio: 0.50, status: "low", severity: 3 },
+          { ratio: 0.70, status: "low", severity: 2 },
+          { ratio: 0.85, status: "low", severity: 1 },
+          { ratio: 1.00, status: "ok", severity: 0 },
+          { ratio: 1.30, status: "high", severity: 1 },
+          { ratio: 1.55, status: "high", severity: 2 },
+          { ratio: 1.80, status: "high", severity: 3 }
+        ].forEach(testCase => {
+          runFlowCase(
+            `daily coach protein ${Math.round(testCase.ratio * 100)}%`,
+            {
+              consumed: { protein: 150 * testCase.ratio },
+              target: { protein: 150 }
+            },
+            {
+              expectedSignal: {
+                property: "proteinSignal",
+                status: testCase.status,
+                severity: testCase.severity
+              },
+              firstKey: testCase.severity > 0 ? "protein" : undefined,
+              mustIncludeSeverity3: testCase.severity === 3,
+              expectOkStateKey: testCase.severity === 0 ? "protein" : undefined
+            }
+          );
+        });
+
+        runFlowCase(
+          "daily coach multi low s2 calorie and protein",
+          {
+            consumed: { kcal: 1360, protein: 105 },
+            target: { kcal: 2000, protein: 150 }
+          },
+          {
+            mustIncludeKeys: ["calorie", "protein"],
+            firstKey: "calorie"
+          }
+        );
+
+        runFlowCase(
+          "daily coach severity 3 priority over secondary signals",
+          {
+            consumed: { kcal: 3000, carbs: 270, fat: 135 },
+            target: { kcal: 2000, carbs: 180, fat: 100 }
+          },
+          {
+            mustIncludeKeys: ["calorie"],
+            firstKey: "calorie",
+            mustIncludeSeverity3: true
+          }
+        );
+
+        [1, 2, 3].forEach(severity => {
+          runFlowCase(
+            `daily coach training override s${severity}`,
+            {},
+            {
+              firstKey: severity > 0 ? "training" : undefined,
+              mustIncludeSeverity3: severity === 3
+            },
+            {
+              trainingOverride: { severity, status: "low" }
+            }
+          );
+        });
+
+        runFlowCase(
+          "daily coach data quality s0 confidence empty",
+          {},
+          {
+            expectNoConfidence: true
+          },
+          {
+            dataQualityOverride: { severity: 0, status: "ok", reasonCode: "data_quality_ok" }
+          }
+        );
+
+        runFlowCase(
+          "daily coach data quality s1 confidence input based",
+          {},
+          {
+            expectedConfidenceContains: "현재 입력 기준으로는"
+          },
+          {
+            dataQualityOverride: { severity: 1, status: "low" }
+          }
+        );
+
+        runFlowCase(
+          "daily coach data quality s2 confidence record based",
+          {},
+          {
+            expectedConfidenceContains: "현재 기록 기준으로는"
+          },
+          {
+            dataQualityOverride: { severity: 2, status: "low" }
+          }
+        );
+
+        runFlowCase(
+          "daily coach data quality s3 confidence record based",
+          {},
+          {
+            expectedConfidenceContains: "현재 기록 기준으로는"
+          },
+          {
+            dataQualityOverride: { severity: 3, status: "low" }
+          }
+        );
+
+        return results;
+      });
+    }
+
     window.runRecordMigrationTests = runRecordMigrationTests;
     window.runMealRecordTests = runMealRecordTests;
     window.runTodayConsumptionTests = runTodayConsumptionTests;
@@ -8253,6 +8543,7 @@ Notes:
     window.runAdherenceUiTests = runAdherenceUiTests;
     window.runWeeklyAdherenceTests = runWeeklyAdherenceTests;
     window.runMacroCalibrationTests = runMacroCalibrationTests;
+    window.runDailyCoachTestCases = runDailyCoachTestCases;
 
     function initialize(){
       loadState();
