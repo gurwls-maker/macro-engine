@@ -534,6 +534,13 @@ Notes:
     .settings-block .hero-control-row{margin-top:0}
     .settings-block .hero-mode-description{margin-top:0}
     .settings-host > .panel{margin:0}
+    .inbody-derived-hint{
+      margin-top:6px;
+      color:var(--accent-strong);
+      font-size:12px;
+      font-weight:800;
+      min-height:18px;
+    }
     .section-group{
       padding:16px;
       border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
@@ -3421,6 +3428,35 @@ Notes:
             <h2>InBody</h2>
           </div>
         </div>
+        <div class="grid-3">
+          <div class="field"><label>측정일</label><input id="inbodyDate" type="date"></div>
+          <div class="field"><label>체중 (kg)</label><input id="inbodyWeight" type="number" min="30" max="200" step="0.1"></div>
+          <div class="field"><label>골격근량 (kg)</label><input id="inbodySkeletalMuscle" type="number" min="10" max="70" step="0.1"></div>
+          <div class="field"><label>체지방량 (kg)</label><input id="inbodyBodyFat" type="number" min="0" max="100" step="0.1"><div class="inbody-derived-hint" id="inbodyBodyFatPercentHint"></div></div>
+          <div class="field"><label>체지방률 (%)</label><input id="inbodyBodyFatPercent" type="number" min="0" max="60" step="0.1"><div class="inbody-derived-hint" id="inbodyBodyFatHint"></div></div>
+          <div class="field"><label>&nbsp;</label><button class="primary-btn" id="saveInbodyBtn" type="button">저장</button></div>
+        </div>
+        <div id="inbodyFeedback"></div>
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="big" id="inbodyLatestWeight">-</div>
+            <div class="label">최근 체중</div>
+            <div class="sub">kg</div>
+          </div>
+          <div class="kpi protein">
+            <div class="big" id="inbodyLatestMuscle">-</div>
+            <div class="label">최근 근육</div>
+            <div class="sub">kg</div>
+          </div>
+          <div class="kpi carb">
+            <div class="big" id="inbodyLatestFat">-</div>
+            <div class="label">최근 지방</div>
+            <div class="sub">kg</div>
+          </div>
+        </div>
+        <div class="analysis-card">
+          <div class="rows" id="inbodySummaryRows"></div>
+        </div>
       </section>
     </section>
     <section class="tab-panel" id="settingsPanel" hidden>
@@ -3710,7 +3746,8 @@ Notes:
       cardioType: "treadmill_walk",
       cardioDuration: 30,
       cardioSpeed: 5,
-      cardioIncline: 8
+      cardioIncline: 8,
+      inbodyRecords: []
     };
 
     const MEAL_LABEL_SUGGESTIONS = ["기상후", "아침", "간식1", "점심", "간식2", "저녁", "야식"];
@@ -3848,6 +3885,12 @@ Notes:
       } catch (_error) {
         recordsState.items = [];
       }
+      try {
+        const parsedInbody = JSON.parse(readStoredValue("inbodyRecords") || "[]");
+        loaded.inbodyRecords = Array.isArray(parsedInbody) ? parsedInbody.filter(item => item && typeof item.date === "string") : [];
+      } catch (_error) {
+        loaded.inbodyRecords = [];
+      }
 
       Object.assign(state, loaded);
       applyStateToInputs();
@@ -3858,6 +3901,7 @@ Notes:
       Object.keys(DEFAULT_STATE).forEach(key => localStorage.removeItem(storageKey(key)));
       localStorage.removeItem(storageKey("activeTab"));
       localStorage.removeItem(storageKey("records"));
+      localStorage.removeItem(storageKey("inbodyRecords"));
       Object.assign(state, { ...DEFAULT_STATE, renderedRoutineKey: "", renderedGoalKey: "" });
       uiState.activeTab = "today";
       recordsState.items = [];
@@ -7323,6 +7367,136 @@ Notes:
       warnHost.innerHTML = "";
     }
 
+    function normalizeInbodyRecords(){
+      state.inbodyRecords = Array.isArray(state.inbodyRecords) ? state.inbodyRecords : [];
+      state.inbodyRecords = state.inbodyRecords
+        .filter(item => item && normalizeDateString(item.date))
+        .map(item => ({
+          date: normalizeDateString(item.date),
+          weight: Number(item.weight),
+          skeletalMuscle: Number(item.skeletalMuscle),
+          bodyFat: Number(item.bodyFat),
+          bodyFatPercent: Number(item.bodyFatPercent)
+        }))
+        .filter(item =>
+          Number.isFinite(item.weight) &&
+          Number.isFinite(item.skeletalMuscle) &&
+          Number.isFinite(item.bodyFat) &&
+          Number.isFinite(item.bodyFatPercent)
+        )
+        .sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    function saveInbodyRecords(){
+      normalizeInbodyRecords();
+      localStorage.setItem(storageKey("inbodyRecords"), JSON.stringify(state.inbodyRecords));
+    }
+
+    function saveInbodyRecord(){
+      const date = normalizeDateString(document.getElementById("inbodyDate")?.value) || getTodayDateString();
+      const record = {
+        date,
+        weight: Number(document.getElementById("inbodyWeight")?.value),
+        skeletalMuscle: Number(document.getElementById("inbodySkeletalMuscle")?.value),
+        bodyFat: Number(document.getElementById("inbodyBodyFat")?.value),
+        bodyFatPercent: Number(document.getElementById("inbodyBodyFatPercent")?.value)
+      };
+      const feedback = document.getElementById("inbodyFeedback");
+      if (!Number.isFinite(record.weight) || !Number.isFinite(record.skeletalMuscle) || !Number.isFinite(record.bodyFat) || !Number.isFinite(record.bodyFatPercent)) {
+        if (feedback) feedback.innerHTML = `<div class="warn warn"><h4>입력 확인</h4><ul><li>InBody 값을 모두 숫자로 입력해 주세요.</li></ul></div>`;
+        return;
+      }
+      state.inbodyRecords = Array.isArray(state.inbodyRecords) ? state.inbodyRecords : [];
+      const index = state.inbodyRecords.findIndex(item => item.date === date);
+      if (index >= 0) {
+        state.inbodyRecords[index] = record;
+      } else {
+        state.inbodyRecords.push(record);
+      }
+      state.inbodyRecords.sort((a, b) => a.date.localeCompare(b.date));
+      saveState();
+      saveInbodyRecords();
+      renderInbodyPanel();
+      if (feedback) feedback.innerHTML = `<div class="notice"><h4>InBody 저장</h4><ul><li>${escapeHtml(date)} 측정값을 저장했습니다.</li></ul></div>`;
+    }
+
+    function getLatestInbody(){
+      normalizeInbodyRecords();
+      if (!state.inbodyRecords.length) return null;
+      const sorted = [...state.inbodyRecords].sort((a, b) => a.date.localeCompare(b.date));
+      return sorted[sorted.length - 1];
+    }
+
+    function getInbodyDelta(){
+      normalizeInbodyRecords();
+      if (state.inbodyRecords.length < 2) return null;
+      const sorted = [...state.inbodyRecords].sort((a, b) => a.date.localeCompare(b.date));
+      const last = sorted[sorted.length - 1];
+      const prev = sorted[sorted.length - 2];
+      return {
+        weightDiff: last.weight - prev.weight,
+        muscleDiff: last.skeletalMuscle - prev.skeletalMuscle,
+        fatDiff: last.bodyFat - prev.bodyFat
+      };
+    }
+
+    function getInbodyInsight(delta){
+      if (!delta) return "데이터가 부족합니다";
+      if (delta.muscleDiff > 0 && delta.fatDiff < 0) return "체성분 개선 흐름입니다";
+      if (delta.muscleDiff > 0 && delta.fatDiff > 0) return "체중 증가와 함께 지방도 증가하는 경향입니다";
+      if (delta.muscleDiff < 0 && delta.fatDiff < 0) return "감량 중이며 근손실 가능성이 있습니다";
+      if (delta.muscleDiff < 0 && delta.fatDiff > 0) return "체성분 관리가 필요한 상태입니다";
+      return "변화가 크지 않습니다";
+    }
+
+    function formatSigned(value){
+      if (!Number.isFinite(value)) return "-";
+      const rounded = Math.round(value * 10) / 10;
+      return `${rounded > 0 ? "+" : ""}${rounded.toFixed(1)}`;
+    }
+
+    function updateInbodyDerivedHints(){
+      const weight = Number(document.getElementById("inbodyWeight")?.value);
+      const bodyFat = Number(document.getElementById("inbodyBodyFat")?.value);
+      const bodyFatPercent = Number(document.getElementById("inbodyBodyFatPercent")?.value);
+      const bodyFatPercentHint = document.getElementById("inbodyBodyFatPercentHint");
+      const bodyFatHint = document.getElementById("inbodyBodyFatHint");
+      const hasWeight = Number.isFinite(weight) && weight > 0;
+      const hasBodyFat = Number.isFinite(bodyFat) && String(document.getElementById("inbodyBodyFat")?.value || "").trim() !== "";
+      const hasBodyFatPercent = Number.isFinite(bodyFatPercent) && String(document.getElementById("inbodyBodyFatPercent")?.value || "").trim() !== "";
+      if (bodyFatPercentHint) {
+        bodyFatPercentHint.textContent = hasWeight && hasBodyFat
+          ? `체지방률: ${(bodyFat / weight * 100).toFixed(2)}%`
+          : "";
+      }
+      if (bodyFatHint) {
+        bodyFatHint.textContent = hasWeight && hasBodyFatPercent
+          ? `체지방: ${(weight * bodyFatPercent / 100).toFixed(2)}kg`
+          : "";
+      }
+    }
+
+    function renderInbodyPanel(){
+      const dateInput = document.getElementById("inbodyDate");
+      if (dateInput && !dateInput.value) dateInput.value = getTodayDateString();
+      updateInbodyDerivedHints();
+      const latest = getLatestInbody();
+      const delta = getInbodyDelta();
+      document.getElementById("inbodyLatestWeight").textContent = latest ? latest.weight.toFixed(1) : "-";
+      document.getElementById("inbodyLatestMuscle").textContent = latest ? latest.skeletalMuscle.toFixed(1) : "-";
+      document.getElementById("inbodyLatestFat").textContent = latest ? latest.bodyFat.toFixed(1) : "-";
+      const rows = document.getElementById("inbodySummaryRows");
+      if (!rows) return;
+      rows.innerHTML = `
+        <div class="row"><div class="key">최근 측정일</div><div class="value">${latest ? escapeHtml(latest.date) : "-"}</div></div>
+        <div class="row"><div class="key">최근 체지방률</div><div class="value">${latest ? `${latest.bodyFatPercent.toFixed(1)}%` : "-"}</div></div>
+        <div class="row"><div class="key">체중 변화</div><div class="value">${delta ? formatSigned(delta.weightDiff) : "-"}</div></div>
+        <div class="row"><div class="key">근육 변화</div><div class="value">${delta ? formatSigned(delta.muscleDiff) : "-"}</div></div>
+        <div class="row"><div class="key">지방 변화</div><div class="value">${delta ? formatSigned(delta.fatDiff) : "-"}</div></div>
+        <div class="row"><div class="key">해석</div><div class="value">${escapeHtml(getInbodyInsight(delta))}</div></div>
+      `;
+    }
+
     function render(){
       syncSettingsLayout();
       syncPhilosophyBannerUI();
@@ -7406,6 +7580,7 @@ Notes:
       renderInfoAndWarnings(result);
       renderRecordsPanel();
       renderWeeklyPanel(result);
+      renderInbodyPanel();
       setActiveTab(uiState.activeTab);
       saveState();
     }
@@ -7489,6 +7664,7 @@ Notes:
       });
       document.getElementById("tabInbody").addEventListener("click", () => {
         setActiveTab("inbody");
+        renderInbodyPanel();
         saveState();
       });
       document.getElementById("tabSettings").addEventListener("click", () => {
@@ -7508,6 +7684,11 @@ Notes:
       document.getElementById("quickModeGeneral").addEventListener("click", () => setMode("general"));
       document.getElementById("quickModeAthlete").addEventListener("click", () => setMode("athlete"));
       document.getElementById("quickModeExpert").addEventListener("click", () => setMode("expert"));
+      document.getElementById("saveInbodyBtn").addEventListener("click", saveInbodyRecord);
+      ["inbodyWeight","inbodyBodyFat","inbodyBodyFatPercent"].forEach(id => {
+        document.getElementById(id).addEventListener("input", updateInbodyDerivedHints);
+        document.getElementById(id).addEventListener("change", updateInbodyDerivedHints);
+      });
       document.addEventListener("click", event => {
         const panel = document.getElementById("quickSettingsPanel");
         const trigger = document.getElementById("todaySettingsBtn");
