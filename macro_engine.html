@@ -5553,14 +5553,16 @@ Notes:
     }
 
     function getStoredAdherenceEntry(record){
-      if (!record) return { percent: null, source: null };
+      const hasGoalSnapshot = !!record?.goalSnapshot;
+      const snapshotSource = record?.snapshotSource || null;
+      if (!record) return { percent: null, source: null, hasGoalSnapshot, snapshotSource };
       if (Number.isFinite(record.adherencePercent) && record.adherenceSource === "auto") {
-        return { percent: clamp(record.adherencePercent, 0, 100), source: "auto" };
+        return { percent: clamp(record.adherencePercent, 0, 100), source: "auto", hasGoalSnapshot, snapshotSource };
       }
       const manualPercent = getManualAdherencePercent(record.adherence);
       return Number.isFinite(manualPercent)
-        ? { percent: manualPercent, source: "manual" }
-        : { percent: null, source: null };
+        ? { percent: manualPercent, source: "manual", hasGoalSnapshot, snapshotSource }
+        : { percent: null, source: null, hasGoalSnapshot, snapshotSource };
     }
 
     function averageNumbers(values){
@@ -6053,6 +6055,11 @@ Notes:
       const previousAvg = snapshot.previousWeightAvg;
       const weeklyAdherenceAvg = snapshot.weeklyAdherenceAvg;
       const validDays = snapshot.validDays;
+      const sourceCounts = snapshot.adherenceEntries.reduce((acc, entry) => {
+        acc[entry.source] = (acc[entry.source] || 0) + 1;
+        return acc;
+      }, {});
+      const snapshotlessDays = snapshot.recent7.filter(item => !item.goalSnapshot).length;
       const info = [];
       const caution = [];
       const danger = [];
@@ -6063,6 +6070,8 @@ Notes:
       const summaryRows = [
         ["최근 7일 준수율", Number.isFinite(weeklyAdherenceAvg) ? `${Math.round(weeklyAdherenceAvg)}%` : "-"],
         ["준수율 유효 일수", `${validDays}일`],
+        ["분석 근거", `auto ${sourceCounts.auto || 0}일 / manual ${sourceCounts.manual || 0}일`],
+        ["자동 기준 없음", `${snapshotlessDays}일`],
         ["최근 7일 평균 체중", Number.isFinite(recentAvg) ? `${round(recentAvg, 2)} kg` : "-"],
         ["직전 7일 평균 체중", Number.isFinite(previousAvg) ? `${round(previousAvg, 2)} kg` : "-"],
         ["체중 변화", Number.isFinite(snapshot.weightTrend) ? `${snapshot.weightTrend >= 0 ? "+" : ""}${snapshot.weightTrend} kg` : "-"],
@@ -6109,11 +6118,6 @@ Notes:
         danger.push("최근 7일 준수율이 낮아 현재는 칼로리 미세 조정보다 식단 수행 회복이 우선입니다.");
       }
 
-      const sourceCounts = snapshot.adherenceEntries.reduce((acc, entry) => {
-        acc[entry.source] = (acc[entry.source] || 0) + 1;
-        return acc;
-      }, {});
-      summaryRows.push(["분석 근거", `auto ${sourceCounts.auto || 0}일 / manual ${sourceCounts.manual || 0}일`]);
       summaryRows.push(["권장 행동", actionText]);
 
       if (!hasWeightTrend) {
