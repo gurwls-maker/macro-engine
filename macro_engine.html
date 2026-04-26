@@ -314,6 +314,27 @@ Notes:
       background:var(--deep);
       color:#fff;
     }
+    .global-bar{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      margin-bottom:12px;
+    }
+    .global-left{
+      display:flex;
+      gap:8px;
+      min-width:0;
+      flex:1;
+    }
+    .global-right{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      justify-content:flex-end;
+      position:relative;
+      flex-wrap:wrap;
+    }
     .ghost-btn{
       border:1px solid var(--line);
       background:var(--surface-soft);
@@ -331,7 +352,7 @@ Notes:
       align-items:start;
     }
     .today-topbar{
-      display:grid;
+      display:none;
       grid-template-columns:minmax(0,1fr) auto;
       gap:14px;
       align-items:start;
@@ -450,7 +471,7 @@ Notes:
       justify-content:flex-end;
       margin-bottom:12px;
     }
-    #todayGoalHost .hero-goal-card{
+    #globalGoalHost .hero-goal-card{
       padding:0;
       border:none;
       border-radius:0;
@@ -463,10 +484,10 @@ Notes:
       gap:12px;
       align-items:center;
     }
-    #todayGoalHost .chips{
+    #globalGoalHost .chips{
       gap:10px;
     }
-    #todayGoalHost .chip{
+    #globalGoalHost .chip{
       min-height:48px;
       padding:0 18px;
       border-radius:14px;
@@ -476,14 +497,15 @@ Notes:
       border-color:color-mix(in srgb, var(--line) 82%, white 18%);
       color:var(--deep);
     }
-    #todayGoalHost .chip.active{
+    #globalGoalHost .chip.active{
       background:var(--accent-strong) !important;
       border-color:var(--accent-strong) !important;
       color:#fff !important;
       box-shadow:0 12px 24px color-mix(in srgb, var(--accent-strong) 18%, transparent);
       transform:translateY(-1px);
     }
-    #todayGoalHost .hero-goal-card .hero-actions{
+    #globalGoalHost .hero-goal-card .hero-actions,
+    .global-right .hero-actions{
       margin:0;
       padding:0;
       border-top:none;
@@ -494,16 +516,17 @@ Notes:
       gap:10px;
       flex-wrap:wrap;
     }
-    #todayGoalHost .hero-goal-card .hero-actions .ghost-btn{
+    #globalGoalHost .hero-goal-card .hero-actions .ghost-btn,
+    .global-right .ghost-btn{
       min-height:48px;
       padding:0 16px;
     }
-    #todayGoalHost .mini-label{
+    #globalGoalHost .mini-label{
       margin-bottom:8px;
       font-size:11px;
       letter-spacing:.12em;
     }
-    #todayGoalHost #goalHint{
+    #globalGoalHost #goalHint{
       display:none;
     }
     .settings-stack{display:grid;gap:16px}
@@ -1551,7 +1574,7 @@ Notes:
       min-height:48px;
       padding:0 16px;
     }
-    #todayGoalHost .hero-goal-card .hero-actions .today-top-actions{
+    .global-right .today-top-actions{
       align-self:auto;
     }
     .quick-settings-popover{
@@ -2647,7 +2670,7 @@ Notes:
       .grid-2{grid-template-columns:1fr}
       .today-topbar{grid-template-columns:1fr}
       .today-top-actions{justify-content:flex-start}
-      #todayGoalHost .hero-goal-card{grid-template-columns:1fr}
+      #globalGoalHost .hero-goal-card{grid-template-columns:1fr}
       #todayInputPanel .grid-3{grid-template-columns:1fr}
       #todayInputPanel .training-group-body{grid-template-columns:1fr}
       #todayInputPanel #routinePlanField{grid-template-columns:1fr}
@@ -2813,10 +2836,16 @@ Notes:
       </div>
     </section>
 
+    <div class="global-bar">
+      <div class="global-left" id="globalGoalHost"></div>
+      <div class="global-right" id="globalActionHost"></div>
+    </div>
+
     <div class="tabs">
       <button class="tab-btn active" id="tabToday" type="button">오늘 계산</button>
       <button class="tab-btn" id="tabRecords" type="button">데이터 기록</button>
       <button class="tab-btn" id="tabWeekly" type="button">주간 분석</button>
+      <button class="tab-btn" id="tabInbody" type="button">InBody</button>
       <button class="tab-btn" id="tabSettings" type="button">기본 설정</button>
     </div>
 
@@ -3384,6 +3413,16 @@ Notes:
         </section>
       </div>
     </section>
+    <section class="tab-panel" id="inbodyPanel" hidden>
+      <section class="panel">
+        <div class="section-title-row">
+          <div>
+            <div class="eyebrow">InBody</div>
+            <h2>InBody</h2>
+          </div>
+        </div>
+      </section>
+    </section>
     <section class="tab-panel" id="settingsPanel" hidden>
       <div class="settings-stack">
         <section class="panel settings-block">
@@ -3801,7 +3840,7 @@ Notes:
       loaded.cardioIncline = parseNumberOrDefault(readStoredValue("cardioIncline"), loaded.cardioIncline);
 
       const activeTab = readStoredValue("activeTab");
-      if (isAllowedOption(activeTab, ["today","records","weekly","settings"])) uiState.activeTab = activeTab;
+      if (isAllowedOption(activeTab, ["today","records","weekly","inbody","settings"])) uiState.activeTab = activeTab;
 
       try {
         const parsed = JSON.parse(readStoredValue("records") || "[]");
@@ -4903,7 +4942,7 @@ Notes:
 
     function setActiveTab(tab){
       uiState.activeTab = tab;
-      ["today","records","weekly","settings"].forEach(name => {
+      ["today","records","weekly","inbody","settings"].forEach(name => {
         const isActive = name === tab;
         const panel = document.getElementById(`${name}Panel`);
         const button = document.getElementById(`tab${name.charAt(0).toUpperCase()}${name.slice(1)}`);
@@ -4913,6 +4952,9 @@ Notes:
         button.classList.toggle("active", isActive);
         button.setAttribute("aria-selected", String(isActive));
       });
+      const quickSettingsButton = document.getElementById("todaySettingsBtn");
+      if (quickSettingsButton) quickSettingsButton.style.display = tab === "settings" ? "none" : "inline-flex";
+      if (tab === "settings") setQuickSettingsOpen(false);
     }
 
     function syncSettingsLayout(){
@@ -4922,7 +4964,8 @@ Notes:
       const modeGoalHost = document.getElementById("settingsModeGoalHost");
       const modeDescHost = document.getElementById("settingsModeDescriptionHost");
       const advancedHost = document.getElementById("settingsAdvancedHost");
-      const todayGoalHost = document.getElementById("todayGoalHost");
+      const globalGoalHost = document.getElementById("globalGoalHost");
+      const globalActionHost = document.getElementById("globalActionHost");
       const todayInputPanel = document.getElementById("todayInputPanel");
       const todayRoutineChipsHost = document.getElementById("todayRoutineChipsHost");
       const todayTopActions = document.querySelector(".today-top-actions");
@@ -4933,8 +4976,9 @@ Notes:
       const routineChips = document.getElementById("routineChips");
 
       if (modeCard && modeGoalHost && modeCard.parentElement !== modeGoalHost) modeGoalHost.appendChild(modeCard);
-      if (goalCard && todayGoalHost && goalCard.parentElement !== todayGoalHost) todayGoalHost.appendChild(goalCard);
-      if (todayTopActions && goalActions && todayTopActions.parentElement !== goalActions) goalActions.appendChild(todayTopActions);
+      if (goalCard && globalGoalHost && goalCard.parentElement !== globalGoalHost) globalGoalHost.appendChild(goalCard);
+      if (goalActions && globalActionHost && goalActions.parentElement !== globalActionHost) globalActionHost.appendChild(goalActions);
+      if (todayTopActions && globalActionHost && todayTopActions.parentElement !== globalActionHost) globalActionHost.appendChild(todayTopActions);
       if (modeDescBlock && modeDescHost && modeDescBlock.parentElement !== modeDescHost) modeDescHost.appendChild(modeDescBlock);
       if (autoDietBlock && advancedHost && autoDietBlock.parentElement !== advancedHost) advancedHost.appendChild(autoDietBlock);
       if (todayInputPanel) todayInputPanel.classList.remove("hidden");
@@ -7285,6 +7329,7 @@ Notes:
       document.getElementById("tabToday").textContent = "Today (실행)";
       document.getElementById("tabRecords").textContent = "Records (입력)";
       document.getElementById("tabWeekly").textContent = "Weekly (해석)";
+      document.getElementById("tabInbody").textContent = "InBody";
       document.getElementById("tabSettings").textContent = "기본 설정";
       document.getElementById("todayModeMini").textContent = `${MODE_CONFIGS[state.mode].label} 모드`;
       document.getElementById("todaySettingsBtn").textContent = "⚙ 빠른 설정";
@@ -7425,7 +7470,7 @@ Notes:
       document.getElementById("modeExpert").addEventListener("click", () => setMode("expert"));
 
       document.getElementById("resetBtn").addEventListener("click", () => {
-        if (confirm("저장된 입력값을 모두 지우고 기본값으로 되돌릴까요?")) {
+        if (confirm("전체 데이터를 초기화하시겠습니까?")) {
           resetState();
         }
       });
@@ -7440,6 +7485,10 @@ Notes:
       });
       document.getElementById("tabWeekly").addEventListener("click", () => {
         setActiveTab("weekly");
+        saveState();
+      });
+      document.getElementById("tabInbody").addEventListener("click", () => {
+        setActiveTab("inbody");
         saveState();
       });
       document.getElementById("tabSettings").addEventListener("click", () => {
