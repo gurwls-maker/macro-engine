@@ -5314,6 +5314,285 @@ Notes:
       return getMacroBalanceForDate(getTodayDateString(), currentResult, { preferSnapshot: false });
     }
 
+    const DAILY_COACH_SIGNAL_THRESHOLDS = {
+      calorie: {
+        okMin: 90,
+        okMax: 110,
+        low: [
+          { max: 60, severity: 3 },
+          { max: 75, severity: 2 },
+          { max: 90, severity: 1 }
+        ],
+        high: [
+          { min: 145, severity: 3 },
+          { min: 125, severity: 2 },
+          { min: 110, severity: 1 }
+        ]
+      },
+      protein: {
+        okMin: 90,
+        okMax: 115,
+        low: [
+          { max: 55, severity: 3 },
+          { max: 75, severity: 2 },
+          { max: 90, severity: 1 }
+        ],
+        high: [
+          { min: 170, severity: 3 },
+          { min: 145, severity: 2 },
+          { min: 115, severity: 1 }
+        ]
+      },
+      carb: {
+        okMin: 85,
+        okMax: 115,
+        low: [
+          { max: 50, severity: 3 },
+          { max: 70, severity: 2 },
+          { max: 85, severity: 1 }
+        ],
+        high: [
+          { min: 160, severity: 3 },
+          { min: 135, severity: 2 },
+          { min: 115, severity: 1 }
+        ]
+      },
+      fat: {
+        okMin: 85,
+        okMax: 115,
+        low: [
+          { max: 50, severity: 3 },
+          { max: 70, severity: 2 },
+          { max: 85, severity: 1 }
+        ],
+        high: [
+          { min: 160, severity: 3 },
+          { min: 135, severity: 2 },
+          { min: 115, severity: 1 }
+        ]
+      }
+    };
+
+    function getRatioPercent(actual, target){
+      if (!Number.isFinite(actual) || !Number.isFinite(target) || target <= 0) return null;
+      return actual / target * 100;
+    }
+
+    function getMacroSignal(key, actual, target, thresholds){
+      const safeActual = Number.isFinite(actual) ? actual : null;
+      const safeTarget = Number.isFinite(target) ? target : null;
+      const ratio = getRatioPercent(safeActual, safeTarget);
+      if (!Number.isFinite(ratio)) {
+        return {
+          key,
+          status: "low",
+          severity: 1,
+          ratio: null,
+          actual: safeActual,
+          target: safeTarget,
+          reasonCode: `${key}_unavailable`
+        };
+      }
+      if (ratio >= thresholds.okMin && ratio <= thresholds.okMax) {
+        return {
+          key,
+          status: "ok",
+          severity: 0,
+          ratio,
+          actual: safeActual,
+          target: safeTarget,
+          reasonCode: `${key}_ok`
+        };
+      }
+      if (ratio < thresholds.okMin) {
+        const matchedLow = thresholds.low.find(rule => ratio < rule.max) || thresholds.low[thresholds.low.length - 1];
+        return {
+          key,
+          status: "low",
+          severity: matchedLow.severity,
+          ratio,
+          actual: safeActual,
+          target: safeTarget,
+          reasonCode: `${key}_low_s${matchedLow.severity}`
+        };
+      }
+      const matchedHigh = thresholds.high.find(rule => ratio > rule.min) || thresholds.high[thresholds.high.length - 1];
+      return {
+        key,
+        status: "high",
+        severity: matchedHigh.severity,
+        ratio,
+        actual: safeActual,
+        target: safeTarget,
+        reasonCode: `${key}_high_s${matchedHigh.severity}`
+      };
+    }
+
+    function getCalorieSignal(actual, target){
+      return getMacroSignal("calorie", actual, target, DAILY_COACH_SIGNAL_THRESHOLDS.calorie);
+    }
+
+    function getProteinSignal(actual, target){
+      return getMacroSignal("protein", actual, target, DAILY_COACH_SIGNAL_THRESHOLDS.protein);
+    }
+
+    function getCarbSignal(actual, target){
+      return getMacroSignal("carb", actual, target, DAILY_COACH_SIGNAL_THRESHOLDS.carb);
+    }
+
+    function getFatSignal(actual, target){
+      return getMacroSignal("fat", actual, target, DAILY_COACH_SIGNAL_THRESHOLDS.fat);
+    }
+
+    function getTrainingSignal(context = {}){
+      const currentState = context.state || context.s || collectState();
+      const calorieSignal = context.calorieSignal || null;
+      const proteinSignal = context.proteinSignal || null;
+      const weightMinutes = Number.isFinite(currentState.weightDuration) ? Math.max(0, currentState.weightDuration) : 0;
+      const cardioMinutes = Number.isFinite(currentState.cardioDuration) ? Math.max(0, currentState.cardioDuration) : 0;
+      const totalMinutes = weightMinutes + cardioMinutes;
+      const cardio = context.cardio || calcCardio(currentState);
+      const hasWeightTraining = currentState.routine !== "REST" && weightMinutes > 0;
+      const hasCardio = cardioMinutes > 0 && Number(currentState.cardioSpeed) > 0;
+      const hasTrainingLoad = hasWeightTraining || hasCardio;
+      const weeklyDays = Number.isFinite(currentState.weeklyTrainingDays) ? Math.max(0, currentState.weeklyTrainingDays) : 0;
+      const intensity = Number.isFinite(currentState.intensityOverride) ? currentState.intensityOverride : 0;
+      const cardioMet = Number.isFinite(cardio?.met) ? cardio.met : 0;
+      const hasLimitedTrainingData = (
+        (currentState.routine !== "REST" && !hasWeightTraining) ||
+        (cardioMinutes > 0 && !(Number(currentState.cardioSpeed) > 0))
+      );
+      if (!hasTrainingLoad) {
+        return {
+          key: "training",
+          status: "ok",
+          severity: weeklyDays > 0 ? 1 : 0,
+          ratio: null,
+          actual: totalMinutes,
+          target: null,
+          reasonCode: weeklyDays > 0 ? "training_limited_data" : "training_no_load"
+        };
+      }
+      if (hasLimitedTrainingData) {
+        return {
+          key: "training",
+          status: "low",
+          severity: 1,
+          ratio: null,
+          actual: totalMinutes,
+          target: null,
+          reasonCode: "training_limited_data"
+        };
+      }
+      const highLoad = (hasWeightTraining && (intensity >= 0.85 || weightMinutes >= 75)) || cardioMet >= 6 || cardioMinutes >= 45;
+      const hasFuelDeficit = (calorieSignal?.status === "low" && calorieSignal.severity >= 2) || (proteinSignal?.status === "low" && proteinSignal.severity >= 2);
+      if (highLoad && hasFuelDeficit) {
+        const severity = (calorieSignal?.severity >= 3 || proteinSignal?.severity >= 3) ? 3 : 2;
+        return {
+          key: "training",
+          status: "low",
+          severity,
+          ratio: null,
+          actual: totalMinutes,
+          target: null,
+          reasonCode: severity >= 3 ? "training_high_load_energy_gap_s3" : "training_high_load_energy_gap_s2"
+        };
+      }
+      return {
+        key: "training",
+        status: "ok",
+        severity: 0,
+        ratio: null,
+        actual: totalMinutes,
+        target: null,
+        reasonCode: highLoad ? "training_high_load_supported" : "training_ok"
+      };
+    }
+
+    function getDataQualitySignal(context = {}){
+      const currentState = context.state || context.s || collectState();
+      const currentResult = context.currentResult || calculate();
+      const balance = context.balance || getTodayMacroBalance(currentResult);
+      const mealCount = Number(balance?.mealCount || 0);
+      const coreChecks = [
+        Number.isFinite(currentState.weight) && currentState.weight > 0,
+        Number.isFinite(currentState.height) && currentState.height > 0,
+        Number.isFinite(currentState.age) && currentState.age > 0,
+        Number.isFinite(currentState.bodyFat) && currentState.bodyFat >= 0,
+        typeof currentState.gender === "string" && !!currentState.gender,
+        typeof currentState.activityLevel === "string" && !!currentState.activityLevel,
+        typeof currentState.workType === "string" && !!currentState.workType
+      ];
+      const validCoreCount = coreChecks.filter(Boolean).length;
+      let severity = 0;
+      let reasonCode = "data_quality_ok";
+      if (validCoreCount <= 2) {
+        severity = 3;
+        reasonCode = "data_quality_core_missing";
+      } else if (!currentResult?.isCalculable) {
+        severity = 1;
+        reasonCode = "data_quality_goal_unavailable";
+      } else if (mealCount <= 1) {
+        severity = 2;
+        reasonCode = mealCount === 0 ? "data_quality_no_meals" : "data_quality_low_meal_count";
+      } else if (mealCount === 2 || !balance?.isGoalAvailable) {
+        severity = 1;
+        reasonCode = mealCount === 2 ? "data_quality_partial_meals" : "data_quality_partial_inputs";
+      }
+      return {
+        key: "dataQuality",
+        status: severity === 0 ? "ok" : "low",
+        severity,
+        ratio: getRatioPercent(mealCount, 3),
+        actual: mealCount,
+        target: 3,
+        reasonCode
+      };
+    }
+
+    function getDailyCoachSignals(context = {}){
+      const currentResult = context.currentResult || calculate();
+      const balance = context.balance || getTodayMacroBalance(currentResult);
+      const currentState = context.state || context.s || currentResult?.s || collectState();
+      const calorieSignal = getCalorieSignal(balance?.consumed?.kcal, balance?.target?.kcal);
+      const proteinSignal = getProteinSignal(balance?.consumed?.protein, balance?.target?.protein);
+      const carbSignal = getCarbSignal(balance?.consumed?.carbs, balance?.target?.carbs);
+      const fatSignal = getFatSignal(balance?.consumed?.fat, balance?.target?.fat);
+      const trainingSignal = getTrainingSignal({
+        ...context,
+        state: currentState,
+        currentResult,
+        balance,
+        calorieSignal,
+        proteinSignal
+      });
+      const dataQualitySignal = getDataQualitySignal({
+        ...context,
+        state: currentState,
+        currentResult,
+        balance
+      });
+      return {
+        calorieSignal,
+        proteinSignal,
+        carbSignal,
+        fatSignal,
+        trainingSignal,
+        dataQualitySignal,
+        signals: [
+          calorieSignal,
+          proteinSignal,
+          carbSignal,
+          fatSignal,
+          trainingSignal,
+          dataQualitySignal
+        ],
+        balance,
+        currentResult,
+        state: currentState
+      };
+    }
+
     function getRecordSummaryByDate(date){
       const normalizedDate = normalizeDateString(date) || getTodayDateString();
       const record = getRecordByDate(normalizedDate);
