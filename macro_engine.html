@@ -1750,6 +1750,12 @@ Notes:
     .coach-action{
       margin-top:2px;
     }
+    .coach-inbody-hint{
+      margin-top:10px;
+      color:var(--accent-strong);
+      font-size:13px;
+      line-height:1.6;
+    }
     .coach-bullets{
       margin:0;
       padding-left:18px;
@@ -5944,6 +5950,7 @@ Notes:
         : (Array.isArray(signals?.signals) ? signals.signals.filter(Boolean) : []);
       const dataQualitySignal = signalList.find(signal => signal.key === "dataQuality") || null;
       const selectedSignals = selectDailyCoachSignals(signals);
+      const inbodyHint = getInbodyCoachHint();
       return {
         items: selectedSignals.map(signal => ({
           key: signal.key,
@@ -5954,7 +5961,8 @@ Notes:
           action: getDailyCoachActionText(signal)
         })),
         confidence: getDailyCoachConfidenceText(dataQualitySignal),
-        dataQuality: dataQualitySignal
+        dataQuality: dataQualitySignal,
+        inbodyHint: inbodyHint
       };
     }
 
@@ -7045,6 +7053,13 @@ Notes:
         block.append(title, reason, action);
         gridEl.appendChild(block);
       });
+      const coachContainer = host.querySelector(".coach-panel");
+      if (coach?.inbodyHint && coachContainer) {
+        const hintEl = document.createElement("div");
+        hintEl.className = "coach-inbody-hint";
+        hintEl.textContent = coach.inbodyHint;
+        coachContainer.appendChild(hintEl);
+      }
     }
 
     function renderInfoAndWarnings(r){
@@ -7438,6 +7453,25 @@ Notes:
         muscleDiff: last.skeletalMuscle - prev.skeletalMuscle,
         fatDiff: last.bodyFat - prev.bodyFat
       };
+    }
+
+    function getInbodyCoachHint(){
+      const delta = getInbodyDelta();
+      if (!delta) return null;
+      const { muscleDiff, fatDiff } = delta;
+      if (Math.abs(muscleDiff) < 0.1 && Math.abs(fatDiff) < 0.2) {
+        return null;
+      }
+      if (muscleDiff > 0 && fatDiff < 0) {
+        return "최근 흐름을 보면 체성분 관리도 잘 이어지고 있는 상태입니다";
+      }
+      if (muscleDiff < 0) {
+        return "최근 흐름을 보면 근육량 유지에도 조금 더 신경 써주는 것이 좋습니다";
+      }
+      if (fatDiff > 0) {
+        return "최근 흐름을 보면 체성분 균형도 함께 관리해보는 것이 좋습니다";
+      }
+      return "최근 상태를 보면 체성분 흐름도 함께 고려해보는 것이 좋습니다";
     }
 
     function getInbodyInsight(delta){
