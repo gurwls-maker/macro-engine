@@ -5593,6 +5593,156 @@ Notes:
       };
     }
 
+    const DAILY_COACH_SIGNAL_PRIORITY = {
+      calorie: 1,
+      protein: 2,
+      carb: 3,
+      fat: 4,
+      training: 5,
+      dataQuality: 6
+    };
+
+    function getDailyCoachSignalPriority(signal){
+      return DAILY_COACH_SIGNAL_PRIORITY[signal?.key] ?? 999;
+    }
+
+    function getDailyCoachStatusText(signal){
+      if (!signal) return "";
+      const key = signal.key;
+      const status = signal.status;
+      const severity = signal.severity;
+      if (key === "training") {
+        if (severity === 0) return "운동량과 섭취 상태가 크게 충돌하지 않습니다";
+        if (severity === 1) return "운동량이 부족하거나 해석 정보가 제한된 상태입니다";
+        if (severity === 2) return "운동량 대비 섭취가 부족한 상태입니다";
+        return "운동량 대비 에너지 부족이 큰 상태입니다";
+      }
+      if (key === "dataQuality") {
+        if (severity === 0) return "기록 정보가 충분한 상태입니다";
+        if (severity === 1) return "입력 정보가 일부 부족한 상태입니다";
+        if (severity === 2) return "기록 기반 해석이 제한된 상태입니다";
+        return "기록 정보가 부족하여 정확한 판단이 어렵습니다";
+      }
+      const macroLabel = {
+        calorie: "총 섭취 열량",
+        protein: "단백질 섭취",
+        carb: "탄수화물 섭취",
+        fat: "지방 섭취"
+      }[key] || "섭취 상태";
+      if (status === "ok") return `${macroLabel}이 적정 범위입니다`;
+      if (status === "low") {
+        if (severity === 1) return `${macroLabel}이 약간 부족한 상태입니다`;
+        if (severity === 2) return `${macroLabel}이 부족한 상태입니다`;
+        return `${macroLabel}이 크게 부족한 상태입니다`;
+      }
+      if (severity === 1) return `${macroLabel}이 약간 많은 상태입니다`;
+      if (severity === 2) return `${macroLabel}이 많은 상태입니다`;
+      return `${macroLabel}이 많이 높은 상태입니다`;
+    }
+
+    function getDailyCoachReasonText(signal){
+      if (!signal) return "";
+      if (signal.key === "training") {
+        if (signal.reasonCode === "training_limited_data") return "운동 정보가 제한되어 해석 범위가 좁습니다";
+        if (signal.reasonCode === "training_no_load") return "오늘 입력 기준에서는 운동 부하가 크게 잡히지 않았습니다";
+        if (signal.reasonCode === "training_high_load_supported") return "운동량과 현재 섭취 상태가 크게 어긋나지 않습니다";
+        return signal.severity >= 3 ? "운동량 대비 에너지 차이가 큰 상태입니다" : "운동량 대비 현재 섭취 균형을 함께 볼 필요가 있습니다";
+      }
+      if (signal.key === "dataQuality") {
+        return "입력 정보의 충분도에 따라 Coach 해석 신뢰도가 달라질 수 있습니다";
+      }
+      if (signal.status === "ok") return "목표 범위 내에서 유지되고 있습니다";
+      if (signal.severity >= 3) return "목표 대비 차이가 큰 상태입니다";
+      if (signal.status === "low") return "목표 대비 섭취량이 부족한 수준입니다";
+      return "목표 대비 섭취량이 많은 수준입니다";
+    }
+
+    function getDailyCoachActionText(signal){
+      if (!signal) return "";
+      if (signal.key === "training") {
+        if (signal.severity >= 3) return "우선적으로 섭취 보완과 운동 강도 확인이 필요합니다";
+        if (signal.severity === 2) return "다음 식사에서 에너지와 단백질 보충을 먼저 챙겨보세요";
+        if (signal.severity === 1) return "운동 입력을 조금 더 구체적으로 기록해보세요";
+        return "현재 패턴을 유지해도 괜찮습니다";
+      }
+      if (signal.key === "dataQuality") {
+        if (signal.severity >= 2) return "정확한 분석을 위해 기록을 보완해보세요";
+        if (signal.severity === 1) return "누락된 입력이 없는지 한 번 더 확인해보세요";
+        return "현재 패턴을 유지해도 괜찮습니다";
+      }
+      if (signal.status === "ok") return "현재 패턴을 유지해도 괜찮습니다";
+      if (signal.severity >= 3) return "우선적으로 해당 부분을 조정하는 것이 좋습니다";
+      const actionTarget = {
+        calorie: "열량",
+        protein: "단백질",
+        carb: "탄수화물",
+        fat: "지방"
+      }[signal.key] || "해당 항목";
+      if (signal.status === "low") return `다음 식사에서 ${actionTarget}을 보충해보세요`;
+      return `다음 식사에서 ${actionTarget}을 줄여보세요`;
+    }
+
+    function getDailyCoachConfidenceText(dataQualitySignal){
+      if (!dataQualitySignal || dataQualitySignal.severity === 0) return "";
+      if (dataQualitySignal.severity === 1) return "현재 입력 기준으로는 위와 같이 볼 수 있습니다";
+      return "현재 기록 기준으로는 위와 같이 보입니다. 정확한 분석을 위해 기록을 보완해보세요";
+    }
+
+    function selectDailyCoachSignals(signals){
+      const signalList = Array.isArray(signals)
+        ? signals.filter(Boolean)
+        : (Array.isArray(signals?.signals) ? signals.signals.filter(Boolean) : []);
+      const actionable = signalList
+        .filter(signal => signal.status !== "ok" && signal.severity > 0)
+        .sort((a, b) => {
+          if (b.severity !== a.severity) return b.severity - a.severity;
+          return getDailyCoachSignalPriority(a) - getDailyCoachSignalPriority(b);
+        });
+      const severity3 = actionable.filter(signal => signal.severity >= 3);
+      if (severity3.length) {
+        return severity3.sort((a, b) => getDailyCoachSignalPriority(a) - getDailyCoachSignalPriority(b));
+      }
+      const severity2 = actionable.filter(signal => signal.severity === 2);
+      if (severity2.length) {
+        const selected = [];
+        const calorieSignal = severity2.find(signal => signal.key === "calorie");
+        const proteinSignal = severity2.find(signal => signal.key === "protein");
+        if (calorieSignal) selected.push(calorieSignal);
+        if (proteinSignal && !selected.includes(proteinSignal)) selected.push(proteinSignal);
+        severity2
+          .sort((a, b) => getDailyCoachSignalPriority(a) - getDailyCoachSignalPriority(b))
+          .forEach(signal => {
+            if (selected.length >= 2) return;
+            if (!selected.includes(signal)) selected.push(signal);
+          });
+        return selected;
+      }
+      const severity1 = actionable
+        .filter(signal => signal.severity === 1)
+        .sort((a, b) => getDailyCoachSignalPriority(a) - getDailyCoachSignalPriority(b));
+      return severity1.length ? [severity1[0]] : [];
+    }
+
+    function generateDailyCoachOutput(signals){
+      const signalList = Array.isArray(signals)
+        ? signals.filter(Boolean)
+        : (Array.isArray(signals?.signals) ? signals.signals.filter(Boolean) : []);
+      const dataQualitySignal = signalList.find(signal => signal.key === "dataQuality") || null;
+      const selectedSignals = selectDailyCoachSignals(signalList);
+      return {
+        items: selectedSignals.map(signal => ({
+          key: signal.key,
+          status: signal.status,
+          severity: signal.severity,
+          state: getDailyCoachStatusText(signal),
+          reason: getDailyCoachReasonText(signal),
+          action: getDailyCoachActionText(signal)
+        })),
+        confidence: getDailyCoachConfidenceText(dataQualitySignal),
+        dataQuality: dataQualitySignal
+      };
+    }
+
     function getRecordSummaryByDate(date){
       const normalizedDate = normalizeDateString(date) || getTodayDateString();
       const record = getRecordByDate(normalizedDate);
