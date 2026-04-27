@@ -1,20 +1,20 @@
 <!--
-Version: 5.9.3
-Stage: 5.9.3 Today 컴포넌트 점수곡선 정상화
+Version: 5.9.4
+Stage: 5.9.4 FAT 점수 범위화 및 Today 해석 문구 보정
 Date: 2026-04-27
 Notes:
-- Today 컴포넌트 점수의 저섭취 0점 수렴 및 plateau 문제 개선
-- 0~100% 부족 구간은 연속 증가 곡선으로 보정
-- 100% 초과 구간은 매크로별 민감도를 반영한 연속 감소 곡선으로 보정
-- 기존 pending / proteinCap / 가중치 / 라벨 direction 정책 유지
-- runAdherenceScoringTests 기대값 갱신
+- FAT 컴포넌트 점수를 적정 범위 중심으로 보정
+- Today 해석 문구를 점수/균형 상태에 맞게 분류
+- 미세 초과 표시 deadzone 적용
+- 기존 pending / proteinCap / 가중치 / 주요 점수 정책 유지
+- runAdherenceScoringTests / runDailyCoachTestCases 회귀 통과
 -->
 <!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>운동 맞춤 매크로 계산기 v5.9.3</title>
+  <title>운동 맞춤 매크로 계산기 v5.9.4</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2825,7 +2825,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               운동 맞춤 매크로 계산기 
-               <span class="app-version">v5.9.3</span>
+               <span class="app-version">v5.9.4</span>
          </h1>
         <p class="lead">
           기초대사량과 기본 생활 활동을 먼저 계산하고,
@@ -6057,6 +6057,23 @@ Notes:
       return value < 0 ? `${absValue}${unit === "kcal" ? " kcal" : "g"} 초과` : `${absValue}${unit === "kcal" ? " kcal" : "g"} 남음`;
     }
 
+    function getMacroDisplayDeadzone(target, key){
+      if (!Number.isFinite(target) || target <= 0) return key === "kcal" ? 20 : 1;
+      return key === "kcal" ? Math.max(20, target * 0.01) : Math.max(1, target * 0.01);
+    }
+
+    function getMacroDisplayBalance(value, target, key){
+      if (!Number.isFinite(value)) {
+        return { value, isExceeded: false, isInRange: false, text: "계산 불가" };
+      }
+      const deadzone = getMacroDisplayDeadzone(target, key);
+      if (Math.abs(value) <= deadzone) {
+        return { value, isExceeded: false, isInRange: true, text: "목표 범위" };
+      }
+      const unit = key === "kcal" ? "kcal" : "g";
+      return { value, isExceeded: value < 0, isInRange: false, text: formatMacroBalanceText(value, unit) };
+    }
+
     function clampUnitInterval(value){
       if (!Number.isFinite(value)) return 0;
       return clamp(value, 0, 1);
@@ -6095,6 +6112,18 @@ Notes:
         nearOverRatio + 0.01,
         Number.isFinite(options.overZeroRatio) ? options.overZeroRatio : 1 + overToleranceRatio
       );
+
+      if (options.rangeTarget === "fat" && ratio < 1) {
+        const rangeStartRatio = clamp(options.rangeStartRatio ?? 0.75, 0.01, 0.999);
+        const rangeStartScore = clampUnitInterval(options.rangeStartScore ?? 0.90);
+        const rangeUnderExponent = Number.isFinite(options.rangeUnderExponent) ? options.rangeUnderExponent : underExponent;
+        const rangeCurvePower = Number.isFinite(options.rangeCurvePower) ? options.rangeCurvePower : 1;
+        if (ratio < rangeStartRatio) {
+          return clampUnitInterval(rangeStartScore * Math.pow(ratio / rangeStartRatio, rangeUnderExponent));
+        }
+        const t = Math.pow((ratio - rangeStartRatio) / (1 - rangeStartRatio), rangeCurvePower);
+        return clampUnitInterval(rangeStartScore + (1 - rangeStartScore) * smoothstepUnit(t));
+      }
 
       if (ratio < 1) {
         if (ratio < nearUnderRatio) {
@@ -6142,6 +6171,55 @@ Notes:
       if (highCount > 0 && lowCount > 0) return "mixed";
       if (lowCount > 0) return "under";
       return "balanced";
+    }
+
+    const TODAY_INTERPRETATION_TEXT = {
+      stable_high: "전체 식단이 목표 범위 안에서 안정적으로 유지되고 있습니다.",
+      mixed_high: "전체 점수는 높지만, 일부 영양소는 낮고 일부는 높아 다음 식사에서 조금만 균형을 맞추면 좋습니다.",
+      all_slightly_low_high: "전체적으로 목표에 가깝게 맞춰졌고, 과한 초과 없이 안정적으로 유지되고 있습니다.",
+      clear_imbalance: "일부 영양소는 목표보다 낮고 일부는 높아 식사 균형 조정이 필요합니다.",
+      mostly_low: "전체 섭취량이 목표보다 낮아 남은 식사에서 보완이 필요합니다.",
+      mostly_high: "전체 섭취량이 목표보다 높아 다음 식사에서 섭취량 조절이 필요합니다."
+    };
+
+    function getMacroRatioForInterpretation(balance, key){
+      const target = balance?.target?.[key];
+      const consumed = balance?.consumed?.[key];
+      if (!Number.isFinite(target) || target <= 0 || !Number.isFinite(consumed)) return null;
+      return consumed / target;
+    }
+
+    function classifyTodayInterpretation(balance, componentScores, percent){
+      if (!Number.isFinite(percent)) return null;
+      const keys = ["kcal", "protein", "carbs", "fat"];
+      const ratios = keys.map(key => getMacroRatioForInterpretation(balance, key)).filter(Number.isFinite);
+      const lows = ratios.filter(ratio => ratio < 0.96);
+      const highs = ratios.filter(ratio => ratio > 1.04);
+      const strongLows = ratios.filter(ratio => ratio < 0.85);
+      const strongHighs = ratios.filter(ratio => ratio > 1.12);
+      const allLowSide = ratios.length > 0 && ratios.every(ratio => ratio <= 1.01) && lows.length >= Math.max(2, ratios.length - 1);
+      const mostlyLow = lows.length >= 3 && highs.length === 0;
+      const mostlyHigh = highs.length >= 3 && lows.length === 0;
+      const hasMixed = lows.length > 0 && highs.length > 0;
+
+      if (percent >= 95) {
+        if (hasMixed) return "mixed_high";
+        if (allLowSide) return "all_slightly_low_high";
+        return "stable_high";
+      }
+      if (percent >= 85 && !strongLows.length && !strongHighs.length) {
+        if (hasMixed) return "mixed_high";
+        if (allLowSide) return "all_slightly_low_high";
+        return "stable_high";
+      }
+      if (hasMixed) return "clear_imbalance";
+      if (mostlyHigh || (highs.length > 0 && !lows.length)) return "mostly_high";
+      if (mostlyLow || lows.length > 0) return "mostly_low";
+      return "stable_high";
+    }
+
+    function getTodayInterpretationText(type){
+      return TODAY_INTERPRETATION_TEXT[type] || TODAY_INTERPRETATION_TEXT.stable_high;
     }
 
     function getAdherenceDisplayLabel(percent, direction){
@@ -6280,7 +6358,7 @@ Notes:
         protein: getMacroComponentScore(balance.target.protein, balance.consumed.protein, { underRatio: 0.22, overRatio: 0.45, minTolerance: 18, nearUnderRatio: 0.90, nearOverRatio: 1.20, overZeroRatio: 2.00, nearFloor: 0.90 }),
         kcal: getMacroComponentScore(balance.target.kcal, balance.consumed.kcal, { underRatio: 0.14, overRatio: 0.14, minTolerance: 160, nearUnderRatio: 0.97, nearOverRatio: 1.03, overZeroRatio: 1.55, nearFloor: 0.98, overCurvePower: 0.60, overTailFloor: 0.005 }),
         carbs: getMacroComponentScore(balance.target.carbs, balance.consumed.carbs, { underRatio: 0.24, overRatio: 0.30, minTolerance: 28, nearUnderRatio: 0.95, nearOverRatio: 1.05, overZeroRatio: 1.65, nearFloor: 0.95, overCurvePower: 0.74, overTailFloor: 0.005 }),
-        fat: getMacroComponentScore(balance.target.fat, balance.consumed.fat, { underRatio: 0.28, overRatio: 0.34, minTolerance: 12, nearUnderRatio: 0.90, nearOverRatio: 1.10, overZeroRatio: 1.62, nearFloor: 0.92, overCurvePower: 0.78, overTailFloor: 0.005 })
+        fat: getMacroComponentScore(balance.target.fat, balance.consumed.fat, { underRatio: 0.28, overRatio: 0.34, minTolerance: 12, nearUnderRatio: 0.90, nearOverRatio: 1.05, overZeroRatio: 1.62, nearFloor: 0.98, overCurvePower: 0.78, overTailFloor: 0.005, rangeTarget: "fat", rangeStartRatio: 0.75, rangeStartScore: 0.90, rangeUnderExponent: 1.65, rangeCurvePower: 0.65 })
       };
       const weights = { protein: 0.40, kcal: 0.30, carbs: 0.20, fat: 0.10 };
       const weightedScore = clampUnitInterval(
@@ -6299,6 +6377,7 @@ Notes:
       const capApplied = proteinCap < 100 && rawPercent > proteinCap;
       const percent = clamp(Math.min(rawPercent, proteinCap), 0, 100);
       const direction = getAdherenceDirection(balance);
+      const interpretationType = classifyTodayInterpretation(balance, componentScores, percent);
 
       return {
         percent,
@@ -6308,7 +6387,8 @@ Notes:
         isAvailable: true,
         status: "available",
         direction,
-        summaryText: getAdherenceSummaryText({ status: "available", direction }),
+        interpretationType,
+        summaryText: getTodayInterpretationText(interpretationType),
         reasons: {
           protein: buildMacroReason("protein", balance, componentScores.protein, proteinRatio, proteinCap, capApplied),
           kcal: buildMacroReason("kcal", balance, componentScores.kcal, proteinRatio, proteinCap, capApplied),
@@ -7328,15 +7408,19 @@ Notes:
 
     function renderTodayRemainingPanel(balance){
       const panel = document.getElementById("todayRemainingPanel");
-      panel.classList.toggle("is-warning", Object.values(balance.exceeded).some(Boolean));
+      const displayRows = [
+        ["탄수화물", balance.remaining.carbs, balance.target.carbs, "carbs"],
+        ["단백질", balance.remaining.protein, balance.target.protein, "protein"],
+        ["지방", balance.remaining.fat, balance.target.fat, "fat"],
+        ["kcal", balance.remaining.kcal, balance.target.kcal, "kcal"]
+      ].map(([label, value, target, key]) => {
+        const display = getMacroDisplayBalance(value, target, key);
+        return { label, value, key, display };
+      });
+      panel.classList.toggle("is-warning", displayRows.some(row => row.display.isExceeded));
 
       const rows = document.getElementById("todayRemainingRows");
-      rows.innerHTML = [
-        ["탄수화물", balance.remaining.carbs, balance.exceeded.carbs, "carbs"],
-        ["단백질", balance.remaining.protein, balance.exceeded.protein, "protein"],
-        ["지방", balance.remaining.fat, balance.exceeded.fat, "fat"],
-        ["kcal", balance.remaining.kcal, balance.exceeded.kcal, "kcal"]
-      ].map(([label, value, exceeded, key]) => `
+      rows.innerHTML = displayRows.map(({ label, value, key, display }) => `
         <div class="meal-summary-card" data-total-kind="${key}">
           <div class="label">${label}</div>
           <div class="value macro-value">${(() => {
@@ -7344,7 +7428,7 @@ Notes:
             return `<span class="macro-value-amount">${parts.amount}</span><span class="macro-value-unit">${parts.unit}</span>`;
           })()}</div>
           <div class="sub">
-            <span class="today-balance-pill ${Number.isFinite(value) ? (exceeded ? "exceeded" : "remaining") : "unavailable"}">${formatMacroBalanceText(value, key === "kcal" ? "kcal" : "g")}</span>
+            <span class="today-balance-pill ${Number.isFinite(value) ? (display.isExceeded ? "exceeded" : "remaining") : "unavailable"}">${display.text}</span>
           </div>
         </div>
       `).join("");
@@ -7423,29 +7507,30 @@ Notes:
           <div class="adherence-detail-card">
             <h4>간단 해석</h4>
             <ul class="adherence-detail-list">
-              <li>${adherenceResult.reasons.protein}</li>
-              <li>${adherenceResult.reasons.kcal}</li>
               <li>${adherenceResult.reasons.carbs}</li>
+              <li>${adherenceResult.reasons.protein}</li>
               <li>${adherenceResult.reasons.fat}</li>
+              <li>${adherenceResult.reasons.kcal}</li>
             </ul>
             <div class="adherence-components">
               <div class="adherence-component">
-                <div class="label">Protein</div>
-                <div class="value">${(adherenceResult.detail.componentScores.protein * 100).toFixed(1)}점</div>
-              </div>
-              <div class="adherence-component">
-                <div class="label">Kcal</div>
-                <div class="value">${(adherenceResult.detail.componentScores.kcal * 100).toFixed(1)}점</div>
-              </div>
-              <div class="adherence-component">
-                <div class="label">Carbs</div>
+                <div class="label">탄수화물</div>
                 <div class="value">${(adherenceResult.detail.componentScores.carbs * 100).toFixed(1)}점</div>
               </div>
               <div class="adherence-component">
-                <div class="label">Fat</div>
+                <div class="label">단백질</div>
+                <div class="value">${(adherenceResult.detail.componentScores.protein * 100).toFixed(1)}점</div>
+              </div>
+              <div class="adherence-component">
+                <div class="label">지방</div>
                 <div class="value">${(adherenceResult.detail.componentScores.fat * 100).toFixed(1)}점</div>
               </div>
+              <div class="adherence-component">
+                <div class="label">KCAL</div>
+                <div class="value">${(adherenceResult.detail.componentScores.kcal * 100).toFixed(1)}점</div>
+              </div>
             </div>
+            <div class="mini-note">지방은 정확한 목표치보다 적정 범위 유지가 중요해, 너무 낮거나 과할 때만 감점됩니다.</div>
             ${adherenceResult.capApplied ? `<div class="mini-note">단백질 섭취가 크게 부족해 오늘 점수 상한이 ${adherenceResult.proteinCap}%로 제한되었습니다.</div>` : `<div class="mini-note">점수는 오늘 저장된 식사 총합 기준입니다.</div>`}
           </div>
         </div>
@@ -8545,7 +8630,7 @@ Notes:
           kcal: { target: 2500, options: { underRatio: 0.14, overRatio: 0.14, minTolerance: 160, nearUnderRatio: 0.97, nearOverRatio: 1.03, overZeroRatio: 1.55, nearFloor: 0.98, overCurvePower: 0.60, overTailFloor: 0.005 } },
           protein: { target: 150, options: { underRatio: 0.22, overRatio: 0.45, minTolerance: 18, nearUnderRatio: 0.90, nearOverRatio: 1.20, overZeroRatio: 2.00, nearFloor: 0.90 } },
           carbs: { target: 250, options: { underRatio: 0.24, overRatio: 0.30, minTolerance: 28, nearUnderRatio: 0.95, nearOverRatio: 1.05, overZeroRatio: 1.65, nearFloor: 0.95, overCurvePower: 0.74, overTailFloor: 0.005 } },
-          fat: { target: 70, options: { underRatio: 0.28, overRatio: 0.34, minTolerance: 12, nearUnderRatio: 0.90, nearOverRatio: 1.10, overZeroRatio: 1.62, nearFloor: 0.92, overCurvePower: 0.78, overTailFloor: 0.005 } }
+          fat: { target: 70, options: { underRatio: 0.28, overRatio: 0.34, minTolerance: 12, nearUnderRatio: 0.90, nearOverRatio: 1.05, overZeroRatio: 1.62, nearFloor: 0.98, overCurvePower: 0.78, overTailFloor: 0.005, rangeTarget: "fat", rangeStartRatio: 0.75, rangeStartScore: 0.90, rangeUnderExponent: 1.65, rangeCurvePower: 0.65 } }
         };
         const componentScoreAt = (config, ratio) => getMacroComponentScore(config.target, config.target * ratio, config.options);
         const assertMonotonic = (scores, direction, message) => {
@@ -8651,6 +8736,66 @@ Notes:
           });
           assertTest(componentScoreAt(componentTestCases.protein, 1.10) > 0.90, "protein 110% should stay generous");
           assertTest(componentScoreAt(componentTestCases.protein, 1.20) >= 0.89, "protein 120% should stay generous");
+        }));
+
+        results.push(runNamedTest("fat component treats target as acceptable range", () => {
+          const fat = componentTestCases.fat;
+          const checks = [
+            [0, 0, 0],
+            [0.30, 0.05, 0.35],
+            [0.50, 0.30, 0.50],
+            [0.60, 0.60, 0.75],
+            [0.70, 0.80, 0.88],
+            [0.75, 0.88, 0.92],
+            [0.80, 0.92, 0.96],
+            [0.85, 0.95, 0.98],
+            [0.90, 0.97, 1.00],
+            [0.95, 0.98, 1.00],
+            [1.00, 0.99, 1.00],
+            [1.05, 0.98, 1.00],
+            [1.10, 0.90, 0.96],
+            [1.20, 0.65, 0.80],
+            [1.30, 0.35, 0.55],
+            [1.50, 0.05, 0.15]
+          ];
+          checks.forEach(([ratio, min, max]) => {
+            const score = componentScoreAt(fat, ratio);
+            assertTest(score >= min && score <= max, `fat ${Math.round(ratio * 100)}% should be within expected range`);
+          });
+        }));
+
+        results.push(runNamedTest("today interpretation fixed copy classification", () => {
+          const makeBalance = ratios => ({
+            target: { kcal: 100, protein: 100, carbs: 100, fat: 100 },
+            consumed: {
+              kcal: 100 * ratios.kcal,
+              protein: 100 * ratios.protein,
+              carbs: 100 * ratios.carbs,
+              fat: 100 * ratios.fat
+            }
+          });
+          const expected = [
+            ["stable_high", makeBalance({ kcal: 1.00, protein: 0.98, carbs: 1.02, fat: 1.00 }), 98, "전체 식단이 목표 범위 안에서 안정적으로 유지되고 있습니다."],
+            ["mixed_high", makeBalance({ kcal: 1.00, protein: 0.95, carbs: 1.05, fat: 1.00 }), 98, "전체 점수는 높지만, 일부 영양소는 낮고 일부는 높아 다음 식사에서 조금만 균형을 맞추면 좋습니다."],
+            ["all_slightly_low_high", makeBalance({ kcal: 0.95, protein: 0.95, carbs: 0.95, fat: 0.95 }), 98, "전체적으로 목표에 가깝게 맞춰졌고, 과한 초과 없이 안정적으로 유지되고 있습니다."],
+            ["clear_imbalance", makeBalance({ kcal: 0.75, protein: 0.80, carbs: 1.25, fat: 1.20 }), 68, "일부 영양소는 목표보다 낮고 일부는 높아 식사 균형 조정이 필요합니다."],
+            ["mostly_low", makeBalance({ kcal: 0.70, protein: 0.80, carbs: 0.85, fat: 0.90 }), 62, "전체 섭취량이 목표보다 낮아 남은 식사에서 보완이 필요합니다."],
+            ["mostly_high", makeBalance({ kcal: 1.12, protein: 1.10, carbs: 1.18, fat: 1.15 }), 72, "전체 섭취량이 목표보다 높아 다음 식사에서 섭취량 조절이 필요합니다."]
+          ];
+          expected.forEach(([type, balance, percent, text]) => {
+            const actualType = classifyTodayInterpretation(balance, {}, percent);
+            assertTest(actualType === type, `${type} should classify correctly`);
+            assertTest(getTodayInterpretationText(actualType) === text, `${type} should use fixed display copy`);
+          });
+        }));
+
+        results.push(runNamedTest("macro display deadzone softens tiny overshoot", () => {
+          const tinyCarbs = getMacroDisplayBalance(-0.6, 250, "carbs");
+          const tinyKcal = getMacroDisplayBalance(-15, 2500, "kcal");
+          const clearCarbs = getMacroDisplayBalance(-8, 250, "carbs");
+          assertTest(tinyCarbs.isInRange && !tinyCarbs.isExceeded && tinyCarbs.text === "목표 범위", "tiny carb overshoot should display as target range");
+          assertTest(tinyKcal.isInRange && !tinyKcal.isExceeded && tinyKcal.text === "목표 범위", "tiny kcal overshoot should display as target range");
+          assertTest(clearCarbs.isExceeded && clearCarbs.text.includes("초과"), "clear carb overshoot should still display exceeded");
         }));
 
         results.push(runNamedTest("adherence ideal close case", () => {
