@@ -1,17 +1,17 @@
 <!--
-Version: 5.8.0
-Stage: 5.8 InBody 기능 완료 및 UX/검증 개선
+Version: 5.9.0
+Stage: 5.9 Daily Coach UX 및 InBody 힌트 개선
 Date: 2026-04-27
 Notes:
-- 5.4 Records ↔ Today 연동 품질 개선 시작
-- 저장 흐름 지도화 준비
--->
+- Daily Coach UX 문장 개선 (state/reason/action 톤 정리)
+- InBody 힌트 출력 조건 정리 및 fallback 제거
+- Coach-InBody 약한 연동 개선 (참고 힌트 구조 유지)
 <!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>운동 맞춤 매크로 계산기 v5.8.0</title>
+  <title>운동 맞춤 매크로 계산기 v5.9.0</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2810,7 +2810,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               운동 맞춤 매크로 계산기 
-               <span class="app-version">v5.8.0</span>
+               <span class="app-version">v5.9.0</span>
          </h1>
         <p class="lead">
           기초대사량과 기본 생활 활동을 먼저 계산하고,
@@ -5742,16 +5742,16 @@ Notes:
       const status = signal.status;
       const severity = signal.severity;
       if (key === "training") {
-        if (severity === 0) return "운동량과 섭취 상태가 크게 충돌하지 않습니다";
-        if (severity === 1) return "참고로 운동 정보가 제한된 상태입니다";
-        if (severity === 2) return "운동량 대비 섭취를 조정해볼 상태입니다";
-        return "운동량 대비 에너지 부족이 크게 잡힌 상태입니다";
+        if (severity === 0) return "운동량과 섭취 흐름은 무리 없이 맞아가고 있습니다";
+        if (severity === 1) return "운동 정보는 참고 수준으로만 보면 충분합니다";
+        if (severity === 2) return "오늘은 운동량에 맞춰 섭취 균형을 조금 더 맞출 필요가 있습니다";
+        return "오늘은 운동량 대비 섭취 보완을 우선하는 쪽이 좋습니다";
       }
       if (key === "dataQuality") {
-        if (severity === 0) return "기록 정보가 충분한 상태입니다";
-        if (severity === 1) return "참고로 입력 정보가 일부 부족한 상태입니다";
-        if (severity === 2) return "기록 기반 해석을 조금 더 보완할 상태입니다";
-        return "기록 정보가 부족하여 정확한 판단이 크게 제한됩니다";
+        if (severity === 0) return "오늘 기록은 Coach가 보기 충분한 상태입니다";
+        if (severity === 1) return "오늘 기록은 참고하면서 이어가면 되는 수준입니다";
+        if (severity === 2) return "오늘은 기록을 조금 더 채워야 방향이 선명해집니다";
+        return "오늘은 기록 보완을 먼저 해야 판단이 안정됩니다";
       }
       const macroLabel = {
         calorie: "총 섭취 열량",
@@ -5759,83 +5759,83 @@ Notes:
         carb: "탄수화물",
         fat: "지방"
       }[key] || "섭취 상태";
-      if (status === "ok") return `${macroLabel}이 적정 범위입니다`;
+      if (status === "ok") return `${macroLabel} 흐름은 목표 적정 범위 안에서 안정적입니다`;
       if (status === "low") {
-        if (severity === 1) return `${macroLabel}이 참고로 약간 부족한 상태입니다`;
-        if (severity === 2) return `${macroLabel}을 조금 더 보완할 상태입니다`;
-        return `${macroLabel}이 우선적으로 보완할 만큼 부족한 상태입니다`;
+        if (severity === 1) return `${macroLabel}은 조금만 보완하면 목표 범위에 맞출 수 있습니다`;
+        if (severity === 2) return `${macroLabel}은 다음 식사에서 우선 보완이 필요합니다`;
+        return `${macroLabel}은 오늘 우선적으로 부족분을 채우는 쪽이 필요합니다`;
       }
-      if (severity === 1) return `${macroLabel}이 참고로 약간 많은 상태입니다`;
-      if (severity === 2) return `${macroLabel}을 조금 조정해볼 상태입니다`;
-      return `${macroLabel}이 우선적으로 조절할 만큼 높은 상태입니다`;
+      if (severity === 1) return `${macroLabel}은 가볍게 조절하면 충분한 수준입니다`;
+      if (severity === 2) return `${macroLabel}은 다음 식사에서 섭취량 조절이 필요합니다`;
+      return `${macroLabel}은 오늘 추가 섭취를 신중하게 조절해야 합니다`;
     }
 
     function getDailyCoachReasonText(signal){
       if (!signal) return "";
       if (signal.key === "training") {
-        if (signal.severity >= 3) return "운동량 대비 에너지 부족이 큰 영향으로 이어질 수 있습니다";
-        if (signal.severity === 2) return "운동량 대비 섭취 균형을 신경 써서 확인할 필요가 있습니다";
-        if (signal.severity === 1) return "운동 정보가 제한되어 참고용으로 해석하는 편이 좋습니다";
-        return "운동량과 섭취 상태가 크게 충돌하지 않습니다";
+        if (signal.severity >= 3) return "오늘 운동량에 비해 들어온 에너지가 부족하게 잡혀 회복 부담이 커질 수 있습니다";
+        if (signal.severity === 2) return "운동량을 고려하면 현재 섭취 흐름을 조금 더 맞춰볼 여지가 있습니다";
+        if (signal.severity === 1) return "운동 정보가 제한적이라 큰 판단보다 참고 흐름으로 보는 편이 좋습니다";
+        return "오늘 기록상 운동량과 섭취 흐름이 크게 어긋나지 않습니다";
       }
       if (signal.key === "dataQuality") {
-        if (signal.severity >= 3) return "입력 정보 부족이 Coach 해석 신뢰도에 큰 영향을 줄 수 있습니다";
-        if (signal.severity === 2) return "입력 정보의 충분도에 따라 Coach 해석 신뢰도가 달라질 수 있습니다";
-        if (signal.severity === 1) return "참고로 입력 정보가 일부 부족해 해석 신뢰도가 달라질 수 있습니다";
-        return "입력 정보가 충분한 상태입니다";
+        if (signal.severity >= 3) return "기록이 부족하면 섭취 흐름을 정확히 보기 어려워 Coach 해석이 흔들릴 수 있습니다";
+        if (signal.severity === 2) return "주요 식사 기록이 더 채워지면 오늘 방향을 더 분명하게 볼 수 있습니다";
+        if (signal.severity === 1) return "일부 기록이 비어 있어 세부 해석은 참고 정도로 보는 편이 좋습니다";
+        return "오늘 기록상 목표 대비 큰 이탈 없이 확인할 수 있습니다";
       }
       const reasonMap = {
         calorie: {
-          ok: "목표 범위 내에서 에너지 섭취가 유지되고 있습니다",
+          ok: "오늘 기록상 목표 대비 큰 이탈 없이 에너지 섭취가 유지되고 있습니다",
           low: signal.severity >= 3
-            ? "일일 에너지 균형이 크게 부족한 상태입니다"
+            ? "오늘 누적 섭취가 목표보다 많이 낮아 남은 식사에서 보완 폭이 큽니다"
             : signal.severity === 2
-              ? "에너지 섭취가 목표 대비 부족한 상태입니다"
-              : "에너지 섭취가 목표 대비 가볍게 부족한 상태입니다",
+              ? "현재 섭취량이 목표보다 낮아 다음 식사에서 채워줄 필요가 있습니다"
+              : "현재 섭취량이 목표보다 살짝 낮지만 한 번의 보완으로 맞출 수 있습니다",
           high: signal.severity >= 3
-            ? "일일 에너지 섭취가 크게 높은 상태입니다"
+            ? "오늘 누적 섭취가 목표보다 많이 높아 남은 섭취는 신중하게 볼 필요가 있습니다"
             : signal.severity === 2
-              ? "에너지 섭취가 목표 대비 많은 상태입니다"
-              : "에너지 섭취가 목표 대비 가볍게 많은 상태입니다"
+              ? "현재 섭취량이 목표보다 높아 다음 식사에서 조절이 필요합니다"
+              : "현재 섭취량이 목표보다 살짝 높아 가벼운 조절이면 충분합니다"
         },
         protein: {
-          ok: "단백질 섭취가 목표 범위 안에서 유지되고 있습니다",
+          ok: "오늘 단백질 섭취는 회복과 유지에 필요한 범위 안에서 이어지고 있습니다",
           low: signal.severity >= 3
-            ? "단백질 섭취 부족이 커서 회복과 근육 유지에 영향을 줄 수 있습니다"
+            ? "단백질이 많이 부족하면 회복과 근육 유지 쪽 부담이 커질 수 있습니다"
             : signal.severity === 2
-              ? "단백질 섭취가 부족하여 회복과 근육 유지에 불리할 수 있습니다"
-              : "단백질 섭취가 참고로 조금 부족해 보입니다",
+              ? "현재 단백질 섭취가 목표보다 낮아 다음 식사에서 우선 채우는 편이 좋습니다"
+              : "현재 단백질이 살짝 부족해 보이지만 간단히 보완할 수 있습니다",
           high: signal.severity >= 3
-            ? "단백질 섭취가 크게 높아 전체 식단 균형을 확인할 필요가 있습니다"
+            ? "단백질 비중이 크게 높아지면 다른 영양소 균형이 밀릴 수 있습니다"
             : signal.severity === 2
-              ? "단백질 섭취가 필요량보다 많은 상태입니다"
-              : "단백질 섭취가 참고로 필요량보다 조금 많은 상태입니다"
+              ? "현재 단백질 섭취가 목표보다 높아 다음 식사에서 균형 조절이 필요합니다"
+              : "현재 단백질이 살짝 높은 편이라 가볍게 조절하면 됩니다"
         },
         carb: {
-          ok: "탄수화물 섭취가 목표 범위 안에서 유지되고 있습니다",
+          ok: "오늘 탄수화물 섭취는 에너지 흐름을 받쳐줄 범위 안에 있습니다",
           low: signal.severity >= 3
-            ? "탄수화물 섭취 부족이 커서 운동 퍼포먼스에 영향을 줄 수 있습니다"
+            ? "탄수화물이 많이 부족하면 운동 에너지와 컨디션 유지가 어려울 수 있습니다"
             : signal.severity === 2
-              ? "탄수화물 섭취가 부족하여 운동 에너지 확보가 어려울 수 있습니다"
-              : "탄수화물 섭취가 참고로 조금 부족해 보입니다",
+              ? "현재 탄수화물 섭취가 목표보다 낮아 에너지 보완이 필요합니다"
+              : "현재 탄수화물이 살짝 부족해 보이지만 한 번의 식사로 맞출 수 있습니다",
           high: signal.severity >= 3
-            ? "탄수화물 섭취가 크게 높아 총 섭취 열량도 함께 확인할 필요가 있습니다"
+            ? "탄수화물이 크게 높으면 총 섭취 열량도 함께 올라갈 수 있습니다"
             : signal.severity === 2
-              ? "탄수화물 섭취가 많아 에너지 과잉으로 이어질 수 있습니다"
-              : "탄수화물 섭취가 참고로 조금 많은 상태입니다"
+              ? "현재 탄수화물 섭취가 목표보다 높아 다음 식사에서 조절이 필요합니다"
+              : "현재 탄수화물이 살짝 높은 편이라 가볍게 줄이면 됩니다"
         },
         fat: {
-          ok: "지방 섭취가 목표 범위 안에서 유지되고 있습니다",
+          ok: "오늘 지방 섭취는 전체 식단 균형 안에서 유지되고 있습니다",
           low: signal.severity >= 3
-            ? "지방 섭취 부족이 커서 식단 균형을 다시 확인할 필요가 있습니다"
+            ? "지방이 많이 부족하면 전체 식단 균형이 단조로워질 수 있습니다"
             : signal.severity === 2
-              ? "지방 섭취가 부족하여 식단 균형이 깨질 수 있습니다"
-              : "지방 섭취가 참고로 조금 부족해 보입니다",
+              ? "현재 지방 섭취가 목표보다 낮아 다음 식사에서 보완할 필요가 있습니다"
+              : "현재 지방 섭취가 살짝 부족해 보이지만 가볍게 보완할 수 있습니다",
           high: signal.severity >= 3
-            ? "지방 섭취가 크게 높아 전체 식단 균형을 조정할 필요가 있습니다"
+            ? "지방 비중이 크게 높으면 전체 열량과 식단 균형이 함께 흔들릴 수 있습니다"
             : signal.severity === 2
-              ? "지방 섭취 비중이 높아 전체 열량이 늘어날 수 있습니다"
-              : "지방 섭취 비중이 참고로 조금 높은 상태입니다"
+              ? "현재 지방 섭취가 목표보다 높아 다음 식사에서 조절이 필요합니다"
+              : "현재 지방 비중이 살짝 높은 편이라 가볍게 줄이면 됩니다"
         }
       };
       const macroReason = reasonMap[signal.key];
@@ -5848,69 +5848,69 @@ Notes:
     function getDailyCoachActionText(signal){
       if (!signal) return "";
       if (signal.key === "training") {
-        if (signal.severity >= 3) return "운동량 대비 섭취를 우선적으로 충분히 보충해보세요";
-        if (signal.severity === 2) return "운동량에 맞춰 섭취량을 신경 써서 조절해보세요";
-        if (signal.severity === 1) return "필요 시 운동 정보를 가볍게 더 기록해보세요";
-        return "현재 운동량과 섭취 흐름을 유지해도 괜찮습니다";
+        if (signal.severity >= 3) return "다음 식사에서 탄수화물과 단백질이 있는 메뉴를 먼저 채워 주세요";
+        if (signal.severity === 2) return "다음 식사에서 운동량을 고려해 섭취량을 한 단계 보완해 주세요";
+        if (signal.severity === 1) return "운동을 했다면 운동 기록을 한 번만 더 확인해 주세요";
+        return "지금 흐름을 유지하면서 다음 식사 기록만 이어가 주세요";
       }
       if (signal.key === "dataQuality") {
-        if (signal.severity >= 3) return "정확한 분석을 위해 식사 기록을 우선적으로 충분히 입력해보세요";
-        if (signal.severity === 2) return "주요 식사를 신경 써서 빠짐없이 기록해보세요";
-        if (signal.severity === 1) return "필요 시 식사 기록을 가볍게 보완해보세요";
-        return "현재 기록 수준을 유지해도 괜찮습니다";
+        if (signal.severity >= 3) return "오늘 먹은 주요 식사를 먼저 기록해 주세요";
+        if (signal.severity === 2) return "빠진 식사가 있다면 다음 기록 전에 하나만 보완해 주세요";
+        if (signal.severity === 1) return "비어 있는 항목이 보이면 한 가지만 더 채워 주세요";
+        return "지금처럼 식사 기록을 이어가 주세요";
       }
       const actionMap = {
         calorie: {
-          ok: "현재 식사 패턴을 유지해도 괜찮습니다",
+          ok: "지금 패턴을 유지하면서 다음 식사 기록만 이어가 주세요",
           low: signal.severity >= 3
-            ? "다음 식사에서 식사량을 확실히 늘려 에너지 섭취를 보완해보세요"
+            ? "다음 식사에서 밥이나 주식 양을 먼저 늘려 주세요"
             : signal.severity === 2
-              ? "다음 식사에서 전체 섭취량을 조금 더 늘려보세요"
-              : "필요 시 다음 식사에서 전체 섭취량을 가볍게 늘려보세요",
+              ? "다음 식사에서 전체 식사량을 한 단계 늘려 주세요"
+              : "다음 식사에 작은 간식이나 주식 한 가지를 더해 주세요",
           high: signal.severity >= 3
-            ? "다음 식사에서 식사량을 확실히 줄여 총 섭취 열량을 조절해보세요"
+            ? "다음 식사에서는 고열량 메뉴를 빼고 가볍게 구성해 주세요"
             : signal.severity === 2
-              ? "다음 식사에서 전체 섭취량을 조금 줄여보세요"
-              : "필요 시 다음 식사에서 전체 섭취량을 가볍게 줄여보세요"
+              ? "다음 식사에서 전체 식사량을 한 단계 줄여 주세요"
+              : "다음 식사에서 간식이나 추가 메뉴 하나를 줄여 주세요"
         },
         protein: {
-          ok: "현재 단백질 섭취 패턴을 유지해도 괜찮습니다",
+          ok: "지금 단백질 패턴을 유지하면서 다음 식사 기록만 이어가 주세요",
           low: signal.severity >= 3
-            ? "매 끼니에 단백질 식품을 우선적으로 포함해보세요"
+            ? "다음 식사에 단백질 식품을 먼저 한 접시 넣어 주세요"
             : signal.severity === 2
-              ? "다음 식사에 단백질 식품을 한 가지 더 추가해보세요"
-              : "필요 시 다음 식사에 단백질 식품을 가볍게 추가해보세요",
+              ? "다음 식사에 단백질 식품 한 가지를 추가해 주세요"
+              : "다음 식사에 달걀, 닭가슴살, 두부 중 하나를 더해 주세요",
           high: signal.severity >= 3
-            ? "단백질 섭취 비중을 확실히 낮추고 전체 식단 균형을 확인해보세요"
+            ? "다음 식사에서는 단백질 추가 메뉴를 빼 주세요"
             : signal.severity === 2
-              ? "단백질 섭취를 약간 줄이고 다른 영양소와 균형을 맞춰보세요"
-              : "필요 시 단백질 섭취를 가볍게 줄여보세요"
+              ? "다음 식사에서 단백질 양을 한 단계 줄여 주세요"
+              : "다음 식사에서 단백질 추가만 생략해 주세요"
         },
         carb: {
-          ok: "현재 탄수화물 섭취 패턴을 유지해도 괜찮습니다",
+          ok: "지금 탄수화물 패턴을 유지하면서 다음 식사 기록만 이어가 주세요",
           low: signal.severity >= 3
-            ? "운동 전후로 탄수화물 섭취를 확실히 늘려보세요"
+            ? "다음 식사에서 밥, 고구마, 빵 같은 주식을 먼저 채워 주세요"
             : signal.severity === 2
-              ? "탄수화물 식품을 조금 더 추가해 에너지를 보충해보세요"
-              : "필요 시 탄수화물 식품을 가볍게 추가해보세요",
+              ? "다음 식사에 탄수화물 식품 한 가지를 추가해 주세요"
+              : "다음 식사에서 주식 양을 조금만 더해 주세요",
           high: signal.severity >= 3
-            ? "탄수화물 섭취를 확실히 줄이고 전체 식사량을 조절해보세요"
+            ? "다음 식사에서는 주식이나 당류 메뉴를 먼저 줄여 주세요"
             : signal.severity === 2
-              ? "탄수화물 섭취량을 조금 줄여보세요"
-              : "필요 시 탄수화물 섭취량을 가볍게 줄여보세요"
+              ? "다음 식사에서 주식 양을 한 단계 줄여 주세요"
+              : "다음 식사에서 탄수화물 추가 메뉴 하나를 빼 주세요"
         },
         fat: {
-          ok: "현재 지방 섭취 패턴을 유지해도 괜찮습니다",
+          ok: "지금 지방 섭취 패턴을 유지하면서 다음 식사 기록만 이어가 주세요",
           low: signal.severity >= 3
-            ? "지방 섭취를 적극적으로 보완해 식단 균형을 다시 맞춰보세요"
+            ? "다음 식사에 견과류나 올리브오일처럼 지방이 있는 식품을 넣어 주세요"
             : signal.severity === 2
-              ? "지방이 포함된 식품을 조금 더 추가해 식단 균형을 맞춰보세요"
-              : "필요 시 지방이 포함된 식품을 가볍게 추가해보세요",
+              ? "다음 식사에 지방이 포함된 식품 한 가지를 추가해 주세요"
+              : "다음 식사에 견과류나 아보카도 같은 식품을 조금 더해 주세요",
           high: signal.severity >= 3
-            ? "지방 섭취 비중을 확실히 낮추고 다른 영양소와 균형을 맞춰보세요"
+            ? "다음 식사에서는 튀김이나 기름진 메뉴를 빼 주세요"
             : signal.severity === 2
-              ? "기름진 음식 섭취를 조금 줄여보세요"
-              : "필요 시 기름진 음식 섭취를 가볍게 줄여보세요"
+              ? "다음 식사에서 기름진 메뉴 양을 한 단계 줄여 주세요"
+              : "다음 식사에서 소스나 기름진 추가 메뉴 하나를 줄여 주세요"
         }
       };
       const macroAction = actionMap[signal.key];
@@ -7558,20 +7558,29 @@ Notes:
     function getInbodyCoachHint(){
       const delta = getInbodyDelta();
       if (!delta) return null;
-      const { muscleDiff, fatDiff } = delta;
-      if (Math.abs(muscleDiff) < 0.1 && Math.abs(fatDiff) < 0.2) {
+      const { weightDiff, muscleDiff, fatDiff } = delta;
+      if (![weightDiff, muscleDiff, fatDiff].every(Number.isFinite)) {
         return null;
       }
-      if (muscleDiff > 0 && fatDiff < 0) {
-        return "최근 흐름을 보면 체성분 관리도 잘 이어지고 있는 상태입니다";
+      if (Math.abs(weightDiff) < 0.3 && Math.abs(muscleDiff) < 0.1 && Math.abs(fatDiff) < 0.2) {
+        return null;
       }
-      if (muscleDiff < 0) {
-        return "최근 흐름을 보면 근육량 유지에도 조금 더 신경 써주는 것이 좋습니다";
+      if (muscleDiff > 0.1 && fatDiff < -0.2) {
+        return "InBody 참고: 근육량은 늘고 체지방은 줄어 현재 체성분 흐름은 긍정적입니다";
       }
-      if (fatDiff > 0) {
-        return "최근 흐름을 보면 체성분 균형도 함께 관리해보는 것이 좋습니다";
+      if (weightDiff > 0.3 && muscleDiff > 0.1 && fatDiff <= 0.2) {
+        return "InBody 참고: 체중 증가가 근육량 증가와 함께 나타나고 있어 현재 방향은 괜찮습니다";
       }
-      return "최근 상태를 보면 체성분 흐름도 함께 고려해보는 것이 좋습니다";
+      if (weightDiff > 0.3 && fatDiff > 0.2) {
+        return "InBody 참고: 체중과 체지방이 함께 늘고 있어 식단 질 관리가 필요합니다";
+      }
+      if (weightDiff < -0.3 && muscleDiff < -0.1) {
+        return "InBody 참고: 체중 감소와 함께 근육량도 줄어 회복과 섭취 부족을 확인해 주세요";
+      }
+      if (muscleDiff < -0.1) {
+        return "InBody 참고: 근육량 감소가 보여 단백질 섭취와 회복을 우선해 주세요";
+      }
+      return null;
     }
 
     function getInbodyInsight(delta){
