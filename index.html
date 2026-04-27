@@ -1,19 +1,21 @@
 <!--
-Version: 5.9.1
-Stage: 5.9.1 Today 식단 평가 보정 및 부분 기록 상태 분리
+Version: 5.9.2
+Stage: 5.9.2 Records/InBody 정합성 및 과다 섭취 UX 보정
 Date: 2026-04-27
 Notes:
-- Today 식단 달성률 목표 근접 구간 보정
-- 부분 기록 pending 상태 분리 및 0%/미흡 노출 방지
-- proteinCap 안내 조건 및 Adherence 테스트 정책 정리
-- Coach 카드 과다 출력 제한 및 Records 식사표 UI 보정
+- Records 체중/식사 저장 양방향 병합 안정화
+- InBody 해석과 Today Coach 힌트 기준 통합
+- InBody/Records 주요 수치 0.01 단위 입력/표시 개선
+- InBody 의심값 Soft Block warning 및 기록표 경고 표시 추가
+- 과다 섭취 라벨, pending 하위 상태, 한 줄 원인 문구 보정
+- 기록 내보내기 버튼명 및 백업 파일명 정리
 -->
 <!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>운동 맞춤 매크로 계산기 v5.9.1</title>
+  <title>운동 맞춤 매크로 계산기 v5.9.2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2824,7 +2826,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               운동 맞춤 매크로 계산기 
-               <span class="app-version">v5.9.1</span>
+               <span class="app-version">v5.9.2</span>
          </h1>
         <p class="lead">
           기초대사량과 기본 생활 활동을 먼저 계산하고,
@@ -3294,7 +3296,7 @@ Notes:
             </div>
             <div class="field">
               <label>아침 공복 체중 (kg)</label>
-              <input id="recordWeight" type="number" min="30" max="200" step="0.1">
+              <input id="recordWeight" type="number" min="30" max="200" step="0.01">
             </div>
             <div class="field">
               <label>식단 평가</label>
@@ -3312,12 +3314,12 @@ Notes:
           </div>
           <div class="inline-actions">
             <button class="primary-btn" id="saveRecordBtn" type="button">기록 저장</button>
-            <button class="secondary-btn" id="exportJsonBtn" type="button">저장하기</button>
+            <button class="secondary-btn" id="exportJsonBtn" type="button">기록 내보내기</button>
             <button class="secondary-btn" id="importJsonBtn" type="button">불러오기</button>
             <input id="importJsonFile" type="file" accept="application/json" class="hidden">
           </div>
           <div class="mini-note">
-            기록은 브라우저에 자동 저장되지만, 장기 기록은 파일로 저장해 두는 편이 안전합니다.
+            기록은 브라우저에 자동 저장되지만, 장기 기록은 파일로 저장해 두는 편이 안전합니다. 백업 파일은 브라우저 다운로드 설정에 따라 저장됩니다.
           </div>
           <div id="backupNudgeHost"></div>
             </div>
@@ -3476,9 +3478,9 @@ Notes:
         </div>
         <div class="grid-3">
           <div class="field"><label>측정일</label><input id="inbodyDate" type="date"></div>
-          <div class="field"><label>체중 (kg)</label><input id="inbodyWeight" type="number" min="30" max="200" step="0.1"></div>
-          <div class="field"><label>골격근량 (kg)</label><input id="inbodySkeletalMuscle" type="number" min="10" max="70" step="0.1"></div>
-          <div class="field"><label>체지방량 (kg)</label><input id="inbodyBodyFat" type="number" min="0" max="100" step="0.1"><div class="inbody-derived-hint" id="inbodyBodyFatPercentHint"></div></div>
+          <div class="field"><label>체중 (kg)</label><input id="inbodyWeight" type="number" min="30" max="200" step="0.01"></div>
+          <div class="field"><label>골격근량 (kg)</label><input id="inbodySkeletalMuscle" type="number" min="10" max="70" step="0.01"></div>
+          <div class="field"><label>체지방량 (kg)</label><input id="inbodyBodyFat" type="number" min="0" max="100" step="0.01"><div class="inbody-derived-hint" id="inbodyBodyFatPercentHint"></div></div>
           <div class="field"><label>체지방률 (%)</label><input id="inbodyBodyFatPercent" type="number" min="0" max="60" step="0.1"><div class="inbody-derived-hint" id="inbodyBodyFatHint"></div><div id="inbodyWarning" class="inbody-warning"></div></div>
           <div class="field"><label>&nbsp;</label><button class="primary-btn" id="saveInbodyBtn" type="button">저장</button></div>
         </div>
@@ -5333,7 +5335,7 @@ Notes:
       const record = getRecordByDate(selectedDate);
       ids.recordDate.value = selectedDate;
       ids.recordWeight.value = Number.isFinite(record?.weight)
-        ? round(record.weight, 1).toFixed(1)
+        ? record.weight.toFixed(2)
         : (selectedDate === getTodayDateString() ? String(state.weight) : "");
       ids.recordAdherence.value = record?.adherence || "medium";
       ids.recordNote.value = record?.note || "";
@@ -6102,6 +6104,36 @@ Notes:
       return "bad";
     }
 
+    function getAdherenceDirection(balance){
+      const keys = ["kcal", "protein", "carbs", "fat"];
+      const lowCount = keys.filter(key => Number.isFinite(balance?.remaining?.[key]) && balance.remaining[key] > 0).length;
+      const highCount = keys.filter(key => Number.isFinite(balance?.remaining?.[key]) && balance.remaining[key] < 0).length;
+      if (highCount > 0 && lowCount === 0) return "over";
+      if (highCount > 0 && lowCount > 0) return "mixed";
+      if (lowCount > 0) return "under";
+      return "balanced";
+    }
+
+    function getAdherenceDisplayLabel(percent, direction){
+      if (!Number.isFinite(percent)) return "자동 평가 불가";
+      if (percent < 70) {
+        if (direction === "over") return "과다 섭취";
+        if (direction === "mixed") return "재조정 필요";
+      }
+      return getAdherenceLabel(percent);
+    }
+
+    function getAdherenceSummaryText(adherenceResult){
+      const direction = adherenceResult?.direction;
+      if (adherenceResult?.status === "pending_over") {
+        return "현재 기록은 아직 하루 전체 평가를 내리기에는 이르지만, 일부 항목은 목표 범위를 벗어났습니다.";
+      }
+      if (direction === "over") return "총 섭취량과 일부 영양소가 목표를 넘어 전체 점수에 반영되었습니다.";
+      if (direction === "mixed") return "부족과 초과가 함께 있어 전체 균형 재조정이 필요합니다.";
+      if (direction === "under") return "아직 채워야 할 항목이 남아 있어 남은 식사에서 보완이 필요합니다.";
+      return "오늘 저장된 식사 총합이 목표 범위에 얼마나 가까운지 기준으로 계산했습니다.";
+    }
+
     function buildMacroReason(key, balance, componentScore, proteinRatio, proteinCap, capApplied = false){
       const delta = balance.consumed[key] - balance.target[key];
       const absDelta = Math.abs(delta);
@@ -6179,20 +6211,25 @@ Notes:
         (Number.isFinite(intakeProgress) && intakeProgress < 0.30)
       );
       if (isPending) {
+        const hasExceededMacro = Object.values(balance.exceeded || {}).some(Boolean);
         const progressPercent = Number.isFinite(intakeProgress)
           ? clamp(Math.round(intakeProgress * 100), 0, 999)
           : null;
         return {
           percent: null,
-          label: "평가 보류",
+          label: hasExceededMacro ? "조절 필요" : "평가 보류",
           tone: "muted",
           source: "auto",
           isAvailable: true,
-          status: "pending",
+          status: hasExceededMacro ? "pending_over" : "pending",
           progressPercent,
+          direction: hasExceededMacro ? "over" : "under",
+          summaryText: hasExceededMacro
+            ? "현재 기록은 아직 하루 전체 평가를 내리기에는 이르지만, 일부 항목은 목표 범위를 벗어났습니다."
+            : "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다.",
           reasons: {
-            protein: "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다.",
-            kcal: "식사가 더 기록되면 오늘 식단 점수를 계산합니다.",
+            protein: hasExceededMacro ? "현재 1끼 기록만으로 목표 범위를 초과한 항목이 있습니다." : "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다.",
+            kcal: hasExceededMacro ? "남은 식사는 추가 섭취보다 조절을 우선해 주세요." : "식사가 더 기록되면 오늘 식단 점수를 계산합니다.",
             carbs: "데이터 기록 탭에 오늘 식사를 저장하면 오늘 식단 평가가 이어집니다.",
             fat: "점수는 오늘 저장된 식사 총합 기준입니다."
           },
@@ -6231,14 +6268,17 @@ Notes:
       const rawPercent = Math.round(weightedScore * 100);
       const capApplied = proteinCap < 100 && rawPercent > proteinCap;
       const percent = clamp(Math.min(rawPercent, proteinCap), 0, 100);
+      const direction = getAdherenceDirection(balance);
 
       return {
         percent,
-        label: getAdherenceLabel(percent),
+        label: getAdherenceDisplayLabel(percent, direction),
         tone: getAdherenceTone(percent),
         source: "auto",
         isAvailable: true,
         status: "available",
+        direction,
+        summaryText: getAdherenceSummaryText({ status: "available", direction }),
         reasons: {
           protein: buildMacroReason("protein", balance, componentScores.protein, proteinRatio, proteinCap, capApplied),
           kcal: buildMacroReason("kcal", balance, componentScores.kcal, proteinRatio, proteinCap, capApplied),
@@ -6580,7 +6620,7 @@ Notes:
       const existing = getRecordByDate(date);
       const record = normalizeRecord({
         date,
-        weight: ids.recordWeight.value,
+        weight: weightRaw,
         adherence: ids.autoDietAnalysis.checked ? (existing?.adherence || "medium") : ids.recordAdherence.value,
         adherenceSource: ids.autoDietAnalysis.checked ? existing?.adherenceSource : "manual",
         note: ids.recordNote.value.trim()
@@ -6590,7 +6630,13 @@ Notes:
         render();
         return;
       }
-      upsertRecord(record);
+      upsertRecord({
+        date,
+        weight: weightRaw,
+        adherence: ids.autoDietAnalysis.checked ? (existing?.adherence || "medium") : ids.recordAdherence.value,
+        adherenceSource: ids.autoDietAnalysis.checked ? existing?.adherenceSource : "manual",
+        note: ids.recordNote.value.trim()
+      });
       setRecordFeedback("ok", `${record.date} 체중 기록을 저장했습니다.`);
       syncRecordInputsForDate(record.date);
       render();
@@ -6621,13 +6667,14 @@ Notes:
       const payload = {
         version: 2,
         exportedAt: new Date().toISOString(),
-        records: getSortedRecords()
+        records: getSortedRecords(),
+        inbodyRecords: Array.isArray(state.inbodyRecords) ? [...state.inbodyRecords] : []
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `runstep-records-${getTodayDateString()}.json`;
+      a.download = `runstep-records-backup-${getTodayDateString()}.json`;
       a.click();
       URL.revokeObjectURL(url);
       localStorage.setItem(storageKey("lastBackupAt"), new Date().toISOString());
@@ -6646,6 +6693,11 @@ Notes:
         try {
           const parsed = JSON.parse(String(reader.result || ""));
           recordsState.items = parseImportedRecordsPayload(parsed);
+          if (Array.isArray(parsed?.inbodyRecords)) {
+            state.inbodyRecords = parsed.inbodyRecords;
+            normalizeInbodyRecords();
+            saveInbodyRecords();
+          }
           syncRecordInputsForDate(getSelectedRecordDate());
           setRecordFeedback("ok", "JSON 기록을 불러왔습니다.");
           render();
@@ -7302,23 +7354,25 @@ Notes:
         return;
       }
 
-      if (adherenceResult.status === "pending") {
+      if (adherenceResult.status === "pending" || adherenceResult.status === "pending_over") {
         const progressText = Number.isFinite(adherenceResult.progressPercent)
           ? `<div class="copy">현재 섭취 진도: 목표 대비 약 ${adherenceResult.progressPercent}%</div>`
           : "";
+        const isPendingOver = adherenceResult.status === "pending_over";
         host.innerHTML = `
           <div class="adherence-hero">
             <div class="adherence-score-card pending">
               <div class="eyebrow">Today Score</div>
               <div class="big">기록 진행 중</div>
-              <div><span class="adherence-badge muted">평가 보류</span></div>
-              <div class="copy">현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다.</div>
+              <div><span class="adherence-badge muted">${isPendingOver ? "조절 필요" : "평가 보류"}</span></div>
+              <div class="copy">${isPendingOver ? "현재 1끼 기록만으로 목표 범위를 초과한 항목이 있습니다." : "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다."}</div>
               ${progressText}
             </div>
             <div class="adherence-detail-card">
               <h4>간단 해석</h4>
               <ul class="adherence-detail-list">
-                <li>식사가 더 기록되면 오늘 식단 점수를 계산합니다.</li>
+                <li>${isPendingOver ? "남은 식사는 추가 섭취보다 조절을 우선해 주세요." : "식사가 더 기록되면 오늘 식단 점수를 계산합니다."}</li>
+                <li>${escapeHtml(adherenceResult.summaryText || getAdherenceSummaryText(adherenceResult))}</li>
                 <li>점수는 오늘 저장된 식사 총합 기준입니다.</li>
               </ul>
               <div class="mini-note">오늘 누적 섭취와 목표 대비 남은 양은 위 영역에서 계속 확인할 수 있습니다.</div>
@@ -7334,7 +7388,7 @@ Notes:
             <div class="eyebrow">Today Score</div>
             <div class="big">${adherenceResult.percent}%</div>
             <div><span class="adherence-badge ${adherenceResult.tone}">${adherenceResult.label}</span></div>
-            <div class="copy">오늘은 단백질과 총 섭취량이 점수에 가장 크게 반영되었습니다.</div>
+            <div class="copy">${escapeHtml(adherenceResult.summaryText || "오늘은 단백질과 총 섭취량이 점수에 가장 크게 반영되었습니다.")}</div>
           </div>
           <div class="adherence-detail-card">
             <h4>간단 해석</h4>
@@ -7381,7 +7435,7 @@ Notes:
       if (!signals.hasAnyMeal){
         text = "\uC624\uB298\uC740 \uC544\uC9C1 \uC2DD\uC0AC \uAE30\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.";
       } else if (!signals.hasEnoughMeals){
-        text = "\uD604\uC7AC \uC2DD\uC0AC \uB370\uC774\uD130\uAC00 \uCDA9\uBD84\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.";
+        text = "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다.";
       } else if (signals.adherenceBand === "HIGH"){
         text = "\uD604\uC7AC \uBAA9\uD45C \uBC94\uC704\uB97C \uC798 \uC720\uC9C0\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4.";
       } else if (signals.adherenceBand === "MID"){
@@ -7470,7 +7524,7 @@ Notes:
           ${sorted.map(item => `
             <div class="table-row">
               <div>${item.date}</div>
-              <div>${Number.isFinite(item.weight) ? `${round(item.weight, 1).toFixed(1)} kg` : "-"}</div>
+              <div>${Number.isFinite(item.weight) ? `${formatKg2(item.weight)} kg` : "-"}</div>
               <div>${formatRecordAdherenceDisplay(item)}</div>
               <div class="record-note-cell">${escapeHtml(item.note || (item.meals.length ? `식사 ${item.meals.length}건` : "-"))}${item.note && item.meals.length ? ` · 식사 ${item.meals.length}건` : ""}</div>
               <div><button class="secondary-btn" type="button" data-delete-record="${item.date}">삭제</button></div>
@@ -7483,7 +7537,7 @@ Notes:
       const nudgeHost = document.getElementById("backupNudgeHost");
       const needsNudge = sorted.length >= 3 && (!lastBackupAt || ((Date.now() - new Date(lastBackupAt).getTime()) / 86400000) >= 7);
       nudgeHost.innerHTML = needsNudge
-        ? `<div class="notice"><h4>백업 권장</h4><ul><li>최근 기록이 쌓였습니다. 저장하기로 한 번 백업해 두면 기록 유실 위험을 줄일 수 있습니다.</li></ul></div>`
+        ? `<div class="notice"><h4>백업 권장</h4><ul><li>최근 기록이 쌓였습니다. 기록 내보내기로 한 번 백업해 두면 기록 유실 위험을 줄일 수 있습니다.</li></ul></div>`
         : "";
 
       renderMealRecordSection(selectedDate);
@@ -7526,7 +7580,8 @@ Notes:
           skeletalMuscle: Number(item.skeletalMuscle),
           bodyFat: Number(item.bodyFat),
           bodyFatPercent: Number(item.bodyFatPercent),
-          warning: typeof item.warning === "string" ? item.warning : ""
+          warning: typeof item.warning === "string" ? item.warning : "",
+          isSuspicious: item.isSuspicious === true
         }))
         .filter(item =>
           Number.isFinite(item.weight) &&
@@ -7540,6 +7595,38 @@ Notes:
     function saveInbodyRecords(){
       normalizeInbodyRecords();
       localStorage.setItem(storageKey("inbodyRecords"), JSON.stringify(state.inbodyRecords));
+    }
+
+    const INBODY_TREND_DEADZONE = {
+      weight: 0.30,
+      skeletalMuscle: 0.20,
+      bodyFat: 0.20,
+      bodyFatPercent: 0.3
+    };
+
+    function getInbodyDirection(diff, threshold){
+      if (!Number.isFinite(diff)) return "unknown";
+      if (Math.abs(diff) < threshold) return "flat";
+      return diff > 0 ? "up" : "down";
+    }
+
+    function analyzeInbodyTrend(delta){
+      if (!delta) return null;
+      const trend = {
+        delta,
+        weight: getInbodyDirection(delta.weightDiff, INBODY_TREND_DEADZONE.weight),
+        muscle: getInbodyDirection(delta.muscleDiff, INBODY_TREND_DEADZONE.skeletalMuscle),
+        fat: getInbodyDirection(delta.fatDiff, INBODY_TREND_DEADZONE.bodyFat),
+        bodyFatPercent: getInbodyDirection(delta.bodyFatPercentDiff, INBODY_TREND_DEADZONE.bodyFatPercent)
+      };
+      trend.isMinimal = ["weight","muscle","fat","bodyFatPercent"].every(key => trend[key] === "flat" || trend[key] === "unknown");
+      if (trend.muscle === "up" && trend.fat === "down") trend.kind = "positive_recomp";
+      else if (trend.weight === "up" && trend.muscle === "up" && trend.fat !== "up") trend.kind = "muscle_gain";
+      else if (trend.weight === "up" && trend.fat === "up") trend.kind = "fat_gain";
+      else if (trend.weight === "down" && trend.muscle === "down") trend.kind = "weight_muscle_loss";
+      else if (trend.muscle === "down") trend.kind = "muscle_loss";
+      else trend.kind = trend.isMinimal ? "minimal" : "mixed";
+      return trend;
     }
 
     function saveInbodyRecord(){
@@ -7614,13 +7701,23 @@ Notes:
           warning = "입력값과 계산값 다름";
         }
       }
+      const isSuspicious = (
+        skeletalMuscle + finalBodyFat >= weight * 0.9 ||
+        finalBodyFat / weight > 0.60 ||
+        skeletalMuscle / weight > 0.55
+      );
+      if (isSuspicious) {
+        const confirmed = window.confirm("입력하신 체성분 수치의 합이 비정상적으로 높습니다. 측정 오류일 수 있습니다. 그래도 저장하시겠습니까?");
+        if (!confirmed) return;
+      }
       const record = {
         date,
         weight,
         skeletalMuscle,
         bodyFat: finalBodyFat,
         bodyFatPercent: finalBodyFatPercent,
-        warning
+        warning,
+        isSuspicious
       };
       if (!Number.isFinite(record.bodyFat) || !Number.isFinite(record.bodyFatPercent)) {
         showError("체지방 입력값을 다시 확인해 주세요.");
@@ -7656,45 +7753,42 @@ Notes:
       return {
         weightDiff: last.weight - prev.weight,
         muscleDiff: last.skeletalMuscle - prev.skeletalMuscle,
-        fatDiff: last.bodyFat - prev.bodyFat
+        fatDiff: last.bodyFat - prev.bodyFat,
+        bodyFatPercentDiff: last.bodyFatPercent - prev.bodyFatPercent
       };
     }
 
     function getInbodyCoachHint(){
-      const delta = getInbodyDelta();
-      if (!delta) return null;
-      const { weightDiff, muscleDiff, fatDiff } = delta;
-      if (![weightDiff, muscleDiff, fatDiff].every(Number.isFinite)) {
-        return null;
-      }
-      if (Math.abs(weightDiff) < 0.3 && Math.abs(muscleDiff) < 0.1 && Math.abs(fatDiff) < 0.2) {
-        return null;
-      }
-      if (muscleDiff > 0.1 && fatDiff < -0.2) {
+      const trend = analyzeInbodyTrend(getInbodyDelta());
+      if (!trend || trend.kind === "minimal" || trend.kind === "mixed") return null;
+      if (trend.kind === "positive_recomp") {
         return "InBody 참고: 근육량은 늘고 체지방은 줄어 현재 체성분 흐름은 긍정적입니다";
       }
-      if (weightDiff > 0.3 && muscleDiff > 0.1 && fatDiff <= 0.2) {
+      if (trend.kind === "muscle_gain") {
         return "InBody 참고: 체중 증가가 근육량 증가와 함께 나타나고 있어 현재 방향은 괜찮습니다";
       }
-      if (weightDiff > 0.3 && fatDiff > 0.2) {
+      if (trend.kind === "fat_gain") {
         return "InBody 참고: 체중과 체지방이 함께 늘고 있어 식단 질 관리가 필요합니다";
       }
-      if (weightDiff < -0.3 && muscleDiff < -0.1) {
+      if (trend.kind === "weight_muscle_loss") {
         return "InBody 참고: 체중 감소와 함께 근육량도 줄어 회복과 섭취 부족을 확인해 주세요";
       }
-      if (muscleDiff < -0.1) {
+      if (trend.kind === "muscle_loss") {
         return "InBody 참고: 근육량 감소가 보여 단백질 섭취와 회복을 우선해 주세요";
       }
       return null;
     }
 
     function getInbodyInsight(delta){
-      if (!delta) return "데이터가 부족합니다";
-      if (delta.muscleDiff > 0 && delta.fatDiff < 0) return "체성분 개선 흐름입니다";
-      if (delta.muscleDiff > 0 && delta.fatDiff > 0) return "체중 증가와 함께 지방도 증가하는 경향입니다";
-      if (delta.muscleDiff < 0 && delta.fatDiff < 0) return "감량 중이며 근손실 가능성이 있습니다";
-      if (delta.muscleDiff < 0 && delta.fatDiff > 0) return "체성분 관리가 필요한 상태입니다";
-      return "변화가 크지 않습니다";
+      const trend = analyzeInbodyTrend(delta);
+      if (!trend) return "데이터가 부족합니다";
+      if (trend.kind === "minimal") return "최근 변화는 크지 않습니다";
+      if (trend.kind === "positive_recomp") return "체성분 개선 흐름입니다";
+      if (trend.kind === "muscle_gain") return "체중 증가가 근육량 증가와 함께 나타나는 흐름입니다";
+      if (trend.kind === "fat_gain") return "체중과 체지방이 함께 증가하는 경향입니다";
+      if (trend.kind === "weight_muscle_loss") return "체중 감소와 함께 근육량도 줄어 회복과 섭취 부족을 확인할 필요가 있습니다";
+      if (trend.kind === "muscle_loss") return "근육량 감소가 보여 단백질 섭취와 회복을 우선해 주세요";
+      return "변화 방향이 섞여 있어 다음 측정까지 함께 확인하는 것이 좋습니다";
     }
 
     function loadInbodyRecord(index){
@@ -7733,13 +7827,16 @@ Notes:
         </div>
         ${sorted.map(record => {
           const realIndex = state.inbodyRecords.findIndex(r => r.date === record.date);
+          const suspiciousIcon = record.isSuspicious
+            ? ` <span title="입력값 조합이 일반적인 체성분 범위를 벗어났습니다">⚠️</span>`
+            : "";
           return `
             <div class="table-row inbody-record">
               <div class="inbody-record-values">
-                <div>${escapeHtml(record.date)}</div>
-                <div>${record.weight.toFixed(1)} kg</div>
-                <div>${record.skeletalMuscle.toFixed(1)} kg</div>
-                <div>${record.bodyFat.toFixed(1)} kg</div>
+                <div>${escapeHtml(record.date)}${suspiciousIcon}</div>
+                <div>${formatKg2(record.weight)} kg</div>
+                <div>${formatKg2(record.skeletalMuscle)} kg</div>
+                <div>${formatKg2(record.bodyFat)} kg</div>
                 <div>${record.bodyFatPercent.toFixed(1)}%</div>
                 <div class="inbody-record-warning">${record.warning ? escapeHtml(record.warning) : ""}</div>
               </div>
@@ -7757,6 +7854,14 @@ Notes:
       if (!Number.isFinite(value)) return "-";
       const rounded = Math.round(value * 10) / 10;
       return `${rounded > 0 ? "+" : ""}${rounded.toFixed(1)}`;
+    }
+
+    function formatKg2(value){
+      return Number.isFinite(value) ? value.toFixed(2) : "-";
+    }
+
+    function formatSignedKg2(value){
+      return Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value.toFixed(2)}` : "-";
     }
 
     function updateInbodyDerivedHints(){
@@ -7809,17 +7914,17 @@ Notes:
       updateInbodyDerivedHints();
       const latest = getLatestInbody();
       const delta = getInbodyDelta();
-      document.getElementById("inbodyLatestWeight").textContent = latest ? latest.weight.toFixed(1) : "-";
-      document.getElementById("inbodyLatestMuscle").textContent = latest ? latest.skeletalMuscle.toFixed(1) : "-";
-      document.getElementById("inbodyLatestFat").textContent = latest ? latest.bodyFat.toFixed(1) : "-";
+      document.getElementById("inbodyLatestWeight").textContent = latest ? formatKg2(latest.weight) : "-";
+      document.getElementById("inbodyLatestMuscle").textContent = latest ? formatKg2(latest.skeletalMuscle) : "-";
+      document.getElementById("inbodyLatestFat").textContent = latest ? formatKg2(latest.bodyFat) : "-";
       const rows = document.getElementById("inbodySummaryRows");
       if (!rows) return;
       rows.innerHTML = `
         <div class="row"><div class="key">최근 측정일</div><div class="value">${latest ? escapeHtml(latest.date) : "-"}</div></div>
         <div class="row"><div class="key">최근 체지방률</div><div class="value">${latest ? `${latest.bodyFatPercent.toFixed(1)}%` : "-"}</div></div>
-        <div class="row"><div class="key">체중 변화</div><div class="value">${delta ? formatSigned(delta.weightDiff) : "-"}</div></div>
-        <div class="row"><div class="key">근육 변화</div><div class="value">${delta ? formatSigned(delta.muscleDiff) : "-"}</div></div>
-        <div class="row"><div class="key">지방 변화</div><div class="value">${delta ? formatSigned(delta.fatDiff) : "-"}</div></div>
+        <div class="row"><div class="key">체중 변화</div><div class="value">${delta ? formatSignedKg2(delta.weightDiff) : "-"}</div></div>
+        <div class="row"><div class="key">근육 변화</div><div class="value">${delta ? formatSignedKg2(delta.muscleDiff) : "-"}</div></div>
+        <div class="row"><div class="key">지방 변화</div><div class="value">${delta ? formatSignedKg2(delta.fatDiff) : "-"}</div></div>
         <div class="row"><div class="key">해석</div><div class="value">${escapeHtml(getInbodyInsight(delta))}</div></div>
       `;
       renderInbodyRecordList();
@@ -8745,7 +8850,7 @@ Notes:
           ids.autoDietAnalysis.checked = false;
           renderTodayAdherencePanel({ isAvailable: false });
           const text = document.getElementById("todayAdherenceContent").textContent || "";
-          assertTest(text.includes("수동") && text.includes("records"), "manual guidance should render when auto analysis is off");
+          assertTest(text.includes("직접") && text.includes("데이터 기록 탭"), "manual guidance should render when auto analysis is off");
         }));
 
         results.push(runNamedTest("adherence toggle on renders score", () => {
