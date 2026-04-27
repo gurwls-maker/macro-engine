@@ -1,21 +1,20 @@
 <!--
-Version: 5.9.2
-Stage: 5.9.2 Records/InBody 정합성 및 과다 섭취 UX 보정
+Version: 5.9.3
+Stage: 5.9.3 Today 컴포넌트 점수곡선 정상화
 Date: 2026-04-27
 Notes:
-- Records 체중/식사 저장 양방향 병합 안정화
-- InBody 해석과 Today Coach 힌트 기준 통합
-- InBody/Records 주요 수치 0.01 단위 입력/표시 개선
-- InBody 의심값 Soft Block warning 및 기록표 경고 표시 추가
-- 과다 섭취 라벨, pending 하위 상태, 한 줄 원인 문구 보정
-- 기록 내보내기 버튼명 및 백업 파일명 정리
+- Today 컴포넌트 점수의 저섭취 0점 수렴 및 plateau 문제 개선
+- 0~100% 부족 구간은 연속 증가 곡선으로 보정
+- 100% 초과 구간은 매크로별 민감도를 반영한 연속 감소 곡선으로 보정
+- 기존 pending / proteinCap / 가중치 / 라벨 direction 정책 유지
+- runAdherenceScoringTests 기대값 갱신
 -->
 <!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>운동 맞춤 매크로 계산기 v5.9.2</title>
+  <title>운동 맞춤 매크로 계산기 v5.9.3</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2826,7 +2825,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               운동 맞춤 매크로 계산기 
-               <span class="app-version">v5.9.2</span>
+               <span class="app-version">v5.9.3</span>
          </h1>
         <p class="lead">
           기초대사량과 기본 생활 활동을 먼저 계산하고,
@@ -6063,29 +6062,60 @@ Notes:
       return clamp(value, 0, 1);
     }
 
+    function smoothstepUnit(value){
+      const t = clampUnitInterval(value);
+      return t * t * (3 - 2 * t);
+    }
+
     function getMacroComponentScore(target, consumed, options = {}){
       if (!Number.isFinite(target) || target <= 0) return 0;
       const safeConsumed = Number.isFinite(consumed) ? Math.max(0, consumed) : 0;
-      const delta = safeConsumed - target;
+      if (safeConsumed <= 0) return 0;
       const ratio = safeConsumed / target;
-      const underTolerance = Math.max(target * (options.underRatio ?? 0.15), options.minTolerance ?? 1);
-      const overTolerance = Math.max(target * (options.overRatio ?? options.underRatio ?? 0.15), options.minTolerance ?? 1);
-      const tolerance = delta < 0 ? underTolerance : overTolerance;
-      if (!(tolerance > 0)) return 0;
-      const calculatedScore = clampUnitInterval(1 - Math.abs(delta) / tolerance);
-      if (Number.isFinite(options.nearMinRatio) && ratio >= options.nearMinRatio && Number.isFinite(options.nearFloor)) {
-        return Math.max(calculatedScore, clampUnitInterval(options.nearFloor));
+      if (ratio === 1) return 1;
+
+      const nearFloor = clampUnitInterval(options.nearFloor ?? 0.90);
+      const underExponent = Number.isFinite(options.underExponent) ? options.underExponent : 1.8;
+      const nearUnderRatio = clamp(
+        Number.isFinite(options.nearUnderRatio) ? options.nearUnderRatio : (options.nearMinRatio ?? 0.90),
+        0.01,
+        0.999
+      );
+      const nearOverRatio = Math.max(
+        1.001,
+        Number.isFinite(options.nearOverRatio)
+          ? options.nearOverRatio
+          : 1 + (options.overRatio ?? options.underRatio ?? 0.15) * 0.25
+      );
+      const overToleranceRatio = Math.max(
+        options.overRatio ?? options.underRatio ?? 0.15,
+        (options.minTolerance ?? 1) / target
+      );
+      const overZeroRatio = Math.max(
+        nearOverRatio + 0.01,
+        Number.isFinite(options.overZeroRatio) ? options.overZeroRatio : 1 + overToleranceRatio
+      );
+
+      if (ratio < 1) {
+        if (ratio < nearUnderRatio) {
+          return clampUnitInterval(nearFloor * Math.pow(ratio / nearUnderRatio, underExponent));
+        }
+        const t = (ratio - nearUnderRatio) / (1 - nearUnderRatio);
+        return clampUnitInterval(nearFloor + (1 - nearFloor) * smoothstepUnit(t));
       }
-      if (
-        Number.isFinite(options.nearUnderRatio) &&
-        Number.isFinite(options.nearOverRatio) &&
-        ratio >= options.nearUnderRatio &&
-        ratio <= options.nearOverRatio &&
-        Number.isFinite(options.nearFloor)
-      ) {
-        return Math.max(calculatedScore, clampUnitInterval(options.nearFloor));
+
+      if (ratio <= nearOverRatio) {
+        const t = (ratio - 1) / (nearOverRatio - 1);
+        return clampUnitInterval(1 - (1 - nearFloor) * smoothstepUnit(t));
       }
-      return calculatedScore;
+      if (ratio <= overZeroRatio) {
+        const overCurvePower = Number.isFinite(options.overCurvePower) ? options.overCurvePower : 1;
+        const t = Math.pow((ratio - nearOverRatio) / (overZeroRatio - nearOverRatio), overCurvePower);
+        const overTailFloor = clampUnitInterval(options.overTailFloor ?? 0.01);
+        return clampUnitInterval(overTailFloor + (nearFloor - overTailFloor) * (1 - smoothstepUnit(t)));
+      }
+      const overTailFloor = clampUnitInterval(options.overTailFloor ?? 0.01);
+      return clampUnitInterval(overTailFloor * Math.exp(-(ratio - overZeroRatio) * 8));
     }
 
     function getAdherenceLabel(percent){
@@ -6247,10 +6277,10 @@ Notes:
       }
 
       const componentScores = {
-        protein: getMacroComponentScore(balance.target.protein, balance.consumed.protein, { underRatio: 0.22, overRatio: 0.45, minTolerance: 18, nearMinRatio: 0.90, nearFloor: 0.90 }),
-        kcal: getMacroComponentScore(balance.target.kcal, balance.consumed.kcal, { underRatio: 0.14, overRatio: 0.14, minTolerance: 160, nearUnderRatio: 0.97, nearOverRatio: 1.03, nearFloor: 0.98 }),
-        carbs: getMacroComponentScore(balance.target.carbs, balance.consumed.carbs, { underRatio: 0.24, overRatio: 0.30, minTolerance: 28, nearUnderRatio: 0.95, nearOverRatio: 1.05, nearFloor: 0.95 }),
-        fat: getMacroComponentScore(balance.target.fat, balance.consumed.fat, { underRatio: 0.28, overRatio: 0.34, minTolerance: 12, nearUnderRatio: 0.90, nearOverRatio: 1.10, nearFloor: 0.92 })
+        protein: getMacroComponentScore(balance.target.protein, balance.consumed.protein, { underRatio: 0.22, overRatio: 0.45, minTolerance: 18, nearUnderRatio: 0.90, nearOverRatio: 1.20, overZeroRatio: 2.00, nearFloor: 0.90 }),
+        kcal: getMacroComponentScore(balance.target.kcal, balance.consumed.kcal, { underRatio: 0.14, overRatio: 0.14, minTolerance: 160, nearUnderRatio: 0.97, nearOverRatio: 1.03, overZeroRatio: 1.55, nearFloor: 0.98, overCurvePower: 0.60, overTailFloor: 0.005 }),
+        carbs: getMacroComponentScore(balance.target.carbs, balance.consumed.carbs, { underRatio: 0.24, overRatio: 0.30, minTolerance: 28, nearUnderRatio: 0.95, nearOverRatio: 1.05, overZeroRatio: 1.65, nearFloor: 0.95, overCurvePower: 0.74, overTailFloor: 0.005 }),
+        fat: getMacroComponentScore(balance.target.fat, balance.consumed.fat, { underRatio: 0.28, overRatio: 0.34, minTolerance: 12, nearUnderRatio: 0.90, nearOverRatio: 1.10, overZeroRatio: 1.62, nearFloor: 0.92, overCurvePower: 0.78, overTailFloor: 0.005 })
       };
       const weights = { protein: 0.40, kcal: 0.30, carbs: 0.20, fat: 0.10 };
       const weightedScore = clampUnitInterval(
@@ -7401,19 +7431,19 @@ Notes:
             <div class="adherence-components">
               <div class="adherence-component">
                 <div class="label">Protein</div>
-                <div class="value">${Math.round(adherenceResult.detail.componentScores.protein * 100)}점</div>
+                <div class="value">${(adherenceResult.detail.componentScores.protein * 100).toFixed(1)}점</div>
               </div>
               <div class="adherence-component">
                 <div class="label">Kcal</div>
-                <div class="value">${Math.round(adherenceResult.detail.componentScores.kcal * 100)}점</div>
+                <div class="value">${(adherenceResult.detail.componentScores.kcal * 100).toFixed(1)}점</div>
               </div>
               <div class="adherence-component">
                 <div class="label">Carbs</div>
-                <div class="value">${Math.round(adherenceResult.detail.componentScores.carbs * 100)}점</div>
+                <div class="value">${(adherenceResult.detail.componentScores.carbs * 100).toFixed(1)}점</div>
               </div>
               <div class="adherence-component">
                 <div class="label">Fat</div>
-                <div class="value">${Math.round(adherenceResult.detail.componentScores.fat * 100)}점</div>
+                <div class="value">${(adherenceResult.detail.componentScores.fat * 100).toFixed(1)}점</div>
               </div>
             </div>
             ${adherenceResult.capApplied ? `<div class="mini-note">단백질 섭취가 크게 부족해 오늘 점수 상한이 ${adherenceResult.proteinCap}%로 제한되었습니다.</div>` : `<div class="mini-note">점수는 오늘 저장된 식사 총합 기준입니다.</div>`}
@@ -8511,6 +8541,22 @@ Notes:
         const results = [];
         setValidTodayBalanceTestInputs();
         ids.autoDietAnalysis.checked = true;
+        const componentTestCases = {
+          kcal: { target: 2500, options: { underRatio: 0.14, overRatio: 0.14, minTolerance: 160, nearUnderRatio: 0.97, nearOverRatio: 1.03, overZeroRatio: 1.55, nearFloor: 0.98, overCurvePower: 0.60, overTailFloor: 0.005 } },
+          protein: { target: 150, options: { underRatio: 0.22, overRatio: 0.45, minTolerance: 18, nearUnderRatio: 0.90, nearOverRatio: 1.20, overZeroRatio: 2.00, nearFloor: 0.90 } },
+          carbs: { target: 250, options: { underRatio: 0.24, overRatio: 0.30, minTolerance: 28, nearUnderRatio: 0.95, nearOverRatio: 1.05, overZeroRatio: 1.65, nearFloor: 0.95, overCurvePower: 0.74, overTailFloor: 0.005 } },
+          fat: { target: 70, options: { underRatio: 0.28, overRatio: 0.34, minTolerance: 12, nearUnderRatio: 0.90, nearOverRatio: 1.10, overZeroRatio: 1.62, nearFloor: 0.92, overCurvePower: 0.78, overTailFloor: 0.005 } }
+        };
+        const componentScoreAt = (config, ratio) => getMacroComponentScore(config.target, config.target * ratio, config.options);
+        const assertMonotonic = (scores, direction, message) => {
+          for (let i = 1; i < scores.length; i += 1) {
+            if (direction === "increasing") {
+              assertTest(scores[i] > scores[i - 1], `${message}: ${i - 1} -> ${i}`);
+            } else {
+              assertTest(scores[i] < scores[i - 1], `${message}: ${i - 1} -> ${i}`);
+            }
+          }
+        };
 
         results.push(runNamedTest("adherence goal unavailable", () => {
           ids.weight.value = "0";
@@ -8565,6 +8611,46 @@ Notes:
           assertTest(score.percent === null, "low intake pending percent should stay null");
           assertTest(score.label === "평가 보류", "low intake pending label should be held");
           assertTest(score.detail.componentScores === null, "low intake pending should not expose component scores");
+        }));
+
+        results.push(runNamedTest("macro component zero intake stays zero", () => {
+          Object.entries(componentTestCases).forEach(([key, config]) => {
+            assertClose(componentScoreAt(config, 0), 0, 0.000001, `${key} zero intake should score zero`);
+          });
+        }));
+
+        results.push(runNamedTest("macro component under curve is continuous increasing", () => {
+          const ratios = [0.01, 0.02, 0.10, 0.11, 0.12, 0.30, 0.50, 0.60, 0.70, 0.75, 0.80, 0.85, 0.89, 0.90, 0.91, 0.94, 0.95, 0.96, 0.99, 1.00];
+          Object.entries(componentTestCases).forEach(([key, config]) => {
+            const scores = ratios.map(ratio => componentScoreAt(config, ratio));
+            assertMonotonic(scores, "increasing", `${key} under curve should increase`);
+            assertTest(scores[3] !== scores[4], `${key} 11% and 12% should not collapse together`);
+            assertTest(componentScoreAt(config, 0.90) !== componentScoreAt(config, 0.95), `${key} 90% and 95% should not plateau together`);
+            assertClose(componentScoreAt(config, 1), 1, 0.000001, `${key} target intake should score 100`);
+          });
+        }));
+
+        results.push(runNamedTest("macro component under curve keeps intended feel", () => {
+          Object.entries(componentTestCases).forEach(([key, config]) => {
+            const half = componentScoreAt(config, 0.50);
+            const eighty = componentScoreAt(config, 0.80);
+            const eightyFive = componentScoreAt(config, 0.85);
+            assertTest(half < 0.50, `${key} 50% should stay below linear 50점 feel`);
+            assertTest(eighty > 0.55, `${key} 80% should not remain in the 30~40점 band`);
+            assertTest(eightyFive > 0.65, `${key} 85% should not remain in the 30~40점 band`);
+          });
+        }));
+
+        results.push(runNamedTest("macro component over curve is continuous decreasing", () => {
+          const ratios = [1.00, 1.01, 1.03, 1.05, 1.10, 1.20, 1.30, 1.50, 1.60];
+          Object.entries(componentTestCases).forEach(([key, config]) => {
+            const scores = ratios.map(ratio => componentScoreAt(config, ratio));
+            assertMonotonic(scores, "decreasing", `${key} over curve should decrease`);
+            const grouped = [1.10, 1.20, 1.30, 1.50].map(ratio => componentScoreAt(config, ratio).toFixed(6));
+            assertTest(new Set(grouped).size === grouped.length, `${key} 110~150% should not plateau together`);
+          });
+          assertTest(componentScoreAt(componentTestCases.protein, 1.10) > 0.90, "protein 110% should stay generous");
+          assertTest(componentScoreAt(componentTestCases.protein, 1.20) >= 0.89, "protein 120% should stay generous");
         }));
 
         results.push(runNamedTest("adherence ideal close case", () => {
