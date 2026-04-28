@@ -6278,7 +6278,8 @@ Notes:
       const dataQualitySignal = signalList.find(signal => signal.key === "dataQuality") || null;
       const selectedSignals = selectDailyCoachSignals(signals);
       const goalType = getDailyCoachGoalType(!Array.isArray(signals) ? (signals?.state?.goal || signals?.currentResult?.s?.goal || state.goal) : state.goal);
-      const inbodyHint = getInbodyCoachHint();
+      const inbodySignal = getInbodyCoachSignal();
+      const inbodyHint = getDailyCoachInbodyText(inbodySignal, goalType);
       return {
         items: selectedSignals.map(signal => ({
           key: signal.key,
@@ -6291,6 +6292,7 @@ Notes:
         confidence: getDailyCoachConfidenceText(dataQualitySignal),
         dataQuality: dataQualitySignal,
         goalType,
+        inbodySignal,
         inbodyHint: inbodyHint
       };
     }
@@ -8190,25 +8192,89 @@ Notes:
       };
     }
 
-    function getInbodyCoachHint(){
-      const trend = analyzeInbodyTrend(getInbodyDelta());
-      if (!trend || trend.kind === "minimal" || trend.kind === "mixed") return null;
-      if (trend.kind === "positive_recomp") {
-        return "InBody 참고: 근육량은 늘고 체지방은 줄어 현재 체성분 흐름은 긍정적입니다";
+    function getInbodyCoachSignal(){
+      const delta = getInbodyDelta();
+      const trend = analyzeInbodyTrend(delta);
+      const metrics = {
+        weightDelta: Number.isFinite(delta?.weightDiff) ? delta.weightDiff : null,
+        muscleDelta: Number.isFinite(delta?.muscleDiff) ? delta.muscleDiff : null,
+        fatMassDelta: Number.isFinite(delta?.fatDiff) ? delta.fatDiff : null,
+        bodyFatPctDelta: Number.isFinite(delta?.bodyFatPercentDiff) ? delta.bodyFatPercentDiff : null
+      };
+      if (!trend) {
+        return {
+          available: false,
+          kind: "insufficient_data",
+          severity: 0,
+          trend: null,
+          delta,
+          metrics
+        };
       }
-      if (trend.kind === "muscle_gain") {
-        return "InBody 참고: 체중 증가가 근육량 증가와 함께 나타나고 있어 현재 방향은 괜찮습니다";
-      }
-      if (trend.kind === "fat_gain") {
-        return "InBody 참고: 체중과 체지방이 함께 늘고 있어 식단 질 관리가 필요합니다";
-      }
-      if (trend.kind === "weight_muscle_loss") {
-        return "InBody 참고: 체중 감소와 함께 근육량도 줄어 회복과 섭취 부족을 확인해 주세요";
-      }
-      if (trend.kind === "muscle_loss") {
-        return "InBody 참고: 근육량 감소가 보여 단백질 섭취와 회복을 우선해 주세요";
-      }
-      return null;
+      const severityByKind = {
+        positive_recomp: 1,
+        muscle_gain: 1,
+        fat_gain: 2,
+        weight_muscle_loss: 3,
+        muscle_loss: 2,
+        minimal: 0,
+        mixed: 1
+      };
+      return {
+        available: true,
+        kind: trend.kind,
+        severity: severityByKind[trend.kind] ?? 0,
+        trend,
+        delta,
+        metrics
+      };
+    }
+
+    function getDailyCoachInbodyText(inbodySignal, goalType = "lean_bulk"){
+      if (!inbodySignal?.available) return null;
+      const goal = getDailyCoachGoalType(goalType);
+      const texts = {
+        positive_recomp: {
+          diet: "InBody 참고: 체지방은 줄고 근육량은 잘 유지되는 흐름입니다. 지금 식단 흐름을 크게 흔들기보다 유지하는 쪽이 좋습니다.",
+          lean_bulk: "InBody 참고: 근육량 흐름은 좋고 체지방 증가도 크지 않은 편입니다. 현재 린매스업 방향은 안정적으로 보입니다.",
+          bulk: "InBody 참고: 체중 증가 흐름 속에서 근육량 반응이 좋은 편입니다. 지금처럼 탄단지 균형을 유지해도 괜찮습니다."
+        },
+        muscle_gain: {
+          diet: "InBody 참고: 다이어트 중 근육량이 유지되거나 늘어난 흐름은 긍정적입니다. 칼로리를 더 줄이기보다 현재 식단 균형을 유지해 보세요.",
+          lean_bulk: "InBody 참고: 린매스업 기준으로 근육량 반응이 좋은 편입니다. 체지방 증가가 크지 않다면 현재 방향을 유지해도 좋습니다.",
+          bulk: "InBody 참고: 벌크업 기준으로 근육량 증가 흐름은 긍정적입니다. 지방 증가 속도만 과하지 않게 확인하면 됩니다."
+        },
+        fat_gain: {
+          diet: "InBody 참고: 다이어트 기준으로는 체지방 증가 흐름이 아쉽습니다. 최근 칼로리 초과나 지방 섭취가 반복됐는지 확인해 보세요.",
+          lean_bulk: "InBody 참고: 린매스업 기준으로는 체중 증가 대비 체지방 증가가 빠를 수 있습니다. 당분간 칼로리 초과량을 키우기보다 탄단지 균형을 점검해 보세요.",
+          bulk: "InBody 참고: 벌크업 중 체지방 증가는 어느 정도 생길 수 있지만, 증가 속도가 빠르면 효율이 떨어질 수 있습니다. 기름진 음식과 칼로리 초과량을 조금 점검해 보세요."
+        },
+        weight_muscle_loss: {
+          diet: "InBody 참고: 체중은 줄었지만 근육량도 함께 줄어든 흐름입니다. 다이어트 중에는 단백질과 웨이트 유지가 중요합니다.",
+          lean_bulk: "InBody 참고: 린매스업 기준으로 체중이나 근육량 흐름이 약해 보입니다. 칼로리와 단백질이 부족하지 않은지 확인해 보세요.",
+          bulk: "InBody 참고: 벌크업 기준으로 근육량 반응이 약합니다. 운동 강도, 단백질, 총섭취량을 함께 확인해 보세요."
+        },
+        muscle_loss: {
+          diet: "InBody 참고: 다이어트 중 근육량 감소 신호가 있습니다. 단백질과 웨이트 유지가 우선입니다.",
+          lean_bulk: "InBody 참고: 린매스업 중 근육량이 줄어드는 흐름은 좋지 않습니다. 단백질과 훈련 회복을 먼저 점검해 보세요.",
+          bulk: "InBody 참고: 벌크업 중 근육량 감소는 우선 점검이 필요합니다. 섭취량, 단백질, 훈련 지속성을 확인해 보세요."
+        },
+        minimal: {
+          diet: "InBody 참고: 최근 인바디 변화는 크지 않습니다. 하루 기록보다 2~4주 흐름으로 보는 편이 좋습니다.",
+          lean_bulk: "InBody 참고: 최근 인바디 변화는 크지 않습니다. 하루 기록보다 2~4주 흐름으로 보는 편이 좋습니다.",
+          bulk: "InBody 참고: 최근 인바디 변화는 크지 않습니다. 하루 기록보다 2~4주 흐름으로 보는 편이 좋습니다."
+        },
+        mixed: {
+          diet: "InBody 참고: 인바디 변화가 한 방향으로 뚜렷하지 않습니다. 체중만 보지 말고 체지방과 근육량 흐름을 같이 보세요.",
+          lean_bulk: "InBody 참고: 린매스업 흐름이 아직 뚜렷하지 않습니다. 체중 증가가 근육량 증가로 이어지는지 조금 더 지켜보세요.",
+          bulk: "InBody 참고: 벌크업 흐름이 아직 뚜렷하지 않습니다. 체중 증가 대비 근육량 반응을 몇 차례 더 확인해 보세요."
+        }
+      };
+      return texts[inbodySignal.kind]?.[goal] || null;
+    }
+
+    function getInbodyCoachHint(goalType = state.goal){
+      return getDailyCoachInbodyText(getInbodyCoachSignal(), goalType);
     }
 
     function getInbodyInsight(delta){
@@ -10237,6 +10303,79 @@ Notes:
             assertTest(!text.includes(keyword), `${message}: should not include ${keyword}`);
           });
         }
+
+        function setInbodyTestRecords(lastOverrides = {}){
+          state.inbodyRecords = [
+            { date: "2026-04-01", weight: 75, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16, warning: "", isSuspicious: false },
+            {
+              date: "2026-04-15",
+              weight: Number.isFinite(lastOverrides.weight) ? lastOverrides.weight : 75,
+              skeletalMuscle: Number.isFinite(lastOverrides.skeletalMuscle) ? lastOverrides.skeletalMuscle : 35,
+              bodyFat: Number.isFinite(lastOverrides.bodyFat) ? lastOverrides.bodyFat : 12,
+              bodyFatPercent: Number.isFinite(lastOverrides.bodyFatPercent) ? lastOverrides.bodyFatPercent : 16,
+              warning: "",
+              isSuspicious: false
+            }
+          ];
+        }
+
+        function getInbodyTextFor(goal, lastOverrides){
+          setInbodyTestRecords(lastOverrides);
+          const inbodySignal = getInbodyCoachSignal();
+          return {
+            inbodySignal,
+            text: getDailyCoachInbodyText(inbodySignal, goal)
+          };
+        }
+
+        results.push(runNamedTest("daily coach inbody signal exposes neutral trend data", () => {
+          state.inbodyRecords = [];
+          const insufficient = getInbodyCoachSignal();
+          assertTest(insufficient.available === false, "insufficient InBody records should be unavailable");
+          assertTest(insufficient.kind === "insufficient_data", "insufficient InBody records should use insufficient_data kind");
+          assertTest(insufficient.severity === 0, "insufficient InBody records should have severity 0");
+          assertTest(!insufficient.text && !insufficient.message && !insufficient.hint, "InBody signal should not carry user-facing copy");
+
+          setInbodyTestRecords({ weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 });
+          const fatGain = getInbodyCoachSignal();
+          assertTest(fatGain.available === true, "fat gain signal should be available");
+          assertTest(fatGain.kind === "fat_gain", `expected fat_gain signal, got ${fatGain.kind}`);
+          assertTest(fatGain.severity === 2, "fat gain signal should carry severity 2");
+          assertClose(fatGain.metrics.weightDelta, 1, 0.0001, "signal should expose weight delta");
+          assertClose(fatGain.metrics.fatMassDelta, 0.8, 0.0001, "signal should expose fat mass delta");
+        }));
+
+        results.push(runNamedTest("daily coach inbody text is goal-aware", () => {
+          const fatDiet = getInbodyTextFor("diet", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 });
+          const fatLean = getInbodyTextFor("lean_bulk", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 });
+          const fatBulk = getInbodyTextFor("bulk", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 });
+          assertTest(fatDiet.inbodySignal.kind === "fat_gain", "fat gain fixture should produce fat_gain");
+          assertTest(fatDiet.text !== fatLean.text && fatLean.text !== fatBulk.text && fatDiet.text !== fatBulk.text, "fat_gain InBody text should differ by goal");
+          assertIncludesAll(fatDiet.text, ["다이어트", "체지방 증가"], "diet fat_gain InBody text");
+          assertIncludesAll(fatLean.text, ["린매스업", "체중 증가 대비 체지방 증가"], "lean fat_gain InBody text");
+          assertIncludesAll(fatBulk.text, ["벌크업", "증가 속도"], "bulk fat_gain InBody text");
+          assertExcludesAll(`${fatDiet.text} ${fatLean.text} ${fatBulk.text}`, ["signal","profile","threshold","severity","macro","surplus"], "InBody user-facing text");
+
+          const lossDiet = getInbodyTextFor("diet", { weight: 74.8, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 });
+          const lossLean = getInbodyTextFor("lean_bulk", { weight: 74.8, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 });
+          const lossBulk = getInbodyTextFor("bulk", { weight: 74.8, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 });
+          assertTest(lossDiet.inbodySignal.kind === "muscle_loss", `expected muscle_loss signal, got ${lossDiet.inbodySignal.kind}`);
+          assertTest(lossDiet.text !== lossLean.text && lossLean.text !== lossBulk.text, "muscle_loss InBody text should differ by goal");
+          assertIncludesAll(lossDiet.text, ["다이어트", "근육량 감소"], "diet muscle_loss InBody text");
+          assertIncludesAll(lossBulk.text, ["벌크업", "근육량 감소"], "bulk muscle_loss InBody text");
+
+          const unknownGoalText = getDailyCoachInbodyText(fatLean.inbodySignal, "unknown_goal");
+          assertTest(unknownGoalText === fatLean.text, "unknown InBody goal should fall back to lean_bulk wording");
+        }));
+
+        results.push(runNamedTest("daily coach output uses inbody signal translation", () => {
+          setInbodyTestRecords({ weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 });
+          const signals = getGoalSignals("lean_bulk", {});
+          const output = generateDailyCoachOutput(signals);
+          assertTest(output.inbodySignal?.kind === "fat_gain", "coach output should expose the neutral InBody signal");
+          assertTest(output.inbodyHint?.includes("린매스업"), "coach output should translate InBody signal through the goal context");
+          assertTest(output.inbodyHint?.includes("탄단지 균형"), "coach output should provide Coach-level interpretation");
+        }));
 
         results.push(runNamedTest("daily coach goal-aware kcal thresholds", () => {
           const dietKcal120 = getGoalSignals("diet", { kcal: 1.20 });
