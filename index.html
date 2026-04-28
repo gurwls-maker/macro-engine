@@ -6084,6 +6084,31 @@ Notes:
       return t * t * (3 - 2 * t);
     }
 
+    const MACRO_SCORE_PROFILES = {
+      lean_bulk: {
+        protein: { underRatio: 0.22, overRatio: 0.45, minTolerance: 18, nearUnderRatio: 0.90, nearOverRatio: 1.18, overZeroRatio: 2.05, nearFloor: 0.90, overTailFloor: 0.17 },
+        kcal: { underRatio: 0.14, overRatio: 0.14, minTolerance: 160, nearUnderRatio: 0.97, nearOverRatio: 1.03, overZeroRatio: 1.55, nearFloor: 0.98, overCurvePower: 0.60, overTailFloor: 0.005 },
+        carbs: { underRatio: 0.24, overRatio: 0.30, minTolerance: 28, nearUnderRatio: 0.95, nearOverRatio: 1.05, overZeroRatio: 1.65, nearFloor: 0.95, overCurvePower: 0.74, overTailFloor: 0.005 },
+        fat: { underRatio: 0.28, overRatio: 0.34, minTolerance: 12, nearUnderRatio: 0.90, nearOverRatio: 1.05, overZeroRatio: 1.62, nearFloor: 0.98, overCurvePower: 0.78, overTailFloor: 0.005, rangeTarget: "fat", rangeStartRatio: 0.75, rangeStartScore: 0.90, rangeUnderExponent: 1.65, rangeCurvePower: 0.65 }
+      },
+      diet: {
+        protein: { underRatio: 0.22, overRatio: 0.50, minTolerance: 18, nearUnderRatio: 0.92, nearOverRatio: 1.18, overZeroRatio: 2.05, nearFloor: 0.90, overTailFloor: 0.17 },
+        kcal: { underRatio: 0.16, overRatio: 0.10, minTolerance: 130, nearUnderRatio: 0.95, nearOverRatio: 1.02, overZeroRatio: 1.42, nearFloor: 0.98, overCurvePower: 0.55, overTailFloor: 0.005 },
+        carbs: { underRatio: 0.24, overRatio: 0.24, minTolerance: 24, nearUnderRatio: 0.94, nearOverRatio: 1.04, overZeroRatio: 1.55, nearFloor: 0.95, overCurvePower: 0.70, overTailFloor: 0.005 },
+        fat: { underRatio: 0.28, overRatio: 0.26, minTolerance: 10, nearUnderRatio: 0.90, nearOverRatio: 1.04, overZeroRatio: 1.48, nearFloor: 0.98, overCurvePower: 0.72, overTailFloor: 0.005, rangeTarget: "fat", rangeStartRatio: 0.75, rangeStartScore: 0.90, rangeUnderExponent: 1.65, rangeCurvePower: 0.65 }
+      },
+      bulk: {
+        protein: { underRatio: 0.22, overRatio: 0.50, minTolerance: 18, nearUnderRatio: 0.92, nearOverRatio: 1.18, overZeroRatio: 2.05, nearFloor: 0.90, overTailFloor: 0.17 },
+        kcal: { underRatio: 0.12, overRatio: 0.20, minTolerance: 190, nearUnderRatio: 0.98, nearOverRatio: 1.05, overZeroRatio: 1.75, nearFloor: 0.98, overCurvePower: 0.70, overTailFloor: 0.005 },
+        carbs: { underRatio: 0.20, overRatio: 0.34, minTolerance: 30, nearUnderRatio: 0.97, nearOverRatio: 1.06, overZeroRatio: 1.75, nearFloor: 0.95, overCurvePower: 0.80, overTailFloor: 0.005 },
+        fat: { underRatio: 0.28, overRatio: 0.38, minTolerance: 14, nearUnderRatio: 0.90, nearOverRatio: 1.06, overZeroRatio: 1.70, nearFloor: 0.98, overCurvePower: 0.85, overTailFloor: 0.005, rangeTarget: "fat", rangeStartRatio: 0.75, rangeStartScore: 0.90, rangeUnderExponent: 1.65, rangeCurvePower: 0.65 }
+      }
+    };
+
+    function getMacroScoreProfile(goalType){
+      return MACRO_SCORE_PROFILES[goalType] || MACRO_SCORE_PROFILES.lean_bulk;
+    }
+
     function getMacroComponentScore(target, consumed, options = {}){
       if (!Number.isFinite(target) || target <= 0) return 0;
       const safeConsumed = Number.isFinite(consumed) ? Math.max(0, consumed) : 0;
@@ -6354,11 +6379,12 @@ Notes:
         };
       }
 
+      const macroScoreProfile = getMacroScoreProfile(balance.goalSnapshot?.goal || currentResult?.s?.goal || state.goal);
       const componentScores = {
-        protein: getMacroComponentScore(balance.target.protein, balance.consumed.protein, { underRatio: 0.22, overRatio: 0.45, minTolerance: 18, nearUnderRatio: 0.90, nearOverRatio: 1.20, overZeroRatio: 2.00, nearFloor: 0.90 }),
-        kcal: getMacroComponentScore(balance.target.kcal, balance.consumed.kcal, { underRatio: 0.14, overRatio: 0.14, minTolerance: 160, nearUnderRatio: 0.97, nearOverRatio: 1.03, overZeroRatio: 1.55, nearFloor: 0.98, overCurvePower: 0.60, overTailFloor: 0.005 }),
-        carbs: getMacroComponentScore(balance.target.carbs, balance.consumed.carbs, { underRatio: 0.24, overRatio: 0.30, minTolerance: 28, nearUnderRatio: 0.95, nearOverRatio: 1.05, overZeroRatio: 1.65, nearFloor: 0.95, overCurvePower: 0.74, overTailFloor: 0.005 }),
-        fat: getMacroComponentScore(balance.target.fat, balance.consumed.fat, { underRatio: 0.28, overRatio: 0.34, minTolerance: 12, nearUnderRatio: 0.90, nearOverRatio: 1.05, overZeroRatio: 1.62, nearFloor: 0.98, overCurvePower: 0.78, overTailFloor: 0.005, rangeTarget: "fat", rangeStartRatio: 0.75, rangeStartScore: 0.90, rangeUnderExponent: 1.65, rangeCurvePower: 0.65 })
+        protein: getMacroComponentScore(balance.target.protein, balance.consumed.protein, macroScoreProfile.protein),
+        kcal: getMacroComponentScore(balance.target.kcal, balance.consumed.kcal, macroScoreProfile.kcal),
+        carbs: getMacroComponentScore(balance.target.carbs, balance.consumed.carbs, macroScoreProfile.carbs),
+        fat: getMacroComponentScore(balance.target.fat, balance.consumed.fat, macroScoreProfile.fat)
       };
       const weights = { protein: 0.40, kcal: 0.30, carbs: 0.20, fat: 0.10 };
       const weightedScore = clampUnitInterval(
@@ -8626,11 +8652,12 @@ Notes:
         const results = [];
         setValidTodayBalanceTestInputs();
         ids.autoDietAnalysis.checked = true;
+        const leanProfile = getMacroScoreProfile("lean_bulk");
         const componentTestCases = {
-          kcal: { target: 2500, options: { underRatio: 0.14, overRatio: 0.14, minTolerance: 160, nearUnderRatio: 0.97, nearOverRatio: 1.03, overZeroRatio: 1.55, nearFloor: 0.98, overCurvePower: 0.60, overTailFloor: 0.005 } },
-          protein: { target: 150, options: { underRatio: 0.22, overRatio: 0.45, minTolerance: 18, nearUnderRatio: 0.90, nearOverRatio: 1.20, overZeroRatio: 2.00, nearFloor: 0.90 } },
-          carbs: { target: 250, options: { underRatio: 0.24, overRatio: 0.30, minTolerance: 28, nearUnderRatio: 0.95, nearOverRatio: 1.05, overZeroRatio: 1.65, nearFloor: 0.95, overCurvePower: 0.74, overTailFloor: 0.005 } },
-          fat: { target: 70, options: { underRatio: 0.28, overRatio: 0.34, minTolerance: 12, nearUnderRatio: 0.90, nearOverRatio: 1.05, overZeroRatio: 1.62, nearFloor: 0.98, overCurvePower: 0.78, overTailFloor: 0.005, rangeTarget: "fat", rangeStartRatio: 0.75, rangeStartScore: 0.90, rangeUnderExponent: 1.65, rangeCurvePower: 0.65 } }
+          kcal: { target: 2500, options: leanProfile.kcal },
+          protein: { target: 150, options: leanProfile.protein },
+          carbs: { target: 250, options: leanProfile.carbs },
+          fat: { target: 70, options: leanProfile.fat }
         };
         const componentScoreAt = (config, ratio) => getMacroComponentScore(config.target, config.target * ratio, config.options);
         const assertMonotonic = (scores, direction, message) => {
@@ -8642,6 +8669,142 @@ Notes:
             }
           }
         };
+        const scoreAt = (goal, macro, ratio) => {
+          const targets = { kcal: 2500, protein: 150, carbs: 250, fat: 70 };
+          return getMacroComponentScore(targets[macro], targets[macro] * ratio, getMacroScoreProfile(goal)[macro]) * 100;
+        };
+        const assertScoreRange = (actual, min, max, message) => {
+          assertTest(actual >= min && actual <= max, `${message}: expected ${min}~${max}, got ${round(actual, 1)}`);
+        };
+        const assertOrdered = (values, message, allowEqualFirst = false) => {
+          const [first, second, third] = values;
+          const passes = allowEqualFirst
+            ? first <= second && second < third
+            : first < second && second < third;
+          assertTest(passes, `${message}: got ${values.map(value => round(value, 1)).join(" < ")}`);
+        };
+        const weightedProfileScore = (goal, ratios) => {
+          const normalizedRatios = typeof ratios === "number"
+            ? { protein: ratios, kcal: ratios, carbs: ratios, fat: ratios }
+            : ratios;
+          return (
+            scoreAt(goal, "protein", normalizedRatios.protein) * 0.40 +
+            scoreAt(goal, "kcal", normalizedRatios.kcal) * 0.30 +
+            scoreAt(goal, "carbs", normalizedRatios.carbs) * 0.20 +
+            scoreAt(goal, "fat", normalizedRatios.fat) * 0.10
+          );
+        };
+
+        results.push(runNamedTest("macro score goal profiles exist and preserve lean baseline", () => {
+          const expectedLean = {
+            protein: { underRatio: 0.22, overRatio: 0.45, minTolerance: 18, nearUnderRatio: 0.90, nearOverRatio: 1.18, overZeroRatio: 2.05, nearFloor: 0.90, overTailFloor: 0.17 },
+            kcal: { underRatio: 0.14, overRatio: 0.14, minTolerance: 160, nearUnderRatio: 0.97, nearOverRatio: 1.03, overZeroRatio: 1.55, nearFloor: 0.98, overCurvePower: 0.60, overTailFloor: 0.005 },
+            carbs: { underRatio: 0.24, overRatio: 0.30, minTolerance: 28, nearUnderRatio: 0.95, nearOverRatio: 1.05, overZeroRatio: 1.65, nearFloor: 0.95, overCurvePower: 0.74, overTailFloor: 0.005 },
+            fat: { underRatio: 0.28, overRatio: 0.34, minTolerance: 12, nearUnderRatio: 0.90, nearOverRatio: 1.05, overZeroRatio: 1.62, nearFloor: 0.98, overCurvePower: 0.78, overTailFloor: 0.005, rangeTarget: "fat", rangeStartRatio: 0.75, rangeStartScore: 0.90, rangeUnderExponent: 1.65, rangeCurvePower: 0.65 }
+          };
+          Object.keys(GOALS).forEach(goal => {
+            const profile = getMacroScoreProfile(goal);
+            ["protein","kcal","carbs","fat"].forEach(key => {
+              assertTest(!!profile?.[key], `${goal} should expose ${key} score options`);
+            });
+          });
+          assertTest(JSON.stringify(getMacroScoreProfile("lean_bulk")) === JSON.stringify(expectedLean), "lean_bulk profile should preserve the v5.9.4 baseline options");
+          assertTest(getMacroScoreProfile("unknown_goal") === getMacroScoreProfile("lean_bulk"), "unknown goals should fall back to lean_bulk profile");
+        }));
+
+        results.push(runNamedTest("macro score goal profiles keep intended direction", () => {
+          const dietProfile = getMacroScoreProfile("diet");
+          const bulkProfile = getMacroScoreProfile("bulk");
+          const kcalOverRatio = 1.25;
+          const kcalUnderRatio = 0.85;
+          const fatOverRatio = 1.20;
+          const carbsUnderRatio = 0.85;
+          const dietKcalOver = getMacroComponentScore(2500, 2500 * kcalOverRatio, dietProfile.kcal);
+          const leanKcalOver = getMacroComponentScore(2500, 2500 * kcalOverRatio, leanProfile.kcal);
+          const bulkKcalOver = getMacroComponentScore(2500, 2500 * kcalOverRatio, bulkProfile.kcal);
+          assertTest(dietKcalOver < leanKcalOver && leanKcalOver < bulkKcalOver, "kcal overshoot should be strictest in diet and most generous in bulk");
+          const leanKcalUnder = getMacroComponentScore(2500, 2500 * kcalUnderRatio, leanProfile.kcal);
+          const bulkKcalUnder = getMacroComponentScore(2500, 2500 * kcalUnderRatio, bulkProfile.kcal);
+          assertTest(bulkKcalUnder < leanKcalUnder, "kcal undershoot should be more sensitive in bulk than lean");
+          const dietFatOver = getMacroComponentScore(70, 70 * fatOverRatio, dietProfile.fat);
+          const leanFatOver = getMacroComponentScore(70, 70 * fatOverRatio, leanProfile.fat);
+          const bulkFatOver = getMacroComponentScore(70, 70 * fatOverRatio, bulkProfile.fat);
+          assertTest(dietFatOver < leanFatOver && leanFatOver <= bulkFatOver, "fat overshoot should be stricter in diet and moderate in bulk");
+          const leanCarbsUnder = getMacroComponentScore(250, 250 * carbsUnderRatio, leanProfile.carbs);
+          const bulkCarbsUnder = getMacroComponentScore(250, 250 * carbsUnderRatio, bulkProfile.carbs);
+          assertTest(bulkCarbsUnder < leanCarbsUnder, "carb undershoot should be more sensitive in bulk than lean");
+        }));
+
+        results.push(runNamedTest("macro score profile kcal acceptance ranges", () => {
+          [
+            [1.10, { diet: [55, 70], lean_bulk: [70, 85], bulk: [86, 96] }],
+            [1.20, { diet: [20, 40], lean_bulk: [40, 60], bulk: [65, 80] }],
+            [1.30, { diet: [5, 20], lean_bulk: [15, 35], bulk: [40, 60] }],
+            [1.50, { diet: [0, 3], lean_bulk: [0, 6], bulk: [10, 25] }]
+          ].forEach(([ratio, ranges]) => {
+            const scores = ["diet","lean_bulk","bulk"].map(goal => scoreAt(goal, "kcal", ratio));
+            Object.entries(ranges).forEach(([goal, [min, max]]) => {
+              assertScoreRange(scoreAt(goal, "kcal", ratio), min, max, `${goal} kcal ${Math.round(ratio * 100)}%`);
+            });
+            assertOrdered(scores, `kcal ${Math.round(ratio * 100)}% should order diet < lean_bulk < bulk`, ratio === 1.50);
+          });
+          const underScores = ["diet","lean_bulk","bulk"].map(goal => scoreAt(goal, "kcal", 0.85));
+          assertScoreRange(underScores[0], 76, 84, "diet kcal 85%");
+          assertScoreRange(underScores[1], 73, 82, "lean_bulk kcal 85%");
+          assertScoreRange(underScores[2], 70, 80, "bulk kcal 85%");
+          assertTest(underScores[2] < underScores[1] && underScores[1] <= underScores[0], `kcal 85% should order bulk < lean_bulk <= diet: got ${underScores.map(value => round(value, 1)).join(", ")}`);
+        }));
+
+        results.push(runNamedTest("macro score profile protein excess acceptance ranges", () => {
+          ["diet","lean_bulk","bulk"].forEach(goal => {
+            const protein150 = scoreAt(goal, "protein", 1.50);
+            const protein180 = scoreAt(goal, "protein", 1.80);
+            assertScoreRange(protein150, 55, 70, `${goal} protein 150%`);
+            assertTest(protein150 >= 50 && protein150 < 75, `${goal} protein 150% should stay generous but not normal-range high`);
+            assertScoreRange(protein180, 30, 55, `${goal} protein 180% reference`);
+          });
+        }));
+
+        results.push(runNamedTest("macro score profile carbs and fat excess acceptance ranges", () => {
+          [
+            ["carbs", 1.20, { diet: [45, 65], lean_bulk: [58, 75], bulk: [70, 85] }],
+            ["carbs", 1.30, { diet: [20, 40], lean_bulk: [35, 55], bulk: [50, 70] }],
+            ["fat", 1.20, { diet: [42, 60], lean_bulk: [60, 78], bulk: [72, 86] }],
+            ["fat", 1.30, { diet: [15, 35], lean_bulk: [35, 55], bulk: [50, 70] }]
+          ].forEach(([macro, ratio, ranges]) => {
+            const scores = ["diet","lean_bulk","bulk"].map(goal => scoreAt(goal, macro, ratio));
+            Object.entries(ranges).forEach(([goal, [min, max]]) => {
+              assertScoreRange(scoreAt(goal, macro, ratio), min, max, `${goal} ${macro} ${Math.round(ratio * 100)}%`);
+            });
+            assertOrdered(scores, `${macro} ${Math.round(ratio * 100)}% should order diet < lean_bulk < bulk`);
+          });
+        }));
+
+        results.push(runNamedTest("macro score profile fat range target acceptance", () => {
+          ["diet","lean_bulk","bulk"].forEach(goal => {
+            assertScoreRange(scoreAt(goal, "fat", 0.75), 88, 92, `${goal} fat 75% should stay near 90`);
+            assertScoreRange(scoreAt(goal, "fat", 0.80), 90, 100, `${goal} fat 80% should stay high`);
+            assertScoreRange(scoreAt(goal, "fat", 1.05), 94, 100, `${goal} fat 105% should stay high`);
+          });
+          const fat75Scores = ["diet","lean_bulk","bulk"].map(goal => scoreAt(goal, "fat", 0.75));
+          const fat80Scores = ["diet","lean_bulk","bulk"].map(goal => scoreAt(goal, "fat", 0.80));
+          assertTest(Math.max(...fat75Scores) - Math.min(...fat75Scores) <= 3, "fat 75% should not split heavily by goal");
+          assertTest(Math.max(...fat80Scores) - Math.min(...fat80Scores) <= 3, "fat 80% should not split heavily by goal");
+        }));
+
+        results.push(runNamedTest("macro score weighted profile acceptance ranges", () => {
+          [
+            [1.10, { diet: [78, 86], lean_bulk: [84, 91], bulk: [90, 96] }],
+            [1.20, { diet: [55, 68], lean_bulk: [66, 76], bulk: [76, 86] }],
+            [1.30, { diet: [40, 52], lean_bulk: [50, 62], bulk: [62, 74] }]
+          ].forEach(([ratio, ranges]) => {
+            const scores = ["diet","lean_bulk","bulk"].map(goal => weightedProfileScore(goal, ratio));
+            Object.entries(ranges).forEach(([goal, [min, max]]) => {
+              assertScoreRange(weightedProfileScore(goal, ratio), min, max, `${goal} weighted ${Math.round(ratio * 100)}%`);
+            });
+            assertOrdered(scores, `weighted ${Math.round(ratio * 100)}% should order diet < lean_bulk < bulk`);
+          });
+        }));
 
         results.push(runNamedTest("adherence goal unavailable", () => {
           ids.weight.value = "0";
