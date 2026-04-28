@@ -5517,6 +5517,104 @@ Notes:
       }
     };
 
+    const DAILY_COACH_SIGNAL_THRESHOLD_PROFILES = {
+      lean_bulk: DAILY_COACH_SIGNAL_THRESHOLDS,
+      diet: {
+        calorie: {
+          okMin: 85,
+          okMax: 108,
+          low: [
+            { max: 60, severity: 3 },
+            { max: 72, severity: 2 },
+            { max: 85, severity: 1 }
+          ],
+          high: [
+            { min: 130, severity: 3 },
+            { min: 118, severity: 2 },
+            { min: 108, severity: 1 }
+          ]
+        },
+        protein: DAILY_COACH_SIGNAL_THRESHOLDS.protein,
+        carb: {
+          okMin: 85,
+          okMax: 112,
+          low: [
+            { max: 50, severity: 3 },
+            { max: 70, severity: 2 },
+            { max: 85, severity: 1 }
+          ],
+          high: [
+            { min: 150, severity: 3 },
+            { min: 130, severity: 2 },
+            { min: 112, severity: 1 }
+          ]
+        },
+        fat: {
+          okMin: 85,
+          okMax: 112,
+          low: [
+            { max: 50, severity: 3 },
+            { max: 70, severity: 2 },
+            { max: 85, severity: 1 }
+          ],
+          high: [
+            { min: 145, severity: 3 },
+            { min: 120, severity: 2 },
+            { min: 112, severity: 1 }
+          ]
+        }
+      },
+      bulk: {
+        calorie: {
+          okMin: 92,
+          okMax: 122,
+          low: [
+            { max: 65, severity: 3 },
+            { max: 88, severity: 2 },
+            { max: 92, severity: 1 }
+          ],
+          high: [
+            { min: 170, severity: 3 },
+            { min: 145, severity: 2 },
+            { min: 122, severity: 1 }
+          ]
+        },
+        protein: DAILY_COACH_SIGNAL_THRESHOLDS.protein,
+        carb: {
+          okMin: 90,
+          okMax: 125,
+          low: [
+            { max: 55, severity: 3 },
+            { max: 78, severity: 2 },
+            { max: 90, severity: 1 }
+          ],
+          high: [
+            { min: 170, severity: 3 },
+            { min: 145, severity: 2 },
+            { min: 125, severity: 1 }
+          ]
+        },
+        fat: {
+          okMin: 85,
+          okMax: 127,
+          low: [
+            { max: 50, severity: 3 },
+            { max: 70, severity: 2 },
+            { max: 85, severity: 1 }
+          ],
+          high: [
+            { min: 169, severity: 3 },
+            { min: 144, severity: 2 },
+            { min: 127, severity: 1 }
+          ]
+        }
+      }
+    };
+
+    function getDailyCoachThresholdProfile(goalType){
+      return DAILY_COACH_SIGNAL_THRESHOLD_PROFILES[goalType] || DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.lean_bulk;
+    }
+
     function getRatioPercent(actual, target){
       if (!Number.isFinite(actual) || !Number.isFinite(target) || target <= 0) return null;
       return actual / target * 100;
@@ -5572,20 +5670,20 @@ Notes:
       };
     }
 
-    function getCalorieSignal(actual, target){
-      return getMacroSignal("calorie", actual, target, DAILY_COACH_SIGNAL_THRESHOLDS.calorie);
+    function getCalorieSignal(actual, target, thresholds = DAILY_COACH_SIGNAL_THRESHOLDS.calorie){
+      return getMacroSignal("calorie", actual, target, thresholds);
     }
 
-    function getProteinSignal(actual, target){
-      return getMacroSignal("protein", actual, target, DAILY_COACH_SIGNAL_THRESHOLDS.protein);
+    function getProteinSignal(actual, target, thresholds = DAILY_COACH_SIGNAL_THRESHOLDS.protein){
+      return getMacroSignal("protein", actual, target, thresholds);
     }
 
-    function getCarbSignal(actual, target){
-      return getMacroSignal("carb", actual, target, DAILY_COACH_SIGNAL_THRESHOLDS.carb);
+    function getCarbSignal(actual, target, thresholds = DAILY_COACH_SIGNAL_THRESHOLDS.carb){
+      return getMacroSignal("carb", actual, target, thresholds);
     }
 
-    function getFatSignal(actual, target){
-      return getMacroSignal("fat", actual, target, DAILY_COACH_SIGNAL_THRESHOLDS.fat);
+    function getFatSignal(actual, target, thresholds = DAILY_COACH_SIGNAL_THRESHOLDS.fat){
+      return getMacroSignal("fat", actual, target, thresholds);
     }
 
     function getTrainingSignal(context = {}){
@@ -5698,10 +5796,12 @@ Notes:
       const currentResult = context.currentResult || calculate();
       const balance = context.balance || getTodayMacroBalance(currentResult);
       const currentState = context.state || context.s || currentResult?.s || collectState();
-      const calorieSignal = getCalorieSignal(balance?.consumed?.kcal, balance?.target?.kcal);
-      const proteinSignal = getProteinSignal(balance?.consumed?.protein, balance?.target?.protein);
-      const carbSignal = getCarbSignal(balance?.consumed?.carbs, balance?.target?.carbs);
-      const fatSignal = getFatSignal(balance?.consumed?.fat, balance?.target?.fat);
+      const goalType = currentState?.goal || currentResult?.s?.goal || state.goal || "lean_bulk";
+      const thresholdProfile = getDailyCoachThresholdProfile(goalType);
+      const calorieSignal = getCalorieSignal(balance?.consumed?.kcal, balance?.target?.kcal, thresholdProfile.calorie);
+      const proteinSignal = getProteinSignal(balance?.consumed?.protein, balance?.target?.protein, thresholdProfile.protein);
+      const carbSignal = getCarbSignal(balance?.consumed?.carbs, balance?.target?.carbs, thresholdProfile.carb);
+      const fatSignal = getFatSignal(balance?.consumed?.fat, balance?.target?.fat, thresholdProfile.fat);
       const trainingSignal = getTrainingSignal({
         ...context,
         state: currentState,
@@ -9535,6 +9635,7 @@ Notes:
 
         function createCoachContext(config = {}){
           const currentResult = calculate();
+          const coachState = { ...currentResult.s, goal: config.goal || "lean_bulk" };
           const focusKeyEntries = [
             Object.prototype.hasOwnProperty.call(config.target || {}, "kcal") || Object.prototype.hasOwnProperty.call(config.consumed || {}, "kcal") ? "calorie" : null,
             Object.prototype.hasOwnProperty.call(config.target || {}, "protein") || Object.prototype.hasOwnProperty.call(config.consumed || {}, "protein") ? "protein" : null,
@@ -9557,7 +9658,7 @@ Notes:
           const mealCount = Number.isFinite(config.mealCount) ? config.mealCount : 3;
           return {
             currentResult,
-            state: currentResult.s,
+            state: coachState,
             focusKey,
             balance: {
               date: getTodayDateString(),
@@ -9661,6 +9762,128 @@ Notes:
             }
           }));
         }
+
+        function getGoalSignals(goal, ratios = {}){
+          const target = { kcal: 2000, protein: 150, carbs: 220, fat: 70 };
+          return getDailyCoachSignals(createCoachContext({
+            goal,
+            target,
+            consumed: {
+              kcal: target.kcal * (Number.isFinite(ratios.kcal) ? ratios.kcal : 1),
+              protein: target.protein * (Number.isFinite(ratios.protein) ? ratios.protein : 1),
+              carbs: target.carbs * (Number.isFinite(ratios.carbs) ? ratios.carbs : 1),
+              fat: target.fat * (Number.isFinite(ratios.fat) ? ratios.fat : 1)
+            }
+          }));
+        }
+
+        function assertSignalShape(signal, status, severity, message){
+          assertTest(signal?.status === status && signal?.severity === severity, `${message}: expected ${status} s${severity}, got ${signal?.status} s${signal?.severity}`);
+        }
+
+        function assertSelectedSignal(signals, key, status, severity, message){
+          const selected = selectDailyCoachSignals(signals);
+          const found = selected.find(signal => signal.key === key);
+          assertTest(!!found, `${message}: expected selected ${key}`);
+          assertSignalShape(found, status, severity, `${message} selected ${key}`);
+        }
+
+        results.push(runNamedTest("daily coach goal-aware kcal thresholds", () => {
+          const dietKcal120 = getGoalSignals("diet", { kcal: 1.20 });
+          const leanKcal120 = getGoalSignals("lean_bulk", { kcal: 1.20 });
+          const bulkKcal120 = getGoalSignals("bulk", { kcal: 1.20 });
+          assertSignalShape(dietKcal120.calorieSignal, "high", 2, "diet kcal 120%");
+          assertSignalShape(leanKcal120.calorieSignal, "high", 1, "lean kcal 120%");
+          assertSignalShape(bulkKcal120.calorieSignal, "ok", 0, "bulk kcal 120%");
+          assertSelectedSignal(dietKcal120, "calorie", "high", 2, "diet kcal 120%");
+          assertSelectedSignal(leanKcal120, "calorie", "high", 1, "lean kcal 120%");
+          assertSelectedSignal(bulkKcal120, "calorie", "ok", 0, "bulk kcal 120%");
+
+          const dietKcal132 = getGoalSignals("diet", { kcal: 1.32 });
+          const leanKcal132 = getGoalSignals("lean_bulk", { kcal: 1.32 });
+          const bulkKcal132 = getGoalSignals("bulk", { kcal: 1.32 });
+          assertSignalShape(dietKcal132.calorieSignal, "high", 3, "diet kcal 132%");
+          assertSignalShape(leanKcal132.calorieSignal, "high", 2, "lean kcal 132%");
+          assertSignalShape(bulkKcal132.calorieSignal, "high", 1, "bulk kcal 132%");
+          assertSelectedSignal(bulkKcal132, "calorie", "high", 1, "bulk kcal 132%");
+
+          const bulkKcal150 = getGoalSignals("bulk", { kcal: 1.50 });
+          assertSignalShape(bulkKcal150.calorieSignal, "high", 2, "bulk kcal 150%");
+        }));
+
+        results.push(runNamedTest("daily coach goal-aware kcal and carb low thresholds", () => {
+          const dietKcal85 = getGoalSignals("diet", { kcal: 0.85 });
+          const leanKcal85 = getGoalSignals("lean_bulk", { kcal: 0.85 });
+          const bulkKcal85 = getGoalSignals("bulk", { kcal: 0.85 });
+          assertSignalShape(dietKcal85.calorieSignal, "ok", 0, "diet kcal 85%");
+          assertSignalShape(leanKcal85.calorieSignal, "low", 1, "lean kcal 85%");
+          assertSignalShape(bulkKcal85.calorieSignal, "low", 2, "bulk kcal 85%");
+          assertSelectedSignal(bulkKcal85, "calorie", "low", 2, "bulk kcal 85%");
+
+          const dietCarbs85 = getGoalSignals("diet", { carbs: 0.85 });
+          const leanCarbs85 = getGoalSignals("lean_bulk", { carbs: 0.85 });
+          const bulkCarbs85 = getGoalSignals("bulk", { carbs: 0.85 });
+          assertSignalShape(dietCarbs85.carbSignal, "ok", 0, "diet carbs 85%");
+          assertSignalShape(leanCarbs85.carbSignal, "ok", 0, "lean carbs 85%");
+          assertSignalShape(bulkCarbs85.carbSignal, "low", 1, "bulk carbs 85%");
+          assertSelectedSignal(bulkCarbs85, "carb", "low", 1, "bulk carbs 85%");
+        }));
+
+        results.push(runNamedTest("daily coach goal-aware carbs and fat high thresholds", () => {
+          const dietCarbs132 = getGoalSignals("diet", { carbs: 1.32 });
+          const leanCarbs132 = getGoalSignals("lean_bulk", { carbs: 1.32 });
+          const bulkCarbs132 = getGoalSignals("bulk", { carbs: 1.32 });
+          assertSignalShape(dietCarbs132.carbSignal, "high", 2, "diet carbs 132%");
+          assertSignalShape(leanCarbs132.carbSignal, "high", 1, "lean carbs 132%");
+          assertSignalShape(bulkCarbs132.carbSignal, "high", 1, "bulk carbs 132%");
+          assertTest(dietCarbs132.carbSignal.severity >= leanCarbs132.carbSignal.severity, "diet carbs 132% should be at least as strong as lean");
+          assertTest(bulkCarbs132.carbSignal.severity < dietCarbs132.carbSignal.severity, "bulk carbs 132% should be weaker than diet");
+
+          const dietFat122 = getGoalSignals("diet", { fat: 1.22 });
+          const leanFat122 = getGoalSignals("lean_bulk", { fat: 1.22 });
+          const bulkFat122 = getGoalSignals("bulk", { fat: 1.22 });
+          const bulkFat125 = getGoalSignals("bulk", { fat: 1.25 });
+          const bulkFat128 = getGoalSignals("bulk", { fat: 1.28 });
+          assertSignalShape(dietFat122.fatSignal, "high", 2, "diet fat 122%");
+          assertSignalShape(leanFat122.fatSignal, "high", 1, "lean fat 122%");
+          assertSignalShape(bulkFat122.fatSignal, "ok", 0, "bulk fat 122%");
+          assertSignalShape(bulkFat125.fatSignal, "ok", 0, "bulk fat 125%");
+          assertSignalShape(bulkFat128.fatSignal, "high", 1, "bulk fat 128%");
+          assertSelectedSignal(dietFat122, "fat", "high", 2, "diet fat 122%");
+          assertSelectedSignal(bulkFat122, "calorie", "ok", 0, "bulk fat 122% should not over-warn fat");
+
+          const dietFat132 = getGoalSignals("diet", { fat: 1.32 });
+          const leanFat132 = getGoalSignals("lean_bulk", { fat: 1.32 });
+          const bulkFat132 = getGoalSignals("bulk", { fat: 1.32 });
+          const bulkFat145 = getGoalSignals("bulk", { fat: 1.45 });
+          const bulkFat150 = getGoalSignals("bulk", { fat: 1.50 });
+          const bulkFat170 = getGoalSignals("bulk", { fat: 1.70 });
+          assertSignalShape(dietFat132.fatSignal, "high", 2, "diet fat 132%");
+          assertSignalShape(leanFat132.fatSignal, "high", 1, "lean fat 132%");
+          assertSignalShape(bulkFat132.fatSignal, "high", 1, "bulk fat 132%");
+          assertSignalShape(bulkFat145.fatSignal, "high", 2, "bulk fat 145%");
+          assertSignalShape(bulkFat150.fatSignal, "high", 2, "bulk fat 150%");
+          assertSignalShape(bulkFat170.fatSignal, "high", 3, "bulk fat 170%");
+        }));
+
+        results.push(runNamedTest("daily coach threshold fallback uses lean baseline", () => {
+          const unknownKcal132 = getGoalSignals("unknown_goal", { kcal: 1.32 });
+          const leanKcal132 = getGoalSignals("lean_bulk", { kcal: 1.32 });
+          assertSignalShape(unknownKcal132.calorieSignal, leanKcal132.calorieSignal.status, leanKcal132.calorieSignal.severity, "unknown kcal 132% fallback");
+          assertTest(getDailyCoachThresholdProfile("unknown_goal") === getDailyCoachThresholdProfile("lean_bulk"), "unknown goal should return lean threshold profile");
+        }));
+
+        results.push(runNamedTest("daily coach goal-aware mixed kcal over protein low selection", () => {
+          const dietMixed = getGoalSignals("diet", { kcal: 1.20, protein: 0.70 });
+          const bulkMixed = getGoalSignals("bulk", { kcal: 1.20, protein: 0.70 });
+          assertSignalShape(dietMixed.calorieSignal, "high", 2, "diet mixed calorie 120%");
+          assertSignalShape(dietMixed.proteinSignal, "low", 2, "diet mixed protein 70%");
+          assertSignalShape(bulkMixed.calorieSignal, "ok", 0, "bulk mixed calorie 120%");
+          assertSignalShape(bulkMixed.proteinSignal, "low", 2, "bulk mixed protein 70%");
+          assertSelectedSignal(dietMixed, "calorie", "high", 2, "diet mixed should keep calorie visible");
+          assertSelectedSignal(dietMixed, "protein", "low", 2, "diet mixed should keep protein visible");
+          assertSelectedSignal(bulkMixed, "protein", "low", 2, "bulk mixed should select protein low");
+        }));
 
         [
           { ratio: 0.58, status: "low", severity: 3 },
