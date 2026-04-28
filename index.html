@@ -3688,6 +3688,21 @@ Notes:
       fatKg: 1.5
     };
 
+    const MACRO_TARGET_PROFILES = {
+      diet: {
+        fatPctLowEnergy: 0.25,
+        fatPctHighEnergy: 0.23
+      },
+      lean_bulk: {
+        fatPctLowEnergy: 0.30,
+        fatPctHighEnergy: 0.25
+      },
+      bulk: {
+        fatPctLowEnergy: 0.32,
+        fatPctHighEnergy: 0.28
+      }
+    };
+
     const EXTREME_CASE_ADJUST = {
       factor: 0.97,
       maxIterations: 3
@@ -4263,6 +4278,27 @@ Notes:
       return tbwBasis * (1 - alpha) + leanBasis * alpha;
     }
 
+    function getMacroTargetProfile(goalType){
+      return MACRO_TARGET_PROFILES[goalType] || MACRO_TARGET_PROFILES.lean_bulk;
+    }
+
+    function smoothstep01(value){
+      const x = clamp(value, 0, 1);
+      return x * x * (3 - 2 * x);
+    }
+
+    function lerp(start, end, t){
+      return start + (end - start) * t;
+    }
+
+    function getFatTargetFromProfile(targetCal, weight, goalType){
+      const profile = getMacroTargetProfile(goalType);
+      const kcalPerKg = weight > 0 ? targetCal / weight : 0;
+      const t = smoothstep01((kcalPerKg - 26) / (40 - 26));
+      const fatPct = lerp(profile.fatPctLowEnergy, profile.fatPctHighEnergy, t);
+      return Math.max(0, targetCal * fatPct / 9);
+    }
+
     function allocateSurplusMacros(targetCal, protein, weight, goal){
       const baselineFat = Math.max(0, (SURPLUS_FAT_BASELINE_KG[goal] ?? 0) * weight);
       const softCap = FAT_SOFT_CAP_KG * weight;
@@ -4341,41 +4377,18 @@ Notes:
       const proteinBasisWeight = getProteinBasisWeight(s, lbmBase, lbmEffective, modeCfg);
       const proteinRaw = Math.max(0, GOALS[s.goal].proteinKg * proteinBasisWeight);
       const defaultProteinCap = targetCal * 0.35 / 4;
-
-      if (s.goal === "diet"){
-        const calculatedFatKg = Math.max(
-          GOALS[s.goal][s.gender === "female" ? "femaleFatKg" : "maleFatKg"] * s.weight,
-          targetCal * GOALS[s.goal].fatPct / 9
-        );
-        const minimumFatKg = (s.gender === "female" ? DIET_FAT_FLOOR_KG.female : DIET_FAT_FLOOR_KG.male) * s.weight;
-        const fatFloor = Math.max(calculatedFatKg, minimumFatKg);
-        const dietProteinCap = Math.max(0, (targetCal - fatFloor * 9) / 4);
-        const protein = Math.max(0, Math.min(proteinRaw, Math.max(defaultProteinCap, dietProteinCap)));
-        const carbs = Math.max(0, (Math.max(0, targetCal - protein * 4 - fatFloor * 9)) / 4);
-        const plausibility = applyPlausibilityLayer({
-          s,
-          targetCal,
-          protein,
-          carbs,
-          fat: fatFloor,
-          fatBaseline: fatFloor,
-          fatSoftCap: FAT_SOFT_CAP_KG * s.weight,
-          fatHardCap: FAT_HARD_CAP_KG * s.weight
-        });
-        return { ...plausibility, proteinBasisWeight, proteinKgApplied: proteinBasisWeight > 0 ? plausibility.protein / proteinBasisWeight : 0 };
-      }
-
       const protein = Math.max(0, Math.min(proteinRaw, defaultProteinCap));
-      const distribution = allocateSurplusMacros(targetCal, protein, s.weight, s.goal);
+      const fatTarget = getFatTargetFromProfile(targetCal, s.weight, s.goal);
+      const carbs = Math.max(0, (targetCal - protein * 4 - fatTarget * 9) / 4);
       const plausibility = applyPlausibilityLayer({
         s,
         targetCal,
         protein,
-        carbs: distribution.carbs,
-        fat: distribution.fat,
-        fatBaseline: distribution.fatBaseline,
-        fatSoftCap: distribution.fatSoftCap,
-        fatHardCap: distribution.fatHardCap
+        carbs,
+        fat: fatTarget,
+        fatBaseline: fatTarget,
+        fatSoftCap: FAT_SOFT_CAP_KG * s.weight,
+        fatHardCap: FAT_HARD_CAP_KG * s.weight
       });
       return { ...plausibility, proteinBasisWeight, proteinKgApplied: proteinBasisWeight > 0 ? plausibility.protein / proteinBasisWeight : 0 };
     }
@@ -9682,6 +9695,59 @@ Notes:
       return withRecordTestSandbox(() => {
         const results = [];
 
+        function setMacroTargetAcceptanceInputs(goal = "lean_bulk"){
+          state.mode = "athlete";
+          ids.weight.value = "75";
+          ids.height.value = "173";
+          ids.age.value = "32";
+          ids.bodyFat.value = "16";
+          ids.skeletal.value = "35.5";
+          ids.gender.value = "male";
+          ids.activityLevel.value = "sedentary";
+          ids.workType.value = "office";
+          ids.workAdj.value = "0";
+          ids.homeInbody.checked = false;
+          if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = "75";
+          ids.weeklyTrainingDays.value = "0";
+          ids.generalAdvancedSettings.checked = false;
+          ids.generalLowDigestCarbs.checked = false;
+          ids.autoDietAnalysis.checked = false;
+          ids.routinePlan.value = "ppl_ul";
+          state.routinePlan = ids.routinePlan.value;
+          state.routine = "PUSH";
+          state.intensityOverride = 0.70;
+          ids.intensityOverride.value = "0.70";
+          ids.weightDuration.value = "60";
+          ids.cardioType.value = "treadmill_walk";
+          ids.cardioDuration.value = "0";
+          ids.cardioSpeed.value = "0";
+          ids.cardioIncline.value = "0";
+          state.goal = goal;
+        }
+
+        function assertRange(value, min, max, message){
+          assertTest(value >= min && value <= max, `${message}: expected ${min}-${max}, got ${round(value, 2)}`);
+        }
+
+        function getFixedKcalMacroTarget(goal, targetCal){
+          setMacroTargetAcceptanceInputs(goal);
+          const s = collectState();
+          const modeCfg = getEffectiveModeConfig();
+          const lbmBase = s.weight - s.weight * s.bodyFat / 100;
+          const skeletalAdj = calcSkeletalAdjustment(s, lbmBase, modeCfg);
+          const lbmEffective = modeCfg.appliedAlpha > 0 ? skeletalAdj.lbmEffective : lbmBase;
+          const plan = calculateMacroTargets(s, targetCal, lbmBase, lbmEffective, modeCfg);
+          return {
+            targetCal,
+            protein: plan.protein,
+            carbs: plan.carbs,
+            fat: plan.fat,
+            proteinKcal: plan.protein * 4,
+            carbsKcal: plan.carbs * 4,
+            fatKcal: plan.fat * 9
+          };
+        }
+
         results.push(runNamedTest("macro calibration invalid input guard", () => {
           setMacroCalibrationInputs("lean_bulk");
           ids.weight.value = "0";
@@ -9750,6 +9816,75 @@ Notes:
           ["targetCal","protein","carbs","fat"].forEach(key => {
             assertTest(Number.isFinite(result[key]), `${key} should remain finite under extreme inputs`);
             assertTest(result[key] >= 0, `${key} should remain non-negative under extreme inputs`);
+          });
+        }));
+
+        results.push(runNamedTest("macro target profiles expose goal fallback", () => {
+          ["diet", "lean_bulk", "bulk"].forEach(goal => {
+            const profile = getMacroTargetProfile(goal);
+            assertTest(Number.isFinite(profile.fatPctLowEnergy), `${goal} should expose low energy fat percent`);
+            assertTest(Number.isFinite(profile.fatPctHighEnergy), `${goal} should expose high energy fat percent`);
+          });
+          assertTest(getMacroTargetProfile("unknown_goal") === getMacroTargetProfile("lean_bulk"), "unknown macro target profile should fall back to lean_bulk");
+        }));
+
+        results.push(runNamedTest("macro target current goal acceptance ranges", () => {
+          const ranges = {
+            diet: { protein: [150, 165], fat: [52, 65], carbs: [195, 225] },
+            lean_bulk: { protein: [135, 150], fat: [68, 82], carbs: [315, 350] },
+            bulk: { protein: [130, 145], fat: [78, 92], carbs: [345, 380] }
+          };
+          const outputs = {};
+          Object.entries(ranges).forEach(([goal, goalRanges]) => {
+            setMacroTargetAcceptanceInputs(goal);
+            const result = calculate();
+            outputs[goal] = result;
+            assertTest(result.isCalculable, `${goal} macro target acceptance case should calculate`);
+            assertRange(result.protein, ...goalRanges.protein, `${goal} protein current target`);
+            assertRange(result.fat, ...goalRanges.fat, `${goal} fat current target`);
+            assertRange(result.carbs, ...goalRanges.carbs, `${goal} carbs current target`);
+          });
+          assertTest(outputs.diet.protein > outputs.lean_bulk.protein && outputs.diet.protein > outputs.bulk.protein, "diet protein may be higher than lean/bulk for muscle retention");
+          assertTest(outputs.lean_bulk.fat < 90, "lean_bulk current target fat should not drift into the high 90g range");
+          assertTest(outputs.bulk.fat < 100, "bulk current target fat should not default to 100g or more");
+        }));
+
+        results.push(runNamedTest("macro target fixed kcal acceptance ranges", () => {
+          const cases = [
+            ["diet", 2000, [150, 165], [55, 62], [190, 225]],
+            ["diet", 2500, [150, 165], [62, 70], [300, 340]],
+            ["diet", 3000, [150, 165], [70, 80], [390, 445]],
+            ["lean_bulk", 2000, [135, 150], [62, 70], [190, 230]],
+            ["lean_bulk", 2500, [135, 150], [70, 82], [290, 335]],
+            ["lean_bulk", 3000, [135, 150], [80, 90], [395, 435]],
+            ["bulk", 2000, [130, 145], [68, 78], [180, 235]],
+            ["bulk", 2500, [130, 145], [78, 90], [280, 325]],
+            ["bulk", 3000, [130, 145], [88, 100], [385, 430]]
+          ];
+          cases.forEach(([goal, kcal, proteinRange, fatRange, carbRange]) => {
+            const target = getFixedKcalMacroTarget(goal, kcal);
+            assertRange(target.protein, ...proteinRange, `${goal} ${kcal} protein`);
+            assertRange(target.fat, ...fatRange, `${goal} ${kcal} fat`);
+            assertRange(target.carbs, ...carbRange, `${goal} ${kcal} carbs`);
+          });
+        }));
+
+        results.push(runNamedTest("macro target fat soft ramp favors carbs", () => {
+          ["diet", "lean_bulk", "bulk"].forEach(goal => {
+            const low = getFixedKcalMacroTarget(goal, 2000);
+            const mid = getFixedKcalMacroTarget(goal, 2500);
+            const high = getFixedKcalMacroTarget(goal, 3000);
+            const fatGain1 = mid.fat - low.fat;
+            const fatGain2 = high.fat - mid.fat;
+            const carbKcalGain1 = mid.carbsKcal - low.carbsKcal;
+            const carbKcalGain2 = high.carbsKcal - mid.carbsKcal;
+            const fatKcalGain1 = mid.fatKcal - low.fatKcal;
+            const fatKcalGain2 = high.fatKcal - mid.fatKcal;
+            assertRange(fatGain1, 6, 12, `${goal} fat ramp 2000 to 2500`);
+            assertRange(fatGain2, 6, 12, `${goal} fat ramp 2500 to 3000`);
+            assertTest(carbKcalGain1 > fatKcalGain1 * 3, `${goal} 2000 to 2500 should route most added kcal to carbs`);
+            assertTest(carbKcalGain2 > fatKcalGain2 * 3, `${goal} 2500 to 3000 should route most added kcal to carbs`);
+            assertTest(carbKcalGain1 >= 350 && carbKcalGain2 >= 350, `${goal} carb kcal gain should carry most of each 500 kcal increase`);
           });
         }));
 
