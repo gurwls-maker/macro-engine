@@ -5414,6 +5414,38 @@ Notes:
       };
     }
 
+    function isMeaningfulTodayOver(targetValue, consumedValue, key){
+      if (!Number.isFinite(targetValue) || !Number.isFinite(consumedValue)) return false;
+      return consumedValue - targetValue > getMacroDisplayDeadzone(targetValue, key);
+    }
+
+    function getMealConcentrationInfo(meals = []){
+      const normalizedMeals = Array.isArray(meals) ? meals : [];
+      const totalKcal = normalizedMeals.reduce((sum, meal) => sum + calculateMealKcal(meal), 0);
+      const totalMacroGrams = normalizedMeals.reduce((sum, meal) => (
+        sum + Number(meal?.carbs || 0) + Number(meal?.protein || 0) + Number(meal?.fat || 0)
+      ), 0);
+      const maxMealKcal = normalizedMeals.reduce((max, meal) => Math.max(max, calculateMealKcal(meal)), 0);
+      const maxMealMacroGrams = normalizedMeals.reduce((max, meal) => Math.max(max, (
+        Number(meal?.carbs || 0) + Number(meal?.protein || 0) + Number(meal?.fat || 0)
+      )), 0);
+      const kcalRatio = totalKcal > 0 ? maxMealKcal / totalKcal : 0;
+      const macroRatio = totalMacroGrams > 0 ? maxMealMacroGrams / totalMacroGrams : 0;
+      return {
+        kcalRatio,
+        macroRatio,
+        isConcentrated: normalizedMeals.length > 1 && (kcalRatio >= 0.85 || macroRatio >= 0.85)
+      };
+    }
+
+    function getMealConcentrationHint(balance, intakeProgress){
+      if (!balance?.hasMeals) return "";
+      const concentratedByMeals = !!balance.mealConcentration?.isConcentrated;
+      const singleNearFullDay = balance.mealCount === 1 && Number.isFinite(intakeProgress) && intakeProgress >= 0.85;
+      if (!concentratedByMeals && !singleNearFullDay) return "";
+      return "현재 기록이 한 끼에 몰려 있다면 남은 식사는 가볍게 이어가세요. 하루 식단을 한 번에 입력한 경우라면 참고만 해도 됩니다.";
+    }
+
     function getMacroBalanceForDate(date, currentResult = calculate(), options = {}){
       const targetDate = normalizeDateString(date) || getTodayDateString();
       const record = ensureRecordByDate(targetDate);
@@ -5439,10 +5471,10 @@ Notes:
           }
         : { kcal: null, protein: null, carbs: null, fat: null };
       const exceeded = {
-        kcal: isGoalAvailable ? remaining.kcal < 0 : false,
-        protein: isGoalAvailable ? remaining.protein < 0 : false,
-        carbs: isGoalAvailable ? remaining.carbs < 0 : false,
-        fat: isGoalAvailable ? remaining.fat < 0 : false
+        kcal: isGoalAvailable ? isMeaningfulTodayOver(target.kcal, consumed.kcal, "kcal") : false,
+        protein: isGoalAvailable ? isMeaningfulTodayOver(target.protein, consumed.protein, "protein") : false,
+        carbs: isGoalAvailable ? isMeaningfulTodayOver(target.carbs, consumed.carbs, "carbs") : false,
+        fat: isGoalAvailable ? isMeaningfulTodayOver(target.fat, consumed.fat, "fat") : false
       };
       const mealCount = record?.meals.length || 0;
       return {
@@ -5455,6 +5487,7 @@ Notes:
         isGoalAvailable,
         mealCount,
         hasMeals: mealCount > 0,
+        mealConcentration: getMealConcentrationInfo(record?.meals || []),
         goalSnapshot: snapshotTarget ? normalizeGoalSnapshot(activeSnapshot) : null
       };
     }
@@ -6042,7 +6075,7 @@ Notes:
       if (signal.key === "dataQuality") {
         if (signal.severity >= 3) return "기록이 부족하면 섭취 흐름을 정확히 보기 어려워 Coach 해석이 흔들릴 수 있습니다";
         if (signal.severity === 2) return "주요 식사 기록이 더 채워지면 오늘 방향을 더 분명하게 볼 수 있습니다";
-        if (signal.severity === 1) return "일부 기록이 비어 있어 세부 해석은 참고 정도로 보는 편이 좋습니다";
+        if (signal.severity === 1) return "현재 기록 기준으로는 세부 해석을 참고 정도로 보는 편이 좋습니다";
         return "오늘 기록상 목표 대비 큰 이탈 없이 확인할 수 있습니다";
       }
       const reasonMap = {
@@ -6119,7 +6152,7 @@ Notes:
       if (signal.key === "dataQuality") {
         if (signal.severity >= 3) return "오늘 먹은 주요 식사를 먼저 기록해 주세요";
         if (signal.severity === 2) return "빠진 식사가 있다면 다음 기록 전에 하나만 보완해 주세요";
-        if (signal.severity === 1) return "비어 있는 항목이 보이면 한 가지만 더 채워 주세요";
+        if (signal.severity === 1) return "추가 식사가 있다면 이어서 기록해 주세요";
         return "지금처럼 식사 기록을 이어가 주세요";
       }
       const actionMap = {
@@ -6501,7 +6534,7 @@ Notes:
     function getAdherenceSummaryText(adherenceResult){
       const direction = adherenceResult?.direction;
       if (adherenceResult?.status === "pending_over") {
-        return "현재 기록은 아직 하루 전체 평가를 내리기에는 이르지만, 일부 항목은 목표 범위를 벗어났습니다.";
+        return "현재 기록은 아직 하루 전체 평가 전이지만, 목표를 의미 있게 넘은 항목이 있습니다.";
       }
       if (direction === "over") return "총 섭취량과 일부 영양소가 목표를 넘어 전체 점수에 반영되었습니다.";
       if (direction === "mixed") return "부족과 초과가 함께 있어 전체 균형 재조정이 필요합니다.";
@@ -6590,6 +6623,12 @@ Notes:
         const progressPercent = Number.isFinite(intakeProgress)
           ? clamp(Math.round(intakeProgress * 100), 0, 999)
           : null;
+        const concentrationHint = getMealConcentrationHint(balance, intakeProgress);
+        const pendingSummaryText = hasExceededMacro
+          ? "현재 기록은 아직 하루 전체 평가 전이지만, 목표를 의미 있게 넘은 항목이 있습니다."
+          : (Number.isFinite(intakeProgress) && intakeProgress >= 0.85
+            ? "현재 기록 기준으로는 목표 범위에 가깝습니다."
+            : "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다. 추가 식사가 있다면 이어서 기록해 주세요.");
         return {
           percent: null,
           label: hasExceededMacro ? "조절 필요" : "평가 보류",
@@ -6598,16 +6637,15 @@ Notes:
           isAvailable: true,
           status: hasExceededMacro ? "pending_over" : "pending",
           progressPercent,
-          direction: hasExceededMacro ? "over" : "under",
-          summaryText: hasExceededMacro
-            ? "현재 기록은 아직 하루 전체 평가를 내리기에는 이르지만, 일부 항목은 목표 범위를 벗어났습니다."
-            : "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다.",
+          direction: hasExceededMacro ? "over" : (Number.isFinite(intakeProgress) && intakeProgress >= 0.85 ? "balanced" : "under"),
+          summaryText: pendingSummaryText,
           reasons: {
-            protein: hasExceededMacro ? "현재 1끼 기록만으로 목표 범위를 초과한 항목이 있습니다." : "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다.",
-            kcal: hasExceededMacro ? "남은 식사는 추가 섭취보다 조절을 우선해 주세요." : "식사가 더 기록되면 오늘 식단 점수를 계산합니다.",
+            protein: hasExceededMacro ? "현재 기록 기준으로 목표를 의미 있게 넘은 항목이 있습니다." : (Number.isFinite(intakeProgress) && intakeProgress >= 0.85 ? "현재 기록 기준으로는 목표 범위에 가깝습니다." : "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다."),
+            kcal: hasExceededMacro ? "남은 식사는 추가 섭취보다 조절을 우선해 주세요." : "추가 식사가 있다면 이어서 기록해 주세요.",
             carbs: "데이터 기록 탭에 오늘 식사를 저장하면 오늘 식단 평가가 이어집니다.",
             fat: "점수는 오늘 저장된 식사 총합 기준입니다."
           },
+          mealConcentrationHint: concentrationHint,
           detail: {
             target: balance.target,
             consumed: balance.consumed,
@@ -6646,6 +6684,8 @@ Notes:
       const percent = clamp(Math.min(rawPercent, proteinCap), 0, 100);
       const direction = getAdherenceDirection(balance);
       const interpretationType = classifyTodayInterpretation(balance, componentScores, percent);
+      const concentrationHint = getMealConcentrationHint(balance, intakeProgress);
+      const interpretationText = getTodayInterpretationText(interpretationType);
 
       return {
         percent,
@@ -6656,7 +6696,8 @@ Notes:
         status: "available",
         direction,
         interpretationType,
-        summaryText: getTodayInterpretationText(interpretationType),
+        summaryText: interpretationText,
+        mealConcentrationHint: concentrationHint,
         reasons: {
           protein: buildMacroReason("protein", balance, componentScores.protein, proteinRatio, proteinCap, capApplied),
           kcal: buildMacroReason("kcal", balance, componentScores.kcal, proteinRatio, proteinCap, capApplied),
@@ -7492,7 +7533,7 @@ Notes:
         } else if (adherenceResult.percent >= 70) {
           items.push("식단 달성률은 중간 이상입니다. 미세 조정보다 반복적으로 어긋나는 끼니 패턴을 먼저 정리하면 점수가 빨리 올라갑니다.");
         } else {
-          items.push("식단 달성률이 아직 낮은 편입니다. 오늘은 수치 미세조정보다 식사 누락과 단백질 부족부터 막는 것이 우선입니다.");
+          items.push("식단 달성률이 아직 낮은 편입니다. 오늘은 수치 미세조정보다 식사를 빠뜨리지 않고 단백질 부족부터 막는 것이 우선입니다.");
         }
       }
 
@@ -7523,7 +7564,7 @@ Notes:
         return "현재는 칼로리를 더 밀기보다 입력값과 측정 조건을 먼저 다시 확인하는 편이 안전합니다.";
       }
       if (adherenceResult?.isAvailable && adherenceResult.percent < 70) {
-        return "지금 단계에서는 엔진 수정보다 실행 복구가 우선입니다. 내일은 식사 누락 없이 단백질 앵커부터 맞춘 뒤 다시 반응을 보는 편이 좋습니다.";
+        return "지금 단계에서는 엔진 수정보다 실행 복구가 우선입니다. 내일은 식사를 빠뜨리지 않고 단백질 앵커부터 맞춘 뒤 다시 반응을 보는 편이 좋습니다.";
       }
       if (r.goalClampUsed) {
         return "엔진이 이미 목표 칼로리를 보수 범위 안으로 한 번 제한했습니다. 실제 반응이 쌓이기 전까지는 수동으로 더 공격적으로 밀지 않는 쪽이 안전합니다.";
@@ -7741,23 +7782,30 @@ Notes:
           ? `<div class="copy">현재 섭취 진도: 목표 대비 약 ${adherenceResult.progressPercent}%</div>`
           : "";
         const isPendingOver = adherenceResult.status === "pending_over";
+        const pendingBadgeText = adherenceResult.label || (isPendingOver ? "조절 필요" : "평가 보류");
+        const pendingCopyText = adherenceResult.reasons?.protein || (isPendingOver ? "현재 기록 기준으로 목표를 의미 있게 넘은 항목이 있습니다." : "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다.");
+        const pendingActionText = adherenceResult.reasons?.kcal || (isPendingOver ? "남은 식사는 추가 섭취보다 조절을 우선해 주세요." : "추가 식사가 있다면 이어서 기록해 주세요.");
+        const pendingTotalText = adherenceResult.reasons?.fat || "점수는 오늘 저장된 식사 총합 기준입니다.";
+        const mealHintText = adherenceResult.mealConcentrationHint || "";
+        const mealHintNote = mealHintText ? `<div class="mini-note meal-concentration-note">${escapeHtml(mealHintText)}</div>` : "";
         host.innerHTML = `
           <div class="adherence-hero">
             <div class="adherence-score-card pending">
               <div class="eyebrow">Today Score</div>
               <div class="big">기록 진행 중</div>
-              <div><span class="adherence-badge muted">${isPendingOver ? "조절 필요" : "평가 보류"}</span></div>
-              <div class="copy">${isPendingOver ? "현재 1끼 기록만으로 목표 범위를 초과한 항목이 있습니다." : "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다."}</div>
+              <div><span class="adherence-badge muted">${escapeHtml(pendingBadgeText)}</span></div>
+              <div class="copy">${escapeHtml(pendingCopyText)}</div>
               ${progressText}
             </div>
             <div class="adherence-detail-card">
               <h4>간단 해석</h4>
               <ul class="adherence-detail-list">
-                <li>${isPendingOver ? "남은 식사는 추가 섭취보다 조절을 우선해 주세요." : "식사가 더 기록되면 오늘 식단 점수를 계산합니다."}</li>
+                <li>${escapeHtml(pendingActionText)}</li>
                 <li>${escapeHtml(adherenceResult.summaryText || getAdherenceSummaryText(adherenceResult))}</li>
-                <li>점수는 오늘 저장된 식사 총합 기준입니다.</li>
+                <li>${escapeHtml(pendingTotalText)}</li>
               </ul>
               <div class="mini-note">오늘 누적 섭취와 목표 대비 남은 양은 위 영역에서 계속 확인할 수 있습니다.</div>
+              ${mealHintNote}
             </div>
           </div>
         `;
@@ -7800,6 +7848,7 @@ Notes:
             </div>
             <div class="mini-note">지방은 정확한 목표치보다 적정 범위 유지가 중요해, 너무 낮거나 과할 때만 감점됩니다.</div>
             ${adherenceResult.capApplied ? `<div class="mini-note">단백질 섭취가 크게 부족해 오늘 점수 상한이 ${adherenceResult.proteinCap}%로 제한되었습니다.</div>` : `<div class="mini-note">점수는 오늘 저장된 식사 총합 기준입니다.</div>`}
+            ${adherenceResult.mealConcentrationHint ? `<div class="mini-note meal-concentration-note">${escapeHtml(adherenceResult.mealConcentrationHint)}</div>` : ""}
           </div>
         </div>
       `;
@@ -8936,6 +8985,19 @@ Notes:
             scoreAt(goal, "fat", normalizedRatios.fat) * 0.10
           );
         };
+        const assertNoAmbiguousRecordCopy = (text, message) => {
+          const value = String(text || "");
+          ["빈 항목","비어","누락","일부 기록이 비어"].forEach(term => {
+            assertTest(!value.includes(term), `${message}: should not include ${term}`);
+          });
+        };
+        const assertNoStrongNearTargetCopy = (text, message) => {
+          const value = String(text || "");
+          ["초과","조절 필요","목표 범위를 벗어남"].forEach(term => {
+            assertTest(!value.includes(term), `${message}: should not include ${term}`);
+          });
+        };
+        const countTextMatches = (text, term) => String(text || "").split(term).length - 1;
 
         results.push(runNamedTest("macro score goal profiles exist and preserve lean baseline", () => {
           const expectedLean = {
@@ -9086,6 +9148,41 @@ Notes:
           assertTest(score.detail.componentScores === null, "pending should not expose component scores");
         }));
 
+        results.push(runNamedTest("adherence one meal near target stays pending without over copy", () => {
+          setValidTodayBalanceTestInputs();
+          ids.autoDietAnalysis.checked = true;
+          const target = calculate();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            meals: [{
+              id: "m1",
+              mealLabel: "near target single meal",
+              carbs: target.carbs + 0.5,
+              protein: target.protein + 0.5,
+              fat: target.fat + 0.5,
+              memo: "",
+              createdAt: `${today}T08:00:00.000Z`
+            }]
+          }]);
+          const balance = getTodayMacroBalance(target);
+          const score = getTodayAdherenceScore(target);
+          assertTest(Object.values(balance.exceeded).every(value => value === false), "tiny over within deadzone should not set exceeded flags");
+          assertTest(score.status === "pending", "single meal near target should stay pending instead of pending_over");
+          assertTest(score.label === "평가 보류", "single meal near target should keep pending label");
+          assertTest(score.summaryText.includes("목표 범위에 가깝습니다"), "near-target pending should say it is close to target range");
+          assertTest(!score.summaryText.includes("하루 식단을 한 번에 입력한 경우"), "single near-full-day entry should not put the meal hint in summaryText");
+          assertTest(score.mealConcentrationHint.includes("하루 식단을 한 번에 입력한 경우"), "single near-full-day entry should expose a separate reference-only hint");
+          assertNoStrongNearTargetCopy(`${score.label} ${score.summaryText} ${Object.values(score.reasons).join(" ")}`, "single meal near target pending copy");
+          renderTodayAdherencePanel(score);
+          const adherenceHost = document.getElementById("todayAdherenceContent");
+          const hostText = adherenceHost?.textContent || "";
+          const scoreCardText = adherenceHost?.querySelector(".adherence-score-card")?.textContent || "";
+          const detailCardText = adherenceHost?.querySelector(".adherence-detail-card")?.textContent || "";
+          assertTest(countTextMatches(hostText, "하루 식단을 한 번에 입력한 경우") === 1, "single near-target hint should render exactly once");
+          assertTest(!scoreCardText.includes("하루 식단을 한 번에 입력한 경우"), "single near-target hint should not render in the score card");
+          assertTest(detailCardText.includes("하루 식단을 한 번에 입력한 경우"), "single near-target hint should render in the detail card");
+        }));
+
         results.push(runNamedTest("adherence low intake stays pending", () => {
           setValidTodayBalanceTestInputs();
           const target = calculate();
@@ -9101,6 +9198,70 @@ Notes:
           assertTest(score.percent === null, "low intake pending percent should stay null");
           assertTest(score.label === "평가 보류", "low intake pending label should be held");
           assertTest(score.detail.componentScores === null, "low intake pending should not expose component scores");
+        }));
+
+        results.push(runNamedTest("adherence concentrated meal hint avoids empty-record wording", () => {
+          setValidTodayBalanceTestInputs();
+          ids.autoDietAnalysis.checked = true;
+          const target = calculate();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            meals: [
+              {
+                id: "m1",
+                mealLabel: "full day entry",
+                carbs: target.carbs,
+                protein: target.protein,
+                fat: target.fat,
+                memo: "",
+                createdAt: `${today}T08:00:00.000Z`
+              },
+              {
+                id: "m2",
+                mealLabel: "zero entry",
+                carbs: 0,
+                protein: 0,
+                fat: 0,
+                memo: "",
+                createdAt: `${today}T12:00:00.000Z`
+              }
+            ]
+          }]);
+          const score = getTodayAdherenceScore(target);
+          assertTest(score.status === "available", "two meal records near target should remain available");
+          assertTest(score.percent >= 95, "two meal total near target should still score high");
+          assertTest(!score.summaryText.includes("한 끼에 몰려 있다면"), "concentrated meal record should not put the hint in summaryText");
+          assertTest(score.mealConcentrationHint.includes("한 끼에 몰려 있다면"), "concentrated meal record should expose a separate reference-only hint");
+          assertNoAmbiguousRecordCopy(`${score.summaryText} ${Object.values(score.reasons).join(" ")}`, "concentrated meal copy");
+          renderTodayAdherencePanel(score);
+          const adherenceHost = document.getElementById("todayAdherenceContent");
+          const hostText = adherenceHost?.textContent || "";
+          const scoreCardText = adherenceHost?.querySelector(".adherence-score-card")?.textContent || "";
+          const detailCardText = adherenceHost?.querySelector(".adherence-detail-card")?.textContent || "";
+          assertTest(countTextMatches(hostText, "하루 식단을 한 번에 입력한 경우") === 1, "concentrated meal hint should render exactly once");
+          assertTest(!scoreCardText.includes("한 끼에 몰려 있다면"), "concentrated meal hint should not render in the score card");
+          assertTest(detailCardText.includes("한 끼에 몰려 있다면"), "concentrated meal hint should render in the detail card");
+        }));
+
+        results.push(runNamedTest("adherence pending real overshoot still asks for adjustment", () => {
+          setValidTodayBalanceTestInputs();
+          const target = calculate();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            meals: [{
+              id: "m1",
+              mealLabel: "real overshoot single meal",
+              carbs: target.carbs * 1.2,
+              protein: target.protein * 1.2,
+              fat: target.fat * 1.2,
+              memo: "",
+              createdAt: `${today}T08:00:00.000Z`
+            }]
+          }]);
+          const score = getTodayAdherenceScore(target);
+          assertTest(score.status === "pending_over", "meaningful one-meal overshoot should remain pending_over");
+          assertTest(score.label === "조절 필요", "meaningful one-meal overshoot should keep adjustment label");
+          assertTest(score.summaryText.includes("목표를 의미 있게 넘은"), "meaningful overshoot should still explain the over-target state");
         }));
 
         results.push(runNamedTest("macro component zero intake stays zero", () => {
