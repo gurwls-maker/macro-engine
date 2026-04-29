@@ -2561,6 +2561,30 @@ Notes:
       white-space:normal;
       overflow-wrap:anywhere;
     }
+    .meal-list-control{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:10px 12px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:rgba(255,255,255,.58);
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.4;
+    }
+    .meal-list-toggle{
+      flex:0 0 auto;
+      min-height:auto;
+      padding:7px 10px;
+      font-size:12px;
+    }
+    #selectedMealsList.meal-list-expanded{
+      max-height:520px;
+      overflow-y:auto;
+      padding-right:4px;
+    }
     .meal-empty{
       padding:14px 16px;
       border:1px dashed var(--line);
@@ -3919,7 +3943,8 @@ Notes:
       renderedGoalKey: ""
     };
     const uiState = {
-      activeTab: "today"
+      activeTab: "today",
+      recordsMealsExpanded: false
     };
     const recordsState = {
       items: [],
@@ -8057,14 +8082,20 @@ Notes:
       const record = ensureRecordByDate(date);
       const host = document.getElementById("selectedMealsList");
       if (!record.meals.length) {
+        host.classList.remove("meal-list-expanded");
         host.innerHTML = `<div class="meal-empty">선택한 날짜에 저장된 식사가 아직 없습니다. 식사 직후 바로 기록해 두면 섭취량과 하루 총합을 확인하기 쉽습니다.</div>`;
         return;
       }
+      const previewLimit = 5;
+      const hasOverflow = record.meals.length > previewLimit;
+      const isExpanded = hasOverflow && !!uiState.recordsMealsExpanded;
+      const visibleMeals = hasOverflow && !isExpanded ? record.meals.slice(-previewLimit) : record.meals;
+      host.classList.toggle("meal-list-expanded", isExpanded);
       host.innerHTML = `
         <div class="meal-table-row meal-table-head">
           <div>식사명</div><div>탄수</div><div>단백질</div><div>지방</div><div>kcal</div><div>메모</div><div>삭제</div>
         </div>
-        ${record.meals.map(meal => {
+        ${visibleMeals.map(meal => {
           const energy = calculateMealEnergy(meal);
           const energyDetail = formatMealEnergyDetailText(energy);
           const memo = String(meal.memo || "").trim();
@@ -8084,6 +8115,12 @@ Notes:
           </div>
         `;
         }).join("")}
+        ${hasOverflow ? `
+          <div class="meal-list-control">
+            <span>저장된 식사 ${record.meals.length}개 · ${isExpanded ? "전체 표시 중" : `최근 ${previewLimit}개만 표시 중`}</span>
+            <button class="secondary-btn meal-list-toggle" type="button" data-toggle-meals="${date}">${isExpanded ? "접기" : "전체 보기"}</button>
+          </div>
+        ` : ""}
       `;
     }
 
@@ -8688,10 +8725,12 @@ Notes:
         ids[id].addEventListener("change", saveState);
       });
       ids.recordDate.addEventListener("input", () => {
+        uiState.recordsMealsExpanded = false;
         syncRecordInputsForDate(ids.recordDate.value);
         render();
       });
       ids.recordDate.addEventListener("change", () => {
+        uiState.recordsMealsExpanded = false;
         syncRecordInputsForDate(ids.recordDate.value);
         render();
       });
@@ -8814,6 +8853,12 @@ Notes:
       });
 
       document.getElementById("selectedMealsList").addEventListener("click", event => {
+        const toggle = event.target.closest("[data-toggle-meals]");
+        if (toggle) {
+          uiState.recordsMealsExpanded = !uiState.recordsMealsExpanded;
+          renderSelectedDateMeals(toggle.getAttribute("data-toggle-meals") || getSelectedRecordDate());
+          return;
+        }
         const button = event.target.closest("[data-delete-meal]");
         if (!button) return;
         deleteMealEntry(button.getAttribute("data-meal-date"), button.getAttribute("data-delete-meal"));
@@ -8826,6 +8871,7 @@ Notes:
         items: JSON.stringify(recordsState.items),
         feedback: recordsState.feedback ? { ...recordsState.feedback } : null,
         activeTab: uiState.activeTab,
+        recordsMealsExpanded: uiState.recordsMealsExpanded,
         weight: ids.weight.value,
         height: ids.height.value,
         age: ids.age.value,
@@ -8867,6 +8913,7 @@ Notes:
         recordsState.items = JSON.parse(snapshot.items);
         recordsState.feedback = snapshot.feedback;
         uiState.activeTab = snapshot.activeTab;
+        uiState.recordsMealsExpanded = snapshot.recordsMealsExpanded;
         ids.weight.value = snapshot.weight;
         ids.height.value = snapshot.height;
         ids.age.value = snapshot.age;
@@ -9133,6 +9180,36 @@ Notes:
           const text = document.getElementById("selectedMealsList").textContent;
           assertTest(text.includes("visible memo note"), "meal memo should render in selected meal list");
           assertTest(text.includes("no memo meal"), "meal without memo should still render");
+        }));
+        results.push(runNamedTest("long meal list collapses and expands", () => {
+          const meals = Array.from({ length: 6 }, (_, index) => ({
+            id: `m${index + 1}`,
+            mealLabel: `meal ${index + 1}`,
+            carbs: 10 + index,
+            protein: 5 + index,
+            fat: 2,
+            alcoholKcal: index === 5 ? 140 : 0,
+            otherKcal: index === 5 ? 60 : 0,
+            memo: index === 5 ? "visible long-list memo" : "",
+            createdAt: `2026-04-22T0${Math.min(index + 1, 9)}:00:00.000Z`
+          }));
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-04-22", meals }]);
+          uiState.recordsMealsExpanded = false;
+          renderSelectedDateMeals("2026-04-22");
+          const host = document.getElementById("selectedMealsList");
+          assertTest(host.querySelectorAll(".meal-table-row:not(.meal-table-head)").length === 5, "collapsed long list should show five meals");
+          assertTest(!host.textContent.includes("meal 1"), "collapsed long list should hide older meals");
+          assertTest(host.textContent.includes("meal 6"), "collapsed long list should show recent meals");
+          assertTest(host.textContent.includes("visible long-list memo"), "collapsed long list should keep visible memo text for shown meals");
+          assertTest(host.textContent.includes("140kcal") && host.textContent.includes("60kcal"), "collapsed long list should keep non-macro kcal detail");
+          host.querySelector("[data-toggle-meals]").click();
+          assertTest(document.getElementById("selectedMealsList").querySelectorAll(".meal-table-row:not(.meal-table-head)").length === 6, "expanded long list should show all meals");
+          assertTest(document.getElementById("selectedMealsList").textContent.includes("meal 1"), "expanded long list should show older meals");
+          document.querySelector('[data-delete-meal="m6"]').click();
+          const record = getRecordByDate("2026-04-22");
+          assertTest(record.meals.length === 5, "delete button should still remove a meal from expanded list");
+          renderSelectedDateMeals("2026-04-22");
+          assertTest(document.getElementById("selectedMealsList").querySelectorAll(".meal-table-row:not(.meal-table-head)").length === 5, "list should refresh after deletion");
         }));
         results.push(runNamedTest("delete meal", () => {
           recordsState.items = normalizeRecordsCollection([{
