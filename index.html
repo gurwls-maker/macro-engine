@@ -1416,9 +1416,21 @@ Notes:
     }
     #todayInputPanel .training-group-body{
       display:grid;
-      grid-template-columns:repeat(2,minmax(0,1fr));
+      grid-template-columns:repeat(4,minmax(0,1fr));
       gap:14px 16px;
       align-items:start;
+    }
+    #todayInputPanel .compact-body-grid{
+      grid-template-columns:repeat(6,minmax(0,1fr));
+    }
+    #todayInputPanel .activity-group-body{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+      gap:14px 16px;
+      align-items:start;
+    }
+    #todayInputPanel .activity-select-grid{
+      grid-template-columns:repeat(2,minmax(0,1fr));
     }
     #todayInputPanel .training-group-body > .field,
     #todayInputPanel .training-group-body > .training-subsection{
@@ -1427,7 +1439,6 @@ Notes:
     #todayInputPanel #generalModeNotice,
     #todayInputPanel #generalAdvancedField,
     #todayInputPanel #routineSessionGroup,
-    #todayInputPanel #intensityField,
     #todayInputPanel .training-subsection{
       grid-column:1 / -1;
     }
@@ -1438,6 +1449,9 @@ Notes:
     #todayInputPanel #weeklyTrainingDaysField{order:21}
     #todayInputPanel #intensityField{order:30}
     #todayInputPanel .training-subsection{order:40}
+    #todayInputPanel #intensityField{
+      grid-column:span 2;
+    }
     #todayInputPanel #routineSessionGroup{
       padding:14px 16px;
       border:1px solid color-mix(in srgb, var(--line) 68%, white 32%);
@@ -1540,6 +1554,9 @@ Notes:
     #todayInputPanel .grid-3{
       grid-template-columns:repeat(3,minmax(0,1fr));
     }
+    #todayInputPanel .compact-body-grid{
+      grid-template-columns:repeat(6,minmax(0,1fr));
+    }
     #todayInputPanel .grid-3,
     #todayInputPanel .grid-2{
       gap:14px 16px;
@@ -1586,6 +1603,9 @@ Notes:
       flex-direction:column;
       gap:10px;
     }
+    #todayInputPanel .cardio-grid{
+      grid-template-columns:repeat(4,minmax(0,1fr));
+    }
     #todayInputPanel .training-subsection-title{
       font-size:11px;
       font-weight:900;
@@ -1608,6 +1628,21 @@ Notes:
     #todayInputPanel #intensityField .scale{
       width:100%;
       max-width:none;
+    }
+    #kpiPanel .maintenance-kcal{
+      margin-top:8px;
+      padding-top:8px;
+      border-top:1px dashed color-mix(in srgb, var(--line) 72%, white 28%);
+      font-size:12px;
+      line-height:1.35;
+      font-weight:900;
+      color:var(--deep);
+    }
+    #kpiPanel .maintenance-kcal-note{
+      margin-top:2px;
+      font-size:10.5px;
+      line-height:1.35;
+      color:var(--muted);
     }
     .today-top-actions .ghost-btn{
       min-height:48px;
@@ -2729,8 +2764,13 @@ Notes:
       .today-topbar{grid-template-columns:1fr}
       .today-top-actions{justify-content:flex-start}
       #globalGoalHost .hero-goal-card{grid-template-columns:1fr}
-      #todayInputPanel .grid-3{grid-template-columns:1fr}
-      #todayInputPanel .training-group-body{grid-template-columns:1fr}
+      #todayInputPanel .grid-3,
+      #todayInputPanel .compact-body-grid,
+      #todayInputPanel .activity-group-body,
+      #todayInputPanel .activity-select-grid,
+      #todayInputPanel .training-group-body,
+      #todayInputPanel .cardio-grid{grid-template-columns:1fr}
+      #todayInputPanel #intensityField{grid-column:1 / -1}
       #todayInputPanel #routinePlanField{grid-template-columns:1fr}
       #todayInputPanel #todayRoutineAthleteField,
       #todayInputPanel #routineGeneralField{margin-top:0}
@@ -2816,9 +2856,24 @@ Notes:
         line-height:1.66;
       }
     }
-    @media (max-width:1180px){
+    @media (max-width:640px){
+      #kpiPanel .kpi.target{
+        grid-column:1 / -1;
+      }
+    }
+    @media (min-width:981px) and (max-width:1180px){
       #todayInputPanel .grid-3{
         grid-template-columns:repeat(3,minmax(0,1fr));
+      }
+      #todayInputPanel .compact-body-grid{
+        grid-template-columns:repeat(3,minmax(0,1fr));
+      }
+      #todayInputPanel .training-group-body,
+      #todayInputPanel .cardio-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      #todayInputPanel #intensityField{
+        grid-column:1 / -1;
       }
     }
   </style>
@@ -2957,7 +3012,9 @@ Notes:
               <div class="kpi target">
                 <div class="big" id="targetCal">0</div>
                 <div class="label">목표 칼로리</div>
-                <div class="sub">kcal / day</div>
+                <div class="sub">오늘 목표 kcal</div>
+                <div class="maintenance-kcal" id="maintenanceCal">오늘 소비 기준 —</div>
+                <div class="maintenance-kcal-note">활동·운동 입력까지 반영</div>
               </div>
               <div class="kpi protein">
                 <div class="big" id="protein">0</div>
@@ -3104,7 +3161,7 @@ Notes:
               <h4>신체 정보</h4>
             </div>
             <div class="input-group-body">
-              <div class="grid-3">
+              <div class="grid-3 compact-body-grid">
                 <div class="field"><label>체중 (kg)</label><input id="weight" type="number" min="30" max="200" step="0.1" value="75"></div>
                 <div class="field"><label>키 (cm)</label><input id="height" type="number" min="140" max="220" step="1" value="173"></div>
                 <div class="field"><label>나이</label><input id="age" type="number" min="10" max="80" step="1" value="32"></div>
@@ -3135,8 +3192,8 @@ Notes:
             <div class="input-group-head">
               <h4>활동 / 생활</h4>
             </div>
-            <div class="input-group-body">
-              <div class="grid-2">
+            <div class="input-group-body activity-group-body">
+              <div class="grid-2 activity-select-grid">
                 <div class="field">
                   <label>일상 활동량</label>
                   <select id="activityLevel">
@@ -3244,7 +3301,7 @@ Notes:
 
               <div class="training-subsection">
                 <div class="training-subsection-title">유산소</div>
-                <div class="grid-2">
+                <div class="grid-2 cardio-grid">
                   <div class="field">
                     <label>유산소 종류</label>
                     <select id="cardioType">
@@ -8511,6 +8568,8 @@ Notes:
 
       document.getElementById("targetCal").textContent = showPlaceholder ? "—" : displayedTargetCal.toLocaleString();
       document.getElementById("targetCal").title = showPlaceholder ? "유효한 입력이 필요합니다." : `${displayedTargetCal.toLocaleString()} kcal`;
+      document.getElementById("maintenanceCal").textContent = showPlaceholder ? "오늘 소비 기준 —" : `오늘 소비 기준 ${Math.round(result.totalBurn).toLocaleString()}`;
+      document.getElementById("maintenanceCal").title = showPlaceholder ? "유효한 입력이 필요합니다." : `활동·운동 입력까지 반영 ${Math.round(result.totalBurn).toLocaleString()} kcal`;
       document.getElementById("protein").textContent = showPlaceholder ? "—" : Math.round(result.protein).toLocaleString();
       document.getElementById("carbs").textContent = showPlaceholder ? "—" : Math.round(result.carbs).toLocaleString();
       document.getElementById("fat").textContent = showPlaceholder ? "—" : Math.round(result.fat).toLocaleString();
