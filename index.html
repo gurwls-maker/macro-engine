@@ -4062,6 +4062,23 @@ Notes:
       return carbs * 4 + protein * 4 + fat * 9;
     }
 
+    function calculateMealEnergy(meal = {}){
+      const carbs = normalizeMacroValue(meal.carbs);
+      const protein = normalizeMacroValue(meal.protein);
+      const fat = normalizeMacroValue(meal.fat);
+      const alcoholKcal = normalizeMacroValue(meal.alcoholKcal);
+      const otherKcal = normalizeMacroValue(meal.otherKcal);
+      const macroKcal = calculateMealKcal(carbs, protein, fat);
+      const nonMacroKcal = alcoholKcal + otherKcal;
+      return {
+        macroKcal,
+        alcoholKcal,
+        otherKcal,
+        nonMacroKcal,
+        totalKcal: macroKcal + nonMacroKcal
+      };
+    }
+
     function createMealId(){
       return `meal_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     }
@@ -5227,17 +5244,19 @@ Notes:
 
     function normalizeMeal(raw, index = 0){
       if (!raw || typeof raw !== "object") return null;
-      const hasMeaningfulShape = ["carbs","protein","fat","mealLabel","memo","createdAt","id"].some(key => key in raw);
+      const hasMeaningfulShape = ["carbs","protein","fat","alcoholKcal","otherKcal","mealLabel","memo","createdAt","id"].some(key => key in raw);
       if (!hasMeaningfulShape) return null;
       const carbs = normalizeMacroValue(raw.carbs);
       const protein = normalizeMacroValue(raw.protein);
       const fat = normalizeMacroValue(raw.fat);
+      const alcoholKcal = normalizeMacroValue(raw.alcoholKcal);
+      const otherKcal = normalizeMacroValue(raw.otherKcal);
       const mealLabel = String(raw.mealLabel || "").trim() || getDefaultMealLabelFromCount(index);
       const memo = String(raw.memo || "").trim();
       const id = String(raw.id || "").trim() || createMealId();
       const createdAtRaw = String(raw.createdAt || "").trim();
       const createdAt = Number.isNaN(new Date(createdAtRaw).getTime()) ? new Date().toISOString() : new Date(createdAtRaw).toISOString();
-      return { id, mealLabel, carbs, protein, fat, memo, createdAt };
+      return { id, mealLabel, carbs, protein, fat, alcoholKcal, otherKcal, memo, createdAt };
     }
 
     function normalizeMeals(rawMeals){
@@ -5367,12 +5386,18 @@ Notes:
     function getMealTotalsForDate(date){
       const record = ensureRecordByDate(date);
       return (record?.meals || []).reduce((totals, meal) => {
+        const energy = calculateMealEnergy(meal);
         totals.carbs += meal.carbs;
         totals.protein += meal.protein;
         totals.fat += meal.fat;
-        totals.kcal += calculateMealKcal(meal.carbs, meal.protein, meal.fat);
+        totals.macroKcal += energy.macroKcal;
+        totals.alcoholKcal += energy.alcoholKcal;
+        totals.otherKcal += energy.otherKcal;
+        totals.nonMacroKcal += energy.nonMacroKcal;
+        totals.totalKcal += energy.totalKcal;
+        totals.kcal += energy.macroKcal;
         return totals;
-      }, { carbs: 0, protein: 0, fat: 0, kcal: 0 });
+      }, { carbs: 0, protein: 0, fat: 0, kcal: 0, macroKcal: 0, alcoholKcal: 0, otherKcal: 0, nonMacroKcal: 0, totalKcal: 0 });
     }
 
     function buildGoalSnapshotFromCurrentState(currentResult = calculate(), snapshotSource = "saved_at_entry"){
@@ -8813,6 +8838,8 @@ Notes:
           assertTest(legacyImported[0].meals.length === 0, "legacy import should add empty meals array");
           assertTest(modernImported.length === 1, "modern import should produce one record");
           assertTest(modernImported[0].meals.length === 1, "modern import should preserve meals");
+          assertTest(modernImported[0].meals[0].alcoholKcal === 0, "modern import should default missing alcohol kcal to zero");
+          assertTest(modernImported[0].meals[0].otherKcal === 0, "modern import should default missing other kcal to zero");
         }));
         results.push(runNamedTest("invalid guard", () => {
           const imported = normalizeRecordsCollection([{ date: "wrong", meals: "bad" }, { date: "2026-04-22", meals: [{}] }]);
@@ -8858,6 +8885,14 @@ Notes:
         }));
         results.push(runNamedTest("kcal formula", () => {
           assertTest(calculateMealKcal(50, 30, 10) === 410, "kcal formula should be 4/4/9");
+        }));
+        results.push(runNamedTest("meal energy separates non-macro kcal", () => {
+          const energy = calculateMealEnergy({ carbs: 50, protein: 30, fat: 10, alcoholKcal: 140, otherKcal: 60 });
+          assertTest(energy.macroKcal === 410, "macro kcal should stay 4/4/9");
+          assertTest(energy.alcoholKcal === 140, "alcohol kcal should be kept as kcal");
+          assertTest(energy.otherKcal === 60, "other kcal should be kept as kcal");
+          assertTest(energy.nonMacroKcal === 200, "non-macro kcal should add alcohol and other kcal");
+          assertTest(energy.totalKcal === 610, "total kcal should include macro and non-macro kcal");
         }));
         results.push(runNamedTest("delete meal", () => {
           recordsState.items = normalizeRecordsCollection([{
@@ -8948,6 +8983,25 @@ Notes:
           assertClose(balance.consumed.protein, 90, 0.0001, "consumed protein should accumulate");
           assertClose(balance.consumed.fat, 37, 0.0001, "consumed fat should accumulate");
           assertClose(balance.consumed.kcal, calculateMealKcal(150, 90, 37), 0.0001, "consumed kcal should match 4/4/9 formula");
+        }));
+
+        results.push(runNamedTest("today totals expose non-macro kcal without changing macro grams", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            meals: [
+              { id: "m1", mealLabel: "meal", carbs: 50, protein: 30, fat: 10, alcoholKcal: 140, otherKcal: 60, memo: "", createdAt: `${today}T08:00:00.000Z` }
+            ]
+          }]);
+          const balance = getTodayMacroBalance(calculate());
+          assertClose(balance.consumed.carbs, 50, 0.0001, "non-macro kcal should not affect carbs");
+          assertClose(balance.consumed.protein, 30, 0.0001, "non-macro kcal should not affect protein");
+          assertClose(balance.consumed.fat, 10, 0.0001, "non-macro kcal should not affect fat");
+          assertClose(balance.consumed.kcal, 410, 0.0001, "legacy kcal should stay macro kcal in v6.1-1");
+          assertClose(balance.consumed.macroKcal, 410, 0.0001, "macroKcal should expose 4/4/9 kcal");
+          assertClose(balance.consumed.alcoholKcal, 140, 0.0001, "alcoholKcal should be included separately");
+          assertClose(balance.consumed.otherKcal, 60, 0.0001, "otherKcal should be included separately");
+          assertClose(balance.consumed.nonMacroKcal, 200, 0.0001, "nonMacroKcal should add alcohol and other kcal");
+          assertClose(balance.consumed.totalKcal, 610, 0.0001, "totalKcal should include non-macro kcal");
         }));
 
         return results;
