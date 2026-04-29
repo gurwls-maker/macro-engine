@@ -7087,7 +7087,7 @@ Notes:
       const preferredSource = hasExistingSnapshot
         ? existing.snapshotSource
         : (options.snapshotSource || "saved_at_entry");
-      const snapshot = existing?.goalSnapshot || null;
+      const snapshot = existing?.goalSnapshot || (options.allowSnapshotCreation ? buildGoalSnapshotFromCurrentState(currentResult, preferredSource) : null);
       const baseUpdate = {
         date: normalizedDate,
         goalSnapshot: snapshot,
@@ -7187,6 +7187,12 @@ Notes:
         note: ids.recordNote.value.trim()
       });
       setRecordFeedback("ok", `${record.date} 체중 기록을 저장했습니다.`);
+      if (ids.autoDietAnalysis.checked) {
+        persistAutoAdherenceForDate(date, calculate(), {
+          snapshotSource: existing?.goalSnapshot ? existing.snapshotSource : "saved_at_entry",
+          allowSnapshotCreation: true
+        });
+      }
       syncRecordInputsForDate(record.date);
       render();
     }
@@ -9884,7 +9890,7 @@ Notes:
           assertTest(persisted?.score === null, "record without snapshot should not expose an auto score");
         }));
 
-        results.push(runNamedTest("new saved record stays manual without snapshot after meal add", () => {
+        results.push(runNamedTest("auto-on new saved record creates snapshot and autogrades after meal add", () => {
           setValidTodayBalanceTestInputs();
           ids.autoDietAnalysis.checked = true;
           const todayRecordDate = today;
@@ -9895,26 +9901,72 @@ Notes:
           ids.recordWeight.value = "75";
           ids.recordAdherence.value = "medium";
           saveRecord();
+          const target = calculate();
           const afterRecordSave = getRecordByDate(todayRecordDate);
-          assertTest(afterRecordSave?.adherencePercent === null, "new saved record should start without auto adherencePercent");
-          assertTest(afterRecordSave?.adherenceSource === "manual", "new saved record should start as manual source");
-          assertTest(!afterRecordSave?.goalSnapshot, "new saved record should not create a goal snapshot");
-          assertTest(afterRecordSave?.snapshotSource === null, "new saved record should not assign a snapshot source");
-          ids.mealLabel.value = "QA plain meal";
-          ids.mealCarbs.value = "45";
-          ids.mealProtein.value = "30";
-          ids.mealFat.value = "12";
+          assertTest(afterRecordSave?.adherencePercent === null, "new saved record without meals should not start with auto adherencePercent");
+          assertTest(afterRecordSave?.adherenceSource === "manual", "new saved record without meals should keep manual source until score is available");
+          assertTest(!!afterRecordSave?.goalSnapshot, "auto-on new saved record should create a goal snapshot");
+          assertTest(afterRecordSave?.snapshotSource === "saved_at_entry", "auto-on new saved record should assign saved_at_entry source");
+          ids.mealLabel.value = "QA plain meal 1";
+          ids.mealCarbs.value = String(target.carbs * 0.5);
+          ids.mealProtein.value = String(target.protein * 0.5);
+          ids.mealFat.value = String(target.fat * 0.5);
+          ids.mealMemo.value = "";
+          saveMealEntry();
+          ids.mealLabel.value = "QA plain meal 2";
+          ids.mealCarbs.value = String(target.carbs * 0.5);
+          ids.mealProtein.value = String(target.protein * 0.5);
+          ids.mealFat.value = String(target.fat * 0.5);
           ids.mealMemo.value = "";
           saveMealEntry();
           const afterMealAdd = getRecordByDate(todayRecordDate);
           const feedbackText = recordsState.feedback?.message || "";
-          assertTest(afterMealAdd?.meals.length === 1, "meal should save on a new snapshotless record");
-          assertTest(afterMealAdd?.adherencePercent === null, "snapshotless record should keep null adherencePercent after meal add");
-          assertTest(afterMealAdd?.adherenceSource === "manual", "snapshotless record should keep manual source after meal add");
-          assertTest(!afterMealAdd?.goalSnapshot, "snapshotless record should not create a goal snapshot after meal add");
-          assertTest(afterMealAdd?.snapshotSource === null, "snapshotless record should not assign a snapshot source after meal add");
+          assertTest(afterMealAdd?.meals.length === 2, "meals should save on the new snapshot record");
+          assertTest(Number.isFinite(afterMealAdd?.adherencePercent), "snapshot record should store auto adherencePercent after meal add");
+          assertTest(afterMealAdd?.adherenceSource === "auto", "snapshot record should switch to auto source after meal add");
+          assertTest(!!afterMealAdd?.goalSnapshot, "meal add should keep the generated goal snapshot");
+          assertTest(afterMealAdd?.snapshotSource === "saved_at_entry", "meal add should keep saved_at_entry snapshot source");
           assertTest(!feedbackText.includes("generated_on_late_meal_add"), "meal add feedback should not mention generated_on_late_meal_add");
           assertTest(!feedbackText.includes("스냅샷"), "meal add feedback should not include late snapshot guidance");
+        }));
+
+        results.push(runNamedTest("auto-off new saved record does not create snapshot", () => {
+          setValidTodayBalanceTestInputs();
+          ids.autoDietAnalysis.checked = false;
+          recordsState.items = [];
+          ids.recordDate.value = today;
+          syncRecordInputsForDate(today);
+          ids.recordWeight.value = "75";
+          ids.recordAdherence.value = "high";
+          saveRecord();
+          const record = getRecordByDate(today);
+          assertTest(!record?.goalSnapshot, "auto-off new saved record should not create a goal snapshot");
+          assertTest(record?.snapshotSource === null, "auto-off new saved record should not assign snapshot source");
+          assertTest(record?.adherenceSource === "manual", "auto-off new saved record should keep manual source");
+          assertTest(record?.adherence === "high", "auto-off new saved record should keep manual adherence value");
+        }));
+
+        results.push(runNamedTest("past snapshotless record stays manual after meal add", () => {
+          setValidTodayBalanceTestInputs();
+          ids.autoDietAnalysis.checked = true;
+          const pastDate = "2026-04-10";
+          recordsState.items = normalizeRecordsCollection([{ date: pastDate, weight: 75, adherence: "medium", note: "" }]);
+          ids.recordDate.value = pastDate;
+          syncRecordInputsForDate(pastDate);
+          ids.mealLabel.value = "late meal";
+          ids.mealCarbs.value = "45";
+          ids.mealProtein.value = "30";
+          ids.mealFat.value = "12";
+          ids.mealAlcoholKcal.value = "";
+          ids.mealOtherKcal.value = "";
+          ids.mealMemo.value = "";
+          saveMealEntry();
+          const record = getRecordByDate(pastDate);
+          assertTest(record?.meals.length === 1, "meal should save on a past snapshotless record");
+          assertTest(record?.adherencePercent === null, "past snapshotless record should keep null adherencePercent after meal add");
+          assertTest(record?.adherenceSource === "manual", "past snapshotless record should keep manual source after meal add");
+          assertTest(!record?.goalSnapshot, "past snapshotless record should not create a goal snapshot after meal add");
+          assertTest(record?.snapshotSource === null, "past snapshotless record should not assign snapshot source after meal add");
         }));
 
         results.push(runNamedTest("past adherence remains locked after input changes", () => {
