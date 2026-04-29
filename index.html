@@ -2544,6 +2544,23 @@ Notes:
       font-weight:900;
       background:var(--surface-tint);
     }
+    .meal-energy-detail{
+      margin-top:3px;
+      color:var(--muted);
+      font-size:11px;
+      line-height:1.35;
+      word-break:keep-all;
+    }
+    .meal-row-memo{
+      grid-column:1 / -1;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+      padding-top:8px;
+      border-top:1px dashed color-mix(in srgb, var(--line) 78%, white 22%);
+      white-space:normal;
+      overflow-wrap:anywhere;
+    }
     .meal-empty{
       padding:14px 16px;
       border:1px dashed var(--line);
@@ -3412,6 +3429,14 @@ Notes:
                 <label>지방 (g)</label>
                 <input id="mealFat" type="number" min="0" step="0.1" inputmode="decimal">
               </div>
+              <div class="field">
+                <label>술 칼로리 (kcal)</label>
+                <input id="mealAlcoholKcal" type="number" min="0" step="1" inputmode="decimal">
+              </div>
+              <div class="field">
+                <label>기타 칼로리 (kcal)</label>
+                <input id="mealOtherKcal" type="number" min="0" step="1" inputmode="decimal">
+              </div>
             </div>
             <div class="inline-actions">
               <button class="primary-btn" id="saveMealBtn" type="button">식사 저장</button>
@@ -3882,7 +3907,7 @@ Notes:
       "weight","height","age","bodyFat","skeletal","gender","activityLevel","workType","workAdj","homeInbody","expertLbmAlpha","weeklyTrainingDays","generalAdvancedSettings","generalLowDigestCarbs","autoDietAnalysis",
       "routinePlan","intensityOverride","weightDuration","cardioType","cardioDuration","cardioSpeed","cardioIncline",
       "recordDate","recordWeight","recordAdherence","recordNote","importJsonFile",
-      "mealLabel","mealCarbs","mealProtein","mealFat","mealMemo"
+      "mealLabel","mealCarbs","mealProtein","mealFat","mealAlcoholKcal","mealOtherKcal","mealMemo"
     ].reduce((acc, id) => {
       acc[id] = document.getElementById(id);
       return acc;
@@ -4134,6 +4159,15 @@ Notes:
         nonMacroKcal,
         totalKcal: macroKcal + nonMacroKcal
       };
+    }
+
+    function formatMealEnergyDetailText(energy){
+      const parts = [];
+      if (energy.alcoholKcal > 0) parts.push(`술 ${Math.round(energy.alcoholKcal).toLocaleString()}kcal`);
+      if (energy.otherKcal > 0) parts.push(`기타 ${Math.round(energy.otherKcal).toLocaleString()}kcal`);
+      if (!parts.length) return "";
+      parts.push(`총 ${Math.round(energy.totalKcal).toLocaleString()}kcal`);
+      return parts.join(" · ");
     }
 
     function createMealId(){
@@ -5418,6 +5452,8 @@ Notes:
       ids.mealCarbs.value = "";
       ids.mealProtein.value = "";
       ids.mealFat.value = "";
+      ids.mealAlcoholKcal.value = "";
+      ids.mealOtherKcal.value = "";
       ids.mealMemo.value = "";
     }
 
@@ -7089,13 +7125,18 @@ Notes:
       const carbsRaw = String(ids.mealCarbs.value || "").trim();
       const proteinRaw = String(ids.mealProtein.value || "").trim();
       const fatRaw = String(ids.mealFat.value || "").trim();
+      const alcoholKcalRaw = String(ids.mealAlcoholKcal.value || "").trim();
+      const otherKcalRaw = String(ids.mealOtherKcal.value || "").trim();
+      const memoRaw = String(ids.mealMemo.value || "").trim();
       if (!date) {
         setRecordFeedback("bad", "기록 날짜를 먼저 선택해 주세요.");
         render();
         return;
       }
-      if (!carbsRaw || !proteinRaw || !fatRaw) {
-        setRecordFeedback("warn", "탄수화물, 단백질, 지방을 모두 입력해야 저장할 수 있습니다.");
+      const hasMealContent = [carbsRaw, proteinRaw, fatRaw, alcoholKcalRaw, otherKcalRaw]
+        .some(value => normalizeMacroValue(value) > 0) || memoRaw.length > 0;
+      if (!hasMealContent) {
+        setRecordFeedback("warn", "저장할 식사 내용이 없습니다. 탄단지, 술 칼로리, 기타 칼로리 또는 메모를 입력해 주세요.");
         render();
         return;
       }
@@ -7104,7 +7145,9 @@ Notes:
         carbs: carbsRaw,
         protein: proteinRaw,
         fat: fatRaw,
-        memo: ids.mealMemo.value,
+        alcoholKcal: alcoholKcalRaw,
+        otherKcal: otherKcalRaw,
+        memo: memoRaw,
         createdAt: new Date().toISOString()
       }, ensureRecordByDate(date)?.meals.length || 0);
       const record = ensureRecordByDate(date);
@@ -7982,6 +8025,21 @@ Notes:
           <div class="sub">${date}</div>
         </div>
       `).join("");
+      const macroKcalLabel = document.querySelector('#selectedMealTotals [data-total-kind="kcal"] .label');
+      if (macroKcalLabel) macroKcalLabel.textContent = "탄단지 kcal";
+      if (totals.nonMacroKcal > 0) {
+        document.getElementById("selectedMealTotals").insertAdjacentHTML("beforeend", [
+          ["술 kcal", `${Math.round(totals.alcoholKcal).toLocaleString()} kcal`, "alcohol"],
+          ["기타 kcal", `${Math.round(totals.otherKcal).toLocaleString()} kcal`, "other"],
+          ["총 kcal", `${Math.round(totals.totalKcal).toLocaleString()} kcal`, "total"]
+        ].map(([label, value, key]) => `
+          <div class="meal-summary-card" data-total-kind="${key}">
+            <div class="label">${label}</div>
+            <div class="value">${value}</div>
+            <div class="sub">${date}</div>
+          </div>
+        `).join(""));
+      }
 
       const warning = getMealSoftLimitMessage(ensureRecordByDate(date)?.meals.length || 0);
       document.getElementById("mealSoftWarningHost").innerHTML = warning
@@ -8000,17 +8058,26 @@ Notes:
         <div class="meal-table-row meal-table-head">
           <div>식사명</div><div>탄수</div><div>단백질</div><div>지방</div><div>kcal</div><div>메모</div><div>삭제</div>
         </div>
-        ${record.meals.map(meal => `
+        ${record.meals.map(meal => {
+          const energy = calculateMealEnergy(meal);
+          const energyDetail = formatMealEnergyDetailText(energy);
+          const memo = String(meal.memo || "").trim();
+          return `
           <div class="meal-table-row">
             <div>${escapeHtml(meal.mealLabel)}</div>
             <div>${round(meal.carbs, 1)} g</div>
             <div>${round(meal.protein, 1)} g</div>
             <div>${round(meal.fat, 1)} g</div>
-            <div>${Math.round(calculateMealKcal(meal.carbs, meal.protein, meal.fat))}</div>
-            <div>${escapeHtml(meal.memo || "-")}</div>
+            <div>
+              <div>${Math.round(energy.macroKcal).toLocaleString()}</div>
+              ${energyDetail ? `<div class="meal-energy-detail">${escapeHtml(energyDetail)}</div>` : ""}
+            </div>
+            <div>${memo ? "" : "-"}</div>
             <div><button class="secondary-btn" type="button" data-delete-meal="${meal.id}" data-meal-date="${date}">삭제</button></div>
+            ${memo ? `<div class="meal-row-memo">메모: ${escapeHtml(memo)}</div>` : ""}
           </div>
-        `).join("")}
+        `;
+        }).join("")}
       `;
     }
 
@@ -8783,6 +8850,8 @@ Notes:
         mealCarbs: ids.mealCarbs.value,
         mealProtein: ids.mealProtein.value,
         mealFat: ids.mealFat.value,
+        mealAlcoholKcal: ids.mealAlcoholKcal.value,
+        mealOtherKcal: ids.mealOtherKcal.value,
         mealMemo: ids.mealMemo.value
       };
       try {
@@ -8822,6 +8891,8 @@ Notes:
         ids.mealCarbs.value = snapshot.mealCarbs;
         ids.mealProtein.value = snapshot.mealProtein;
         ids.mealFat.value = snapshot.mealFat;
+        ids.mealAlcoholKcal.value = snapshot.mealAlcoholKcal;
+        ids.mealOtherKcal.value = snapshot.mealOtherKcal;
         ids.mealMemo.value = snapshot.mealMemo;
         render();
       }
@@ -8952,6 +9023,110 @@ Notes:
           assertTest(energy.otherKcal === 60, "other kcal should be kept as kcal");
           assertTest(energy.nonMacroKcal === 200, "non-macro kcal should add alcohol and other kcal");
           assertTest(energy.totalKcal === 610, "total kcal should include macro and non-macro kcal");
+        }));
+        results.push(runNamedTest("meal save preserves non-macro kcal", () => {
+          recordsState.items = [];
+          ids.recordDate.value = "2026-04-22";
+          ids.mealLabel.value = "non-macro meal";
+          ids.mealCarbs.value = "50";
+          ids.mealProtein.value = "30";
+          ids.mealFat.value = "10";
+          ids.mealAlcoholKcal.value = "140";
+          ids.mealOtherKcal.value = "60";
+          ids.mealMemo.value = "";
+          saveMealEntry();
+          const record = getRecordByDate("2026-04-22");
+          const meal = record.meals[0];
+          const totals = getMealTotalsForDate("2026-04-22");
+          assertTest(meal.alcoholKcal === 140, "saved meal should keep alcohol kcal");
+          assertTest(meal.otherKcal === 60, "saved meal should keep other kcal");
+          assertClose(totals.carbs, 50, 0.0001, "non-macro kcal should not change carbs");
+          assertClose(totals.protein, 30, 0.0001, "non-macro kcal should not change protein");
+          assertClose(totals.fat, 10, 0.0001, "non-macro kcal should not change fat");
+          assertClose(totals.kcal, 410, 0.0001, "legacy kcal should stay macro kcal in v6.1-2");
+          assertClose(totals.alcoholKcal, 140, 0.0001, "totals should include alcohol kcal separately");
+          assertClose(totals.otherKcal, 60, 0.0001, "totals should include other kcal separately");
+          assertClose(totals.nonMacroKcal, 200, 0.0001, "totals should include non-macro kcal");
+          assertClose(totals.totalKcal, 610, 0.0001, "totals should include total kcal");
+        }));
+        results.push(runNamedTest("alcohol-only meal save", () => {
+          recordsState.items = [];
+          ids.recordDate.value = "2026-04-22";
+          ids.mealLabel.value = "alcohol only";
+          ids.mealCarbs.value = "";
+          ids.mealProtein.value = "";
+          ids.mealFat.value = "";
+          ids.mealAlcoholKcal.value = "140";
+          ids.mealOtherKcal.value = "";
+          ids.mealMemo.value = "";
+          saveMealEntry();
+          const totals = getMealTotalsForDate("2026-04-22");
+          assertTest(getRecordByDate("2026-04-22").meals.length === 1, "alcohol-only meal should save");
+          assertClose(totals.kcal, 0, 0.0001, "legacy kcal should stay macro kcal for alcohol-only meal");
+          assertClose(totals.alcoholKcal, 140, 0.0001, "alcohol-only meal should add alcohol kcal");
+          assertClose(totals.totalKcal, 140, 0.0001, "alcohol-only meal should add total kcal");
+        }));
+        results.push(runNamedTest("other-kcal-only meal save", () => {
+          recordsState.items = [];
+          ids.recordDate.value = "2026-04-22";
+          ids.mealLabel.value = "other only";
+          ids.mealCarbs.value = "";
+          ids.mealProtein.value = "";
+          ids.mealFat.value = "";
+          ids.mealAlcoholKcal.value = "";
+          ids.mealOtherKcal.value = "60";
+          ids.mealMemo.value = "";
+          saveMealEntry();
+          const totals = getMealTotalsForDate("2026-04-22");
+          assertTest(getRecordByDate("2026-04-22").meals.length === 1, "other-kcal-only meal should save");
+          assertClose(totals.kcal, 0, 0.0001, "legacy kcal should stay macro kcal for other-kcal-only meal");
+          assertClose(totals.otherKcal, 60, 0.0001, "other-kcal-only meal should add other kcal");
+          assertClose(totals.totalKcal, 60, 0.0001, "other-kcal-only meal should add total kcal");
+        }));
+        results.push(runNamedTest("empty meal does not save", () => {
+          recordsState.items = [];
+          ids.recordDate.value = "2026-04-22";
+          ids.mealLabel.value = "empty";
+          ids.mealCarbs.value = "";
+          ids.mealProtein.value = "";
+          ids.mealFat.value = "";
+          ids.mealAlcoholKcal.value = "";
+          ids.mealOtherKcal.value = "";
+          ids.mealMemo.value = "";
+          saveMealEntry();
+          assertTest((getRecordByDate("2026-04-22")?.meals.length || 0) === 0, "empty meal should not save");
+          assertTest(recordsState.feedback?.tone === "warn", "empty meal should show warning");
+        }));
+        results.push(runNamedTest("memo-only meal save", () => {
+          recordsState.items = [];
+          ids.recordDate.value = "2026-04-22";
+          ids.mealLabel.value = "memo only";
+          ids.mealCarbs.value = "0";
+          ids.mealProtein.value = "0";
+          ids.mealFat.value = "0";
+          ids.mealAlcoholKcal.value = "0";
+          ids.mealOtherKcal.value = "0";
+          ids.mealMemo.value = "식사 메모";
+          saveMealEntry();
+          const record = getRecordByDate("2026-04-22");
+          const totals = getMealTotalsForDate("2026-04-22");
+          assertTest(record.meals.length === 1, "memo-only meal should save");
+          assertTest(record.meals[0].memo === "식사 메모", "memo-only meal should keep memo");
+          assertClose(totals.kcal, 0, 0.0001, "memo-only meal should not add macro kcal");
+          assertClose(totals.totalKcal, 0, 0.0001, "memo-only meal should not add total kcal");
+        }));
+        results.push(runNamedTest("meal memo renders in selected meal list", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-04-22",
+            meals: [
+              { id: "m1", mealLabel: "memo meal", carbs: 10, protein: 5, fat: 2, memo: "visible memo note", createdAt: "2026-04-22T08:00:00.000Z" },
+              { id: "m2", mealLabel: "no memo meal", carbs: 12, protein: 6, fat: 3, memo: "", createdAt: "2026-04-22T12:00:00.000Z" }
+            ]
+          }]);
+          renderSelectedDateMeals("2026-04-22");
+          const text = document.getElementById("selectedMealsList").textContent;
+          assertTest(text.includes("visible memo note"), "meal memo should render in selected meal list");
+          assertTest(text.includes("no memo meal"), "meal without memo should still render");
         }));
         results.push(runNamedTest("delete meal", () => {
           recordsState.items = normalizeRecordsCollection([{
