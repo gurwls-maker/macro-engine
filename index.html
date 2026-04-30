@@ -5746,6 +5746,7 @@ Notes:
       const targetDate = normalizeDateString(date) || getTodayDateString();
       const record = ensureRecordByDate(targetDate);
       const consumed = getMealTotalsForDate(targetDate);
+      consumed.scoringKcal = Number.isFinite(consumed.totalKcal) ? consumed.totalKcal : consumed.kcal;
       const activeSnapshot = options.goalSnapshot || (options.preferSnapshot === false ? null : record?.goalSnapshot);
       const snapshotTarget = getGoalSnapshotTarget(activeSnapshot);
       const liveTarget = currentResult?.isCalculable
@@ -5760,14 +5761,14 @@ Notes:
       const isGoalAvailable = Object.values(target).every(Number.isFinite);
       const remaining = isGoalAvailable
         ? {
-            kcal: target.kcal - consumed.kcal,
+            kcal: target.kcal - consumed.scoringKcal,
             protein: target.protein - consumed.protein,
             carbs: target.carbs - consumed.carbs,
             fat: target.fat - consumed.fat
           }
         : { kcal: null, protein: null, carbs: null, fat: null };
       const exceeded = {
-        kcal: isGoalAvailable ? isMeaningfulTodayOver(target.kcal, consumed.kcal, "kcal") : false,
+        kcal: isGoalAvailable ? isMeaningfulTodayOver(target.kcal, consumed.scoringKcal, "kcal") : false,
         protein: isGoalAvailable ? isMeaningfulTodayOver(target.protein, consumed.protein, "protein") : false,
         carbs: isGoalAvailable ? isMeaningfulTodayOver(target.carbs, consumed.carbs, "carbs") : false,
         fat: isGoalAvailable ? isMeaningfulTodayOver(target.fat, consumed.fat, "fat") : false
@@ -6879,6 +6880,7 @@ Notes:
             fat: "계산 가능한 목표가 필요합니다."
           },
           detail: {
+            scoringVersion: "v6.1_total_kcal",
             target: balance.target,
             consumed: balance.consumed,
             remaining: balance.remaining,
@@ -6901,6 +6903,7 @@ Notes:
             fat: "식사 총합이 있어야 하루 기준 평가를 계산할 수 있습니다."
           },
           detail: {
+            scoringVersion: "v6.1_total_kcal",
             target: balance.target,
             consumed: balance.consumed,
             remaining: balance.remaining,
@@ -6909,8 +6912,11 @@ Notes:
           manualAdherence: manualRecord?.adherence || "medium"
         };
       }
+      const kcalForScoring = Number.isFinite(balance.consumed?.scoringKcal)
+        ? balance.consumed.scoringKcal
+        : (Number.isFinite(balance.consumed?.totalKcal) ? balance.consumed.totalKcal : balance.consumed.kcal);
       const intakeProgress = balance.isGoalAvailable && Number.isFinite(balance.target.kcal) && balance.target.kcal > 0
-        ? balance.consumed.kcal / balance.target.kcal
+        ? kcalForScoring / balance.target.kcal
         : null;
       const isPending = balance.mealCount >= 1 && (
         balance.mealCount < 2 ||
@@ -6945,6 +6951,7 @@ Notes:
           },
           mealConcentrationHint: concentrationHint,
           detail: {
+            scoringVersion: "v6.1_total_kcal",
             target: balance.target,
             consumed: balance.consumed,
             remaining: balance.remaining,
@@ -6960,7 +6967,7 @@ Notes:
       const macroScoreProfile = getMacroScoreProfile(balance.goalSnapshot?.goal || currentResult?.s?.goal || state.goal);
       const componentScores = {
         protein: getMacroComponentScore(balance.target.protein, balance.consumed.protein, macroScoreProfile.protein),
-        kcal: getMacroComponentScore(balance.target.kcal, balance.consumed.kcal, macroScoreProfile.kcal),
+        kcal: getMacroComponentScore(balance.target.kcal, kcalForScoring, macroScoreProfile.kcal),
         carbs: getMacroComponentScore(balance.target.carbs, balance.consumed.carbs, macroScoreProfile.carbs),
         fat: getMacroComponentScore(balance.target.fat, balance.consumed.fat, macroScoreProfile.fat)
       };
@@ -7003,6 +7010,7 @@ Notes:
           fat: buildMacroReason("fat", balance, componentScores.fat, proteinRatio, proteinCap, capApplied)
         },
         detail: {
+          scoringVersion: "v6.1_total_kcal",
           target: balance.target,
           consumed: balance.consumed,
           remaining: balance.remaining,
@@ -10126,6 +10134,66 @@ Notes:
           assertTest(score.status === "available", "ideal case should be available rather than pending");
           assertTest(score.percent >= 90, "ideal case should score very high");
           assertTest(["매우 우수","우수"].includes(score.label), "ideal case should be labeled good or better");
+        }));
+
+        results.push(runNamedTest("adherence kcal scoring uses total kcal without changing grams", () => {
+          setValidTodayBalanceTestInputs();
+          const target = calculate();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            meals: [
+              { id: "m1", mealLabel: "total kcal base 1", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, memo: "", createdAt: `${today}T08:00:00.000Z` },
+              { id: "m2", mealLabel: "total kcal base 2", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, memo: "", createdAt: `${today}T18:00:00.000Z` }
+            ]
+          }]);
+          const baseScore = getTodayAdherenceScore(target);
+          assertClose(baseScore.detail.consumed.kcal, baseScore.detail.consumed.macroKcal, 0.0001, "macro-only kcal should equal macroKcal");
+          assertClose(baseScore.detail.consumed.scoringKcal, baseScore.detail.consumed.macroKcal, 0.0001, "macro-only scoringKcal should equal macroKcal");
+
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            meals: [
+              { id: "m1", mealLabel: "total kcal alcohol 1", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, alcoholKcal: target.targetCal * 0.10, memo: "", createdAt: `${today}T08:00:00.000Z` },
+              { id: "m2", mealLabel: "total kcal alcohol 2", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, memo: "", createdAt: `${today}T18:00:00.000Z` }
+            ]
+          }]);
+          const alcoholScore = getTodayAdherenceScore(target);
+          assertClose(alcoholScore.detail.consumed.carbs, target.carbs, 0.0001, "alcohol kcal should not change carb grams");
+          assertClose(alcoholScore.detail.consumed.protein, target.protein, 0.0001, "alcohol kcal should not change protein grams");
+          assertClose(alcoholScore.detail.consumed.fat, target.fat, 0.0001, "alcohol kcal should not change fat grams");
+          assertTest(alcoholScore.detail.consumed.scoringKcal > alcoholScore.detail.consumed.kcal, "alcohol kcal should increase scoringKcal while kcal remains macroKcal");
+          assertTest(alcoholScore.detail.componentScores.kcal < baseScore.detail.componentScores.kcal, "alcohol kcal should lower kcal component when it creates total kcal overshoot");
+          assertTest(alcoholScore.percent < baseScore.percent, "total kcal overshoot should lower final adherence score");
+          assertTest(alcoholScore.detail.scoringVersion === "v6.1_total_kcal", "adherence detail should include total-kcal scoring version");
+        }));
+
+        results.push(runNamedTest("adherence other kcal and alcohol-only totals stay separate from grams", () => {
+          setValidTodayBalanceTestInputs();
+          const target = calculate();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            meals: [
+              { id: "m1", mealLabel: "other kcal 1", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, otherKcal: target.targetCal * 0.10, memo: "", createdAt: `${today}T08:00:00.000Z` },
+              { id: "m2", mealLabel: "other kcal 2", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, memo: "", createdAt: `${today}T18:00:00.000Z` }
+            ]
+          }]);
+          const otherScore = getTodayAdherenceScore(target);
+          assertClose(otherScore.detail.consumed.scoringKcal, otherScore.detail.consumed.totalKcal, 0.0001, "other kcal should be included in scoringKcal");
+          assertClose(otherScore.detail.consumed.carbs, target.carbs, 0.0001, "other kcal should not change carb grams");
+
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            meals: [
+              { id: "m1", mealLabel: "alcohol only 1", carbs: 0, protein: 0, fat: 0, alcoholKcal: target.targetCal * 0.20, memo: "", createdAt: `${today}T08:00:00.000Z` },
+              { id: "m2", mealLabel: "alcohol only 2", carbs: 0, protein: 0, fat: 0, alcoholKcal: target.targetCal * 0.20, memo: "", createdAt: `${today}T18:00:00.000Z` }
+            ]
+          }]);
+          const alcoholOnlyScore = getTodayAdherenceScore(target);
+          assertClose(alcoholOnlyScore.detail.consumed.kcal, 0, 0.0001, "alcohol-only macro kcal should remain zero");
+          assertTest(alcoholOnlyScore.detail.consumed.scoringKcal > 0, "alcohol-only scoringKcal should reflect alcohol kcal");
+          assertClose(alcoholOnlyScore.detail.consumed.carbs + alcoholOnlyScore.detail.consumed.protein + alcoholOnlyScore.detail.consumed.fat, 0, 0.0001, "alcohol-only grams should remain zero");
+          assertTest(alcoholOnlyScore.status === "available", "alcohol-only two-entry case should keep existing meal-count availability policy");
+          assertTest(Number.isFinite(alcoholOnlyScore.detail.componentScores.kcal), "alcohol-only kcal component should be computed from scoringKcal");
         }));
 
         results.push(runNamedTest("adherence protein cap", () => {
