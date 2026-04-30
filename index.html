@@ -856,6 +856,25 @@ Notes:
       flex-wrap:wrap;
       gap:8px;
     }
+    .meal-label-chips{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+    .meal-label-chips .chip{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      flex:0 0 auto;
+      min-width:58px;
+      min-height:36px;
+      padding:7px 12px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:900;
+      line-height:1;
+      white-space:nowrap;
+    }
     .chip{
       border:1px solid var(--line);
       background:#f8f1e8;
@@ -1960,6 +1979,9 @@ Notes:
     }
     .records-input-panel .record-grid{
       gap:12px;
+    }
+    .records-meal-input-grid .meal-label-field{
+      grid-column:1 / -1;
     }
     .records-input-panel .meal-section{
       margin-top:16px;
@@ -3523,34 +3545,35 @@ Notes:
             </div>
             <div class="section-group-body">
             <h2>식사 기록 저장</h2>
-            <div class="record-grid">
-              <div class="field">
-                <label>식사명</label>
-                <input id="mealLabel" type="text" maxlength="40" placeholder="기상후, 아침, 간식1 등">
-              </div>
-              <div class="field">
-                <label>메모 (선택)</label>
-                <input id="mealMemo" type="text" maxlength="80" placeholder="외식, 보충제, 회식, 간단 메모 등">
+            <div class="record-grid records-meal-input-grid">
+              <div class="field meal-label-field">
+                <label>식사 구분</label>
+                <input id="mealLabel" type="hidden" value="아침">
+                <div class="chips meal-label-chips" id="mealLabelChips"></div>
               </div>
               <div class="field">
                 <label>탄수화물 (g)</label>
                 <input id="mealCarbs" type="number" min="0" step="0.1" inputmode="decimal">
               </div>
               <div class="field">
-                <label>단백질 (g)</label>
-                <input id="mealProtein" type="number" min="0" step="0.1" inputmode="decimal">
+                <label>메모 (선택)</label>
+                <input id="mealMemo" type="text" maxlength="80" placeholder="외식, 보충제, 회식, 간단 메모 등">
               </div>
               <div class="field">
                 <label>지방 (g)</label>
                 <input id="mealFat" type="number" min="0" step="0.1" inputmode="decimal">
               </div>
               <div class="field">
-                <label>술 칼로리 (kcal)</label>
-                <input id="mealAlcoholKcal" type="number" min="0" step="1" inputmode="decimal">
+                <label>단백질 (g)</label>
+                <input id="mealProtein" type="number" min="0" step="0.1" inputmode="decimal">
               </div>
               <div class="field">
                 <label>기타 칼로리 (kcal)</label>
                 <input id="mealOtherKcal" type="number" min="0" step="1" inputmode="decimal">
+              </div>
+              <div class="field">
+                <label>술 칼로리 (kcal)</label>
+                <input id="mealAlcoholKcal" type="number" min="0" step="1" inputmode="decimal">
               </div>
             </div>
             <div class="inline-actions">
@@ -4018,7 +4041,8 @@ Notes:
       inbodyRecords: []
     };
 
-    const MEAL_LABEL_SUGGESTIONS = ["기상후", "아침", "간식1", "점심", "간식2", "저녁", "야식"];
+    const MEAL_LABEL_OPTIONS = ["기상", "아침", "점심", "저녁", "간식", "야식", "술", "기타"];
+    const MEAL_LABEL_SUGGESTIONS = MEAL_LABEL_OPTIONS;
 
     // 2) state + storage helpers
     const ids = [
@@ -4297,6 +4321,32 @@ Notes:
     function getDefaultMealLabelFromCount(count){
       if (count < MEAL_LABEL_SUGGESTIONS.length) return MEAL_LABEL_SUGGESTIONS[count];
       return `추가 식사 ${count - MEAL_LABEL_SUGGESTIONS.length + 1}`;
+    }
+
+    function isMealLabelOption(value){
+      return MEAL_LABEL_OPTIONS.includes(String(value || "").trim());
+    }
+
+    function getMealLabelNumber(mealLabel, baseLabel){
+      const label = String(mealLabel || "").trim();
+      const base = String(baseLabel || "").trim();
+      if (!label || !base) return null;
+      if (label === base) return 1;
+      const match = label.match(new RegExp(`^${base}(\\d+)$`));
+      if (!match) return null;
+      const num = Number(match[1]);
+      return Number.isInteger(num) && num >= 1 ? num : null;
+    }
+
+    function getNextMealLabelForDate(date, baseLabel){
+      const base = isMealLabelOption(baseLabel) ? String(baseLabel).trim() : MEAL_LABEL_OPTIONS[0];
+      const record = ensureRecordByDate(date);
+      const usedNumbers = new Set((record?.meals || [])
+        .map(meal => getMealLabelNumber(meal.mealLabel, base))
+        .filter(Number.isInteger));
+      let next = 1;
+      while (usedNumbers.has(next)) next += 1;
+      return next === 1 ? base : `${base}${next}`;
     }
 
     function escapeHtml(value){
@@ -5571,7 +5621,8 @@ Notes:
 
     function getSuggestedMealLabel(date){
       const record = ensureRecordByDate(date);
-      return getDefaultMealLabelFromCount(record?.meals.length || 0);
+      return MEAL_LABEL_OPTIONS.find(option => !(record?.meals || []).some(meal => getMealLabelNumber(meal.mealLabel, option) === 1))
+        || MEAL_LABEL_OPTIONS[0];
     }
 
     function resetMealInputsForDate(date){
@@ -7398,7 +7449,8 @@ Notes:
 
     function saveMealEntry(){
       const date = getSelectedRecordDate();
-      const mealLabel = String(ids.mealLabel.value || "").trim() || getSuggestedMealLabel(date);
+      const baseMealLabel = isMealLabelOption(ids.mealLabel.value) ? ids.mealLabel.value : getSuggestedMealLabel(date);
+      const mealLabel = getNextMealLabelForDate(date, baseMealLabel);
       const carbsRaw = String(ids.mealCarbs.value || "").trim();
       const proteinRaw = String(ids.mealProtein.value || "").trim();
       const fatRaw = String(ids.mealFat.value || "").trim();
@@ -7794,6 +7846,7 @@ Notes:
     // 5) render helpers
     function drawChips(hostId, items, current, onChange){
       const host = document.getElementById(hostId);
+      if (!host) return;
       host.innerHTML = "";
       items.forEach(item => {
         const btn = document.createElement("button");
@@ -7806,6 +7859,19 @@ Notes:
         });
         host.appendChild(btn);
       });
+    }
+
+    function renderMealLabelChips(){
+      const current = isMealLabelOption(ids.mealLabel.value) ? ids.mealLabel.value : MEAL_LABEL_OPTIONS[0];
+      ids.mealLabel.value = current;
+      drawChips(
+        "mealLabelChips",
+        MEAL_LABEL_OPTIONS.map(label => ({ value: label, label })),
+        current,
+        value => {
+          ids.mealLabel.value = value;
+        }
+      );
     }
 
     function renderFlowRows(r){
@@ -8927,6 +8993,7 @@ Notes:
       updateExpertAlphaUI();
       syncRoutineUI();
       syncGoalUI();
+      renderMealLabelChips();
       renderAdvancedSettings();
       syncQuickSettingsUI();
 
@@ -9354,6 +9421,59 @@ Notes:
           assertTest(record.meals.length === 3, "three meals should accumulate");
           assertTest(Math.round(totals.carbs) === 150, "carb totals should add up");
           assertTest(Math.round(totals.protein) === 90, "protein totals should add up");
+        }));
+        results.push(runNamedTest("meal label button numbering", () => {
+          recordsState.items = [];
+          ids.recordDate.value = "2026-04-22";
+          ["간식", "간식", "점심", "점심", "술", "술"].forEach((label, index) => {
+            ids.mealLabel.value = label;
+            ids.mealCarbs.value = label === "술" ? "" : String(10 + index);
+            ids.mealProtein.value = "";
+            ids.mealFat.value = "";
+            ids.mealAlcoholKcal.value = label === "술" ? "140" : "";
+            ids.mealOtherKcal.value = "";
+            ids.mealMemo.value = "";
+            saveMealEntry();
+          });
+          const record = getRecordByDate("2026-04-22");
+          assertTest(record.meals.map(meal => meal.mealLabel).join(",") === "간식,간식2,점심,점심2,술,술2", "same-day duplicate meal labels should receive visible numbers");
+
+          ids.recordDate.value = "2026-04-23";
+          ids.mealLabel.value = "간식";
+          ids.mealCarbs.value = "10";
+          ids.mealProtein.value = "";
+          ids.mealFat.value = "";
+          ids.mealAlcoholKcal.value = "";
+          ids.mealOtherKcal.value = "";
+          ids.mealMemo.value = "";
+          saveMealEntry();
+          assertTest(getRecordByDate("2026-04-23").meals[0].mealLabel === "간식", "other dates should not affect meal label numbering");
+        }));
+        results.push(runNamedTest("meal label numbering fills smallest gap and ignores loose matches", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-04-22",
+            meals: [
+              { id: "m1", mealLabel: "간식", carbs: 10, protein: 0, fat: 0, memo: "", createdAt: "2026-04-22T08:00:00.000Z" },
+              { id: "m2", mealLabel: "간식3", carbs: 10, protein: 0, fat: 0, memo: "", createdAt: "2026-04-22T09:00:00.000Z" },
+              { id: "m3", mealLabel: "간식거리", carbs: 10, protein: 0, fat: 0, memo: "", createdAt: "2026-04-22T10:00:00.000Z" }
+            ]
+          }]);
+          assertTest(getNextMealLabelForDate("2026-04-22", "간식") === "간식2", "numbering should fill the smallest missing label number");
+
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-04-22",
+            meals: [{ id: "m1", mealLabel: "간식1", carbs: 10, protein: 0, fat: 0, memo: "", createdAt: "2026-04-22T08:00:00.000Z" }]
+          }]);
+          assertTest(getNextMealLabelForDate("2026-04-22", "간식") === "간식2", "legacy base1 labels should occupy the first label slot");
+        }));
+        results.push(runNamedTest("meal label chips render selected options", () => {
+          ids.mealLabel.value = "간식";
+          renderMealLabelChips();
+          const host = document.getElementById("mealLabelChips");
+          const buttons = Array.from(host.querySelectorAll("button"));
+          assertTest(buttons.length === MEAL_LABEL_OPTIONS.length, "meal label chip count should match configured options");
+          assertTest(buttons.map(button => button.textContent).join(",") === MEAL_LABEL_OPTIONS.join(","), "meal label chips should render configured labels");
+          assertTest(host.querySelector(".chip.active")?.textContent === "간식", "selected meal label chip should be active");
         }));
         results.push(runNamedTest("kcal formula", () => {
           assertTest(calculateMealKcal(50, 30, 10) === 410, "kcal formula should be 4/4/9");
