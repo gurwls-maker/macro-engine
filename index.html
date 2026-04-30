@@ -4044,6 +4044,7 @@ Notes:
       items: [],
       feedback: null
     };
+    const ADHERENCE_SCORING_VERSION = "v6.1_total_kcal";
 
     function storageKey(name){
       return `${STORAGE_PREFIX}${name}`;
@@ -5407,6 +5408,11 @@ Notes:
       return ["manual","auto"].includes(raw) ? raw : "manual";
     }
 
+    function normalizeAdherenceScoringVersion(raw){
+      const value = String(raw || "").trim();
+      return value || null;
+    }
+
     function normalizeSnapshotSource(raw){
       return ["saved_at_entry","generated_on_late_meal_add","legacy_import","today_auto_sync"].includes(raw) ? raw : null;
     }
@@ -5481,6 +5487,7 @@ Notes:
         adherence: ["high","medium","low"].includes(raw?.adherence) ? raw.adherence : "medium",
         adherencePercent: normalizeAdherencePercent(raw?.adherencePercent),
         adherenceSource: normalizeAdherenceSource(raw?.adherenceSource),
+        adherenceScoringVersion: normalizeAdherenceScoringVersion(raw?.adherenceScoringVersion),
         goalSnapshot: normalizeGoalSnapshot(raw?.goalSnapshot),
         adherenceLockedAt: normalizeIsoDatetime(raw?.adherenceLockedAt),
         snapshotSource: normalizeSnapshotSource(raw?.snapshotSource),
@@ -5541,6 +5548,7 @@ Notes:
         adherence: Object.prototype.hasOwnProperty.call(rawRecord, "adherence") ? rawRecord.adherence : existing.adherence,
         adherencePercent: Object.prototype.hasOwnProperty.call(rawRecord, "adherencePercent") ? rawRecord.adherencePercent : existing.adherencePercent,
         adherenceSource: Object.prototype.hasOwnProperty.call(rawRecord, "adherenceSource") ? rawRecord.adherenceSource : existing.adherenceSource,
+        adherenceScoringVersion: Object.prototype.hasOwnProperty.call(rawRecord, "adherenceScoringVersion") ? rawRecord.adherenceScoringVersion : existing.adherenceScoringVersion,
         goalSnapshot: Object.prototype.hasOwnProperty.call(rawRecord, "goalSnapshot") ? rawRecord.goalSnapshot : existing.goalSnapshot,
         adherenceLockedAt: Object.prototype.hasOwnProperty.call(rawRecord, "adherenceLockedAt") ? rawRecord.adherenceLockedAt : existing.adherenceLockedAt,
         snapshotSource: Object.prototype.hasOwnProperty.call(rawRecord, "snapshotSource") ? rawRecord.snapshotSource : existing.snapshotSource,
@@ -6880,7 +6888,7 @@ Notes:
             fat: "계산 가능한 목표가 필요합니다."
           },
           detail: {
-            scoringVersion: "v6.1_total_kcal",
+            scoringVersion: ADHERENCE_SCORING_VERSION,
             target: balance.target,
             consumed: balance.consumed,
             remaining: balance.remaining,
@@ -6903,7 +6911,7 @@ Notes:
             fat: "식사 총합이 있어야 하루 기준 평가를 계산할 수 있습니다."
           },
           detail: {
-            scoringVersion: "v6.1_total_kcal",
+            scoringVersion: ADHERENCE_SCORING_VERSION,
             target: balance.target,
             consumed: balance.consumed,
             remaining: balance.remaining,
@@ -6951,7 +6959,7 @@ Notes:
           },
           mealConcentrationHint: concentrationHint,
           detail: {
-            scoringVersion: "v6.1_total_kcal",
+            scoringVersion: ADHERENCE_SCORING_VERSION,
             target: balance.target,
             consumed: balance.consumed,
             remaining: balance.remaining,
@@ -7010,7 +7018,7 @@ Notes:
           fat: buildMacroReason("fat", balance, componentScores.fat, proteinRatio, proteinCap, capApplied)
         },
         detail: {
-          scoringVersion: "v6.1_total_kcal",
+          scoringVersion: ADHERENCE_SCORING_VERSION,
           target: balance.target,
           consumed: balance.consumed,
           remaining: balance.remaining,
@@ -7080,6 +7088,7 @@ Notes:
     function getStoredAdherenceEntry(record){
       const hasGoalSnapshot = !!record?.goalSnapshot;
       const snapshotSource = record?.snapshotSource || null;
+      const scoringVersion = record?.adherenceScoringVersion || null;
       const isMealOnlyRecord = !!record && !hasGoalSnapshot && record.meals.length > 0 && !Number.isFinite(record.weight) && !record.note && record.adherence === "medium" && !Number.isFinite(record.adherencePercent);
       const isMeaningfulRecord = !!record && !isMealOnlyRecord && (
         Number.isFinite(record.weight) ||
@@ -7088,14 +7097,14 @@ Notes:
         Number.isFinite(record.adherencePercent) ||
         hasGoalSnapshot
       );
-      if (!record) return { percent: null, source: null, hasGoalSnapshot, snapshotSource, isMeaningfulRecord, isMealOnlyRecord };
+      if (!record) return { percent: null, source: null, hasGoalSnapshot, snapshotSource, scoringVersion, isMeaningfulRecord, isMealOnlyRecord };
       if (Number.isFinite(record.adherencePercent) && record.adherenceSource === "auto") {
-        return { percent: clamp(record.adherencePercent, 0, 100), source: "auto", hasGoalSnapshot, snapshotSource, isMeaningfulRecord, isMealOnlyRecord };
+        return { percent: clamp(record.adherencePercent, 0, 100), source: "auto", hasGoalSnapshot, snapshotSource, scoringVersion, isMeaningfulRecord, isMealOnlyRecord };
       }
       const manualPercent = getManualAdherencePercent(record.adherence);
       return Number.isFinite(manualPercent)
-        ? { percent: manualPercent, source: "manual", hasGoalSnapshot, snapshotSource, isMeaningfulRecord, isMealOnlyRecord }
-        : { percent: null, source: null, hasGoalSnapshot, snapshotSource, isMeaningfulRecord, isMealOnlyRecord };
+        ? { percent: manualPercent, source: "manual", hasGoalSnapshot, snapshotSource, scoringVersion, isMeaningfulRecord, isMealOnlyRecord }
+        : { percent: null, source: null, hasGoalSnapshot, snapshotSource, scoringVersion, isMeaningfulRecord, isMealOnlyRecord };
     }
 
     function averageNumbers(values){
@@ -7282,16 +7291,19 @@ Notes:
           ...baseUpdate,
           adherencePercent: null,
           adherenceSource: "manual",
+          adherenceScoringVersion: null,
           adherenceLockedAt: null
         });
         return { record, score: null, snapshotCreated: !hasExistingSnapshot && !!snapshot };
       }
 
       const score = getDailyAdherenceScore(normalizedDate, currentResult, { goalSnapshot: snapshot });
+      const hasAutoPercent = Number.isFinite(score?.percent);
       const record = upsertRecord({
         ...baseUpdate,
         adherencePercent: score?.isAvailable ? score.percent : null,
         adherenceSource: score?.isAvailable ? "auto" : "manual",
+        adherenceScoringVersion: hasAutoPercent ? (score.detail?.scoringVersion || ADHERENCE_SCORING_VERSION) : null,
         adherenceLockedAt: score?.isAvailable ? new Date().toISOString() : existing?.adherenceLockedAt
       });
       return { record, score, snapshotCreated: !hasExistingSnapshot && !!snapshot };
@@ -7313,12 +7325,14 @@ Notes:
       }
 
       const score = getDailyAdherenceScore(today, currentResult, { goalSnapshot: nextSnapshot });
+      const hasAutoPercent = Number.isFinite(score?.percent);
       const record = upsertRecord({
         date: today,
         goalSnapshot: nextSnapshot,
         snapshotSource: "today_auto_sync",
         adherencePercent: score?.isAvailable ? score.percent : null,
         adherenceSource: score?.isAvailable ? "auto" : "manual",
+        adherenceScoringVersion: hasAutoPercent ? (score.detail?.scoringVersion || ADHERENCE_SCORING_VERSION) : null,
         adherenceLockedAt: score?.isAvailable ? new Date().toISOString() : existing.adherenceLockedAt
       });
       return { synced: true, record, score, snapshotCreated: !existing.goalSnapshot };
@@ -7334,6 +7348,7 @@ Notes:
         const snapshot = buildGoalSnapshotFromCurrentState(currentResult, "today_auto_sync");
         if (snapshot) {
           const score = getDailyAdherenceScore(today, currentResult, { goalSnapshot: snapshot });
+          const hasAutoPercent = Number.isFinite(score?.percent);
           record = upsertRecord({
             date: today,
             weight: mismatch.inputWeight,
@@ -7341,6 +7356,7 @@ Notes:
             snapshotSource: "today_auto_sync",
             adherencePercent: score?.isAvailable ? score.percent : null,
             adherenceSource: score?.isAvailable ? "auto" : "manual",
+            adherenceScoringVersion: hasAutoPercent ? (score.detail?.scoringVersion || ADHERENCE_SCORING_VERSION) : null,
             adherenceLockedAt: score?.isAvailable ? new Date().toISOString() : record?.adherenceLockedAt
           });
         }
@@ -10164,7 +10180,7 @@ Notes:
           assertTest(alcoholScore.detail.consumed.scoringKcal > alcoholScore.detail.consumed.kcal, "alcohol kcal should increase scoringKcal while kcal remains macroKcal");
           assertTest(alcoholScore.detail.componentScores.kcal < baseScore.detail.componentScores.kcal, "alcohol kcal should lower kcal component when it creates total kcal overshoot");
           assertTest(alcoholScore.percent < baseScore.percent, "total kcal overshoot should lower final adherence score");
-          assertTest(alcoholScore.detail.scoringVersion === "v6.1_total_kcal", "adherence detail should include total-kcal scoring version");
+          assertTest(alcoholScore.detail.scoringVersion === ADHERENCE_SCORING_VERSION, "adherence detail should include total-kcal scoring version");
         }));
 
         results.push(runNamedTest("adherence other kcal and alcohol-only totals stay separate from grams", () => {
@@ -10360,6 +10376,8 @@ Notes:
           assertTest(afterMealAdd?.meals.length === 2, "meals should save on the new snapshot record");
           assertTest(Number.isFinite(afterMealAdd?.adherencePercent), "snapshot record should store auto adherencePercent after meal add");
           assertTest(afterMealAdd?.adherenceSource === "auto", "snapshot record should switch to auto source after meal add");
+          assertTest(afterMealAdd?.adherenceScoringVersion === ADHERENCE_SCORING_VERSION, "auto adherence should store scoring version metadata");
+          assertTest(getStoredAdherenceEntry(afterMealAdd).scoringVersion === ADHERENCE_SCORING_VERSION, "stored adherence entry should expose scoring version metadata");
           assertTest(!!afterMealAdd?.goalSnapshot, "meal add should keep the generated goal snapshot");
           assertTest(["saved_at_entry","today_auto_sync"].includes(afterMealAdd?.snapshotSource), "meal add should keep a current-entry snapshot source");
           assertTest(!feedbackText.includes("generated_on_late_meal_add"), "meal add feedback should not mention generated_on_late_meal_add");
@@ -10378,6 +10396,7 @@ Notes:
           const record = getRecordByDate(today);
           assertTest(!record?.goalSnapshot, "auto-off new saved record should not create a goal snapshot");
           assertTest(record?.snapshotSource === null, "auto-off new saved record should not assign snapshot source");
+          assertTest(record?.adherenceScoringVersion === null, "auto-off new saved record should not assign scoring version");
           assertTest(record?.adherenceSource === "manual", "auto-off new saved record should keep manual source");
           assertTest(record?.adherence === "high", "auto-off new saved record should keep manual adherence value");
         }));
@@ -10401,6 +10420,7 @@ Notes:
           assertTest(record?.meals.length === 1, "meal should save on a past snapshotless record");
           assertTest(record?.adherencePercent === null, "past snapshotless record should keep null adherencePercent after meal add");
           assertTest(record?.adherenceSource === "manual", "past snapshotless record should keep manual source after meal add");
+          assertTest(record?.adherenceScoringVersion === null, "past snapshotless record should not receive scoring version after meal add");
           assertTest(!record?.goalSnapshot, "past snapshotless record should not create a goal snapshot after meal add");
           assertTest(record?.snapshotSource === null, "past snapshotless record should not assign snapshot source after meal add");
         }));
@@ -10455,6 +10475,7 @@ Notes:
           const after = getRecordByDate(today);
           assertTest(sync.synced === true, "today sync should report a changed snapshot");
           assertTest(after.snapshotSource === "today_auto_sync", "today sync should mark snapshot source");
+          assertTest(after.adherenceScoringVersion === ADHERENCE_SCORING_VERSION, "today sync should store scoring version metadata");
           assertTest(!areGoalSnapshotsEquivalent(before.goalSnapshot, after.goalSnapshot), "today snapshot should change after target input changes");
           assertTest(Number.isFinite(after.adherencePercent), "today sync should recalculate adherence against the new snapshot");
         }));
@@ -10475,6 +10496,7 @@ Notes:
           const record = getRecordByDate(today);
           assertTest(sync.synced === true && sync.snapshotCreated === true, "snapshotless today record should create a sync snapshot");
           assertTest(record.snapshotSource === "today_auto_sync", "snapshotless today sync should use today_auto_sync source");
+          assertTest(record.adherenceScoringVersion === ADHERENCE_SCORING_VERSION, "snapshotless today sync should store scoring version metadata");
           assertTest(record.adherenceSource === "auto" && Number.isFinite(record.adherencePercent), "snapshotless today sync should auto grade when meals qualify");
 
           recordsState.items = [];
@@ -10543,6 +10565,7 @@ Notes:
           assertClose(afterApply.weight, 75, 0.0001, "apply action should update today's record weight");
           assertClose(afterApply.goalSnapshot.weight, 75, 0.0001, "apply action should refresh snapshot weight");
           assertTest(afterApply.snapshotSource === "today_auto_sync", "apply action should refresh snapshot source");
+          assertTest(afterApply.adherenceScoringVersion === ADHERENCE_SCORING_VERSION, "apply action should store scoring version metadata");
           assertTest(Number.isFinite(afterApply.adherencePercent), "apply action should recalculate adherence");
           assertTest(!(document.getElementById("todayRecordWeightMismatchHost").textContent || "").includes("현재 체중 입력값"), "apply action should clear mismatch notice");
 
@@ -10581,6 +10604,7 @@ Notes:
           const after = getRecordByDate(pastDate);
           assertTest(JSON.stringify(after.goalSnapshot) === beforeSnapshot, "meal edits should keep the original snapshot");
           assertTest(Number.isFinite(before.adherencePercent) && Number.isFinite(after.adherencePercent), "meal edit test should keep valid adherence scores");
+          assertTest(after.adherenceScoringVersion === ADHERENCE_SCORING_VERSION, "meal edit auto recalculation should store scoring version metadata");
           assertTest(after.adherencePercent < before.adherencePercent, "meal edits should recompute adherence against the locked snapshot");
           deleteMealEntry(pastDate, "m3");
           const afterDelete = getRecordByDate(pastDate);
@@ -10597,6 +10621,7 @@ Notes:
           const record = getRecordByDate(today);
           assertTest(record.adherenceSource === "manual", "auto-off persistence should keep manual source");
           assertTest(record.adherencePercent === null, "auto-off persistence should not store auto percent");
+          assertTest(record.adherenceScoringVersion === null, "auto-off persistence should not store scoring version");
         }));
 
         return results;
@@ -10671,13 +10696,15 @@ Notes:
 
         results.push(runNamedTest("weekly auto only average", () => {
           recordsState.items = normalizeRecordsCollection([
-            { date: "2026-04-22", weight: 75.0, adherencePercent: 90, adherenceSource: "auto" },
+            { date: "2026-04-22", weight: 75.0, adherencePercent: 90, adherenceSource: "auto", adherenceScoringVersion: ADHERENCE_SCORING_VERSION },
             { date: "2026-04-21", weight: 74.9, adherencePercent: 88, adherenceSource: "auto" },
             { date: "2026-04-20", weight: 74.8, adherencePercent: 92, adherenceSource: "auto" },
             { date: "2026-04-19", weight: 74.8, adherencePercent: 87, adherenceSource: "auto" }
           ]);
           const snapshot = getWeeklyAdherenceSnapshot();
           assertClose(snapshot.weeklyAdherenceAvg, 89.25, 0.001, "weekly auto average should use adherencePercent values");
+          assertTest(snapshot.adherenceEntries[0].scoringVersion === ADHERENCE_SCORING_VERSION, "weekly entries should preserve scoring version when available");
+          assertTest(snapshot.adherenceEntries[1].scoringVersion === null, "weekly entries should tolerate legacy records without scoring version");
         }));
 
         results.push(runNamedTest("weekly snapshot average ignores current input changes", () => {
