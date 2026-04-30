@@ -7130,6 +7130,17 @@ Notes:
       const adherenceEntries = recent7
         .map(item => ({ date: item.date, ...getStoredAdherenceEntry(item) }))
         .filter(entry => Number.isFinite(entry.percent));
+      const autoScoringBasisSummary = adherenceEntries
+        .filter(entry => entry.source === "auto")
+        .reduce((acc, entry) => {
+          const basis = entry.scoringVersion === ADHERENCE_SCORING_VERSION ? ADHERENCE_SCORING_VERSION : "legacy";
+          acc[basis] = (acc[basis] || 0) + 1;
+          return acc;
+        }, {});
+      const autoScoringVersions = Object.keys(autoScoringBasisSummary);
+      const legacyAutoCount = autoScoringBasisSummary.legacy || 0;
+      const totalKcalAutoCount = autoScoringBasisSummary[ADHERENCE_SCORING_VERSION] || 0;
+      const hasMixedScoringBasis = autoScoringVersions.length > 1;
       const validDays = adherenceEntries.length;
       const weeklyAdherenceAvg = averageNumbers(adherenceEntries.map(entry => entry.percent));
       const recentWeightAvg = averageNumbers(recentWeighted.map(item => item.weight));
@@ -7144,6 +7155,11 @@ Notes:
         recentWeighted,
         previousWeighted,
         adherenceEntries,
+        autoScoringBasisSummary,
+        autoScoringVersions,
+        legacyAutoCount,
+        totalKcalAutoCount,
+        hasMixedScoringBasis,
         validDays,
         weeklyAdherenceAvg,
         recentWeightAvg,
@@ -10705,6 +10721,63 @@ Notes:
           assertClose(snapshot.weeklyAdherenceAvg, 89.25, 0.001, "weekly auto average should use adherencePercent values");
           assertTest(snapshot.adherenceEntries[0].scoringVersion === ADHERENCE_SCORING_VERSION, "weekly entries should preserve scoring version when available");
           assertTest(snapshot.adherenceEntries[1].scoringVersion === null, "weekly entries should tolerate legacy records without scoring version");
+        }));
+
+        results.push(runNamedTest("weekly scoring basis detects auto legacy only", () => {
+          recordsState.items = normalizeRecordsCollection([
+            { date: "2026-04-22", weight: 75.0, adherencePercent: 90, adherenceSource: "auto" },
+            { date: "2026-04-21", weight: 74.9, adherencePercent: 88, adherenceSource: "auto" }
+          ]);
+          const snapshot = getWeeklyAdherenceSnapshot();
+          assertTest(snapshot.hasMixedScoringBasis === false, "legacy-only auto records should not be mixed");
+          assertTest(snapshot.legacyAutoCount === 2, "legacy-only auto records should count as legacy auto");
+          assertTest(snapshot.totalKcalAutoCount === 0, "legacy-only auto records should not count as total-kcal auto");
+          assertClose(snapshot.weeklyAdherenceAvg, 89, 0.001, "weekly average should stay unchanged for legacy-only basis");
+        }));
+
+        results.push(runNamedTest("weekly scoring basis detects total kcal only", () => {
+          recordsState.items = normalizeRecordsCollection([
+            { date: "2026-04-22", weight: 75.0, adherencePercent: 90, adherenceSource: "auto", adherenceScoringVersion: ADHERENCE_SCORING_VERSION },
+            { date: "2026-04-21", weight: 74.9, adherencePercent: 88, adherenceSource: "auto", adherenceScoringVersion: ADHERENCE_SCORING_VERSION }
+          ]);
+          const snapshot = getWeeklyAdherenceSnapshot();
+          assertTest(snapshot.hasMixedScoringBasis === false, "total-kcal-only auto records should not be mixed");
+          assertTest(snapshot.legacyAutoCount === 0, "total-kcal-only auto records should not count as legacy auto");
+          assertTest(snapshot.totalKcalAutoCount === 2, "total-kcal-only auto records should count as total-kcal auto");
+          assertClose(snapshot.weeklyAdherenceAvg, 89, 0.001, "weekly average should stay unchanged for total-kcal-only basis");
+        }));
+
+        results.push(runNamedTest("weekly scoring basis detects mixed auto basis only", () => {
+          recordsState.items = normalizeRecordsCollection([
+            { date: "2026-04-22", weight: 75.0, adherencePercent: 90, adherenceSource: "auto", adherenceScoringVersion: ADHERENCE_SCORING_VERSION },
+            { date: "2026-04-21", weight: 74.9, adherencePercent: 88, adherenceSource: "auto" }
+          ]);
+          const snapshot = getWeeklyAdherenceSnapshot();
+          assertTest(snapshot.hasMixedScoringBasis === true, "mixed auto scoring bases should be detected");
+          assertTest(snapshot.legacyAutoCount === 1, "mixed auto basis should count legacy auto records");
+          assertTest(snapshot.totalKcalAutoCount === 1, "mixed auto basis should count total-kcal auto records");
+          assertClose(snapshot.weeklyAdherenceAvg, 89, 0.001, "weekly average should stay unchanged for mixed basis");
+        }));
+
+        results.push(runNamedTest("weekly scoring basis ignores manual null versions", () => {
+          recordsState.items = normalizeRecordsCollection([
+            { date: "2026-04-22", weight: 75.0, adherencePercent: 90, adherenceSource: "auto", adherenceScoringVersion: ADHERENCE_SCORING_VERSION },
+            { date: "2026-04-21", weight: 74.9, adherence: "medium" }
+          ]);
+          const mixedWithManual = getWeeklyAdherenceSnapshot();
+          assertTest(mixedWithManual.hasMixedScoringBasis === false, "manual null scoring version should not create mixed auto basis");
+          assertTest(mixedWithManual.legacyAutoCount === 0, "manual records should not count as legacy auto");
+          assertTest(mixedWithManual.totalKcalAutoCount === 1, "auto total-kcal record should still count");
+          assertClose(mixedWithManual.weeklyAdherenceAvg, (90 + 75) / 2, 0.001, "weekly average should include manual fallback unchanged");
+
+          recordsState.items = normalizeRecordsCollection([
+            { date: "2026-04-22", weight: 75.0, adherence: "high" },
+            { date: "2026-04-21", weight: 74.9, adherence: "medium" }
+          ]);
+          const manualOnly = getWeeklyAdherenceSnapshot();
+          assertTest(manualOnly.hasMixedScoringBasis === false, "manual-only records should not be mixed");
+          assertTest(manualOnly.legacyAutoCount === 0 && manualOnly.totalKcalAutoCount === 0, "manual-only records should not count auto bases");
+          assertClose(manualOnly.weeklyAdherenceAvg, (90 + 75) / 2, 0.001, "weekly average should keep manual-only fallback");
         }));
 
         results.push(runNamedTest("weekly snapshot average ignores current input changes", () => {
