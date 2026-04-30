@@ -2097,6 +2097,18 @@ Notes:
       padding:8px 10px;
       font-size:12px;
     }
+    #inbodyPanel .kpi-grid{
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      align-items:stretch;
+    }
+    #inbodyPanel .kpi{
+      grid-column:auto;
+      min-height:138px;
+    }
+    #inbodyPanel .kpi .label{
+      letter-spacing:0;
+      text-transform:none;
+    }
     .weekly-analysis-panel .mini-note{
       margin-top:0;
       margin-bottom:14px;
@@ -2976,6 +2988,8 @@ Notes:
       #recordsPanel .records-summary-panel .kpi-grid,
       #recordsPanel .meal-summary-grid{grid-template-columns:1fr}
       #recordsPanel .records-summary-panel .kpi:nth-child(3){grid-column:auto}
+      #inbodyPanel .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+      #inbodyPanel .kpi{grid-column:auto;min-height:118px}
       .section-group,
       .settings-group{padding:14px}
       #targetCal{font-size:clamp(30px,7vw,42px)}
@@ -3727,13 +3741,18 @@ Notes:
           </div>
           <div class="kpi protein">
             <div class="big" id="inbodyLatestMuscle">-</div>
-            <div class="label">최근 근육</div>
+            <div class="label">최근 골격근량</div>
             <div class="sub">kg</div>
           </div>
           <div class="kpi carb">
             <div class="big" id="inbodyLatestFat">-</div>
-            <div class="label">최근 지방</div>
+            <div class="label">최근 체지방량</div>
             <div class="sub">kg</div>
+          </div>
+          <div class="kpi fat">
+            <div class="big" id="inbodyLatestBodyFatPercent">-</div>
+            <div class="label">최근 체지방률</div>
+            <div class="sub">%</div>
           </div>
         </div>
         <div class="analysis-card">
@@ -7572,7 +7591,7 @@ Notes:
           });
         }
       }
-      setRecordFeedback("ok", "오늘 체중 입력값을 오늘 기록에 반영했습니다.");
+      setRecordFeedback("ok", "입력탭 체중을 기록탭 오늘 기록에 저장했습니다.");
       render();
       return { applied: true, record };
     }
@@ -7581,7 +7600,7 @@ Notes:
       const mismatch = getTodayRecordWeightMismatch();
       if (!mismatch.record || !Number.isFinite(mismatch.recordWeight)) return { reverted: false, reason: "unavailable" };
       ids.weight.value = String(mismatch.recordWeight);
-      setRecordFeedback("ok", "오늘 체중 입력값을 저장된 오늘 기록 체중으로 되돌렸습니다.");
+      setRecordFeedback("ok", "기록탭 체중을 입력탭에 적용했습니다.");
       render();
       return { reverted: true, weight: mismatch.recordWeight };
     }
@@ -8593,14 +8612,15 @@ Notes:
       }
       host.innerHTML = `
         <div class="warn weight-mismatch-card">
-          <h4>오늘 체중 확인</h4>
+          <h4>입력탭 체중과 기록탭 체중이 달라요</h4>
           <ul>
-            <li>현재 체중 입력값이 오늘 기록 체중과 다릅니다.</li>
-            <li>오늘 기준을 바꾸려면 기록에 반영해 주세요.</li>
+            <li>입력탭 체중: ${formatKg1(mismatch.inputWeight)}kg</li>
+            <li>기록탭 오늘 기록: ${formatKg1(mismatch.recordWeight)}kg</li>
+            <li>어느 값을 기준으로 맞출지 선택해 주세요.</li>
           </ul>
           <div class="weight-mismatch-actions">
-            <button class="secondary-btn" type="button" data-apply-today-weight>오늘 기록에 반영</button>
-            <button class="secondary-btn" type="button" data-revert-today-weight>기록값으로 되돌리기</button>
+            <button class="secondary-btn" type="button" data-apply-today-weight>입력탭 체중 → 기록탭</button>
+            <button class="secondary-btn" type="button" data-revert-today-weight>기록탭 체중 → 입력탭</button>
           </div>
         </div>
       `;
@@ -8859,6 +8879,27 @@ Notes:
       return sorted[sorted.length - 1];
     }
 
+    function getLatestInbodyForDisplay(){
+      const records = Array.isArray(state.inbodyRecords) ? state.inbodyRecords : [];
+      const displayRecords = records
+        .map(item => ({
+          ...item,
+          date: normalizeDateString(item?.date),
+          weight: Number(item?.weight),
+          skeletalMuscle: Number(item?.skeletalMuscle),
+          bodyFat: Number(item?.bodyFat),
+          bodyFatPercent: Number(item?.bodyFatPercent)
+        }))
+        .filter(item =>
+          item.date &&
+          Number.isFinite(item.weight) &&
+          Number.isFinite(item.skeletalMuscle) &&
+          Number.isFinite(item.bodyFat)
+        )
+        .sort((a, b) => a.date.localeCompare(b.date));
+      return displayRecords.length ? displayRecords[displayRecords.length - 1] : null;
+    }
+
     function getInbodyDelta(){
       normalizeInbodyRecords();
       if (state.inbodyRecords.length < 2) return null;
@@ -9016,7 +9057,7 @@ Notes:
                 <div>${formatKg2(record.weight)} kg</div>
                 <div>${formatKg2(record.skeletalMuscle)} kg</div>
                 <div>${formatKg2(record.bodyFat)} kg</div>
-                <div>${record.bodyFatPercent.toFixed(1)}%</div>
+                <div>${Number.isFinite(getDisplayBodyFatPercent(record)) ? `${getDisplayBodyFatPercent(record).toFixed(1)}%` : "-"}</div>
                 <div class="inbody-record-warning">${record.warning ? escapeHtml(record.warning) : ""}</div>
               </div>
               <div class="inbody-record-actions">
@@ -9039,8 +9080,21 @@ Notes:
       return Number.isFinite(value) ? value.toFixed(2) : "-";
     }
 
+    function formatKg1(value){
+      return Number.isFinite(value) ? value.toFixed(1) : "-";
+    }
+
     function formatSignedKg2(value){
       return Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value.toFixed(2)}` : "-";
+    }
+
+    function getDisplayBodyFatPercent(record){
+      if (!record) return null;
+      if (Number.isFinite(record.bodyFatPercent)) return record.bodyFatPercent;
+      if (Number.isFinite(record.weight) && record.weight > 0 && Number.isFinite(record.bodyFat)) {
+        return record.bodyFat / record.weight * 100;
+      }
+      return null;
     }
 
     function updateInbodyDerivedHints(){
@@ -9091,16 +9145,17 @@ Notes:
       const dateInput = document.getElementById("inbodyDate");
       if (dateInput && !dateInput.value) dateInput.value = getTodayDateString();
       updateInbodyDerivedHints();
-      const latest = getLatestInbody();
+      const latest = getLatestInbodyForDisplay();
       const delta = getInbodyDelta();
+      const latestBodyFatPercent = getDisplayBodyFatPercent(latest);
       document.getElementById("inbodyLatestWeight").textContent = latest ? formatKg2(latest.weight) : "-";
       document.getElementById("inbodyLatestMuscle").textContent = latest ? formatKg2(latest.skeletalMuscle) : "-";
       document.getElementById("inbodyLatestFat").textContent = latest ? formatKg2(latest.bodyFat) : "-";
+      document.getElementById("inbodyLatestBodyFatPercent").textContent = Number.isFinite(latestBodyFatPercent) ? latestBodyFatPercent.toFixed(1) : "-";
       const rows = document.getElementById("inbodySummaryRows");
       if (!rows) return;
       rows.innerHTML = `
         <div class="row"><div class="key">최근 측정일</div><div class="value">${latest ? escapeHtml(latest.date) : "-"}</div></div>
-        <div class="row"><div class="key">최근 체지방률</div><div class="value">${latest ? `${latest.bodyFatPercent.toFixed(1)}%` : "-"}</div></div>
         <div class="row"><div class="key">체중 변화</div><div class="value">${delta ? formatSignedKg2(delta.weightDiff) : "-"}</div></div>
         <div class="row"><div class="key">근육 변화</div><div class="value">${delta ? formatSignedKg2(delta.muscleDiff) : "-"}</div></div>
         <div class="row"><div class="key">지방 변화</div><div class="value">${delta ? formatSignedKg2(delta.fatDiff) : "-"}</div></div>
@@ -10924,7 +10979,8 @@ Notes:
           assertClose(afterBlocked.weight, 74, 0.0001, "weight mismatch should not overwrite record weight automatically");
           assertClose(afterBlocked.adherencePercent, before.adherencePercent, 0.0001, "weight mismatch should not silently regrade adherence");
           assertTest(areGoalSnapshotsEquivalent(afterBlocked.goalSnapshot, before.goalSnapshot), "weight mismatch should keep the previous snapshot");
-          assertTest(noticeText.includes("현재 체중 입력값") && noticeText.includes("오늘 기록에 반영"), "weight mismatch notice should render choices");
+          assertTest(noticeText.includes("입력탭 체중: 75.0kg") && noticeText.includes("기록탭 오늘 기록: 74.0kg"), "weight mismatch notice should show both tab weights");
+          assertTest(noticeText.includes("입력탭 체중 → 기록탭") && noticeText.includes("기록탭 체중 → 입력탭"), "weight mismatch notice should render choices");
 
           document.querySelector("[data-apply-today-weight]").click();
           const afterApply = getRecordByDate(today);
@@ -10933,13 +10989,13 @@ Notes:
           assertTest(afterApply.snapshotSource === "today_auto_sync", "apply action should refresh snapshot source");
           assertTest(afterApply.adherenceScoringVersion === ADHERENCE_SCORING_VERSION, "apply action should store scoring version metadata");
           assertTest(Number.isFinite(afterApply.adherencePercent), "apply action should recalculate adherence");
-          assertTest(!(document.getElementById("todayRecordWeightMismatchHost").textContent || "").includes("현재 체중 입력값"), "apply action should clear mismatch notice");
+          assertTest(!(document.getElementById("todayRecordWeightMismatchHost").textContent || "").includes("입력탭 체중"), "apply action should clear mismatch notice");
 
           ids.weight.value = "76";
           renderRecordsPanel();
           document.querySelector("[data-revert-today-weight]").click();
           assertClose(Number(ids.weight.value), afterApply.weight, 0.0001, "revert action should restore Today weight from today's record");
-          assertTest(!(document.getElementById("todayRecordWeightMismatchHost").textContent || "").includes("현재 체중 입력값"), "revert action should clear mismatch notice");
+          assertTest(!(document.getElementById("todayRecordWeightMismatchHost").textContent || "").includes("입력탭 체중"), "revert action should clear mismatch notice");
         }));
 
         results.push(runNamedTest("snapshot date recomputes with same snapshot on meal edits", () => {
