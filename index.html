@@ -4305,6 +4305,123 @@ Notes:
       };
     }
 
+    function analyzeMealDistribution(meals = []){
+      const sourceMeals = Array.isArray(meals) ? meals : [];
+      const entries = sourceMeals.map((meal, index) => {
+        const normalized = normalizeMeal(meal, index) || {
+          carbs: 0,
+          protein: 0,
+          fat: 0,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: ""
+        };
+        const energy = calculateMealEnergy(normalized);
+        const memo = String(normalized.memo || "").trim();
+        const filled = energy.totalKcal > 0 || memo.length > 0;
+        return {
+          meal: normalized,
+          energy,
+          filled,
+          protein: normalizeMacroValue(normalized.protein),
+          alcoholShare: energy.totalKcal > 0 ? energy.alcoholKcal / energy.totalKcal : null,
+          otherShare: energy.totalKcal > 0 ? energy.otherKcal / energy.totalKcal : null
+        };
+      }).filter(entry => entry.filled);
+
+      const filledEntryCount = entries.length;
+      const dayTotalKcal = entries.reduce((sum, entry) => sum + entry.energy.totalKcal, 0);
+      const dayProtein = entries.reduce((sum, entry) => sum + entry.protein, 0);
+      const substantialEntries = dayTotalKcal > 0
+        ? entries.filter(entry => entry.energy.totalKcal >= 200 || entry.energy.totalKcal / dayTotalKcal >= 0.10)
+        : [];
+      const substantialMealCount = substantialEntries.length;
+      const proteinFeedingCount = entries.filter(entry => entry.protein >= 20).length;
+      const maxKcalShare = dayTotalKcal > 0
+        ? Math.max(0, ...entries.map(entry => entry.energy.totalKcal / dayTotalKcal))
+        : null;
+      const maxProteinShare = dayProtein > 0
+        ? Math.max(0, ...entries.map(entry => entry.protein / dayProtein))
+        : null;
+      const singleEntry = filledEntryCount === 1;
+      const alcoholHeavyEntry = entries.some(entry =>
+        entry.energy.alcoholKcal >= 300 ||
+        (entry.energy.totalKcal > 0 && entry.energy.alcoholKcal / entry.energy.totalKcal >= 0.70)
+      );
+      const otherKcalHeavyEntry = entries.some(entry =>
+        entry.energy.otherKcal >= 300 ||
+        (entry.energy.totalKcal > 0 && entry.energy.otherKcal / entry.energy.totalKcal >= 0.70)
+      );
+      const nonMacroHeavyEntry = alcoholHeavyEntry || otherKcalHeavyEntry;
+
+      let status = "ok";
+      let reason = null;
+      let available = true;
+      let confidence = substantialMealCount >= 3 ? "high" : "medium";
+      let concentratedEnergy = false;
+      let concentratedProtein = false;
+      const flags = [];
+
+      if (filledEntryCount === 0){
+        status = "insufficient_data";
+        reason = "no_meals";
+        available = false;
+        confidence = "insufficient";
+      } else if (dayTotalKcal < 500){
+        status = "insufficient_data";
+        reason = "low_total_kcal";
+        available = false;
+        confidence = "insufficient";
+      } else if (singleEntry){
+        status = "insufficient_data";
+        reason = "single_entry";
+        available = false;
+        confidence = "insufficient";
+      } else if (substantialMealCount < 2){
+        status = "insufficient_data";
+        reason = "not_enough_substantial_meals";
+        available = false;
+        confidence = "low";
+      } else {
+        if (
+          (substantialMealCount === 2 && maxKcalShare >= 0.75) ||
+          (substantialMealCount >= 3 && maxKcalShare >= 0.65)
+        ){
+          concentratedEnergy = true;
+          flags.push("concentrated_energy");
+        }
+        if (dayProtein >= 40 && (maxProteinShare >= 0.70 || proteinFeedingCount === 1)){
+          concentratedProtein = true;
+          flags.push("concentrated_protein");
+        }
+        if (alcoholHeavyEntry) flags.push("alcohol_heavy_entry");
+        if (otherKcalHeavyEntry) flags.push("other_kcal_heavy_entry");
+        if (nonMacroHeavyEntry) flags.push("non_macro_heavy_entry");
+        if (flags.length) status = "attention";
+      }
+
+      return {
+        available,
+        status,
+        reason,
+        filledEntryCount,
+        substantialMealCount,
+        proteinFeedingCount,
+        dayTotalKcal,
+        dayProtein,
+        maxKcalShare,
+        maxProteinShare,
+        singleEntry,
+        concentratedEnergy,
+        concentratedProtein,
+        alcoholHeavyEntry,
+        otherKcalHeavyEntry,
+        nonMacroHeavyEntry,
+        confidence,
+        flags
+      };
+    }
+
     function formatMealEnergyDetailText(energy){
       const parts = [];
       if (energy.alcoholKcal > 0) parts.push(`술 ${Math.round(energy.alcoholKcal).toLocaleString()}kcal`);
@@ -9485,6 +9602,68 @@ Notes:
           assertTest(energy.otherKcal === 60, "other kcal should be kept as kcal");
           assertTest(energy.nonMacroKcal === 200, "non-macro kcal should add alcohol and other kcal");
           assertTest(energy.totalKcal === 610, "total kcal should include macro and non-macro kcal");
+        }));
+        results.push(runNamedTest("meal distribution insufficient data cases", () => {
+          const empty = analyzeMealDistribution([]);
+          assertTest(empty.status === "insufficient_data", "empty distribution should be insufficient");
+          assertTest(empty.reason === "no_meals", "empty distribution should use no_meals reason");
+          assertTest(empty.available === false, "empty distribution should be unavailable");
+          assertTest(empty.concentratedEnergy === false, "empty distribution should not flag energy concentration");
+          assertTest(empty.concentratedProtein === false, "empty distribution should not flag protein concentration");
+
+          const single = analyzeMealDistribution([{ carbs: 450 }]);
+          assertTest(single.status === "insufficient_data", "single entry distribution should be insufficient");
+          assertTest(single.reason === "single_entry", "single entry distribution should use single_entry reason");
+          assertTest(single.singleEntry === true, "single entry distribution should expose singleEntry");
+          assertTest(single.concentratedEnergy === false, "single entry distribution should not imply concentration");
+
+          const lowTotal = analyzeMealDistribution([{ carbs: 50 }, { carbs: 25 }]);
+          assertTest(lowTotal.status === "insufficient_data", "low total distribution should be insufficient");
+          assertTest(lowTotal.reason === "low_total_kcal", "low total distribution should use low_total_kcal reason");
+          assertTest(lowTotal.confidence === "insufficient", "low total distribution should have insufficient confidence");
+
+          const zeroTotal = analyzeMealDistribution([{ memo: "memo only" }, { memo: "second memo" }]);
+          assertTest(zeroTotal.status === "insufficient_data", "zero kcal distribution should be insufficient");
+          assertTest(zeroTotal.maxKcalShare === null, "zero kcal distribution should avoid kcal division");
+        }));
+        results.push(runNamedTest("meal distribution energy concentration thresholds", () => {
+          const twoMealSkew = analyzeMealDistribution([{ carbs: 225 }, { carbs: 25 }]);
+          assertClose(twoMealSkew.maxKcalShare, 0.9, 0.0001, "two meal skew should expose max kcal share");
+          assertTest(twoMealSkew.concentratedEnergy === true, "two meal 90/10 split should flag energy concentration");
+
+          const threeMealBalanced = analyzeMealDistribution([{ carbs: 100 }, { carbs: 87.5 }, { carbs: 62.5 }]);
+          assertTest(threeMealBalanced.status === "ok", "three meal 40/35/25 split should be ok");
+          assertTest(threeMealBalanced.concentratedEnergy === false, "three meal 40/35/25 split should not flag concentration");
+
+          const threeMealSkew = analyzeMealDistribution([{ carbs: 175 }, { carbs: 50 }, { carbs: 25 }]);
+          assertTest(threeMealSkew.concentratedEnergy === true, "three meal 70/20/10 split should flag concentration");
+        }));
+        results.push(runNamedTest("meal distribution non-macro heavy entries", () => {
+          const alcoholDay = analyzeMealDistribution([{ alcoholKcal: 600 }, { carbs: 150 }]);
+          assertTest(alcoholDay.substantialMealCount === 2, "alcohol and normal meal should both be substantial");
+          assertTest(alcoholDay.alcoholHeavyEntry === true, "alcohol-heavy entry should be flagged");
+          assertTest(alcoholDay.nonMacroHeavyEntry === true, "alcohol-heavy entry should count as non-macro heavy");
+          assertClose(alcoholDay.maxKcalShare, 0.5, 0.0001, "even alcohol split should expose 50% max kcal share");
+          assertTest(alcoholDay.concentratedEnergy === false, "even alcohol split should not flag energy concentration");
+
+          const otherDay = analyzeMealDistribution([{ otherKcal: 600 }, { carbs: 150 }]);
+          assertTest(otherDay.otherKcalHeavyEntry === true, "other-kcal-heavy entry should be flagged");
+          assertTest(otherDay.nonMacroHeavyEntry === true, "other-kcal-heavy entry should count as non-macro heavy");
+          assertTest(otherDay.concentratedEnergy === false, "even other-kcal split should not flag energy concentration");
+        }));
+        results.push(runNamedTest("meal distribution memo and protein concentration", () => {
+          const memoDay = analyzeMealDistribution([{ memo: "memo only" }, { carbs: 150 }]);
+          assertTest(memoDay.filledEntryCount === 2, "memo-only entry should count as filled");
+          assertTest(memoDay.substantialMealCount === 1, "memo-only entry should not count as substantial meal");
+
+          const proteinSkew = analyzeMealDistribution([
+            { protein: 80, carbs: 50 },
+            { carbs: 75 },
+            { carbs: 75 }
+          ]);
+          assertTest(proteinSkew.dayProtein >= 40, "protein skew test should have enough protein to analyze");
+          assertTest(proteinSkew.proteinFeedingCount === 1, "single protein feeding should be counted");
+          assertTest(proteinSkew.concentratedProtein === true, "single large protein feeding should flag protein concentration");
         }));
         results.push(runNamedTest("meal save preserves non-macro kcal", () => {
           recordsState.items = [];
