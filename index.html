@@ -5891,41 +5891,17 @@ Notes:
       return consumedValue - targetValue > getMacroDisplayDeadzone(targetValue, key);
     }
 
-    function getMealConcentrationInfo(meals = []){
-      const normalizedMeals = Array.isArray(meals) ? meals : [];
-      const totalKcal = normalizedMeals.reduce((sum, meal) => sum + calculateMealKcal(meal), 0);
-      const totalMacroGrams = normalizedMeals.reduce((sum, meal) => (
-        sum + Number(meal?.carbs || 0) + Number(meal?.protein || 0) + Number(meal?.fat || 0)
-      ), 0);
-      const maxMealKcal = normalizedMeals.reduce((max, meal) => Math.max(max, calculateMealKcal(meal)), 0);
-      const maxMealMacroGrams = normalizedMeals.reduce((max, meal) => Math.max(max, (
-        Number(meal?.carbs || 0) + Number(meal?.protein || 0) + Number(meal?.fat || 0)
-      )), 0);
-      const kcalRatio = totalKcal > 0 ? maxMealKcal / totalKcal : 0;
-      const macroRatio = totalMacroGrams > 0 ? maxMealMacroGrams / totalMacroGrams : 0;
-      return {
-        kcalRatio,
-        macroRatio,
-        isConcentrated: normalizedMeals.length > 1 && (kcalRatio >= 0.85 || macroRatio >= 0.85)
-      };
-    }
-
     function getMealConcentrationHint(balance, intakeProgress){
       if (!balance?.hasMeals) return "";
       const distribution = balance.mealDistribution;
-      if (distribution) {
-        if (!distribution.available) return "";
-        if (distribution.concentratedEnergy) {
-          return "기록상 섭취가 한 번에 몰려 보일 수 있습니다. 하루 식단을 한 번에 입력한 경우라면 참고만 해도 됩니다.";
-        }
-        if (distribution.concentratedProtein) {
-          return "단백질 섭취가 한 번에 몰려 보입니다. 총량을 맞추는 것이 우선이지만, 가능하면 2~3번으로 나누면 더 안정적입니다.";
-        }
-        return "";
+      if (!distribution?.available) return "";
+      if (distribution.concentratedEnergy) {
+        return "기록상 섭취가 한 번에 몰려 보일 수 있습니다. 하루 식단을 한 번에 입력한 경우라면 참고만 해도 됩니다.";
       }
-      const concentratedByMeals = !!balance.mealConcentration?.isConcentrated;
-      if (!concentratedByMeals) return "";
-      return "기록상 섭취가 한 번에 몰려 보일 수 있습니다. 하루 식단을 한 번에 입력한 경우라면 참고만 해도 됩니다.";
+      if (distribution.concentratedProtein) {
+        return "단백질 섭취가 한 번에 몰려 보입니다. 총량을 맞추는 것이 우선이지만, 가능하면 2~3번으로 나누면 더 안정적입니다.";
+      }
+      return "";
     }
 
     function getMacroBalanceForDate(date, currentResult = calculate(), options = {}){
@@ -5970,7 +5946,6 @@ Notes:
         isGoalAvailable,
         mealCount,
         hasMeals: mealCount > 0,
-        mealConcentration: getMealConcentrationInfo(record?.meals || []),
         mealDistribution: analyzeMealDistribution(record?.meals || []),
         goalSnapshot: snapshotTarget ? normalizeGoalSnapshot(activeSnapshot) : null
       };
