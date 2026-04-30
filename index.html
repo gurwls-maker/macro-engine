@@ -2063,6 +2063,15 @@ Notes:
     #recordsPanel .meal-summary-card .value{
       font-size:18px;
     }
+    #recordsPanel .meal-summary-card .target-note{
+      margin-top:6px;
+      font-size:11px;
+      line-height:1.4;
+      color:var(--muted);
+      font-weight:800;
+      word-break:keep-all;
+      overflow-wrap:anywhere;
+    }
     .records-input-panel .selected-meals-summary-panel,
     .records-review-shell .selected-meals-list-panel{
       margin-top:16px;
@@ -5886,6 +5895,22 @@ Notes:
       };
     }
 
+    function getSelectedDateMealTarget(date, currentResult = calculate()){
+      const targetDate = normalizeDateString(date) || getTodayDateString();
+      const record = getRecordByDate(targetDate);
+      const snapshotTarget = getGoalSnapshotTarget(record?.goalSnapshot);
+      if (snapshotTarget) return snapshotTarget;
+      if (targetDate === getTodayDateString() && currentResult?.isCalculable) {
+        return {
+          kcal: currentResult.targetCal,
+          protein: currentResult.protein,
+          carbs: currentResult.carbs,
+          fat: currentResult.fat
+        };
+      }
+      return null;
+    }
+
     function isMeaningfulTodayOver(targetValue, consumedValue, key){
       if (!Number.isFinite(targetValue) || !Number.isFinite(consumedValue)) return false;
       return consumedValue - targetValue > getMacroDisplayDeadzone(targetValue, key);
@@ -6791,6 +6816,22 @@ Notes:
       if (!Number.isFinite(value)) return "계산 불가";
       const absValue = unit === "kcal" ? Math.round(Math.abs(value)) : round(Math.abs(value), 1);
       return value < 0 ? `${absValue}${unit === "kcal" ? " kcal" : "g"} 초과` : `${absValue}${unit === "kcal" ? " kcal" : "g"} 남음`;
+    }
+
+    function formatCompactMacroValue(value, unit){
+      if (!Number.isFinite(value)) return "—";
+      if (unit === "kcal") return `${Math.round(value).toLocaleString()}kcal`;
+      return `${round(value, 1)}g`;
+    }
+
+    function formatSelectedMealRemainingText(targetValue, consumedValue, key){
+      if (!Number.isFinite(targetValue) || !Number.isFinite(consumedValue)) return "";
+      const unit = key === "kcal" ? "kcal" : "g";
+      const remaining = targetValue - consumedValue;
+      const deadzone = getMacroDisplayDeadzone(targetValue, key);
+      if (Math.abs(remaining) <= deadzone) return `남은 ${formatCompactMacroValue(0, unit)}`;
+      if (remaining < 0) return `초과 ${formatCompactMacroValue(Math.abs(remaining), unit)}`;
+      return `남은 ${formatCompactMacroValue(remaining, unit)}`;
     }
 
     function getMacroDisplayDeadzone(target, key){
@@ -8465,33 +8506,31 @@ Notes:
 
     function renderSelectedDateMealTotals(date){
       const totals = getMealTotalsForDate(date);
+      const target = getSelectedDateMealTarget(date);
       document.getElementById("selectedMealTotals").innerHTML = [
-        ["탄수 총합", `${round(totals.carbs, 1)} g`, "carbs"],
-        ["단백질 총합", `${round(totals.protein, 1)} g`, "protein"],
-        ["지방 총합", `${round(totals.fat, 1)} g`, "fat"],
-        ["총 kcal", `${Math.round(totals.kcal).toLocaleString()} kcal`, "kcal"]
-      ].map(([label, value, key]) => `
+        ["탄수화물", totals.carbs, target?.carbs, "carbs", "g"],
+        ["단백질", totals.protein, target?.protein, "protein", "g"],
+        ["지방", totals.fat, target?.fat, "fat", "g"],
+        ["총 칼로리", totals.totalKcal, target?.kcal, "kcal", "kcal"]
+      ].map(([label, consumedValue, targetValue, key, unit]) => {
+        const consumedText = formatCompactMacroValue(consumedValue, unit);
+        const remainingText = formatSelectedMealRemainingText(targetValue, consumedValue, key);
+        const value = remainingText ? `${consumedText} / ${remainingText}` : consumedText;
+        const targetNoteParts = Number.isFinite(targetValue)
+          ? [`목표 ${formatCompactMacroValue(targetValue, unit)}`]
+          : ["기준 없음"];
+        if (key === "kcal" && totals.nonMacroKcal > 0) {
+          targetNoteParts.push(`탄단지 ${formatCompactMacroValue(totals.macroKcal, "kcal")}`);
+        }
+        const targetNote = targetNoteParts.join(" · ");
+        return `
         <div class="meal-summary-card" data-total-kind="${key}">
           <div class="label">${label}</div>
           <div class="value">${value}</div>
-          <div class="sub">${date}</div>
+          <div class="target-note">${targetNote}</div>
         </div>
-      `).join("");
-      const macroKcalLabel = document.querySelector('#selectedMealTotals [data-total-kind="kcal"] .label');
-      if (macroKcalLabel) macroKcalLabel.textContent = "탄단지 kcal";
-      if (totals.nonMacroKcal > 0) {
-        document.getElementById("selectedMealTotals").insertAdjacentHTML("beforeend", [
-          ["술 kcal", `${Math.round(totals.alcoholKcal).toLocaleString()} kcal`, "alcohol"],
-          ["기타 kcal", `${Math.round(totals.otherKcal).toLocaleString()} kcal`, "other"],
-          ["총 kcal", `${Math.round(totals.totalKcal).toLocaleString()} kcal`, "total"]
-        ].map(([label, value, key]) => `
-          <div class="meal-summary-card" data-total-kind="${key}">
-            <div class="label">${label}</div>
-            <div class="value">${value}</div>
-            <div class="sub">${date}</div>
-          </div>
-        `).join(""));
-      }
+      `;
+      }).join("");
 
       const warning = getMealSoftLimitMessage(ensureRecordByDate(date)?.meals.length || 0);
       document.getElementById("mealSoftWarningHost").innerHTML = warning
@@ -9754,6 +9793,32 @@ Notes:
           const text = document.getElementById("selectedMealsList").textContent;
           assertTest(text.includes("visible memo note"), "meal memo should render in selected meal list");
           assertTest(text.includes("no memo meal"), "meal without memo should still render");
+        }));
+        results.push(runNamedTest("selected meal totals show consumed remaining and target basis", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-04-22",
+            goalSnapshot: { targetCal: 1000, carbs: 100, protein: 50, fat: 30 },
+            meals: [
+              { id: "m1", mealLabel: "meal", carbs: 40, protein: 20, fat: 10, alcoholKcal: 100, otherKcal: 50, memo: "", createdAt: "2026-04-22T08:00:00.000Z" }
+            ]
+          }]);
+          renderSelectedDateMealTotals("2026-04-22");
+          const host = document.getElementById("selectedMealTotals");
+          const text = host.textContent || "";
+          assertTest(host.querySelectorAll(".meal-summary-card").length === 4, "selected meal totals should keep four summary cards");
+          assertTest(text.includes("탄수화물") && text.includes("40g / 남은 60g") && text.includes("목표 100g"), "carb card should show consumed, remaining, and target grams");
+          assertTest(text.includes("총 칼로리") && text.includes("480kcal / 남은 520kcal") && text.includes("목표 1,000kcal"), "kcal card should use total kcal against snapshot target");
+          assertTest(text.includes("탄단지 330kcal"), "kcal card should expose macro kcal as a helper when non-macro kcal exists");
+          assertTest(!text.includes("술 kcal") && !text.includes("기타 kcal"), "selected meal totals should not add extra non-macro summary cards");
+
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-04-21",
+            meals: [{ id: "m1", mealLabel: "legacy", carbs: 10, protein: 5, fat: 2, memo: "", createdAt: "2026-04-21T08:00:00.000Z" }]
+          }]);
+          renderSelectedDateMealTotals("2026-04-21");
+          const legacyText = document.getElementById("selectedMealTotals").textContent || "";
+          assertTest(legacyText.includes("기준 없음"), "snapshotless past selected meal totals should avoid live targets");
+          assertTest(!legacyText.includes("NaN") && !legacyText.includes("undefined"), "snapshotless selected meal totals should not expose invalid values");
         }));
         results.push(runNamedTest("selected meal summary and list live in separate records columns", () => {
           const totalsHost = document.getElementById("selectedMealTotals");
