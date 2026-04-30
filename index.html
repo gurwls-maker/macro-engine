@@ -5912,10 +5912,20 @@ Notes:
 
     function getMealConcentrationHint(balance, intakeProgress){
       if (!balance?.hasMeals) return "";
+      const distribution = balance.mealDistribution;
+      if (distribution) {
+        if (!distribution.available) return "";
+        if (distribution.concentratedEnergy) {
+          return "기록상 섭취가 한 번에 몰려 보일 수 있습니다. 하루 식단을 한 번에 입력한 경우라면 참고만 해도 됩니다.";
+        }
+        if (distribution.concentratedProtein) {
+          return "단백질 섭취가 한 번에 몰려 보입니다. 총량을 맞추는 것이 우선이지만, 가능하면 2~3번으로 나누면 더 안정적입니다.";
+        }
+        return "";
+      }
       const concentratedByMeals = !!balance.mealConcentration?.isConcentrated;
-      const singleNearFullDay = balance.mealCount === 1 && Number.isFinite(intakeProgress) && intakeProgress >= 0.85;
-      if (!concentratedByMeals && !singleNearFullDay) return "";
-      return "현재 기록이 한 끼에 몰려 있다면 남은 식사는 가볍게 이어가세요. 하루 식단을 한 번에 입력한 경우라면 참고만 해도 됩니다.";
+      if (!concentratedByMeals) return "";
+      return "기록상 섭취가 한 번에 몰려 보일 수 있습니다. 하루 식단을 한 번에 입력한 경우라면 참고만 해도 됩니다.";
     }
 
     function getMacroBalanceForDate(date, currentResult = calculate(), options = {}){
@@ -5961,6 +5971,7 @@ Notes:
         mealCount,
         hasMeals: mealCount > 0,
         mealConcentration: getMealConcentrationInfo(record?.meals || []),
+        mealDistribution: analyzeMealDistribution(record?.meals || []),
         goalSnapshot: snapshotTarget ? normalizeGoalSnapshot(activeSnapshot) : null
       };
     }
@@ -10241,16 +10252,16 @@ Notes:
           assertTest(score.label === "평가 보류", "single meal near target should keep pending label");
           assertTest(score.summaryText.includes("목표 범위에 가깝습니다"), "near-target pending should say it is close to target range");
           assertTest(!score.summaryText.includes("하루 식단을 한 번에 입력한 경우"), "single near-full-day entry should not put the meal hint in summaryText");
-          assertTest(score.mealConcentrationHint.includes("하루 식단을 한 번에 입력한 경우"), "single near-full-day entry should expose a separate reference-only hint");
+          assertTest(score.mealConcentrationHint === "", "single near-full-day entry should not expose meal concentration hint");
           assertNoStrongNearTargetCopy(`${score.label} ${score.summaryText} ${Object.values(score.reasons).join(" ")}`, "single meal near target pending copy");
           renderTodayAdherencePanel(score);
           const adherenceHost = document.getElementById("todayAdherenceContent");
           const hostText = adherenceHost?.textContent || "";
           const scoreCardText = adherenceHost?.querySelector(".adherence-score-card")?.textContent || "";
           const detailCardText = adherenceHost?.querySelector(".adherence-detail-card")?.textContent || "";
-          assertTest(countTextMatches(hostText, "하루 식단을 한 번에 입력한 경우") === 1, "single near-target hint should render exactly once");
+          assertTest(countTextMatches(hostText, "하루 식단을 한 번에 입력한 경우") === 0, "single near-target hint should not render");
           assertTest(!scoreCardText.includes("하루 식단을 한 번에 입력한 경우"), "single near-target hint should not render in the score card");
-          assertTest(detailCardText.includes("하루 식단을 한 번에 입력한 경우"), "single near-target hint should render in the detail card");
+          assertTest(!detailCardText.includes("하루 식단을 한 번에 입력한 경우"), "single near-target hint should not render in the detail card");
         }));
 
         results.push(runNamedTest("adherence low intake stays pending", () => {
@@ -10279,19 +10290,19 @@ Notes:
             meals: [
               {
                 id: "m1",
-                mealLabel: "full day entry",
-                carbs: target.carbs,
-                protein: target.protein,
-                fat: target.fat,
+                mealLabel: "large entry",
+                carbs: target.carbs * 0.89,
+                protein: target.protein * 0.89,
+                fat: target.fat * 0.89,
                 memo: "",
                 createdAt: `${today}T08:00:00.000Z`
               },
               {
                 id: "m2",
-                mealLabel: "zero entry",
-                carbs: 0,
-                protein: 0,
-                fat: 0,
+                mealLabel: "small entry",
+                carbs: target.carbs * 0.11,
+                protein: target.protein * 0.11,
+                fat: target.fat * 0.11,
                 memo: "",
                 createdAt: `${today}T12:00:00.000Z`
               }
@@ -10300,17 +10311,17 @@ Notes:
           const score = getTodayAdherenceScore(target);
           assertTest(score.status === "available", "two meal records near target should remain available");
           assertTest(score.percent >= 95, "two meal total near target should still score high");
-          assertTest(!score.summaryText.includes("한 끼에 몰려 있다면"), "concentrated meal record should not put the hint in summaryText");
-          assertTest(score.mealConcentrationHint.includes("한 끼에 몰려 있다면"), "concentrated meal record should expose a separate reference-only hint");
+          assertTest(!score.summaryText.includes("기록상 섭취가 한 번에 몰려"), "concentrated meal record should not put the hint in summaryText");
+          assertTest(score.mealConcentrationHint.includes("기록상 섭취가 한 번에 몰려"), "concentrated meal record should expose a separate reference-only hint");
           assertNoAmbiguousRecordCopy(`${score.summaryText} ${Object.values(score.reasons).join(" ")}`, "concentrated meal copy");
           renderTodayAdherencePanel(score);
           const adherenceHost = document.getElementById("todayAdherenceContent");
           const hostText = adherenceHost?.textContent || "";
           const scoreCardText = adherenceHost?.querySelector(".adherence-score-card")?.textContent || "";
           const detailCardText = adherenceHost?.querySelector(".adherence-detail-card")?.textContent || "";
-          assertTest(countTextMatches(hostText, "하루 식단을 한 번에 입력한 경우") === 1, "concentrated meal hint should render exactly once");
-          assertTest(!scoreCardText.includes("한 끼에 몰려 있다면"), "concentrated meal hint should not render in the score card");
-          assertTest(detailCardText.includes("한 끼에 몰려 있다면"), "concentrated meal hint should render in the detail card");
+          assertTest(countTextMatches(hostText, "기록상 섭취가 한 번에 몰려") === 1, "concentrated meal hint should render exactly once");
+          assertTest(!scoreCardText.includes("기록상 섭취가 한 번에 몰려"), "concentrated meal hint should not render in the score card");
+          assertTest(detailCardText.includes("기록상 섭취가 한 번에 몰려"), "concentrated meal hint should render in the detail card");
         }));
 
         results.push(runNamedTest("adherence pending real overshoot still asks for adjustment", () => {
