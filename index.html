@@ -2052,6 +2052,20 @@ Notes:
       max-height:560px;
       overflow-y:auto;
     }
+    .weight-mismatch-card{
+      margin-bottom:14px;
+    }
+    .weight-mismatch-actions{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-top:10px;
+    }
+    .weight-mismatch-actions .secondary-btn{
+      min-height:auto;
+      padding:8px 10px;
+      font-size:12px;
+    }
     .weekly-analysis-panel .mini-note{
       margin-top:0;
       margin-bottom:14px;
@@ -3465,6 +3479,7 @@ Notes:
             </div>
             <div class="section-group-body">
           <div id="recordFeedbackHost"></div>
+          <div id="todayRecordWeightMismatchHost"></div>
           <div class="record-grid">
             <div class="field" id="recordAdherenceField">
               <label>날짜</label>
@@ -5393,7 +5408,7 @@ Notes:
     }
 
     function normalizeSnapshotSource(raw){
-      return ["saved_at_entry","generated_on_late_meal_add","legacy_import"].includes(raw) ? raw : null;
+      return ["saved_at_entry","generated_on_late_meal_add","legacy_import","today_auto_sync"].includes(raw) ? raw : null;
     }
 
     function normalizeIsoDatetime(raw){
@@ -5625,6 +5640,62 @@ Notes:
         generalAdvancedSettings: !!ids.generalAdvancedSettings.checked,
         snapshotSource
       });
+    }
+
+    function getGoalSnapshotSignature(snapshot){
+      const normalized = normalizeGoalSnapshot(snapshot);
+      if (!normalized) return null;
+      const signatureKeys = [
+        "targetCal",
+        "protein",
+        "carbs",
+        "fat",
+        "mode",
+        "goal",
+        "weight",
+        "bodyFat",
+        "skeletal",
+        "activityLevel",
+        "workType",
+        "weeklyTrainingDays",
+        "routine",
+        "intensityOverride",
+        "weightDuration",
+        "cardioType",
+        "cardioDuration",
+        "cardioSpeed",
+        "cardioIncline",
+        "workAdj",
+        "homeInbody",
+        "expertLbmAlpha",
+        "generalAdvancedSettings"
+      ];
+      const signature = {};
+      signatureKeys.forEach(key => {
+        const value = normalized[key];
+        signature[key] = typeof value === "number" && Number.isFinite(value)
+          ? Math.round(value * 10000) / 10000
+          : value;
+      });
+      return JSON.stringify(signature);
+    }
+
+    function areGoalSnapshotsEquivalent(a, b){
+      const aSignature = getGoalSnapshotSignature(a);
+      const bSignature = getGoalSnapshotSignature(b);
+      return !!aSignature && !!bSignature && aSignature === bSignature;
+    }
+
+    function getTodayRecordWeightMismatch(){
+      const today = getTodayDateString();
+      const record = getRecordByDate(today);
+      if (!record) return { hasMismatch: false, today, record: null, inputWeight: null, recordWeight: null };
+      const inputWeight = normalizeWeightValue(ids.weight.value);
+      const recordWeight = normalizeWeightValue(record.weight);
+      const hasMismatch = Number.isFinite(inputWeight)
+        && Number.isFinite(recordWeight)
+        && Math.abs(inputWeight - recordWeight) > 0.005;
+      return { hasMismatch, today, record, inputWeight, recordWeight };
     }
 
     function getGoalSnapshotTarget(snapshot){
@@ -7218,6 +7289,68 @@ Notes:
       return { record, score, snapshotCreated: !hasExistingSnapshot && !!snapshot };
     }
 
+    function syncTodayRecordGoalSnapshot(currentResult = calculate()){
+      const today = getTodayDateString();
+      const existing = getRecordByDate(today);
+      if (!existing) return { synced: false, reason: "no_today_record" };
+      if (!ids.autoDietAnalysis.checked) return { synced: false, reason: "auto_off" };
+      if (!currentResult?.isCalculable) return { synced: false, reason: "not_calculable" };
+      const weightMismatch = getTodayRecordWeightMismatch();
+      if (weightMismatch.hasMismatch) return { synced: false, reason: "weight_mismatch", weightMismatch };
+
+      const nextSnapshot = buildGoalSnapshotFromCurrentState(currentResult, "today_auto_sync");
+      if (!nextSnapshot) return { synced: false, reason: "snapshot_unavailable" };
+      if (existing.goalSnapshot && areGoalSnapshotsEquivalent(existing.goalSnapshot, nextSnapshot)) {
+        return { synced: false, reason: "unchanged" };
+      }
+
+      const score = getDailyAdherenceScore(today, currentResult, { goalSnapshot: nextSnapshot });
+      const record = upsertRecord({
+        date: today,
+        goalSnapshot: nextSnapshot,
+        snapshotSource: "today_auto_sync",
+        adherencePercent: score?.isAvailable ? score.percent : null,
+        adherenceSource: score?.isAvailable ? "auto" : "manual",
+        adherenceLockedAt: score?.isAvailable ? new Date().toISOString() : existing.adherenceLockedAt
+      });
+      return { synced: true, record, score, snapshotCreated: !existing.goalSnapshot };
+    }
+
+    function applyTodayWeightToRecord(){
+      const mismatch = getTodayRecordWeightMismatch();
+      if (!mismatch.record || !Number.isFinite(mismatch.inputWeight)) return { applied: false, reason: "unavailable" };
+      const today = mismatch.today;
+      let record = upsertRecord({ date: today, weight: mismatch.inputWeight });
+      const currentResult = calculate();
+      if (ids.autoDietAnalysis.checked && currentResult?.isCalculable) {
+        const snapshot = buildGoalSnapshotFromCurrentState(currentResult, "today_auto_sync");
+        if (snapshot) {
+          const score = getDailyAdherenceScore(today, currentResult, { goalSnapshot: snapshot });
+          record = upsertRecord({
+            date: today,
+            weight: mismatch.inputWeight,
+            goalSnapshot: snapshot,
+            snapshotSource: "today_auto_sync",
+            adherencePercent: score?.isAvailable ? score.percent : null,
+            adherenceSource: score?.isAvailable ? "auto" : "manual",
+            adherenceLockedAt: score?.isAvailable ? new Date().toISOString() : record?.adherenceLockedAt
+          });
+        }
+      }
+      setRecordFeedback("ok", "오늘 체중 입력값을 오늘 기록에 반영했습니다.");
+      render();
+      return { applied: true, record };
+    }
+
+    function revertTodayWeightToRecord(){
+      const mismatch = getTodayRecordWeightMismatch();
+      if (!mismatch.record || !Number.isFinite(mismatch.recordWeight)) return { reverted: false, reason: "unavailable" };
+      ids.weight.value = String(mismatch.recordWeight);
+      setRecordFeedback("ok", "오늘 체중 입력값을 저장된 오늘 기록 체중으로 되돌렸습니다.");
+      render();
+      return { reverted: true, weight: mismatch.recordWeight };
+    }
+
     function getMealSoftLimitMessage(mealCount){
       if (mealCount <= 10) return "";
       return "식사 기록 수가 많습니다. 중복 입력이 없는지 한 번 확인해 주세요.";
@@ -8202,6 +8335,29 @@ Notes:
       `;
     }
 
+    function renderTodayRecordWeightMismatchNotice(){
+      const host = document.getElementById("todayRecordWeightMismatchHost");
+      if (!host) return;
+      const mismatch = getTodayRecordWeightMismatch();
+      if (!mismatch.hasMismatch) {
+        host.innerHTML = "";
+        return;
+      }
+      host.innerHTML = `
+        <div class="warn weight-mismatch-card">
+          <h4>오늘 체중 확인</h4>
+          <ul>
+            <li>현재 체중 입력값이 오늘 기록 체중과 다릅니다.</li>
+            <li>오늘 기준을 바꾸려면 기록에 반영해 주세요.</li>
+          </ul>
+          <div class="weight-mismatch-actions">
+            <button class="secondary-btn" type="button" data-apply-today-weight>오늘 기록에 반영</button>
+            <button class="secondary-btn" type="button" data-revert-today-weight>기록값으로 되돌리기</button>
+          </div>
+        </div>
+      `;
+    }
+
     function renderRecordsPanel(){
       const { sorted, recent7, previous7 } = getRecentWindows();
       const selectedDate = getSelectedRecordDate();
@@ -8219,6 +8375,7 @@ Notes:
       feedbackHost.innerHTML = recordsState.feedback
         ? `<div class="${recordsState.feedback.tone === "ok" ? "notice" : `warn ${recordsState.feedback.tone}`}"><h4>${recordsState.feedback.tone === "ok" ? "기록 안내" : "입력 확인"}</h4><ul><li>${escapeHtml(formatRecordFeedbackMessage(recordsState.feedback.message, selectedRecord))}</li></ul></div>`
         : "";
+      renderTodayRecordWeightMismatchNotice();
 
       const table = document.getElementById("recordsTable");
       if (!sorted.length) {
@@ -8780,6 +8937,7 @@ Notes:
       const todayAdherence = getTodayAdherenceScore(result);
       const todaySnapshot = buildTodayDataSnapshot(result);
       // 5.3.3: todaySnapshot is a read-only bridge for upcoming UI layers.
+      syncTodayRecordGoalSnapshot(result);
       renderTodayConsumptionPanel(todayBalance);
       renderTodayRemainingPanel(todayBalance);
       renderTodayAdherencePanel(todayAdherence);
@@ -8931,6 +9089,16 @@ Notes:
         const button = event.target.closest("[data-delete-record]");
         if (!button) return;
         deleteRecord(button.getAttribute("data-delete-record"));
+      });
+
+      document.getElementById("todayRecordWeightMismatchHost").addEventListener("click", event => {
+        if (event.target.closest("[data-apply-today-weight]")) {
+          applyTodayWeightToRecord();
+          return;
+        }
+        if (event.target.closest("[data-revert-today-weight]")) {
+          revertTodayWeightToRecord();
+        }
       });
 
       document.getElementById("selectedMealsList").addEventListener("click", event => {
@@ -10106,7 +10274,7 @@ Notes:
           assertTest(afterRecordSave?.adherencePercent === null, "new saved record without meals should not start with auto adherencePercent");
           assertTest(afterRecordSave?.adherenceSource === "manual", "new saved record without meals should keep manual source until score is available");
           assertTest(!!afterRecordSave?.goalSnapshot, "auto-on new saved record should create a goal snapshot");
-          assertTest(afterRecordSave?.snapshotSource === "saved_at_entry", "auto-on new saved record should assign saved_at_entry source");
+          assertTest(["saved_at_entry","today_auto_sync"].includes(afterRecordSave?.snapshotSource), "auto-on new saved record should assign a current-entry snapshot source");
           ids.mealLabel.value = "QA plain meal 1";
           ids.mealCarbs.value = String(target.carbs * 0.5);
           ids.mealProtein.value = String(target.protein * 0.5);
@@ -10125,7 +10293,7 @@ Notes:
           assertTest(Number.isFinite(afterMealAdd?.adherencePercent), "snapshot record should store auto adherencePercent after meal add");
           assertTest(afterMealAdd?.adherenceSource === "auto", "snapshot record should switch to auto source after meal add");
           assertTest(!!afterMealAdd?.goalSnapshot, "meal add should keep the generated goal snapshot");
-          assertTest(afterMealAdd?.snapshotSource === "saved_at_entry", "meal add should keep saved_at_entry snapshot source");
+          assertTest(["saved_at_entry","today_auto_sync"].includes(afterMealAdd?.snapshotSource), "meal add should keep a current-entry snapshot source");
           assertTest(!feedbackText.includes("generated_on_late_meal_add"), "meal add feedback should not mention generated_on_late_meal_add");
           assertTest(!feedbackText.includes("스냅샷"), "meal add feedback should not include late snapshot guidance");
         }));
@@ -10194,6 +10362,127 @@ Notes:
           assertTest(Number.isFinite(beforePercent), "snapshot record should store a finite auto adherence percent");
           assertClose(after.adherencePercent, beforePercent, 0.0001, "render should not regrade past adherence");
           assertTest(JSON.stringify(after.goalSnapshot) === beforeSnapshot, "past goal snapshot should remain unchanged after render");
+        }));
+
+        results.push(runNamedTest("today snapshot syncs after target input changes", () => {
+          setValidTodayBalanceTestInputs();
+          ids.autoDietAnalysis.checked = true;
+          const target = calculate();
+          const snapshot = buildGoalSnapshotFromCurrentState(target, "saved_at_entry");
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            adherence: "medium",
+            goalSnapshot: snapshot,
+            snapshotSource: "saved_at_entry",
+            meals: [
+              { id: "m1", mealLabel: "today1", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, memo: "", createdAt: `${today}T08:00:00.000Z` },
+              { id: "m2", mealLabel: "today2", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, memo: "", createdAt: `${today}T18:00:00.000Z` }
+            ]
+          }]);
+          persistAutoAdherenceForDate(today, target);
+          const before = getRecordByDate(today);
+          ids.weight.value = String(Number(ids.weight.value || "75") + 8);
+          const nextTarget = calculate();
+          const sync = syncTodayRecordGoalSnapshot(nextTarget);
+          const after = getRecordByDate(today);
+          assertTest(sync.synced === true, "today sync should report a changed snapshot");
+          assertTest(after.snapshotSource === "today_auto_sync", "today sync should mark snapshot source");
+          assertTest(!areGoalSnapshotsEquivalent(before.goalSnapshot, after.goalSnapshot), "today snapshot should change after target input changes");
+          assertTest(Number.isFinite(after.adherencePercent), "today sync should recalculate adherence against the new snapshot");
+        }));
+
+        results.push(runNamedTest("today snapshotless record can sync without creating an empty record", () => {
+          setValidTodayBalanceTestInputs();
+          ids.autoDietAnalysis.checked = true;
+          const target = calculate();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            adherence: "medium",
+            meals: [
+              { id: "m1", mealLabel: "today1", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, memo: "", createdAt: `${today}T08:00:00.000Z` },
+              { id: "m2", mealLabel: "today2", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, memo: "", createdAt: `${today}T18:00:00.000Z` }
+            ]
+          }]);
+          const sync = syncTodayRecordGoalSnapshot(target);
+          const record = getRecordByDate(today);
+          assertTest(sync.synced === true && sync.snapshotCreated === true, "snapshotless today record should create a sync snapshot");
+          assertTest(record.snapshotSource === "today_auto_sync", "snapshotless today sync should use today_auto_sync source");
+          assertTest(record.adherenceSource === "auto" && Number.isFinite(record.adherencePercent), "snapshotless today sync should auto grade when meals qualify");
+
+          recordsState.items = [];
+          const noRecordSync = syncTodayRecordGoalSnapshot(target);
+          assertTest(noRecordSync.synced === false, "today sync should not create an empty record");
+          assertTest(getRecordByDate(today) === null, "today sync should leave records empty when no today record exists");
+        }));
+
+        results.push(runNamedTest("today snapshot sync respects auto off and unchanged signature", () => {
+          setValidTodayBalanceTestInputs();
+          ids.autoDietAnalysis.checked = true;
+          const target = calculate();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            goalSnapshot: buildGoalSnapshotFromCurrentState(target, "saved_at_entry"),
+            snapshotSource: "saved_at_entry",
+            meals: [
+              { id: "m1", mealLabel: "today1", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, memo: "", createdAt: `${today}T08:00:00.000Z` },
+              { id: "m2", mealLabel: "today2", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, memo: "", createdAt: `${today}T18:00:00.000Z` }
+            ]
+          }]);
+          const before = getRecordByDate(today);
+          const unchanged = syncTodayRecordGoalSnapshot(target);
+          const afterUnchanged = getRecordByDate(today);
+          assertTest(unchanged.synced === false && unchanged.reason === "unchanged", "equivalent today snapshot should not resync");
+          assertTest(JSON.stringify(afterUnchanged.goalSnapshot) === JSON.stringify(before.goalSnapshot), "unchanged signature should keep snapshot object stable");
+
+          ids.autoDietAnalysis.checked = false;
+          ids.weight.value = String(Number(ids.weight.value || "75") + 8);
+          const autoOff = syncTodayRecordGoalSnapshot(calculate());
+          const afterAutoOff = getRecordByDate(today);
+          assertTest(autoOff.synced === false && autoOff.reason === "auto_off", "auto-off today record should not sync");
+          assertTest(JSON.stringify(afterAutoOff.goalSnapshot) === JSON.stringify(before.goalSnapshot), "auto-off sync should keep existing snapshot");
+        }));
+
+        results.push(runNamedTest("today weight mismatch blocks sync until user chooses", () => {
+          setValidTodayBalanceTestInputs();
+          ids.autoDietAnalysis.checked = true;
+          ids.weight.value = "74";
+          const recordTarget = calculate();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            weight: 74,
+            goalSnapshot: buildGoalSnapshotFromCurrentState(recordTarget, "saved_at_entry"),
+            snapshotSource: "saved_at_entry",
+            meals: [
+              { id: "m1", mealLabel: "today1", carbs: recordTarget.carbs * 0.5, protein: recordTarget.protein * 0.5, fat: recordTarget.fat * 0.5, memo: "", createdAt: `${today}T08:00:00.000Z` },
+              { id: "m2", mealLabel: "today2", carbs: recordTarget.carbs * 0.5, protein: recordTarget.protein * 0.5, fat: recordTarget.fat * 0.5, memo: "", createdAt: `${today}T18:00:00.000Z` }
+            ]
+          }]);
+          persistAutoAdherenceForDate(today, recordTarget);
+          const before = getRecordByDate(today);
+          ids.weight.value = "75";
+          const blocked = syncTodayRecordGoalSnapshot(calculate());
+          const afterBlocked = getRecordByDate(today);
+          renderRecordsPanel();
+          const noticeText = document.getElementById("todayRecordWeightMismatchHost").textContent || "";
+          assertTest(blocked.synced === false && blocked.reason === "weight_mismatch", "weight mismatch should block automatic today snapshot sync");
+          assertClose(afterBlocked.weight, 74, 0.0001, "weight mismatch should not overwrite record weight automatically");
+          assertClose(afterBlocked.adherencePercent, before.adherencePercent, 0.0001, "weight mismatch should not silently regrade adherence");
+          assertTest(areGoalSnapshotsEquivalent(afterBlocked.goalSnapshot, before.goalSnapshot), "weight mismatch should keep the previous snapshot");
+          assertTest(noticeText.includes("현재 체중 입력값") && noticeText.includes("오늘 기록에 반영"), "weight mismatch notice should render choices");
+
+          document.querySelector("[data-apply-today-weight]").click();
+          const afterApply = getRecordByDate(today);
+          assertClose(afterApply.weight, 75, 0.0001, "apply action should update today's record weight");
+          assertClose(afterApply.goalSnapshot.weight, 75, 0.0001, "apply action should refresh snapshot weight");
+          assertTest(afterApply.snapshotSource === "today_auto_sync", "apply action should refresh snapshot source");
+          assertTest(Number.isFinite(afterApply.adherencePercent), "apply action should recalculate adherence");
+          assertTest(!(document.getElementById("todayRecordWeightMismatchHost").textContent || "").includes("현재 체중 입력값"), "apply action should clear mismatch notice");
+
+          ids.weight.value = "76";
+          renderRecordsPanel();
+          document.querySelector("[data-revert-today-weight]").click();
+          assertClose(Number(ids.weight.value), afterApply.weight, 0.0001, "revert action should restore Today weight from today's record");
+          assertTest(!(document.getElementById("todayRecordWeightMismatchHost").textContent || "").includes("현재 체중 입력값"), "revert action should clear mismatch notice");
         }));
 
         results.push(runNamedTest("snapshot date recomputes with same snapshot on meal edits", () => {
