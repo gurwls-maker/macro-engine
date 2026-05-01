@@ -1605,6 +1605,35 @@ Notes:
     #todayInputPanel .compact-body-grid{
       grid-template-columns:repeat(6,minmax(0,1fr));
     }
+    .today-input-action-panel{
+      margin-top:14px;
+      padding:14px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:rgba(255,255,255,.72);
+    }
+    .today-input-action-grid{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:10px;
+    }
+    .today-input-action{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-width:0;
+    }
+    .today-input-action .secondary-btn{
+      width:100%;
+      min-height:40px;
+    }
+    .today-input-action .hint{
+      margin-top:0;
+      line-height:1.45;
+    }
+    #todayInputFeedback{
+      margin-top:10px;
+    }
     #todayInputPanel .grid-3,
     #todayInputPanel .grid-2{
       gap:14px 16px;
@@ -2939,6 +2968,7 @@ Notes:
       .today-top-actions{justify-content:flex-start}
       #globalGoalHost .hero-goal-card{grid-template-columns:1fr}
       #todayInputPanel .grid-3,
+      #todayInputPanel .today-input-action-grid,
       #todayInputPanel .compact-body-grid,
       #todayInputPanel .activity-group-body,
       #todayInputPanel .activity-select-grid,
@@ -3339,9 +3369,10 @@ Notes:
             <div class="input-group-body">
               <div class="grid-3 compact-body-grid">
                 <div class="field"><label>체중 (kg)</label><input id="weight" type="number" min="30" max="200" step="0.1" value="75"></div>
-                <div class="field"><label>키 (cm)</label><input id="height" type="number" min="140" max="220" step="1" value="173"></div>
+                <div class="field"><label>키 (cm)</label><input id="height" type="number" min="140" max="220" step="0.1" value="173"></div>
                 <div class="field"><label>나이</label><input id="age" type="number" min="10" max="80" step="1" value="32"></div>
                 <div class="field" id="bodyFatField"><label>체지방률 (%)</label><input id="bodyFat" type="number" min="3" max="55" step="0.1" value="15"></div>
+                <div class="field" id="bodyFatMassField"><label>체지방량 (kg)</label><input id="bodyFatMass" type="number" min="0" max="100" step="0.1" inputmode="decimal"></div>
                 <div class="field" id="skeletalField">
                   <label>
                     골격근량 (kg)
@@ -3360,6 +3391,23 @@ Notes:
                     <option value="female">여성</option>
                   </select>
                 </div>
+              </div>
+              <div class="today-input-action-panel">
+                <div class="today-input-action-grid">
+                  <div class="today-input-action">
+                    <button class="secondary-btn" id="loadLatestInbodyToTodayBtn" type="button">최근 InBody 값 불러오기</button>
+                    <div class="hint">최근 InBody 기록을 Today 탭에 불러옵니다. 저장은 하지 않습니다.</div>
+                  </div>
+                  <div class="today-input-action">
+                    <button class="secondary-btn" id="saveTodayInputBtn" type="button">오늘 입력값 저장</button>
+                    <div class="hint">체중은 기록 탭의 오늘 기록에 저장됩니다.</div>
+                  </div>
+                  <div class="today-input-action">
+                    <button class="secondary-btn" id="saveTodayInputWithInbodyBtn" type="button">InBody에도 저장</button>
+                    <div class="hint">체중, 골격근량, 체지방률 또는 체지방량이 있어야 InBody 기록으로 저장할 수 있습니다.</div>
+                  </div>
+                </div>
+                <div id="todayInputFeedback"></div>
               </div>
             </div>
           </div>
@@ -4074,7 +4122,7 @@ Notes:
 
     // 2) state + storage helpers
     const ids = [
-      "weight","height","age","bodyFat","skeletal","gender","activityLevel","workType","workAdj","homeInbody","expertLbmAlpha","weeklyTrainingDays","generalAdvancedSettings","generalLowDigestCarbs","autoDietAnalysis",
+      "weight","height","age","bodyFat","bodyFatMass","skeletal","gender","activityLevel","workType","workAdj","homeInbody","expertLbmAlpha","weeklyTrainingDays","generalAdvancedSettings","generalLowDigestCarbs","autoDietAnalysis",
       "routinePlan","intensityOverride","weightDuration","cardioType","cardioDuration","cardioSpeed","cardioIncline",
       "recordDate","recordWeight","recordAdherence","recordNote","importJsonFile",
       "mealLabel","mealCarbs","mealProtein","mealFat","mealAlcoholKcal","mealOtherKcal","mealMemo"
@@ -4096,6 +4144,7 @@ Notes:
       items: [],
       feedback: null
     };
+    let suppressTodayRecordAutoSync = false;
     const ADHERENCE_SCORING_VERSION = "v6.1_total_kcal";
 
     function storageKey(name){
@@ -4238,6 +4287,7 @@ Notes:
       ids.height.value = state.height;
       ids.age.value = state.age;
       ids.bodyFat.value = state.bodyFat;
+      if (ids.bodyFatMass) ids.bodyFatMass.value = "";
       ids.skeletal.value = state.skeletal;
       ids.gender.value = state.gender;
       ids.activityLevel.value = state.activityLevel;
@@ -5177,6 +5227,7 @@ Notes:
     function updateBodyCompositionVisibility(){
       const isGeneral = state.mode === "general";
       document.getElementById("bodyFatField").classList.toggle("hidden", isGeneral);
+      document.getElementById("bodyFatMassField").classList.toggle("hidden", isGeneral);
       document.getElementById("skeletalField").classList.toggle("hidden", isGeneral);
     }
 
@@ -5758,6 +5809,24 @@ Notes:
 
     function setRecordFeedback(tone, message){
       recordsState.feedback = message ? { tone, message } : null;
+    }
+
+    function setTodayInputFeedback(tone, messages){
+      const host = document.getElementById("todayInputFeedback");
+      if (!host) return;
+      const list = Array.isArray(messages) ? messages : [messages];
+      const cleanMessages = list.filter(Boolean);
+      if (!cleanMessages.length) {
+        host.innerHTML = "";
+        return;
+      }
+      const isOk = tone === "ok";
+      host.innerHTML = `
+        <div class="${isOk ? "notice" : `warn ${tone || "warn"}`}">
+          <h4>${isOk ? "입력 안내" : "입력 확인"}</h4>
+          <ul>${cleanMessages.map(message => `<li>${escapeHtml(message)}</li>`).join("")}</ul>
+        </div>
+      `;
     }
 
     function getSelectedRecordDate(){
@@ -7605,6 +7674,191 @@ Notes:
       return { reverted: true, weight: mismatch.recordWeight };
     }
 
+    function formatInputNumber(value, digits = 1){
+      if (!Number.isFinite(value)) return "";
+      return value.toFixed(digits);
+    }
+
+    function getLatestInbodyForTodayInput(){
+      const records = Array.isArray(state.inbodyRecords) ? state.inbodyRecords : [];
+      const candidates = records
+        .map((item, index) => ({
+          ...item,
+          index,
+          date: normalizeDateString(item?.date),
+          weight: Number(item?.weight),
+          skeletalMuscle: Number(item?.skeletalMuscle),
+          bodyFat: Number(item?.bodyFat),
+          bodyFatPercent: Number(item?.bodyFatPercent)
+        }))
+        .filter(item =>
+          item.date &&
+          Number.isFinite(item.weight) &&
+          Number.isFinite(item.skeletalMuscle) &&
+          (Number.isFinite(item.bodyFat) || Number.isFinite(item.bodyFatPercent))
+        )
+        .sort((a, b) => {
+          const dateOrder = a.date.localeCompare(b.date);
+          return dateOrder || a.index - b.index;
+        });
+      return candidates.length ? candidates[candidates.length - 1] : null;
+    }
+
+    function loadLatestInbodyToTodayInputs(){
+      const latest = getLatestInbodyForTodayInput();
+      if (!latest) {
+        setTodayInputFeedback("warn", "불러올 InBody 기록이 없습니다.");
+        return { loaded: false, reason: "no_inbody_records" };
+      }
+      const bodyFatPercent = getDisplayBodyFatPercent(latest);
+      const bodyFatMass = Number.isFinite(latest.bodyFat)
+        ? latest.bodyFat
+        : (Number.isFinite(latest.weight) && Number.isFinite(bodyFatPercent) ? latest.weight * bodyFatPercent / 100 : null);
+      ids.weight.value = formatInputNumber(latest.weight, 2);
+      ids.skeletal.value = formatInputNumber(latest.skeletalMuscle, 2);
+      if (Number.isFinite(bodyFatPercent)) ids.bodyFat.value = formatInputNumber(bodyFatPercent, 2);
+      if (ids.bodyFatMass && Number.isFinite(bodyFatMass)) ids.bodyFatMass.value = formatInputNumber(bodyFatMass, 2);
+      setTodayInputFeedback("ok", "최근 InBody 기록을 Today 탭에 불러왔습니다. 저장은 하지 않았습니다.");
+      suppressTodayRecordAutoSync = true;
+      try {
+        render();
+      } finally {
+        suppressTodayRecordAutoSync = false;
+      }
+      return { loaded: true, latest };
+    }
+
+    function saveTodayInputWeightToRecord(options = {}){
+      const today = getTodayDateString();
+      const weightRaw = String(ids.weight.value || "").trim();
+      const weight = Number(weightRaw);
+      const shouldRender = options.render !== false;
+      if (!weightRaw || !Number.isFinite(weight) || weight <= 0) {
+        setTodayInputFeedback("warn", "체중을 입력한 뒤 저장해 주세요.");
+        if (shouldRender) render();
+        return { saved: false, reason: "invalid_weight" };
+      }
+      const existing = getRecordByDate(today);
+      let record = upsertRecord({
+        date: today,
+        weight,
+        adherence: existing?.adherence || "medium",
+        adherenceSource: ids.autoDietAnalysis.checked ? existing?.adherenceSource : "manual"
+      });
+      if (ids.autoDietAnalysis.checked) {
+        const autoResult = persistAutoAdherenceForDate(today, calculate(), {
+          snapshotSource: existing?.goalSnapshot ? existing.snapshotSource : "saved_at_entry",
+          allowSnapshotCreation: true
+        });
+        record = autoResult.record || getRecordByDate(today) || record;
+      }
+      syncRecordInputsForDate(today);
+      setRecordFeedback("ok", "체중을 기록 탭의 오늘 기록에 저장했습니다.");
+      setTodayInputFeedback("ok", "체중을 기록 탭의 오늘 기록에 저장했습니다.");
+      if (shouldRender) render();
+      return { saved: true, record, date: today };
+    }
+
+    function buildTodayInbodyRecordFromInputs(){
+      const date = getTodayDateString();
+      const weightRaw = String(ids.weight.value || "").trim();
+      const skeletalRaw = String(ids.skeletal.value || "").trim();
+      const bodyFatRaw = String(ids.bodyFatMass?.value || "").trim();
+      const bodyFatPercentRaw = String(ids.bodyFat.value || "").trim();
+      const hasBodyFat = bodyFatRaw !== "";
+      const hasBodyFatPercent = bodyFatPercentRaw !== "";
+      const weight = Number(weightRaw);
+      const skeletalMuscle = Number(skeletalRaw);
+      const bodyFat = hasBodyFat ? Number(bodyFatRaw) : null;
+      const bodyFatPercent = hasBodyFatPercent ? Number(bodyFatPercentRaw) : null;
+      const missingMessage = "InBody에 저장하려면 체중, 골격근량, 체지방률 또는 체지방량을 입력해 주세요.";
+      if (!weightRaw || !Number.isFinite(weight) || weight <= 0) return { ok: false, message: missingMessage };
+      if (!skeletalRaw || !Number.isFinite(skeletalMuscle)) return { ok: false, message: missingMessage };
+      if (!hasBodyFat && !hasBodyFatPercent) return { ok: false, message: missingMessage };
+      if (weight < 20 || weight > 650) return { ok: false, message: "체중 입력값을 확인해 주세요." };
+      if (hasBodyFat && (!Number.isFinite(bodyFat) || bodyFat < 0.2 || bodyFat > 487.5)) return { ok: false, message: "체지방량 입력값을 확인해 주세요." };
+      if (hasBodyFatPercent && (!Number.isFinite(bodyFatPercent) || bodyFatPercent < 1 || bodyFatPercent > 75)) return { ok: false, message: "체지방률 입력값을 확인해 주세요." };
+      let finalBodyFat = hasBodyFat ? bodyFat : null;
+      let finalBodyFatPercent = hasBodyFatPercent ? bodyFatPercent : null;
+      if (hasBodyFat && !hasBodyFatPercent) finalBodyFatPercent = bodyFat / weight * 100;
+      if (hasBodyFatPercent && !hasBodyFat) finalBodyFat = bodyFatPercent / 100 * weight;
+      if (!Number.isFinite(finalBodyFat) || finalBodyFat < 0.2 || finalBodyFat > 487.5) return { ok: false, message: "체지방량 입력값을 확인해 주세요." };
+      if (!Number.isFinite(finalBodyFatPercent) || finalBodyFatPercent < 1 || finalBodyFatPercent > 75) return { ok: false, message: "체지방률 입력값을 확인해 주세요." };
+      if (finalBodyFat > weight) return { ok: false, message: "체지방량은 체중보다 클 수 없습니다." };
+      let warning = "";
+      if (hasBodyFat && hasBodyFatPercent) {
+        const expectedBodyFat = weight * bodyFatPercent / 100;
+        const diff = Math.abs(expectedBodyFat - bodyFat);
+        if (diff >= weight * 0.03) warning = "입력값과 계산값 다름";
+      }
+      const isSuspicious = (
+        skeletalMuscle + finalBodyFat >= weight * 0.9 ||
+        finalBodyFat / weight > 0.60 ||
+        skeletalMuscle / weight > 0.55
+      );
+      return {
+        ok: true,
+        record: {
+          date,
+          weight,
+          skeletalMuscle,
+          bodyFat: finalBodyFat,
+          bodyFatPercent: finalBodyFatPercent,
+          warning,
+          isSuspicious
+        },
+        isSuspicious
+      };
+    }
+
+    function saveTodayInputWithInbody(){
+      const recordSave = saveTodayInputWeightToRecord({ render: false });
+      if (!recordSave.saved) {
+        render();
+        return { savedRecord: false, savedInbody: false, reason: recordSave.reason };
+      }
+      const draft = buildTodayInbodyRecordFromInputs();
+      if (!draft.ok) {
+        setTodayInputFeedback("warn", [
+          "체중은 기록 탭에 저장했습니다.",
+          draft.message || "InBody에 저장하려면 체중, 골격근량, 체지방률 또는 체지방량을 입력해 주세요."
+        ]);
+        render();
+        return { savedRecord: true, savedInbody: false, reason: "inbody_invalid" };
+      }
+      if (draft.isSuspicious) {
+        const confirmedSuspicious = window.confirm("입력하신 체성분 수치의 합이 비정상적으로 높습니다. 측정 오류일 수 있습니다. 그래도 저장하시겠습니까?");
+        if (!confirmedSuspicious) {
+          setTodayInputFeedback("warn", ["체중은 기록 탭에 저장했습니다.", "InBody 저장은 취소했습니다."]);
+          render();
+          return { savedRecord: true, savedInbody: false, reason: "suspicious_cancelled" };
+        }
+      }
+      state.inbodyRecords = Array.isArray(state.inbodyRecords) ? state.inbodyRecords : [];
+      const existingIndex = state.inbodyRecords.findIndex(record => normalizeDateString(record?.date) === draft.record.date);
+      if (existingIndex !== -1) {
+        const confirmedReplace = window.confirm("오늘 InBody 기록이 이미 있습니다. 새 값으로 바꿀까요?");
+        if (!confirmedReplace) {
+          setTodayInputFeedback("warn", ["체중은 기록 탭에 저장했습니다.", "InBody 저장은 취소했습니다."]);
+          render();
+          return { savedRecord: true, savedInbody: false, reason: "replace_cancelled" };
+        }
+        state.inbodyRecords[existingIndex] = draft.record;
+      } else {
+        state.inbodyRecords.push(draft.record);
+      }
+      state.inbodyRecords.sort((a, b) => a.date.localeCompare(b.date));
+      saveInbodyRecords();
+      document.getElementById("inbodyDate").value = draft.record.date;
+      document.getElementById("inbodyWeight").value = formatInputNumber(draft.record.weight, 2);
+      document.getElementById("inbodySkeletalMuscle").value = formatInputNumber(draft.record.skeletalMuscle, 2);
+      document.getElementById("inbodyBodyFat").value = formatInputNumber(draft.record.bodyFat, 2);
+      document.getElementById("inbodyBodyFatPercent").value = formatInputNumber(draft.record.bodyFatPercent, 1);
+      setTodayInputFeedback("ok", ["체중을 기록 탭의 오늘 기록에 저장했습니다.", "InBody 탭에도 저장했습니다."]);
+      render();
+      return { savedRecord: true, savedInbody: true, record: draft.record };
+    }
+
     function getMealSoftLimitMessage(mealCount){
       if (mealCount <= 10) return "";
       return "식사 기록 수가 많습니다. 중복 입력이 없는지 한 번 확인해 주세요.";
@@ -8614,8 +8868,8 @@ Notes:
         <div class="warn weight-mismatch-card">
           <h4>입력탭 체중과 기록탭 체중이 달라요</h4>
           <ul>
-            <li>입력탭 체중: ${formatKg2(mismatch.inputWeight)}kg</li>
-            <li>기록탭 오늘 기록: ${formatKg2(mismatch.recordWeight)}kg</li>
+            <li>입력탭 체중: ${formatKg1(mismatch.inputWeight)}kg</li>
+            <li>기록탭 오늘 기록: ${formatKg1(mismatch.recordWeight)}kg</li>
             <li>어느 값을 기준으로 맞출지 선택해 주세요.</li>
           </ul>
           <div class="weight-mismatch-actions">
@@ -9241,7 +9495,7 @@ Notes:
       const todayAdherence = getTodayAdherenceScore(result);
       const todaySnapshot = buildTodayDataSnapshot(result);
       // 5.3.3: todaySnapshot is a read-only bridge for upcoming UI layers.
-      syncTodayRecordGoalSnapshot(result);
+      if (!suppressTodayRecordAutoSync) syncTodayRecordGoalSnapshot(result);
       renderTodayConsumptionPanel(todayBalance);
       renderTodayRemainingPanel(todayBalance);
       renderTodayAdherencePanel(todayAdherence);
@@ -9259,7 +9513,7 @@ Notes:
 
     // 6) initialization
     function bindEvents(){
-      ["weight","height","age","bodyFat","skeletal","gender","activityLevel","workType","workAdj","weeklyTrainingDays","weightDuration","cardioType","cardioDuration","cardioSpeed","cardioIncline"].forEach(id => {
+      ["weight","height","age","bodyFat","bodyFatMass","skeletal","gender","activityLevel","workType","workAdj","weeklyTrainingDays","weightDuration","cardioType","cardioDuration","cardioSpeed","cardioIncline"].forEach(id => {
         ids[id].addEventListener("input", render);
         ids[id].addEventListener("change", render);
       });
@@ -9358,6 +9612,9 @@ Notes:
       document.getElementById("quickModeGeneral").addEventListener("click", () => setMode("general"));
       document.getElementById("quickModeAthlete").addEventListener("click", () => setMode("athlete"));
       document.getElementById("quickModeExpert").addEventListener("click", () => setMode("expert"));
+      document.getElementById("loadLatestInbodyToTodayBtn").addEventListener("click", loadLatestInbodyToTodayInputs);
+      document.getElementById("saveTodayInputBtn").addEventListener("click", () => saveTodayInputWeightToRecord());
+      document.getElementById("saveTodayInputWithInbodyBtn").addEventListener("click", saveTodayInputWithInbody);
       document.getElementById("saveInbodyBtn").addEventListener("click", saveInbodyRecord);
       ["inbodyWeight","inbodyBodyFat","inbodyBodyFatPercent"].forEach(id => {
         document.getElementById(id).addEventListener("input", updateInbodyDerivedHints);
@@ -9429,6 +9686,7 @@ Notes:
         height: ids.height.value,
         age: ids.age.value,
         bodyFat: ids.bodyFat.value,
+        bodyFatMass: ids.bodyFatMass?.value,
         skeletal: ids.skeletal.value,
         gender: ids.gender.value,
         activityLevel: ids.activityLevel.value,
@@ -9471,6 +9729,7 @@ Notes:
         ids.height.value = snapshot.height;
         ids.age.value = snapshot.age;
         ids.bodyFat.value = snapshot.bodyFat;
+        if (ids.bodyFatMass) ids.bodyFatMass.value = snapshot.bodyFatMass || "";
         ids.skeletal.value = snapshot.skeletal;
         ids.gender.value = snapshot.gender;
         ids.activityLevel.value = snapshot.activityLevel;
@@ -9530,6 +9789,7 @@ Notes:
       ids.height.value = "175";
       ids.age.value = "30";
       ids.bodyFat.value = "15";
+      if (ids.bodyFatMass) ids.bodyFatMass.value = "11.25";
       ids.skeletal.value = "35";
       ids.gender.value = "male";
       ids.activityLevel.value = "moderate";
@@ -12060,6 +12320,114 @@ Notes:
       });
     }
 
+    function runTodayInputActionTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        results.push(runNamedTest("today load latest InBody fills inputs without records writes", () => {
+          const today = getTodayDateString();
+          recordsState.items = [];
+          state.inbodyRecords = [
+            { date: "2026-04-29", weight: 73.9, skeletalMuscle: 36, bodyFat: 10.4, bodyFatPercent: 14.1, warning: "", isSuspicious: false }
+          ];
+          const beforeInbody = JSON.stringify(state.inbodyRecords);
+          const loaded = loadLatestInbodyToTodayInputs();
+          assertTest(loaded.loaded === true, "latest InBody should load");
+          assertClose(Number(ids.weight.value), 73.9, 0.0001, "loaded weight");
+          assertClose(Number(ids.skeletal.value), 36, 0.0001, "loaded skeletal muscle");
+          assertClose(Number(ids.bodyFatMass.value), 10.4, 0.0001, "loaded body fat mass");
+          assertClose(Number(ids.bodyFat.value), 14.1, 0.0001, "loaded body fat percent");
+          assertTest(!getRecordByDate(today), "load should not create today's Records record");
+          assertTest(JSON.stringify(state.inbodyRecords) === beforeInbody, "load should not modify InBody records");
+        }));
+
+        results.push(runNamedTest("today input save stores weight while preserving meals and note", () => {
+          const today = getTodayDateString();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            weight: 74,
+            adherence: "high",
+            note: "기존 메모",
+            meals: [{ id: "m1", mealLabel: "아침", carbs: 50, protein: 30, fat: 10, alcoholKcal: 0, otherKcal: 0, memo: "", createdAt: `${today}T08:00:00.000Z` }]
+          }]);
+          ids.weight.value = "75.5";
+          ids.autoDietAnalysis.checked = false;
+          const saved = saveTodayInputWeightToRecord({ render: false });
+          const record = getRecordByDate(today);
+          assertTest(saved.saved === true, "today input save should succeed");
+          assertClose(record.weight, 75.5, 0.0001, "record weight should update");
+          assertTest(record.meals.length === 1 && record.meals[0].mealLabel === "아침", "existing meals should remain");
+          assertTest(record.note === "기존 메모", "existing note should remain");
+        }));
+
+        results.push(runNamedTest("today input save creates medium manual blank record", () => {
+          const today = getTodayDateString();
+          recordsState.items = [];
+          ids.weight.value = "76";
+          ids.autoDietAnalysis.checked = false;
+          saveTodayInputWeightToRecord({ render: false });
+          const record = getRecordByDate(today);
+          assertTest(!!record, "record should be created");
+          assertClose(record.weight, 76, 0.0001, "created record weight");
+          assertTest(record.note === "", "new record note should be blank");
+          assertTest(record.adherence === "medium", "new manual record should default to medium");
+        }));
+
+        results.push(runNamedTest("today input with InBody keeps record save when InBody is incomplete", () => {
+          const today = getTodayDateString();
+          recordsState.items = [];
+          state.inbodyRecords = [];
+          ids.weight.value = "77";
+          ids.skeletal.value = "";
+          ids.bodyFat.value = "";
+          ids.bodyFatMass.value = "";
+          const saved = saveTodayInputWithInbody();
+          assertTest(saved.savedRecord === true && saved.savedInbody === false, "record save should survive incomplete InBody");
+          assertClose(getRecordByDate(today).weight, 77, 0.0001, "record weight should save");
+          assertTest(state.inbodyRecords.length === 0, "incomplete InBody should not save");
+        }));
+
+        results.push(runNamedTest("today input with InBody saves complete calculated record", () => {
+          const today = getTodayDateString();
+          recordsState.items = [];
+          state.inbodyRecords = [];
+          ids.weight.value = "80";
+          ids.skeletal.value = "38";
+          ids.bodyFat.value = "20";
+          ids.bodyFatMass.value = "";
+          const saved = saveTodayInputWithInbody();
+          assertTest(saved.savedRecord === true && saved.savedInbody === true, "complete InBody should save");
+          assertClose(getRecordByDate(today).weight, 80, 0.0001, "record weight should save first");
+          assertTest(state.inbodyRecords.length === 1, "one InBody record should save");
+          assertClose(state.inbodyRecords[0].bodyFat, 16, 0.0001, "body fat mass should be calculated");
+          assertClose(state.inbodyRecords[0].bodyFatPercent, 20, 0.0001, "body fat percent should save");
+        }));
+
+        results.push(runNamedTest("today input with InBody does not silently replace same date", () => {
+          const today = getTodayDateString();
+          const originalConfirm = window.confirm;
+          recordsState.items = [];
+          state.inbodyRecords = [
+            { date: today, weight: 70, skeletalMuscle: 33, bodyFat: 12, bodyFatPercent: 17.1, warning: "", isSuspicious: false }
+          ];
+          ids.weight.value = "81";
+          ids.skeletal.value = "39";
+          ids.bodyFat.value = "18";
+          ids.bodyFatMass.value = "";
+          window.confirm = () => false;
+          try {
+            const saved = saveTodayInputWithInbody();
+            assertTest(saved.savedRecord === true && saved.savedInbody === false, "replacement cancel should skip InBody only");
+          } finally {
+            window.confirm = originalConfirm;
+          }
+          assertClose(getRecordByDate(today).weight, 81, 0.0001, "record weight should remain saved");
+          assertTest(state.inbodyRecords.length === 1, "duplicate should not be created");
+          assertClose(state.inbodyRecords[0].weight, 70, 0.0001, "existing InBody record should remain unchanged");
+        }));
+        return results;
+      });
+    }
+
     window.runRecordMigrationTests = runRecordMigrationTests;
     window.runMealRecordTests = runMealRecordTests;
     window.runTodayConsumptionTests = runTodayConsumptionTests;
@@ -12069,6 +12437,7 @@ Notes:
     window.runWeeklyAdherenceTests = runWeeklyAdherenceTests;
     window.runMacroCalibrationTests = runMacroCalibrationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
+    window.runTodayInputActionTests = runTodayInputActionTests;
 
     function initialize(){
       loadState();
