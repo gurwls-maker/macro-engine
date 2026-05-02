@@ -4212,7 +4212,7 @@ Notes:
       feedback: null
     };
     let suppressTodayRecordAutoSync = false;
-    const ADHERENCE_SCORING_VERSION = "v6.1_alcohol_impact";
+    const ADHERENCE_SCORING_VERSION = "v6.1_alcohol_penalty_v2";
 
     function storageKey(name){
       return `${STORAGE_PREFIX}${name}`;
@@ -6094,14 +6094,16 @@ Notes:
       const alcoholPenaltyAnchors = [
         [0, 0],
         [100, 0],
-        [200, 2],
-        [400, 7],
-        [800, 22],
-        [1300, 35]
+        [200, 3],
+        [400, 12],
+        [800, 28],
+        [1300, 42],
+        [1800, 52],
+        [2200, 60]
       ];
       const getInterpolatedPenalty = kcal => {
         if (!(kcal > 0)) return 0;
-        if (kcal >= 1300) return 35;
+        if (kcal >= 2200) return 60;
         for (let index = 1; index < alcoholPenaltyAnchors.length; index += 1) {
           const [prevKcal, prevPenalty] = alcoholPenaltyAnchors[index - 1];
           const [nextKcal, nextPenalty] = alcoholPenaltyAnchors[index];
@@ -6110,7 +6112,7 @@ Notes:
             return prevPenalty + (nextPenalty - prevPenalty) * progress;
           }
         }
-        return 35;
+        return 60;
       };
       let severity = "none";
       let severityLabel = "없음";
@@ -6120,26 +6122,30 @@ Notes:
         severity = "trivial";
         severityLabel = "아주 적은 음주";
         coachTone = "trivial";
-      } else if (totalAlcoholKcal >= 100 && totalAlcoholKcal <= 200) {
+      } else if (totalAlcoholKcal >= 100 && totalAlcoholKcal < 200) {
         severity = "light";
         severityLabel = "가벼운 음주";
         coachTone = "light";
-      } else if (totalAlcoholKcal > 200 && totalAlcoholKcal <= 400) {
+      } else if (totalAlcoholKcal >= 200 && totalAlcoholKcal < 400) {
         severity = "moderate";
         severityLabel = "중간 음주";
         coachTone = "moderate";
-      } else if (totalAlcoholKcal > 400 && totalAlcoholKcal <= 800) {
+      } else if (totalAlcoholKcal >= 400 && totalAlcoholKcal < 800) {
         severity = "high";
         severityLabel = "많은 음주";
         coachTone = "high";
-      } else if (totalAlcoholKcal > 800 && totalAlcoholKcal <= 1300) {
+      } else if (totalAlcoholKcal >= 800 && totalAlcoholKcal < 1300) {
         severity = "very_high";
         severityLabel = "매우 많은 음주";
         coachTone = "very_high";
-      } else if (totalAlcoholKcal > 1300) {
+      } else if (totalAlcoholKcal >= 1300 && totalAlcoholKcal < 1800) {
         severity = "extreme";
         severityLabel = "과음 수준";
         coachTone = "extreme";
+      } else if (totalAlcoholKcal >= 1800) {
+        severity = "extreme_plus";
+        severityLabel = "회복을 크게 흔드는 과음";
+        coachTone = "extreme_plus";
       }
       return {
         totalAlcoholKcal,
@@ -6578,7 +6584,8 @@ Notes:
         moderate: 2,
         high: 3,
         very_high: 3,
-        extreme: 3
+        extreme: 3,
+        extreme_plus: 3
       };
       const alcoholSignal = {
         key: "alcohol",
@@ -6790,6 +6797,7 @@ Notes:
         if (tone === "high") return "술 섭취량이 큰 날입니다.";
         if (tone === "very_high") return "술 섭취량이 매우 큰 날입니다.";
         if (tone === "extreme") return "과음 수준의 기록입니다.";
+        if (tone === "extreme_plus") return "회복을 크게 흔드는 과음 기록입니다.";
         return "미량의 술이 기록된 날입니다.";
       }
       if (key === "otherKcal") {
@@ -6838,12 +6846,13 @@ Notes:
       if (!signal) return "";
       if (signal.key === "alcohol") {
         const tone = signal.alcoholImpact?.coachTone || signal.alcoholImpact?.severity || "none";
-        if (tone === "trivial") return "점수 감점 구간은 아니지만, 수면이나 다음날 컨디션에 약하게 영향을 줄 수 있습니다.";
-        if (tone === "light") return "식단 점수에는 회복과 수면 영향을 작게 반영했습니다.";
-        if (tone === "moderate") return "술은 칼로리뿐 아니라 식욕, 수면, 회복에도 영향을 줄 수 있습니다.";
-        if (tone === "high") return "오늘은 회복과 수면 질이 흔들릴 가능성이 있어 식단 점수에도 영향을 줬습니다.";
-        if (tone === "very_high") return "이 정도 음주는 다음날 컨디션, 수면, 식욕, 운동 수행에 크게 영향을 줄 수 있습니다.";
-        if (tone === "extreme") return "오늘은 식단 점수보다 회복과 안전이 우선입니다.";
+        if (tone === "trivial") return "점수에는 크게 반영하지 않지만, 수면과 다음날 컨디션을 위해 여기서 멈추는 편이 좋습니다.";
+        if (tone === "light") return "가벼운 양이어도 술이 더해지면 수면과 회복 흐름이 흔들릴 수 있습니다.";
+        if (tone === "moderate") return "술은 총칼로리뿐 아니라 식욕, 수면, 회복에도 영향을 줍니다.";
+        if (tone === "high") return "오늘 기록 기준으로 술 부담이 커서 회복과 다음날 운동 컨디션을 먼저 관리해야 합니다.";
+        if (tone === "very_high") return "이 정도 술은 수면, 식욕, 회복, 운동 수행에 큰 부담을 줄 수 있습니다.";
+        if (tone === "extreme") return "오늘은 과음 영향이 커서 식단을 더 밀어붙이기보다 회복을 우선해야 합니다.";
+        if (tone === "extreme_plus") return "회복과 수면을 크게 흔드는 기록이라 오늘은 술을 멈추고 안전하게 정리하는 것이 우선입니다.";
         return "대사 효율에 미치는 영향은 미미합니다.";
       }
       if (signal.key === "otherKcal") {
@@ -6931,26 +6940,26 @@ Notes:
         const otherNote = signal.otherKcalImpact?.isHeavy
           ? " 기타칼로리 비율도 높아 탄단지 해석에는 오차가 있을 수 있습니다."
           : "";
-        const goal = getDailyCoachGoalType(goalType);
         if (tone === "trivial") {
-          return `오늘은 추가 야식보다 수분과 수면을 챙기고, 다음 식사는 단백질과 수분 위주로 평소 흐름을 이어가세요.${otherNote}`;
+          return `점수에는 크게 반영하지 않지만, 오늘은 술을 더 추가하지 말고 물과 수면을 챙기세요.${otherNote}`;
         }
         if (tone === "light") {
-          return `오늘은 추가 야식보다 수분과 수면을 챙기고, 다음 식사는 단백질 위주로 가볍게 정리하세요.${otherNote}`;
+          return `오늘은 추가 술과 야식을 멈추고, 남은 식사는 단백질과 수분 위주로 정리하세요.${otherNote}`;
         }
         if (tone === "moderate") {
-          if (goal === "diet") return `다음 식사는 단백질과 포만감 있는 메뉴를 먼저 챙기고, 내일 운동은 컨디션을 보고 강도를 조절하세요.${otherNote}`;
-          if (goal === "bulk") return `다음 식사는 단백질과 탄수화물 균형을 먼저 맞추고, 내일 운동은 수면 상태를 보고 강도를 조절하세요.${otherNote}`;
-          return `다음 식사는 단백질과 수분을 먼저 챙기고, 내일 운동은 컨디션을 보고 강도를 조절하세요.${otherNote}`;
+          return `지금부터는 술과 간식을 더하지 마세요. 다음 식사는 단백질, 수분, 전해질을 먼저 챙기세요.${otherNote}`;
         }
         if (tone === "high") {
-          return `내일은 고강도 운동을 무리하게 밀기보다 회복을 우선하고, 첫 식사는 수분·전해질·단백질을 먼저 챙기세요.${otherNote}`;
+          return `오늘은 술, 야식, 기름진 음식을 끊고 회복을 먼저 잡으세요. 내일 운동은 컨디션을 보고 강도를 낮추세요.${otherNote}`;
         }
         if (tone === "very_high") {
-          return `내일은 운동 강도를 낮추고, 굶어서 보상하려 하지 말고 수분·전해질·단백질 중심으로 회복식을 잡으세요.${otherNote}`;
+          return `오늘은 식단을 더 밀어붙이지 말고 수분·전해질·단백질·수면을 우선하세요. 굶어서 만회하지 마세요.${otherNote}`;
         }
         if (tone === "extreme") {
-          return `내일 고강도 운동은 피하고, 수분·전해질·수면을 먼저 회복하세요. 식사는 무리하게 줄이지 말고 단백질과 소화 쉬운 탄수화물 위주로 안정시키세요.${otherNote}`;
+          return `오늘은 추가 술과 고지방 음식을 중단하세요. 내일 고강도 운동은 피하고, 단백질과 소화 쉬운 탄수화물로 회복식을 잡으세요.${otherNote}`;
+        }
+        if (tone === "extreme_plus") {
+          return `오늘은 술을 완전히 멈추고 수분·전해질·수면부터 회복하세요. 내일은 운동보다 회복을 우선하고 단백질은 반드시 지키세요.${otherNote}`;
         }
         return `술 기록은 남겼지만 감점 구간은 아닙니다. 다음 식사는 단백질과 수분을 챙기며 평소 흐름으로 이어가세요.${otherNote}`;
       }
@@ -7500,7 +7509,7 @@ Notes:
       const rawPercent = Math.round(weightedScore * 100);
       const capApplied = proteinCap < 100 && rawPercent > proteinCap;
       const scoreBeforeAlcoholPenalty = clamp(Math.min(rawPercent, proteinCap), 0, 100);
-      const alcoholImpactPenalty = clamp(alcoholImpact.penaltyPoints, 0, 35);
+      const alcoholImpactPenalty = clamp(alcoholImpact.penaltyPoints, 0, 60);
       const scoreAfterAlcoholPenalty = clamp(scoreBeforeAlcoholPenalty - alcoholImpactPenalty, 0, 100);
       const percent = Math.round(scoreAfterAlcoholPenalty);
       const direction = getAdherenceDirection(balance);
@@ -11263,11 +11272,14 @@ Notes:
           [
             [0, "none", 0],
             [50, "trivial", 0],
-            [150, "light", 1],
-            [400, "moderate", 7],
-            [800, "high", 22],
-            [1300, "very_high", 35],
-            [1800, "extreme", 35]
+            [150, "light", 1.5],
+            [200, "moderate", 3],
+            [400, "high", 12],
+            [800, "very_high", 28],
+            [1300, "extreme", 42],
+            [1800, "extreme_plus", 52],
+            [2200, "extreme_plus", 60],
+            [2500, "extreme_plus", 60]
           ].forEach(([alcoholKcal, severity, penalty]) => {
             const score = scoreForAlcohol(alcoholKcal);
             assertClose(score.detail.consumed.alcoholKcal, alcoholKcal, 0.0001, `${severity} alcohol kcal should be included`);
@@ -11277,6 +11289,49 @@ Notes:
             assertClose(score.detail.scoreAfterAlcoholPenalty, Math.max(0, score.detail.scoreBeforeAlcoholPenalty - penalty), 0.0001, `${severity} final score should subtract penalty`);
             assertClose(score.percent, Math.round(score.detail.scoreAfterAlcoholPenalty), 0.0001, `${severity} displayed score should follow rounded Today Score policy`);
           });
+        }));
+
+        results.push(runNamedTest("adherence alcohol penalty is monotonic for same base score", () => {
+          const alcoholKcalCases = [0, 50, 150, 199, 200, 399, 400, 799, 800, 1299, 1300, 1799, 1800, 2199, 2200, 2500];
+          [100, 85, 70, 55].forEach(baseScore => {
+            let previousFinal = Infinity;
+            alcoholKcalCases.forEach(alcoholKcal => {
+              const impact = analyzeAlcoholImpact({ alcoholKcal });
+              const finalScore = clamp(baseScore - impact.penaltyPoints, 0, 100);
+              assertTest(finalScore <= previousFinal + 0.0001, `base ${baseScore}, alcohol ${alcoholKcal} should not increase final score`);
+              previousFinal = finalScore;
+            });
+          });
+          [
+            [199, 200],
+            [399, 400],
+            [799, 800],
+            [1299, 1300],
+            [1799, 1800],
+            [2199, 2200]
+          ].forEach(([beforeKcal, afterKcal]) => {
+            const beforePenalty = analyzeAlcoholImpact({ alcoholKcal: beforeKcal }).penaltyPoints;
+            const afterPenalty = analyzeAlcoholImpact({ alcoholKcal: afterKcal }).penaltyPoints;
+            assertTest(afterPenalty >= beforePenalty, `${beforeKcal} to ${afterKcal} alcohol penalty should not decrease`);
+          });
+        }));
+
+        results.push(runNamedTest("adherence alcohol plus other kcal keeps alcohol penalty alcohol-only", () => {
+          setValidTodayBalanceTestInputs();
+          const target = calculate();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            meals: [
+              { id: "m1", mealLabel: "alcohol other 1", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, alcoholKcal: 400, otherKcal: 600, memo: "", createdAt: `${today}T08:00:00.000Z` },
+              { id: "m2", mealLabel: "alcohol other 2", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, memo: "", createdAt: `${today}T18:00:00.000Z` }
+            ]
+          }]);
+          const score = getTodayAdherenceScore(target);
+          assertClose(score.detail.consumed.alcoholKcal, 400, 0.0001, "mixed alcohol should preserve alcohol kcal");
+          assertClose(score.detail.consumed.otherKcal, 600, 0.0001, "mixed alcohol should preserve other kcal");
+          assertClose(score.detail.consumed.scoringKcal, score.detail.consumed.totalKcal, 0.0001, "mixed alcohol and other kcal should stay in total scoring kcal");
+          assertTest(score.detail.alcoholImpactSeverity === "high", "mixed alcohol penalty should use alcohol kcal only");
+          assertClose(score.detail.alcoholImpactPenalty, 12, 0.0001, "mixed alcohol penalty should ignore other kcal");
         }));
 
         results.push(runNamedTest("adherence other kcal heavy has no alcohol penalty", () => {
@@ -12462,18 +12517,20 @@ Notes:
           };
           const trivial = coachForAlcohol(50);
           const light = coachForAlcohol(150);
-          const moderate = coachForAlcohol(400);
-          const high = coachForAlcohol(800);
-          const veryHigh = coachForAlcohol(1300);
-          const extreme = coachForAlcohol(1800);
+          const moderate = coachForAlcohol(200);
+          const high = coachForAlcohol(400);
+          const veryHigh = coachForAlcohol(800);
+          const extreme = coachForAlcohol(1300);
+          const extremePlus = coachForAlcohol(1800);
           const trivialText = trivial.items.map(item => `${item.state} ${item.reason} ${item.action}`).join(" ");
-          assertIncludesAll(trivialText, ["미량의 술", "점수 감점 구간은 아니지만", "단백질과 수분"], "trivial alcohol coach wording");
+          assertIncludesAll(trivialText, ["미량의 술", "점수에는 크게 반영하지 않지만", "물과 수면"], "trivial alcohol coach wording");
           assertIncludesAll(light.items.map(item => item.state).join(" "), ["술이 조금"], "light alcohol coach state");
           assertIncludesAll(moderate.items.map(item => item.state).join(" "), ["식단 흐름"], "moderate alcohol coach state");
           assertIncludesAll(high.items.map(item => item.state).join(" "), ["술 섭취량이 큰"], "high alcohol coach state");
           assertIncludesAll(veryHigh.items.map(item => item.state).join(" "), ["매우 큰"], "very high alcohol coach state");
           assertIncludesAll(extreme.items.map(item => item.state).join(" "), ["과음 수준"], "extreme alcohol coach state");
-          assertTest(new Set([trivial.items[0]?.state, light.items[0]?.state, moderate.items[0]?.state, high.items[0]?.state, veryHigh.items[0]?.state, extreme.items[0]?.state]).size >= 6, "alcohol coach states should differ by amount");
+          assertIncludesAll(extremePlus.items.map(item => item.state).join(" "), ["회복을 크게 흔드는"], "extreme plus alcohol coach state");
+          assertTest(new Set([trivial.items[0]?.state, light.items[0]?.state, moderate.items[0]?.state, high.items[0]?.state, veryHigh.items[0]?.state, extreme.items[0]?.state, extremePlus.items[0]?.state]).size >= 7, "alcohol coach states should differ by amount");
         }));
 
         results.push(runNamedTest("daily coach separates alcohol and other kcal guidance", () => {
@@ -12500,7 +12557,7 @@ Notes:
           }]);
           const mixedOutput = generateDailyCoachOutput(getDailyCoachSignals({ currentResult: target, state: target.s }));
           const mixedText = mixedOutput.items.map(item => `${item.state} ${item.action}`).join(" ");
-          assertIncludesAll(mixedText, ["술 섭취량이 큰", "기타칼로리 비율도 높아"], "alcohol should lead and mention other kcal briefly");
+          assertIncludesAll(mixedText, ["술 섭취량이 매우 큰", "기타칼로리 비율도 높아"], "alcohol should lead and mention other kcal briefly");
         }));
 
         results.push(runNamedTest("daily coach selection allows up to six meaningful items", () => {
