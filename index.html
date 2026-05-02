@@ -2662,6 +2662,73 @@ Notes:
       font-weight:900;
       color:var(--deep);
     }
+    .adherence-component .component-state{
+      margin-top:8px;
+      font-size:12px;
+      line-height:1.45;
+      color:var(--ink);
+      font-weight:800;
+    }
+    .adherence-component .component-action{
+      margin-top:6px;
+      font-size:12px;
+      line-height:1.55;
+      color:var(--muted);
+    }
+    .adherence-priority-action{
+      margin-top:12px;
+      padding:12px 14px;
+      border:1px solid color-mix(in srgb, var(--accent-strong) 22%, var(--line) 78%);
+      border-radius:14px;
+      background:rgba(16,141,134,.08);
+      font-size:13px;
+      line-height:1.6;
+      color:var(--ink);
+    }
+    .adherence-priority-action strong{
+      display:block;
+      margin-bottom:4px;
+      color:var(--deep);
+      font-size:12px;
+    }
+    .adherence-extra{
+      margin-top:16px;
+      padding-top:14px;
+      border-top:1px dashed color-mix(in srgb, var(--line) 78%, white 22%);
+    }
+    .adherence-extra h4{
+      margin:0 0 10px;
+      font-size:14px;
+    }
+    .adherence-extra-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:10px;
+    }
+    .adherence-extra-item{
+      padding:12px 14px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:rgba(255,255,255,.58);
+    }
+    .adherence-extra-item .label{
+      font-size:11px;
+      font-weight:900;
+      color:var(--muted);
+      margin-bottom:6px;
+    }
+    .adherence-extra-item .state{
+      font-size:13px;
+      line-height:1.45;
+      font-weight:900;
+      color:var(--deep);
+    }
+    .adherence-extra-item .action{
+      margin-top:6px;
+      font-size:12px;
+      line-height:1.55;
+      color:var(--muted);
+    }
     .meal-table-row{
       display:grid;
       grid-template-columns:minmax(98px,1.2fr) minmax(54px,.68fr) minmax(54px,.68fr) minmax(50px,.62fr) minmax(76px,.9fr) 42px;
@@ -2983,7 +3050,7 @@ Notes:
       .mode-box{flex-direction:column}
       .tabs{flex-direction:column}
       .record-grid,.table-row{grid-template-columns:1fr}
-      .meal-summary-grid,.meal-table-row,.today-balance-grid,.adherence-hero,.adherence-components{grid-template-columns:1fr}
+      .meal-summary-grid,.meal-table-row,.today-balance-grid,.adherence-hero,.adherence-components,.adherence-extra-grid{grid-template-columns:1fr}
       .section-head{flex-direction:column;align-items:stretch}
       .head-check{width:100%;margin-left:0}
       .hero-control-card,.hero-mode-card,.hero-goal-card{min-height:auto}
@@ -8807,8 +8874,129 @@ Notes:
         : `<div class="warn warn"><h4>오늘 목표 확인</h4><ul><li>오늘 목표가 계산되어야 남은 양을 표시할 수 있습니다. 체중, 키, 나이 같은 기본 입력을 먼저 확인해 주세요.</li></ul></div>`;
     }
 
-    function renderTodayAdherencePanel(adherenceResult){
+    const ADHERENCE_MACRO_CARD_CONFIG = [
+      { key: "carb", componentKey: "carbs", reasonKey: "carbs", label: "탄수화물" },
+      { key: "protein", componentKey: "protein", reasonKey: "protein", label: "단백질" },
+      { key: "fat", componentKey: "fat", reasonKey: "fat", label: "지방" },
+      { key: "calorie", componentKey: "kcal", reasonKey: "kcal", label: "총칼로리" }
+    ];
+
+    const ADHERENCE_EXTRA_LABELS = {
+      alcohol: "술 영향",
+      otherKcal: "기타칼로리",
+      training: "운동 참고",
+      dataQuality: "기록 확인",
+      inbody: "InBody 참고"
+    };
+
+    function getCoachItems(coach){
+      return Array.isArray(coach?.items) ? coach.items.filter(Boolean) : [];
+    }
+
+    function getCoachItemByKey(coach, key){
+      return getCoachItems(coach).find(item => item?.key === key) || null;
+    }
+
+    function cleanIntegratedCoachAction(item, allItems = []){
+      const action = item?.action || "";
+      if (item?.key === "alcohol" && allItems.some(candidate => candidate?.key === "otherKcal")) {
+        return action.replace(/\s*기타칼로리 비율도 높아 탄단지 해석에는 오차가 있을 수 있습니다\./g, "");
+      }
+      return action;
+    }
+
+    function getAdherenceMacroFallbackText(config, score, reason){
+      const label = config.label;
+      const subject = label === "총칼로리" ? "총칼로리는" : `${label}은`;
+      if (!Number.isFinite(score)) {
+        return {
+          state: `${subject} 오늘 기록 기준으로 확인 중입니다.`,
+          action: reason || "오늘 기록을 이어가며 흐름을 확인하세요."
+        };
+      }
+      if (score >= 0.85) {
+        return {
+          state: reason || `${subject} 목표 범위에 비교적 가깝습니다.`,
+          action: `${label} 흐름은 오늘 기록 기준으로 크게 흔들리지 않았습니다.`
+        };
+      }
+      if (score >= 0.60) {
+        return {
+          state: `${subject} 오늘 기록 기준으로 목표와 차이가 있습니다.`,
+          action: "남은 식사에서 목표와의 차이를 조금 줄이는 쪽으로 정리하세요."
+        };
+      }
+      return {
+        state: `${subject} 오늘 기록 기준으로 우선 확인이 필요합니다.`,
+        action: "다음 식사에서는 이 항목이 더 벌어지지 않도록 먼저 조정하세요."
+      };
+    }
+
+    function renderAdherenceMacroCards(adherenceResult, coach){
+      const items = getCoachItems(coach);
+      return ADHERENCE_MACRO_CARD_CONFIG.map(config => {
+        const coachItem = getCoachItemByKey(coach, config.key);
+        const score = adherenceResult?.detail?.componentScores?.[config.componentKey];
+        const scoreText = Number.isFinite(score) ? `${(score * 100).toFixed(1)}점` : "계산 대기";
+        const fallback = getAdherenceMacroFallbackText(config, score, adherenceResult?.reasons?.[config.reasonKey]);
+        const stateText = coachItem?.state || fallback.state;
+        const actionText = cleanIntegratedCoachAction(coachItem, items) || fallback.action;
+        return `
+          <div class="adherence-component" data-coach-key="${config.key}">
+            <div class="label">${config.label}</div>
+            <div class="value">${scoreText}</div>
+            <div class="component-state">${escapeHtml(stateText)}</div>
+            <div class="component-action">${escapeHtml(actionText)}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderAdherenceExtraChecks(coach){
+      const coachItems = getCoachItems(coach);
+      const macroKeys = new Set(["calorie", "protein", "carb", "fat"]);
+      const extraItems = coachItems
+        .filter(item => item?.key && !macroKeys.has(item.key))
+        .map(item => ({
+          key: item.key,
+          label: ADHERENCE_EXTRA_LABELS[item.key] || "추가 확인",
+          state: item.state,
+          action: cleanIntegratedCoachAction(item, coachItems) || item.reason
+        }));
+      if (coach?.inbodyHint) {
+        extraItems.push({
+          key: "inbody",
+          label: ADHERENCE_EXTRA_LABELS.inbody,
+          state: "InBody 기록 참고",
+          action: coach.inbodyHint
+        });
+      }
+      if (!extraItems.length) return "";
+      return `
+        <div class="adherence-extra">
+          <h4>추가 확인</h4>
+          <div class="adherence-extra-grid">
+            ${extraItems.map(item => `
+              <div class="adherence-extra-item" data-extra-key="${item.key}">
+                <div class="label">${escapeHtml(item.label)}</div>
+                <div class="state">${escapeHtml(item.state || item.label)}</div>
+                <div class="action">${escapeHtml(item.action || "오늘 기록 기준으로 참고하세요.")}</div>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    function getAdherencePriorityAction(coach){
+      const first = getCoachItems(coach)[0];
+      if (!first?.action) return "";
+      return cleanIntegratedCoachAction(first, getCoachItems(coach));
+    }
+
+    function renderTodayAdherencePanel(adherenceResult, options = {}){
       const host = document.getElementById("todayAdherenceContent");
+      const coach = options.coach || null;
       if (!ids.autoDietAnalysis.checked) {
         host.innerHTML = `
           <div class="notice">
@@ -8836,6 +9024,12 @@ Notes:
         return;
       }
 
+      const priorityAction = getAdherencePriorityAction(coach);
+      const priorityActionHtml = priorityAction
+        ? `<div class="adherence-priority-action"><strong>오늘 우선 행동</strong>${escapeHtml(priorityAction)}</div>`
+        : "";
+      const extraChecksHtml = renderAdherenceExtraChecks(coach);
+
       if (adherenceResult.status === "pending" || adherenceResult.status === "pending_over") {
         const progressText = Number.isFinite(adherenceResult.progressPercent)
           ? `<div class="copy">현재 섭취 진도: 목표 대비 약 ${adherenceResult.progressPercent}%</div>`
@@ -8855,6 +9049,7 @@ Notes:
               <div><span class="adherence-badge muted">${escapeHtml(pendingBadgeText)}</span></div>
               <div class="copy">${escapeHtml(pendingCopyText)}</div>
               ${progressText}
+              ${priorityActionHtml}
             </div>
             <div class="adherence-detail-card">
               <h4>간단 해석</h4>
@@ -8865,6 +9060,7 @@ Notes:
               </ul>
               <div class="mini-note">오늘 누적 섭취와 목표 대비 남은 양은 위 영역에서 계속 확인할 수 있습니다.</div>
               ${mealHintNote}
+              ${extraChecksHtml}
             </div>
           </div>
         `;
@@ -8878,6 +9074,7 @@ Notes:
             <div class="big">${adherenceResult.percent}%</div>
             <div><span class="adherence-badge ${adherenceResult.tone}">${adherenceResult.label}</span></div>
             <div class="copy">${escapeHtml(adherenceResult.summaryText || "오늘은 단백질과 총 섭취량이 점수에 가장 크게 반영되었습니다.")}</div>
+            ${priorityActionHtml}
           </div>
           <div class="adherence-detail-card">
             <h4>간단 해석</h4>
@@ -8888,26 +9085,12 @@ Notes:
               <li>${adherenceResult.reasons.kcal}</li>
             </ul>
             <div class="adherence-components">
-              <div class="adherence-component">
-                <div class="label">탄수화물</div>
-                <div class="value">${(adherenceResult.detail.componentScores.carbs * 100).toFixed(1)}점</div>
-              </div>
-              <div class="adherence-component">
-                <div class="label">단백질</div>
-                <div class="value">${(adherenceResult.detail.componentScores.protein * 100).toFixed(1)}점</div>
-              </div>
-              <div class="adherence-component">
-                <div class="label">지방</div>
-                <div class="value">${(adherenceResult.detail.componentScores.fat * 100).toFixed(1)}점</div>
-              </div>
-              <div class="adherence-component">
-                <div class="label">KCAL</div>
-                <div class="value">${(adherenceResult.detail.componentScores.kcal * 100).toFixed(1)}점</div>
-              </div>
+              ${renderAdherenceMacroCards(adherenceResult, coach)}
             </div>
             <div class="mini-note">지방은 정확한 목표치보다 적정 범위 유지가 중요해, 너무 낮거나 과할 때만 감점됩니다.</div>
             ${adherenceResult.capApplied ? `<div class="mini-note">단백질 섭취가 크게 부족해 오늘 점수 상한이 ${adherenceResult.proteinCap}%로 제한되었습니다.</div>` : `<div class="mini-note">점수는 오늘 저장된 식사 총합 기준입니다.</div>`}
             ${adherenceResult.mealConcentrationHint ? `<div class="mini-note meal-concentration-note">${escapeHtml(adherenceResult.mealConcentrationHint)}</div>` : ""}
+            ${extraChecksHtml}
           </div>
         </div>
       `;
@@ -9657,13 +9840,21 @@ Notes:
       const todayBalance = getTodayMacroBalance(result);
       const todayAdherence = getTodayAdherenceScore(result);
       const todaySnapshot = buildTodayDataSnapshot(result);
+      const todayCoachSignals = getDailyCoachSignals({
+        currentResult: result,
+        balance: todayBalance,
+        adherenceResult: todayAdherence,
+        state: result?.s
+      });
+      const todayCoach = generateDailyCoachOutput(todayCoachSignals);
       // 5.3.3: todaySnapshot is a read-only bridge for upcoming UI layers.
       if (!suppressTodayRecordAutoSync) syncTodayRecordGoalSnapshot(result);
       renderTodayConsumptionPanel(todayBalance);
       renderTodayRemainingPanel(todayBalance);
-      renderTodayAdherencePanel(todayAdherence);
+      renderTodayAdherencePanel(todayAdherence, { coach: todayCoach });
       renderTodaySignalSummary(todaySnapshot);
-      renderCoachPanel(result, todayBalance, todayAdherence);
+      const coachHost = document.getElementById("coachHost");
+      if (coachHost) coachHost.innerHTML = "";
       renderFlowRows(result);
       renderMetaRows(result);
       renderInfoAndWarnings(result);
