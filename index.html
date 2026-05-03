@@ -4411,6 +4411,17 @@ Notes:
       return value;
     }
 
+    function shiftDateString(dateString, dayOffset){
+      const normalized = normalizeDateString(dateString);
+      if (!normalized || !Number.isFinite(dayOffset)) return "";
+      const [year, month, day] = normalized.split("-").map(Number);
+      const date = new Date(Date.UTC(year, month - 1, day + dayOffset));
+      const y = date.getUTCFullYear();
+      const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+      const d = String(date.getUTCDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+
     function normalizeOptionalNumber(raw){
       const trimmed = raw === null || raw === undefined ? "" : String(raw).trim();
       if (!trimmed) return null;
@@ -6172,6 +6183,133 @@ Notes:
       };
     }
 
+    function getPreviousOverIntakeLevel(surplusPercent, surplusAmount){
+      if (!Number.isFinite(surplusPercent) || !Number.isFinite(surplusAmount)) return "none";
+      const percent = surplusPercent + 1e-6;
+      const amount = surplusAmount + 1e-6;
+      if (percent >= 40 && amount >= 700) return "high_overeating";
+      if (percent >= 25 && amount >= 450) return "overeating";
+      if (percent >= 15 && amount >= 250) return "light_overeating";
+      return "none";
+    }
+
+    function getRecoveryLevelFromAlcoholSeverity(severity){
+      if (severity === "light") return "light_recovery";
+      if (severity === "moderate") return "light_recovery";
+      if (severity === "high") return "recovery";
+      if (severity === "very_high" || severity === "extreme" || severity === "extreme_plus") return "strong_recovery";
+      return "not_recovery";
+    }
+
+    function getPreviousDayNutritionContext(date = getTodayDateString()){
+      const currentDate = normalizeDateString(date) || getTodayDateString();
+      const previousDate = shiftDateString(currentDate, -1);
+      const previousRecord = previousDate ? getRecordByDate(previousDate) : null;
+      const previousTotals = previousRecord ? getMealTotalsForDate(previousDate) : null;
+      const previousTarget = getGoalSnapshotTarget(previousRecord?.goalSnapshot);
+      const previousTargetKcal = Number.isFinite(previousTarget?.kcal) ? previousTarget.kcal : null;
+      const previousTotalKcal = Number.isFinite(previousTotals?.totalKcal) ? previousTotals.totalKcal : null;
+      const previousKcalRatio = Number.isFinite(previousTargetKcal) && previousTargetKcal > 0 && Number.isFinite(previousTotalKcal)
+        ? previousTotalKcal / previousTargetKcal
+        : null;
+      const previousKcalSurplusAmount = Number.isFinite(previousTargetKcal) && Number.isFinite(previousTotalKcal)
+        ? Math.max(0, previousTotalKcal - previousTargetKcal)
+        : null;
+      const previousKcalSurplusPercent = Number.isFinite(previousKcalRatio)
+        ? Math.max(0, (previousKcalRatio - 1) * 100)
+        : null;
+      const previousAlcoholImpact = analyzeAlcoholImpact(previousTotals || {});
+      const previousAlcoholSeverity = previousAlcoholImpact.severity;
+      const recoveryLevel = getRecoveryLevelFromAlcoholSeverity(previousAlcoholSeverity);
+      const alcoholAllowsOverIntake = ["none", "trivial", "light"].includes(previousAlcoholSeverity);
+      const previousOverIntakeLevel = alcoholAllowsOverIntake
+        ? getPreviousOverIntakeLevel(previousKcalSurplusPercent, previousKcalSurplusAmount)
+        : "none";
+      return {
+        previousDate,
+        hasPreviousRecord: !!previousRecord,
+        previousTargetKcal,
+        previousTotalKcal,
+        previousKcalRatio,
+        previousKcalSurplusPercent,
+        previousKcalSurplusAmount,
+        previousAlcoholKcal: previousAlcoholImpact.totalAlcoholKcal,
+        previousAlcoholImpact,
+        previousAlcoholSeverity,
+        previousOverIntakeLevel,
+        recoveryLevel
+      };
+    }
+
+    function buildPreviousRecoverySignal(previousContext, todayAlcoholImpact, balance, proteinSignal){
+      const level = previousContext?.recoveryLevel || "not_recovery";
+      const hasTodayAlcohol = !!todayAlcoholImpact?.hasAlcoholImpact;
+      if (!previousContext?.hasPreviousRecord || level === "not_recovery" || hasTodayAlcohol) {
+        return {
+          key: "recovery",
+          status: "ok",
+          severity: 0,
+          ratio: null,
+          actual: previousContext?.previousAlcoholKcal || 0,
+          target: null,
+          reasonCode: hasTodayAlcohol ? "recovery_hidden_today_alcohol" : "recovery_none",
+          previousContext,
+          todayAlcoholImpact
+        };
+      }
+      const severityMap = {
+        light_recovery: 1,
+        recovery: 2,
+        strong_recovery: 3
+      };
+      return {
+        key: "recovery",
+        status: "low",
+        severity: severityMap[level] || 0,
+        ratio: null,
+        actual: previousContext.previousAlcoholKcal,
+        target: null,
+        reasonCode: `previous_alcohol_${previousContext.previousAlcoholSeverity}`,
+        previousContext,
+        todayAlcoholImpact,
+        todayProteinLow: proteinSignal?.status === "low" && proteinSignal.severity >= 3,
+        todayKcalExceeded: !!balance?.exceeded?.kcal,
+        todayFatExceeded: !!balance?.exceeded?.fat
+      };
+    }
+
+    function buildPreviousOverIntakeSignal(previousContext, balance){
+      const level = previousContext?.previousOverIntakeLevel || "none";
+      if (!previousContext?.hasPreviousRecord || level === "none") {
+        return {
+          key: "previousOverIntake",
+          status: "ok",
+          severity: 0,
+          ratio: previousContext?.previousKcalSurplusPercent || null,
+          actual: previousContext?.previousTotalKcal || null,
+          target: previousContext?.previousTargetKcal || null,
+          reasonCode: "previous_over_intake_none",
+          previousContext
+        };
+      }
+      const severityMap = {
+        light_overeating: 1,
+        overeating: 2,
+        high_overeating: 3
+      };
+      return {
+        key: "previousOverIntake",
+        status: "low",
+        severity: severityMap[level] || 0,
+        ratio: previousContext.previousKcalSurplusPercent,
+        actual: previousContext.previousTotalKcal,
+        target: previousContext.previousTargetKcal,
+        reasonCode: level,
+        previousContext,
+        todayKcalExceeded: !!balance?.exceeded?.kcal
+      };
+    }
+
     function getMacroBalanceForDate(date, currentResult = calculate(), options = {}){
       const targetDate = normalizeDateString(date) || getTodayDateString();
       const record = ensureRecordByDate(targetDate);
@@ -6577,6 +6715,7 @@ Notes:
       const fatSignal = getFatSignal(balance?.consumed?.fat, balance?.target?.fat, thresholdProfile.fat);
       const alcoholImpact = analyzeAlcoholImpact(balance?.consumed || {});
       const otherKcalImpact = analyzeOtherKcalImpact(balance?.consumed || {}, balance?.mealDistribution || null);
+      const previousDayContext = context.previousDayContext || getPreviousDayNutritionContext(balance?.date || getTodayDateString());
       const alcoholSeverityMap = {
         none: 0,
         trivial: 1,
@@ -6608,6 +6747,8 @@ Notes:
         reasonCode: otherKcalImpact.isHeavy ? "other_kcal_heavy" : "other_kcal_ok",
         otherKcalImpact
       };
+      const recoverySignal = buildPreviousRecoverySignal(previousDayContext, alcoholImpact, balance, proteinSignal);
+      const previousOverIntakeSignal = buildPreviousOverIntakeSignal(previousDayContext, balance);
       const trainingSignal = getTrainingSignal({
         ...context,
         state: currentState,
@@ -6629,6 +6770,8 @@ Notes:
         fatSignal,
         alcoholSignal,
         otherKcalSignal,
+        recoverySignal,
+        previousOverIntakeSignal,
         trainingSignal,
         dataQualitySignal,
         signals: [
@@ -6637,6 +6780,8 @@ Notes:
           carbSignal,
           fatSignal,
           alcoholSignal,
+          recoverySignal,
+          previousOverIntakeSignal,
           otherKcalSignal,
           trainingSignal,
           dataQualitySignal
@@ -6652,11 +6797,13 @@ Notes:
       calorie: 1,
       protein: 2,
       alcohol: 3,
-      carb: 4,
-      fat: 5,
-      training: 6,
-      otherKcal: 7,
-      dataQuality: 8
+      recovery: 4,
+      carb: 5,
+      fat: 6,
+      previousOverIntake: 7,
+      training: 8,
+      otherKcal: 9,
+      dataQuality: 10
     };
 
     function getDailyCoachSignalPriority(signal){
@@ -6800,6 +6947,23 @@ Notes:
         if (tone === "extreme_plus") return "회복을 크게 흔드는 과음 기록입니다.";
         return "미량의 술이 기록된 날입니다.";
       }
+      if (key === "recovery") {
+        const previousSeverity = signal.previousContext?.previousAlcoholSeverity || "none";
+        if (previousSeverity === "light") return "어제 술 영향이 조금 남아 있을 수 있습니다.";
+        if (previousSeverity === "moderate") return "어제 술 기록이 오늘 식욕과 컨디션에 영향을 줄 수 있습니다.";
+        if (previousSeverity === "high") return "어제 술 섭취가 오늘 회복과 운동 질을 흔들 수 있습니다.";
+        if (previousSeverity === "very_high") return "어제 술 섭취량이 매우 큽니다.";
+        if (previousSeverity === "extreme") return "어제 과음 기록입니다.";
+        if (previousSeverity === "extreme_plus") return "어제 회복을 크게 흔드는 과음 기록입니다.";
+        return "어제 술 영향이 남아 있을 수 있습니다.";
+      }
+      if (key === "previousOverIntake") {
+        const level = signal.previousContext?.previousOverIntakeLevel || signal.reasonCode;
+        if (level === "light_overeating") return "어제 섭취가 목표보다 조금 높았습니다.";
+        if (level === "overeating") return "어제 섭취가 목표보다 꽤 높았습니다.";
+        if (level === "high_overeating") return "어제 섭취가 크게 초과됐습니다.";
+        return "어제 섭취량을 확인할 구간입니다.";
+      }
       if (key === "otherKcal") {
         return "기타칼로리 비율이 높습니다.";
       }
@@ -6854,6 +7018,21 @@ Notes:
         if (tone === "extreme") return "오늘은 과음 영향이 커서 식단을 더 밀어붙이기보다 회복을 우선해야 합니다.";
         if (tone === "extreme_plus") return "회복과 수면을 크게 흔드는 기록이라 오늘은 술을 멈추고 안전하게 정리하는 것이 우선입니다.";
         return "대사 효율에 미치는 영향은 미미합니다.";
+      }
+      if (signal.key === "recovery") {
+        const kcalText = Number.isFinite(signal.previousContext?.previousAlcoholKcal)
+          ? `어제 순수 알코올 ${Math.round(signal.previousContext.previousAlcoholKcal).toLocaleString()}kcal 기록이 있습니다.`
+          : "어제 술 기록이 있습니다.";
+        if (signal.todayProteinLow) return `${kcalText} 오늘은 회복 관리보다 단백질 보완이 먼저입니다.`;
+        if (signal.todayKcalExceeded || signal.todayFatExceeded) return `${kcalText} 오늘도 섭취가 높은 편이라 추가 섭취 제한이 필요합니다.`;
+        return `${kcalText} 오늘은 점수를 올려주는 날이 아니라 식단 흐름을 다시 정리하는 날입니다.`;
+      }
+      if (signal.key === "previousOverIntake") {
+        const surplusAmount = Number.isFinite(signal.previousContext?.previousKcalSurplusAmount)
+          ? Math.round(signal.previousContext.previousKcalSurplusAmount).toLocaleString()
+          : null;
+        if (surplusAmount) return `어제 총섭취가 목표보다 약 ${surplusAmount}kcal 높았습니다. 오늘 목표값은 그대로 유지합니다.`;
+        return "어제 총섭취가 목표보다 높았습니다. 오늘 목표값은 그대로 유지합니다.";
       }
       if (signal.key === "otherKcal") {
         return "총칼로리는 반영했지만, 탄수화물·단백질·지방 균형은 실제 식사와 다르게 해석될 수 있습니다.";
@@ -6962,6 +7141,45 @@ Notes:
           return `오늘은 술을 완전히 멈추고 수분·전해질·수면부터 회복하세요. 내일은 운동보다 회복을 우선하고 단백질은 반드시 지키세요.${otherNote}`;
         }
         return `술 기록은 남겼지만 감점 구간은 아닙니다. 다음 식사는 단백질과 수분을 챙기며 평소 흐름으로 이어가세요.${otherNote}`;
+      }
+      if (signal.key === "recovery") {
+        const goal = getDailyCoachGoalType(goalType);
+        const previousSeverity = signal.previousContext?.previousAlcoholSeverity || "none";
+        if (signal.todayProteinLow) {
+          return "오늘은 다른 항목보다 단백질 보완이 먼저입니다. 술 영향이 있었던 다음날일수록 단백질을 빼면 회복이 더 흔들릴 수 있습니다.";
+        }
+        if (signal.todayKcalExceeded || signal.todayFatExceeded) {
+          return "오늘도 이미 섭취가 높은 편입니다. 남은 식사는 추가 간식·야식 없이 마무리하고 단백질과 수분을 먼저 챙기세요.";
+        }
+        if (goal === "diet") {
+          if (previousSeverity === "light") return "오늘은 평소 감량 흐름으로 돌아가세요. 단백질은 채우고, 술과 간식은 추가하지 마세요.";
+          if (previousSeverity === "moderate") return "굶어서 만회하지 말고, 단백질을 먼저 채우세요. 운동이 없다면 탄수화물은 낮게 가도 됩니다.";
+          if (previousSeverity === "high") return "단백질은 지키고, 지방·술·간식은 끊어주세요. 배고픔이 심하면 단백질과 수분을 먼저 잡으세요.";
+          return "굶지 말고 단백질은 지키세요. 술·고지방·야식은 중단하고, 수분과 수면 회복을 우선하세요.";
+        }
+        if (goal === "bulk") {
+          if (previousSeverity === "light") return "단백질은 지키고, 부족한 칼로리는 술이나 기름진 음식이 아니라 식사로 채우세요.";
+          if (previousSeverity === "moderate") return "단백질을 먼저 맞추고, 소화 잘 되는 탄수화물로 부족분을 나눠 채우세요.";
+          if (previousSeverity === "high") return "총량을 채우더라도 술과 고지방 음식으로 채우지 마세요. 단백질과 탄수화물을 나눠 먹는 쪽이 낫습니다.";
+          return "단백질은 지키되, 부족 칼로리를 억지로 채우지 마세요. 소화 쉬운 탄수화물과 수분을 우선하고, 술·고지방 음식은 중단하세요.";
+        }
+        if (previousSeverity === "light") return "단백질을 목표에 맞추고, 운동 전후 탄수화물만 평소처럼 챙기세요.";
+        if (previousSeverity === "moderate") return "단백질은 지키고, 탄수화물은 운동 컨디션에 필요한 만큼만 넣으세요. 술과 기름진 음식은 오늘 끊는 게 좋습니다.";
+        if (previousSeverity === "high") return "오늘은 점수를 억지로 맞추기보다 단백질과 수분을 먼저 잡으세요. 탄수화물은 운동 전후로 나누고, 지방은 낮게 유지하세요.";
+        return "운동 욕심보다 컨디션 회복을 먼저 보세요. 단백질은 지키고, 탄수화물은 소화 가능한 만큼만, 지방과 술은 추가하지 마세요.";
+      }
+      if (signal.key === "previousOverIntake") {
+        const level = signal.previousContext?.previousOverIntakeLevel || signal.reasonCode;
+        if (signal.todayKcalExceeded) {
+          return "오늘도 이미 목표를 넘었습니다. 남은 식사는 추가 간식·야식 없이 마무리하세요. 단백질과 수분을 먼저 챙기세요.";
+        }
+        if (level === "light_overeating") {
+          return "오늘은 굶어서 갚기보다 평소 목표로 돌아가세요. 단백질은 지키고, 간식·야식만 줄이면 충분합니다.";
+        }
+        if (level === "overeating") {
+          return "오늘 목표를 임의로 낮추지 마세요. 식사는 목표 안에서 정리하고, 단백질·수분을 먼저 챙기면서 간식·야식은 끊으세요.";
+        }
+        return "오늘 굶어서 만회하면 피로와 재섭취로 이어질 수 있습니다. 식사는 목표 안으로 복귀하고, 단백질·수분·가벼운 활동으로 흐름을 다시 잡으세요.";
       }
       if (signal.key === "otherKcal") {
         return "가능하면 다음 기록부터 탄수화물·단백질·지방을 나눠 입력하면 Coach 해석이 더 정확해집니다.";
@@ -8892,6 +9110,8 @@ Notes:
 
     const ADHERENCE_EXTRA_LABELS = {
       alcohol: "술 영향",
+      recovery: "회복 관리",
+      previousOverIntake: "전날 과식",
       otherKcal: "기타칼로리",
       training: "운동 참고",
       dataQuality: "기록 확인",
@@ -12296,7 +12516,8 @@ Notes:
               mealCount,
               hasMeals: mealCount > 0,
               goalSnapshot: null
-            }
+            },
+            previousDayContext: config.previousDayContext || { hasPreviousRecord: false, recoveryLevel: "not_recovery", previousOverIntakeLevel: "none" }
           };
         }
 
@@ -12426,6 +12647,94 @@ Notes:
           keywords.forEach(keyword => {
             assertTest(!text.includes(keyword), `${message}: should not include ${keyword}`);
           });
+        }
+
+        function setupPreviousDayCoachScenario(config = {}){
+          setValidTodayBalanceTestInputs();
+          ids.autoDietAnalysis.checked = true;
+          const target = calculate();
+          const today = getTodayDateString();
+          const previousDate = shiftDateString(today, -1);
+          const previousTargetKcal = Number.isFinite(config.previousTargetKcal) ? config.previousTargetKcal : target.targetCal;
+          const previousTotalKcal = Number.isFinite(config.previousTotalKcal)
+            ? config.previousTotalKcal
+            : previousTargetKcal * (Number.isFinite(config.previousKcalRatio) ? config.previousKcalRatio : 1);
+          const previousAlcoholKcal = Number.isFinite(config.previousAlcoholKcal) ? config.previousAlcoholKcal : 0;
+          const previousMacroKcal = Math.max(0, previousTotalKcal - previousAlcoholKcal - normalizeMacroValue(config.previousOtherKcal));
+          const todayAlcoholKcal = Number.isFinite(config.todayAlcoholKcal) ? config.todayAlcoholKcal : 0;
+          const todayKcalRatio = Number.isFinite(config.todayKcalRatio) ? config.todayKcalRatio : 1;
+          const todayProteinRatio = Number.isFinite(config.todayProteinRatio) ? config.todayProteinRatio : 1;
+          const todayFatRatio = Number.isFinite(config.todayFatRatio) ? config.todayFatRatio : 1;
+          const todayFatKcal = target.fat * todayFatRatio * 9;
+          const todayProtein = target.protein * todayProteinRatio;
+          const todayProteinKcal = todayProtein * 4;
+          const todayTotalKcal = target.targetCal * todayKcalRatio;
+          const todayCarbKcal = Math.max(0, todayTotalKcal - todayAlcoholKcal - todayFatKcal - todayProteinKcal);
+          const todayCarbs = todayCarbKcal / 4;
+          const previousRecord = config.includePreviousRecord === false ? null : {
+            date: previousDate,
+            weight: 75,
+            adherence: "medium",
+            note: "",
+            goalSnapshot: buildGoalSnapshotFromCurrentState(target, "saved_at_entry"),
+            snapshotSource: "saved_at_entry",
+            meals: [
+              {
+                id: "prev1",
+                mealLabel: "previous day",
+                carbs: previousMacroKcal / 4,
+                protein: 0,
+                fat: 0,
+                alcoholKcal: previousAlcoholKcal,
+                otherKcal: normalizeMacroValue(config.previousOtherKcal),
+                memo: "",
+                createdAt: `${previousDate}T20:00:00.000Z`
+              }
+            ]
+          };
+          const todayRecord = {
+            date: today,
+            weight: 75,
+            adherence: "medium",
+            note: "",
+            meals: [
+              {
+                id: "today1",
+                mealLabel: "today",
+                carbs: todayCarbs,
+                protein: todayProtein,
+                fat: target.fat * todayFatRatio,
+                alcoholKcal: todayAlcoholKcal,
+                otherKcal: 0,
+                memo: "",
+                createdAt: `${today}T12:00:00.000Z`
+              },
+              {
+                id: "today2",
+                mealLabel: "today 2",
+                carbs: 0,
+                protein: 0,
+                fat: 0,
+                alcoholKcal: 0,
+                otherKcal: 0,
+                memo: "",
+                createdAt: `${today}T18:00:00.000Z`
+              }
+            ]
+          };
+          recordsState.items = normalizeRecordsCollection(previousRecord ? [previousRecord, todayRecord] : [todayRecord]);
+          const scoreBefore = getTodayAdherenceScore(target);
+          const signals = getDailyCoachSignals({ currentResult: target, state: { ...target.s, goal: config.goal || "lean_bulk" } });
+          const output = generateDailyCoachOutput(signals);
+          const scoreAfter = getTodayAdherenceScore(target);
+          return {
+            target,
+            signals,
+            output,
+            scoreBefore,
+            scoreAfter,
+            text: output.items.map(item => `${item.key} ${item.state} ${item.reason} ${item.action}`).join(" ")
+          };
         }
 
         function setInbodyTestRecords(lastOverrides = {}){
@@ -12595,6 +12904,78 @@ Notes:
 
           const fourOutput = generateDailyCoachOutput(manySignals.slice(0, 4));
           assertTest(fourOutput.items.length === 4, "coach should not fill empty items up to six");
+        }));
+
+        results.push(runNamedTest("daily coach previous day no record has no recovery or over-intake signal", () => {
+          const scenario = setupPreviousDayCoachScenario({ includePreviousRecord: false });
+          assertTest(scenario.signals.recoverySignal.status === "ok", "missing previous record should not create recovery signal");
+          assertTest(scenario.signals.previousOverIntakeSignal.status === "ok", "missing previous record should not create previous over-intake signal");
+          assertTest(!scenario.output.items.some(item => item.key === "recovery" || item.key === "previousOverIntake"), "missing previous record should not render previous-day items");
+        }));
+
+        results.push(runNamedTest("daily coach previous alcohol recovery appears without score changes", () => {
+          [
+            [250, "moderate", "recovery", "어제 술 기록"],
+            [400, "high", "recovery", "어제 술 섭취"],
+            [800, "very_high", "recovery", "어제 술 섭취량이 매우 큽니다"],
+            [1300, "extreme", "recovery", "어제 과음 기록"],
+            [1800, "extreme_plus", "recovery", "회복을 크게 흔드는 과음"]
+          ].forEach(([previousAlcoholKcal, severity, key, expectedText]) => {
+            const scenario = setupPreviousDayCoachScenario({ previousAlcoholKcal });
+            assertTest(scenario.signals.recoverySignal.status === "low", `${severity} previous alcohol should create recovery signal`);
+            assertTest(scenario.signals.recoverySignal.previousContext.previousAlcoholSeverity === severity, `${severity} previous alcohol severity`);
+            assertTest(scenario.output.items.some(item => item.key === key), `${severity} recovery item should be selected`);
+            assertIncludesAll(scenario.text, [expectedText], `${severity} recovery copy`);
+            assertClose(scenario.scoreAfter.percent, scenario.scoreBefore.percent, 0.0001, `${severity} recovery should not change score`);
+            assertTest(scenario.signals.previousOverIntakeSignal.status === "ok", `${severity} alcohol should suppress previous over-intake`);
+          });
+        }));
+
+        results.push(runNamedTest("daily coach today alcohol takes priority over previous recovery", () => {
+          const scenario = setupPreviousDayCoachScenario({ previousAlcoholKcal: 800, todayAlcoholKcal: 400 });
+          assertTest(scenario.signals.alcoholSignal.status === "high", "today alcohol should create alcohol signal");
+          assertTest(scenario.signals.recoverySignal.status === "ok", "today alcohol should hide previous recovery signal");
+          assertTest(scenario.output.items.some(item => item.key === "alcohol"), "today alcohol should be selected");
+          assertTest(!scenario.output.items.some(item => item.key === "recovery"), "previous recovery should not render when today alcohol exists");
+          assertClose(scenario.scoreAfter.detail.alcoholImpactPenalty, 12, 0.0001, "today alcohol penalty should stay active");
+        }));
+
+        results.push(runNamedTest("daily coach previous non-alcohol over-intake levels", () => {
+          [
+            [1.15, "light_overeating", "어제 섭취가 목표보다 조금 높았습니다"],
+            [1.25, "overeating", "어제 섭취가 목표보다 꽤 높았습니다"],
+            [1.40, "high_overeating", "어제 섭취가 크게 초과됐습니다"]
+          ].forEach(([previousKcalRatio, level, expectedText]) => {
+            const scenario = setupPreviousDayCoachScenario({ previousKcalRatio, previousAlcoholKcal: 0 });
+            assertTest(scenario.signals.previousOverIntakeSignal.status === "low", `${level} should create previous over-intake signal`);
+            assertTest(scenario.signals.previousOverIntakeSignal.previousContext.previousOverIntakeLevel === level, `${level} should be exposed`);
+            assertTest(scenario.output.items.some(item => item.key === "previousOverIntake"), `${level} should render previous over-intake item`);
+            assertIncludesAll(scenario.text, [expectedText, "목표"], `${level} previous over-intake copy`);
+            assertClose(scenario.scoreAfter.percent, scenario.scoreBefore.percent, 0.0001, `${level} should not change score`);
+          });
+        }));
+
+        results.push(runNamedTest("daily coach previous alcohol suppresses previous over-intake duplicate", () => {
+          const scenario = setupPreviousDayCoachScenario({ previousAlcoholKcal: 250, previousKcalRatio: 1.40 });
+          assertTest(scenario.signals.recoverySignal.status === "low", "moderate previous alcohol should create recovery");
+          assertTest(scenario.signals.previousOverIntakeSignal.status === "ok", "moderate previous alcohol should suppress previous over-intake");
+          assertTest(scenario.output.items.some(item => item.key === "recovery"), "recovery should render");
+          assertTest(!scenario.output.items.some(item => item.key === "previousOverIntake"), "previous over-intake should not duplicate recovery");
+        }));
+
+        results.push(runNamedTest("daily coach previous over-intake action overrides when today is already over", () => {
+          const scenario = setupPreviousDayCoachScenario({ previousKcalRatio: 1.25, previousAlcoholKcal: 0, todayKcalRatio: 1.15 });
+          const item = scenario.output.items.find(candidate => candidate.key === "previousOverIntake");
+          assertTest(!!item, "previous over-intake should render");
+          assertIncludesAll(item.action, ["오늘도 이미 목표를 넘었습니다", "추가 간식·야식 없이"], "today over action override");
+        }));
+
+        results.push(runNamedTest("daily coach previous-day wording avoids banned labels", () => {
+          const recovery = setupPreviousDayCoachScenario({ previousAlcoholKcal: 1300, goal: "diet" });
+          const over = setupPreviousDayCoachScenario({ previousKcalRatio: 1.40, previousAlcoholKcal: 0 });
+          const text = `${recovery.text} ${over.text}`;
+          assertExcludesAll(text, ["오늘 식단을 줄이세요", "폭식", "치팅", "회복데이"], "previous-day user-facing wording");
+          assertIncludesAll(text, ["굶", "단백질", "수분"], "previous-day recovery direction");
         }));
 
         results.push(runNamedTest("daily coach goal-aware kcal thresholds", () => {
