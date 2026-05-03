@@ -9161,6 +9161,151 @@ Notes:
       };
     }
 
+    function getAdherenceMacroCardOverride(adherenceResult, coach, config){
+      const items = getCoachItems(coach);
+      const macroCoachItem = getCoachItemByKey(coach, config.key);
+      const alcoholCoachItem = getCoachItemByKey(coach, "alcohol");
+      const consumed = adherenceResult?.detail?.consumed || {};
+      const alcoholImpact = analyzeAlcoholImpact(consumed);
+      if (alcoholImpact?.hasAlcoholImpact) {
+        const activeAlcoholItem = alcoholCoachItem || {
+          key: "alcohol",
+          status: "high",
+          severity: ({
+            trivial: 1,
+            light: 1,
+            moderate: 2,
+            high: 2,
+            very_high: 3,
+            extreme: 3,
+            extreme_plus: 3
+          })[alcoholImpact.severity] || 0,
+          ratio: null,
+          actual: alcoholImpact.totalAlcoholKcal,
+          target: null,
+          reasonCode: `alcohol_${alcoholImpact.severity}`,
+          alcoholImpact,
+          otherKcalImpact: analyzeOtherKcalImpact(consumed, adherenceResult?.detail?.mealDistribution || null),
+          state: getDailyCoachStatusText({
+            key: "alcohol",
+            status: "high",
+            severity: ({
+              trivial: 1,
+              light: 1,
+              moderate: 2,
+              high: 2,
+              very_high: 3,
+              extreme: 3,
+              extreme_plus: 3
+            })[alcoholImpact.severity] || 0,
+            ratio: null,
+            actual: alcoholImpact.totalAlcoholKcal,
+            target: null,
+            reasonCode: `alcohol_${alcoholImpact.severity}`,
+            alcoholImpact,
+            otherKcalImpact: analyzeOtherKcalImpact(consumed, adherenceResult?.detail?.mealDistribution || null)
+          }),
+          action: getDailyCoachActionText({
+            key: "alcohol",
+            status: "high",
+            severity: ({
+              trivial: 1,
+              light: 1,
+              moderate: 2,
+              high: 2,
+              very_high: 3,
+              extreme: 3,
+              extreme_plus: 3
+            })[alcoholImpact.severity] || 0,
+            ratio: null,
+            actual: alcoholImpact.totalAlcoholKcal,
+            target: null,
+            reasonCode: `alcohol_${alcoholImpact.severity}`,
+            alcoholImpact,
+            otherKcalImpact: analyzeOtherKcalImpact(consumed, adherenceResult?.detail?.mealDistribution || null)
+          })
+        };
+        return {
+          state: activeAlcoholItem.state || "",
+          action: cleanIntegratedCoachAction(activeAlcoholItem, items) || activeAlcoholItem.action || ""
+        };
+      }
+      if (config.key === "protein" && macroCoachItem?.status === "low") {
+        return null;
+      }
+      const targetKcal = adherenceResult?.detail?.target?.kcal;
+      const consumedKcal = adherenceResult?.detail?.consumed?.scoringKcal;
+      const isTodayOver = Number.isFinite(targetKcal) && Number.isFinite(consumedKcal) && consumedKcal > targetKcal;
+      if (isTodayOver) {
+        return {
+          calorie: {
+            state: "오늘도 이미 목표를 넘었습니다.",
+            action: "남은 식사는 추가 간식이나 야식 없이 마무리하세요. 지금은 더 채우는 것보다 멈추는 게 낫습니다."
+          },
+          protein: {
+            state: "단백질이 부족한지만 먼저 확인하세요.",
+            action: "단백질이 부족하면 기름진 음식 말고 단백질 식품으로만 보완하세요. 이미 충분하다면 더 먹지 않아도 됩니다."
+          },
+          carb: {
+            state: "추가 탄수화물은 필요성이 낮습니다.",
+            action: "운동 직후가 아니라면 탄수화물은 여기서 더 늘리지 마세요. 남은 식사는 가볍게 정리하세요."
+          },
+          fat: {
+            state: "지방과 야식은 멈추는 게 좋습니다.",
+            action: "오늘은 기름진 음식, 디저트, 야식이 점수를 더 흔들 수 있습니다. 남은 식사는 단백질과 수분 위주로 정리하세요."
+          }
+        }[config.key] || null;
+      }
+      const previousContext = getPreviousDayNutritionContext(adherenceResult?.detail?.date || getTodayDateString());
+      const previousAlcoholSeverity = previousContext?.previousAlcoholSeverity || "none";
+      if (previousContext?.hasPreviousRecord && ["moderate", "high", "very_high", "extreme", "extreme_plus"].includes(previousAlcoholSeverity)) {
+        return {
+          calorie: {
+            state: "전날 술 영향이 남아 있을 수 있습니다.",
+            action: "오늘은 목표 칼로리를 억지로 채우기보다 몸 상태를 보면서 식사를 마무리하세요."
+          },
+          protein: {
+            state: "오늘은 단백질이 가장 중요합니다.",
+            action: "끼니마다 단백질을 먼저 챙기세요. 회복이 흔들린 날일수록 단백질은 빠지면 안 됩니다."
+          },
+          carb: {
+            state: "탄수화물은 운동 여부에 맞춰 조절하세요.",
+            action: "운동이 있다면 운동 전후에 챙기고, 운동이 없다면 소화 잘 되는 식사 안에서만 가져가세요."
+          },
+          fat: {
+            state: "오늘은 기름진 음식이 부담이 될 수 있습니다.",
+            action: "지방을 억지로 채우지 말고, 야식과 기름진 음식은 오늘 멈추는 쪽이 좋습니다."
+          }
+        }[config.key] || null;
+      }
+      if (
+        previousContext?.hasPreviousRecord &&
+        ["none", "trivial", "light"].includes(previousAlcoholSeverity) &&
+        previousContext?.previousOverIntakeLevel &&
+        previousContext.previousOverIntakeLevel !== "none"
+      ) {
+        return {
+          calorie: {
+            state: "어제 섭취가 목표보다 높았습니다.",
+            action: "오늘은 다시 목표 범위 안에서 먹는 것부터 잡으면 됩니다. 굶어서 만회하려고 하지 마세요."
+          },
+          protein: {
+            state: "단백질은 평소처럼 유지하세요.",
+            action: "어제 많이 먹었더라도 단백질은 줄이지 마세요. 오늘도 끼니마다 빠지지 않게 넣어 주세요."
+          },
+          carb: {
+            state: "탄수화물은 정규 식사 안에서 챙기세요.",
+            action: "간식이나 야식으로 채우기보다 밥, 감자, 과일처럼 식사 안에서 정리하는 쪽이 좋습니다."
+          },
+          fat: {
+            state: "간식과 기름진 음식만 줄여도 충분합니다.",
+            action: "오늘은 튀김, 디저트, 야식처럼 쉽게 늘어나는 지방만 조심하세요. 정규 식사는 평소처럼 가져가면 됩니다."
+          }
+        }[config.key] || null;
+      }
+      return null;
+    }
+
     function renderAdherenceMacroCards(adherenceResult, coach){
       const items = getCoachItems(coach);
       return ADHERENCE_MACRO_CARD_CONFIG.map(config => {
@@ -9168,8 +9313,9 @@ Notes:
         const score = adherenceResult?.detail?.componentScores?.[config.componentKey];
         const scoreText = Number.isFinite(score) ? `${(score * 100).toFixed(1)}점` : "계산 대기";
         const fallback = getAdherenceMacroFallbackText(config, score, adherenceResult?.reasons?.[config.reasonKey]);
-        const stateText = coachItem?.state || fallback.state;
-        const actionText = cleanIntegratedCoachAction(coachItem, items) || fallback.action;
+        const override = getAdherenceMacroCardOverride(adherenceResult, coach, config);
+        const stateText = override?.state || coachItem?.state || fallback.state;
+        const actionText = override?.action || cleanIntegratedCoachAction(coachItem, items) || fallback.action;
         return `
           <div class="adherence-component" data-coach-key="${config.key}">
             <div class="label">${config.label}</div>
@@ -12737,6 +12883,25 @@ Notes:
           };
         }
 
+        function getRenderedAdherenceMacroCardsForScenario(config = {}){
+          const scenario = setupPreviousDayCoachScenario(config);
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = renderAdherenceMacroCards(scenario.scoreAfter, scenario.output);
+          const cards = {};
+          wrapper.querySelectorAll(".adherence-component").forEach(node => {
+            const key = node.getAttribute("data-coach-key");
+            cards[key] = {
+              state: node.querySelector(".component-state")?.textContent?.trim() || "",
+              action: node.querySelector(".component-action")?.textContent?.trim() || ""
+            };
+          });
+          return {
+            scenario,
+            cards,
+            text: Object.values(cards).map(card => `${card.state} ${card.action}`).join(" ")
+          };
+        }
+
         function setInbodyTestRecords(lastOverrides = {}){
           state.inbodyRecords = [
             { date: "2026-04-01", weight: 75, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16, warning: "", isSuspicious: false },
@@ -12976,6 +13141,108 @@ Notes:
           const text = `${recovery.text} ${over.text}`;
           assertExcludesAll(text, ["오늘 식단을 줄이세요", "폭식", "치팅", "회복데이"], "previous-day user-facing wording");
           assertIncludesAll(text, ["굶", "단백질", "수분"], "previous-day recovery direction");
+        }));
+
+        results.push(runNamedTest("adherence macro cards use previous alcohol recovery override copy", () => {
+          [
+            [400, "high"],
+            [1800, "extreme_plus"]
+          ].forEach(([previousAlcoholKcal, label]) => {
+            const rendered = getRenderedAdherenceMacroCardsForScenario({ previousAlcoholKcal });
+            assertTest(rendered.cards.calorie.state === "전날 술 영향이 남아 있을 수 있습니다.", `${label} recovery calorie state`);
+            assertTest(rendered.cards.calorie.action === "오늘은 목표 칼로리를 억지로 채우기보다 몸 상태를 보면서 식사를 마무리하세요.", `${label} recovery calorie action`);
+            assertTest(rendered.cards.protein.state === "오늘은 단백질이 가장 중요합니다.", `${label} recovery protein state`);
+            assertTest(rendered.cards.protein.action === "끼니마다 단백질을 먼저 챙기세요. 회복이 흔들린 날일수록 단백질은 빠지면 안 됩니다.", `${label} recovery protein action`);
+            assertTest(rendered.cards.carb.state === "탄수화물은 운동 여부에 맞춰 조절하세요.", `${label} recovery carb state`);
+            assertTest(rendered.cards.carb.action === "운동이 있다면 운동 전후에 챙기고, 운동이 없다면 소화 잘 되는 식사 안에서만 가져가세요.", `${label} recovery carb action`);
+            assertTest(rendered.cards.fat.state === "오늘은 기름진 음식이 부담이 될 수 있습니다.", `${label} recovery fat state`);
+            assertTest(rendered.cards.fat.action === "지방을 억지로 채우지 말고, 야식과 기름진 음식은 오늘 멈추는 쪽이 좋습니다.", `${label} recovery fat action`);
+          });
+        }));
+
+        results.push(runNamedTest("adherence macro cards use previous over-intake override copy", () => {
+          [
+            [1.15, "light_overeating"],
+            [1.25, "overeating"],
+            [1.40, "high_overeating"]
+          ].forEach(([previousKcalRatio, label]) => {
+            const rendered = getRenderedAdherenceMacroCardsForScenario({ previousKcalRatio, previousAlcoholKcal: 0 });
+            assertTest(rendered.cards.calorie.state === "어제 섭취가 목표보다 높았습니다.", `${label} over-intake calorie state`);
+            assertTest(rendered.cards.calorie.action === "오늘은 다시 목표 범위 안에서 먹는 것부터 잡으면 됩니다. 굶어서 만회하려고 하지 마세요.", `${label} over-intake calorie action`);
+            assertTest(rendered.cards.protein.state === "단백질은 평소처럼 유지하세요.", `${label} over-intake protein state`);
+            assertTest(rendered.cards.protein.action === "어제 많이 먹었더라도 단백질은 줄이지 마세요. 오늘도 끼니마다 빠지지 않게 넣어 주세요.", `${label} over-intake protein action`);
+            assertTest(rendered.cards.carb.state === "탄수화물은 정규 식사 안에서 챙기세요.", `${label} over-intake carb state`);
+            assertTest(rendered.cards.carb.action === "간식이나 야식으로 채우기보다 밥, 감자, 과일처럼 식사 안에서 정리하는 쪽이 좋습니다.", `${label} over-intake carb action`);
+            assertTest(rendered.cards.fat.state === "간식과 기름진 음식만 줄여도 충분합니다.", `${label} over-intake fat state`);
+            assertTest(rendered.cards.fat.action === "오늘은 튀김, 디저트, 야식처럼 쉽게 늘어나는 지방만 조심하세요. 정규 식사는 평소처럼 가져가면 됩니다.", `${label} over-intake fat action`);
+          });
+        }));
+
+        results.push(runNamedTest("adherence macro cards use today-over override before previous over-intake", () => {
+          const rendered = getRenderedAdherenceMacroCardsForScenario({ previousKcalRatio: 1.25, previousAlcoholKcal: 0, todayKcalRatio: 1.15 });
+          assertTest(rendered.cards.calorie.state === "오늘도 이미 목표를 넘었습니다.", "today over calorie state");
+          assertTest(rendered.cards.calorie.action === "남은 식사는 추가 간식이나 야식 없이 마무리하세요. 지금은 더 채우는 것보다 멈추는 게 낫습니다.", "today over calorie action");
+          assertTest(rendered.cards.protein.state === "단백질이 부족한지만 먼저 확인하세요.", "today over protein state");
+          assertTest(rendered.cards.protein.action === "단백질이 부족하면 기름진 음식 말고 단백질 식품으로만 보완하세요. 이미 충분하다면 더 먹지 않아도 됩니다.", "today over protein action");
+          assertTest(rendered.cards.carb.state === "추가 탄수화물은 필요성이 낮습니다.", "today over carb state");
+          assertTest(rendered.cards.carb.action === "운동 직후가 아니라면 탄수화물은 여기서 더 늘리지 마세요. 남은 식사는 가볍게 정리하세요.", "today over carb action");
+          assertTest(rendered.cards.fat.state === "지방과 야식은 멈추는 게 좋습니다.", "today over fat state");
+          assertTest(rendered.cards.fat.action === "오늘은 기름진 음식, 디저트, 야식이 점수를 더 흔들 수 있습니다. 남은 식사는 단백질과 수분 위주로 정리하세요.", "today over fat action");
+        }));
+
+        results.push(runNamedTest("adherence macro cards reuse today alcohol wording before previous recovery", () => {
+          const rendered = getRenderedAdherenceMacroCardsForScenario({ previousAlcoholKcal: 800, todayAlcoholKcal: 400 });
+          const alcoholImpact = analyzeAlcoholImpact(rendered.scenario.scoreAfter?.detail?.consumed || {});
+          const expectedAlcoholState = getDailyCoachStatusText({
+            key: "alcohol",
+            status: "high",
+            severity: 2,
+            ratio: null,
+            actual: alcoholImpact.totalAlcoholKcal,
+            target: null,
+            reasonCode: `alcohol_${alcoholImpact.severity}`,
+            alcoholImpact,
+            otherKcalImpact: analyzeOtherKcalImpact(rendered.scenario.scoreAfter?.detail?.consumed || {}, rendered.scenario.scoreAfter?.detail?.mealDistribution || null)
+          });
+          const expectedAlcoholAction = getDailyCoachActionText({
+            key: "alcohol",
+            status: "high",
+            severity: 2,
+            ratio: null,
+            actual: alcoholImpact.totalAlcoholKcal,
+            target: null,
+            reasonCode: `alcohol_${alcoholImpact.severity}`,
+            alcoholImpact,
+            otherKcalImpact: analyzeOtherKcalImpact(rendered.scenario.scoreAfter?.detail?.consumed || {}, rendered.scenario.scoreAfter?.detail?.mealDistribution || null)
+          });
+          ["calorie", "protein", "carb", "fat"].forEach(key => {
+            assertTest(rendered.cards[key].state === expectedAlcoholState, `${key} should reuse alcohol state`);
+            assertTest(rendered.cards[key].action === expectedAlcoholAction, `${key} should reuse alcohol action`);
+          });
+          assertTest(rendered.cards.calorie.state !== "전날 술 영향이 남아 있을 수 있습니다.", "today alcohol should suppress previous recovery card copy");
+        }));
+
+        results.push(runNamedTest("adherence macro cards keep protein low wording above previous-day overrides", () => {
+          [
+            { previousAlcoholKcal: 800, todayProteinRatio: 0.50, label: "recovery" },
+            { previousKcalRatio: 1.25, previousAlcoholKcal: 0, todayProteinRatio: 0.50, label: "previous over-intake" }
+          ].forEach(config => {
+            const rendered = getRenderedAdherenceMacroCardsForScenario(config);
+            const proteinItem = rendered.scenario.output.items.find(item => item.key === "protein");
+            assertTest(!!proteinItem, `${config.label} protein low coach item should exist`);
+            assertTest(rendered.cards.protein.state === proteinItem.state, `${config.label} protein card should keep existing protein-low state`);
+            assertTest(rendered.cards.protein.action === proteinItem.action, `${config.label} protein card should keep existing protein-low action`);
+            assertTest(rendered.cards.protein.state !== "오늘은 단백질이 가장 중요합니다.", `${config.label} protein card should not use recovery override`);
+            assertTest(rendered.cards.protein.state !== "단백질은 평소처럼 유지하세요.", `${config.label} protein card should not use over-intake override`);
+          });
+        }));
+
+        results.push(runNamedTest("adherence macro card override wording avoids banned labels", () => {
+          const recovery = getRenderedAdherenceMacroCardsForScenario({ previousAlcoholKcal: 1800 });
+          const over = getRenderedAdherenceMacroCardsForScenario({ previousKcalRatio: 1.40, previousAlcoholKcal: 0 });
+          const todayOver = getRenderedAdherenceMacroCardsForScenario({ previousKcalRatio: 1.25, previousAlcoholKcal: 0, todayKcalRatio: 1.15 });
+          const text = `${recovery.text} ${over.text} ${todayOver.text}`;
+          assertExcludesAll(text, ["칼로리 줄이세요", "덜 먹으세요", "탄수 줄이세요", "지방 줄이세요", "폭식", "치팅", "회복데이", "penalty", "severity", "signal", "scoringVersion"], "macro card override banned wording");
         }));
 
         results.push(runNamedTest("daily coach goal-aware kcal thresholds", () => {
