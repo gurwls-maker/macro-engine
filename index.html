@@ -1,21 +1,22 @@
 <!--
-Version: 6.2.0
-Stage: 6.2.0 최종 안정화 (Goal-aware Coach Decision Matrix + 입력 전제 정리)
+Version: 6.2.1
+Stage: 6.2.1 정합성 안정화 (Alcohol kcal input + Coach/card copy consistency)
 Date: 2026-05-04
 Notes:
-- 주당 웨이트일수 최근 7일 기록 기준 자동 반영
-- 식사 입력 순서 탄수화물 / 단백질 / 지방 / 술 칼로리 / 기타 칼로리 / 메모로 정리
-- Goal-aware Coach Decision Matrix 구현
-- diet / lean_bulk / bulk별 Coach 판단, combo, gate, card override 분리
-- Decision Profile / combo / gate / card policy 정규화
-- v6.2-A 전체 QA 및 Coach 문구 polish 완료
+- 알코올 kcal 입력을 에탄올×7 기준으로 명확화
+- 식사 상세/합산 표시를 알코올 kcal 기준으로 정리
+- alcohol high+ + protein low + fat high 조합의 Coach/card 역할 정리
+- protein low card 보존 규칙 강화
+- alcohol moderate+ card 반복 방지
+- Coach fallback/card 문구를 v6.2 문구 기준에 맞게 정리
+- v6.2.1-A 회귀 QA 통과
 -->
 <!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.2.0</title>
+  <title>탄단지 다이어리 v6.2.1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3206,7 +3207,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.2.0</span>
+               <span class="app-version">v6.2.1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -3754,8 +3755,9 @@ Notes:
                 <input id="mealFat" type="number" min="0" step="0.1" inputmode="decimal">
               </div>
               <div class="field">
-                <label>술 칼로리 (kcal)</label>
+                <label>알코올 kcal (에탄올×7)</label>
                 <input id="mealAlcoholKcal" type="number" min="0" step="1" inputmode="decimal">
+                <div class="field-note">순수 알코올 g × 7kcal 기준으로 입력하세요. 안주와 음료 당분은 탄단지나 기타 칼로리에 따로 기록합니다.</div>
               </div>
               <div class="field">
                 <label>기타 칼로리 (kcal)</label>
@@ -4641,7 +4643,7 @@ Notes:
 
     function formatMealEnergyDetailText(energy){
       const parts = [];
-      if (energy.alcoholKcal > 0) parts.push(`술 ${Math.round(energy.alcoholKcal).toLocaleString()}kcal`);
+      if (energy.alcoholKcal > 0) parts.push(`알코올 ${Math.round(energy.alcoholKcal).toLocaleString()}kcal`);
       if (energy.otherKcal > 0) parts.push(`기타 ${Math.round(energy.otherKcal).toLocaleString()}kcal`);
       if (!parts.length) return "";
       parts.push(`총 ${Math.round(energy.totalKcal).toLocaleString()}kcal`);
@@ -6918,8 +6920,8 @@ Notes:
     };
 
     const DAILY_COACH_COMBO_POLICY_TYPES = [
-      "alcohol_high_fat_high",
       "alcohol_high_protein_low",
+      "alcohol_high_fat_high",
       "recovery_current_over",
       "recovery_current_low",
       "previous_today_high",
@@ -6938,8 +6940,8 @@ Notes:
         priority: [
           "data_quality_severe",
           "data_quality_insufficient",
-          "alcohol_high_fat_high",
           "alcohol_high_protein_low",
+          "alcohol_high_fat_high",
           "alcohol_high",
           "protein_low_severe",
           "protein_low",
@@ -6964,8 +6966,8 @@ Notes:
         priority: [
           "data_quality_severe",
           "data_quality_insufficient",
-          "alcohol_high_fat_high",
           "alcohol_high_protein_low",
+          "alcohol_high_fat_high",
           "alcohol_high",
           "protein_low_severe",
           "protein_low",
@@ -7137,11 +7139,11 @@ Notes:
     }
 
     function shouldCreateAlcoholHighFatHighDecision(context, coveredKeys){
-      return context.alcoholHighPlus && context.fatHigh;
+      return context.alcoholHighPlus && context.fatHigh && !context.proteinLow && !coveredKeys.has("alcohol");
     }
 
     function shouldCreateAlcoholHighProteinLowDecision(context, coveredKeys){
-      return context.alcoholHighPlus && context.proteinLow;
+      return context.alcoholHighPlus && context.proteinLow && !coveredKeys.has("alcohol");
     }
 
     function shouldCreateRecoveryCurrentOverDecision(context, coveredKeys){
@@ -7176,15 +7178,6 @@ Notes:
 
     const DAILY_COACH_COMBO_POLICIES = [
       {
-        decisionType: "alcohol_high_fat_high",
-        key: "alcohol",
-        copyIntent: "alcohol_high_fat_high",
-        coveredKeys: ["alcohol", "fat"],
-        goals: ["diet", "lean_bulk", "bulk"],
-        condition: shouldCreateAlcoholHighFatHighDecision,
-        severity: context => Math.max(context.signalsByKey.alcohol?.severity || 0, context.signalsByKey.fat?.severity || 0)
-      },
-      {
         decisionType: "alcohol_high_protein_low",
         key: "alcohol",
         copyIntent: "alcohol_high_protein_low",
@@ -7192,6 +7185,15 @@ Notes:
         goals: ["diet", "lean_bulk", "bulk"],
         condition: shouldCreateAlcoholHighProteinLowDecision,
         severity: context => Math.max(context.signalsByKey.alcohol?.severity || 0, context.signalsByKey.protein?.severity || 0)
+      },
+      {
+        decisionType: "alcohol_high_fat_high",
+        key: "alcohol",
+        copyIntent: "alcohol_high_fat_high",
+        coveredKeys: ["alcohol", "fat"],
+        goals: ["diet", "lean_bulk", "bulk"],
+        condition: shouldCreateAlcoholHighFatHighDecision,
+        severity: context => Math.max(context.signalsByKey.alcohol?.severity || 0, context.signalsByKey.fat?.severity || 0)
       },
       {
         decisionType: "recovery_current_over",
@@ -7457,7 +7459,7 @@ Notes:
       const proteinHigh = {
         state: "단백질은 목표보다 꽤 많이 들어왔습니다.",
         reason: "단백질은 조금 넘겨도 괜찮은 편이지만, 계속 높게 누적되면 칼로리와 식단 균형이 흐트러질 수 있습니다.",
-        action: "오늘 남은 식사는 단백질을 추가로 늘리기보다 부족한 탄수화물과 칼로리 균형을 맞추는 쪽으로 조정하세요."
+        action: "오늘 남은 식사는 단백질을 더 늘리지 말고 부족한 탄수화물과 총량을 확인하세요."
       };
       const wording = {
         diet: {
@@ -7465,7 +7467,7 @@ Notes:
             high: {
               state: "다이어트 기준으로는 칼로리 초과가 눈에 띕니다.",
               reason: "현재 섭취량이 다이어트 목표의 허용 폭을 넘어 체중 감량 흐름을 늦출 수 있습니다.",
-              action: "오늘 남은 식사는 단백질은 유지하되, 추가 탄수화물과 지방, 간식은 줄이는 쪽이 좋습니다."
+              action: "오늘은 여기서 마무리하세요. 단백질은 유지하고 추가 탄수화물, 지방, 간식은 끊으세요."
             },
             low: {
               state: "다이어트 중이라도 하루 섭취량이 너무 낮지 않은지 확인할 구간입니다.",
@@ -7485,7 +7487,7 @@ Notes:
             high: {
               state: "다이어트 기준으로는 탄수화물 초과량을 점검할 구간입니다.",
               reason: "다이어트 중 탄수화물 초과는 칼로리 초과로 이어지기 쉬워 남은 식사 균형에 영향을 줄 수 있습니다.",
-              action: "남은 식사에서는 주식과 간식 탄수화물을 줄이고 단백질 중심으로 가볍게 정리하세요."
+              action: "남은 식사에서는 주식과 간식 탄수화물을 줄이고 단백질부터 챙기세요."
             }
           },
           fat: {
@@ -7501,7 +7503,7 @@ Notes:
             high: {
               state: "린매스업 기준으로는 칼로리 초과량을 점검할 구간입니다.",
               reason: "목표보다 초과량이 커지면 근육 증가보다 체지방 증가 쪽으로 기울 수 있습니다.",
-              action: "남은 식사에서는 단백질은 유지하고, 추가 지방과 간식 섭취를 줄여 칼로리 초과량을 낮춰보세요."
+              action: "남은 식사에서는 단백질은 유지하고, 추가 지방과 간식은 끊으세요."
             }
           },
           protein: {
@@ -7518,7 +7520,7 @@ Notes:
             high: {
               state: "린매스업 기준으로는 지방 초과 폭을 점검할 구간입니다.",
               reason: "지방 섭취가 계속 높으면 초과된 칼로리의 탄단지 균형이 흔들리고 체지방 증가 가능성이 커질 수 있습니다.",
-              action: "남은 식사에서는 단백질은 유지하되, 기름진 메뉴와 소스류를 조금 줄여보세요."
+              action: "남은 식사에서는 단백질은 유지하고, 기름진 메뉴와 소스류는 덜어내세요."
             }
           }
         },
@@ -7527,7 +7529,7 @@ Notes:
             low: {
               state: "벌크업 기준으로는 총섭취량이 부족합니다.",
               reason: "현재 섭취량으로는 체중 증가와 훈련 회복에 필요한 에너지가 부족할 수 있습니다.",
-              action: "다음 식사에서 탄수화물과 단백질을 함께 보강해 총량을 채우는 쪽이 좋습니다."
+              action: "다음 식사에서 탄수화물과 단백질을 함께 보강해 총량을 채우세요."
             },
             high: {
               state: "벌크업 기준에서는 초과량을 점검할 구간입니다.",
@@ -7559,7 +7561,7 @@ Notes:
             high: {
               state: "벌크업 기준에서도 지방 초과 폭은 점검할 구간입니다.",
               reason: "벌크 중에는 어느 정도 초과가 허용되지만, 지방 섭취가 계속 높으면 체지방 증가 속도가 빨라질 수 있습니다.",
-              action: "남은 식사에서는 단백질과 탄수화물은 유지하되, 기름진 음식과 견과류, 소스류를 조금 줄여보세요."
+              action: "남은 식사에서는 단백질과 탄수화물은 유지하고, 기름진 음식과 견과류, 소스류는 덜어내세요."
             }
           }
         }
@@ -7594,12 +7596,12 @@ Notes:
             action: "술과 기름진 음식은 여기서 끊고 단백질과 수분만 챙기세요."
           },
           lean_bulk: {
-            state: "술과 지방이 함께 높아 회복 품질이 크게 떨어집니다.",
+            state: "술과 지방이 함께 높아 회복에 부담이 큽니다.",
             reason: "칼로리는 들어왔지만 린매스업에 필요한 회복 재료로 보기 어렵습니다.",
             action: "술과 지방으로 칼로리를 더 채우지 말고 단백질, 수분, 수면을 우선하세요."
           },
           bulk: {
-            state: "술과 지방이 함께 높아 벌크 칼로리로 보기 어렵습니다.",
+            state: "술과 지방이 함께 높아 벌크에 도움이 되는 식사로 보기 어렵습니다.",
             reason: "총량은 늘어도 성장 재료보다 술, 안주, 고지방 부담이 더 큽니다.",
             action: "술과 안주는 여기서 끊고 부족분은 오늘 억지로 채우지 마세요."
           }
@@ -7628,12 +7630,12 @@ Notes:
             action: "오늘은 여기서 마무리하세요. 기름진 음식과 간식은 끊으세요."
           },
           lean_bulk: {
-            state: "칼로리는 넘었지만 흑자 품질이 좋지 않습니다.",
+            state: "먹은 양은 충분하지만 술·기름진 음식 비중이 높습니다.",
             reason: "린매스업의 작은 흑자가 지방, 소스, 간식 위주로 채워지고 있습니다.",
             action: "술, 튀김, 소스, 간식은 중단하세요. 다음 식사는 단백질과 탄수화물 위주로 정리하세요."
           },
           bulk: {
-            state: "나쁜 칼로리로 채운 벌크 가능성이 큽니다.",
+            state: "먹은 양은 많지만 성장에 도움 되는 식사로 보기 어렵습니다.",
             reason: "벌크 중이어도 고지방 초과가 크면 성장 재료보다 체지방 증가 쪽으로 기울 수 있습니다.",
             action: "부족분을 더 채우지 말고 다음 식사는 단백질과 탄수화물 위주로 정리하세요."
           }
@@ -7780,8 +7782,8 @@ Notes:
             action: "간식, 튀김, 소스, 기름진 음식은 끊으세요."
           },
           lean_bulk: {
-            state: "린매스업 기준으로 흑자 품질이 떨어질 수 있습니다.",
-            reason: "지방이 높으면 작은 흑자가 체지방 증가 쪽으로 흐르기 쉽습니다.",
+            state: "먹은 양은 충분하지만 지방 비중이 높습니다.",
+            reason: "린매스업에서는 지방이 높으면 체지방 증가 쪽으로 흐르기 쉽습니다.",
             action: "소스, 튀김, 간식은 제한하세요."
           },
           bulk: {
@@ -7947,7 +7949,7 @@ Notes:
       if (signal.key === "training") {
         if (signal.severity >= 3) return "오늘 운동량에 비해 들어온 에너지가 부족하게 잡혀 회복 부담이 커질 수 있습니다";
         if (signal.severity === 2) return "운동량을 고려하면 현재 섭취 흐름을 조금 더 맞춰볼 여지가 있습니다";
-        if (signal.severity === 1) return "운동 기록이 충분하지 않아 식단 흐름을 중심으로 확인했습니다.";
+        if (signal.severity === 1) return "운동 기록이 충분하지 않아 식단 흐름을 우선해 확인했습니다.";
         return "오늘 기록상 운동량과 섭취 흐름이 크게 어긋나지 않습니다";
       }
       if (signal.key === "dataQuality") {
@@ -8114,7 +8116,7 @@ Notes:
               ? "다음 식사에서 전체 식사량을 한 단계 늘려 주세요"
               : "다음 식사에 작은 간식이나 주식 한 가지를 더해 주세요",
           high: signal.severity >= 3
-            ? "다음 식사는 단백질 중심으로 가볍게 구성해 주세요."
+            ? "다음 식사는 단백질부터 챙기고 가볍게 구성해 주세요."
             : signal.severity === 2
               ? "다음 식사에서 전체 식사량을 한 단계 줄여 주세요"
               : "다음 식사에서 간식이나 추가 메뉴 하나를 줄여 주세요"
@@ -8169,7 +8171,7 @@ Notes:
     function getDailyCoachConfidenceText(dataQualitySignal){
       if (!dataQualitySignal || dataQualitySignal.severity === 0) return "";
       if (dataQualitySignal.severity === 1) return "현재 입력 기준으로는 위와 같이 볼 수 있습니다";
-      return "현재 기록 기준으로는 위와 같이 보입니다. 정확한 분석을 위해 기록을 보완해보세요";
+      return "현재 기록 기준으로는 위와 같이 보입니다. 정확한 분석을 위해 기록을 보완해 주세요";
     }
 
     function selectDailyCoachSignals(signals){
@@ -9233,7 +9235,7 @@ Notes:
       const hasMealContent = [carbsRaw, proteinRaw, fatRaw, alcoholKcalRaw, otherKcalRaw]
         .some(value => normalizeMacroValue(value) > 0) || memoRaw.length > 0;
       if (!hasMealContent) {
-        setRecordFeedback("warn", "저장할 식사 내용이 없습니다. 탄단지, 술 칼로리, 기타 칼로리 또는 메모를 입력해 주세요.");
+        setRecordFeedback("warn", "저장할 식사 내용이 없습니다. 탄단지, 알코올 kcal, 기타 칼로리 또는 메모를 입력해 주세요.");
         render();
         return;
       }
@@ -10031,10 +10033,36 @@ Notes:
     function getAdherenceMacroFallbackText(config, score, reason){
       const label = config.label;
       const subject = label === "총칼로리" ? "총칼로리는" : `${label}은`;
+      const key = config.key;
+      const fallbackActions = {
+        calorie: {
+          high: "오늘은 여기서 마무리하세요.",
+          low: "부족분은 식사로 채우세요.",
+          mid: "남은 식사는 목표 안에서 이어가세요."
+        },
+        protein: {
+          high: "단백질은 더 늘리지 말고 다음 식사는 균형을 확인하세요.",
+          low: "단백질부터 챙기세요.",
+          mid: "다음 식사에서 단백질을 먼저 확인하세요."
+        },
+        carb: {
+          high: "탄수화물은 더 추가하지 마세요.",
+          low: "운동 전후 식사 안에서 보완하세요.",
+          mid: "탄수화물은 다음 식사에서 필요한 만큼만 맞추세요."
+        },
+        fat: {
+          high: "기름진 음식과 간식은 끊으세요.",
+          low: "지방은 다음 식사 안에서 조금만 채우세요.",
+          mid: "지방은 다음 식사에서 조금만 맞추세요."
+        }
+      };
+      const status = reason?.includes("초과") || reason?.includes("높") ? "high"
+        : (reason?.includes("부족") || reason?.includes("낮") ? "low" : "mid");
+      const action = fallbackActions[key]?.[status] || "오늘 기록을 이어가며 흐름을 확인하세요.";
       if (!Number.isFinite(score)) {
         return {
           state: `${subject} 오늘 기록 기준으로 확인 중입니다.`,
-          action: reason || "오늘 기록을 이어가며 흐름을 확인하세요."
+          action: reason || action
         };
       }
       if (score >= 0.85) {
@@ -10046,19 +10074,19 @@ Notes:
       if (score >= 0.60) {
         return {
           state: `${subject} 오늘 기록 기준으로 목표와 차이가 있습니다.`,
-          action: "남은 식사에서 목표와의 차이를 조금 줄이는 쪽으로 정리하세요."
+          action
         };
       }
       return {
         state: `${subject} 오늘 기록 기준으로 우선 확인이 필요합니다.`,
-        action: "다음 식사에서는 이 항목이 더 벌어지지 않도록 먼저 조정하세요."
+        action
       };
     }
 
     const DAILY_COACH_CARD_POLICIES = {
       calorie: {
         alcoholModeratePlus: {
-          state: "오늘 술 칼로리까지 들어왔습니다.",
+          state: "오늘 술 영향이 반영됐습니다.",
           action: "남은 식사는 여기서 마무리하세요. 추가 술이나 야식, 기름진 안주는 멈추세요."
         },
         dietCalorieHigh: {
@@ -10066,7 +10094,7 @@ Notes:
           action: "추가 간식과 야식은 끊으세요. 굶어서 만회하지는 마세요."
         },
         leanBulkQualityHigh: {
-          state: "총칼로리는 넘었지만 흑자 품질이 좋지 않습니다.",
+          state: "먹은 양은 충분하지만 술·기름진 음식 비중이 높습니다.",
           action: "술, 튀김, 소스, 간식은 중단하세요. 다음 식사는 단백질과 탄수화물 위주로 정리하세요."
         },
         bulkCalorieLow: {
@@ -10123,11 +10151,11 @@ Notes:
           action: "간식, 튀김, 소스, 기름진 음식은 끊으세요."
         },
         leanBulkHigh: {
-          state: "지방이 흑자 품질을 낮추고 있습니다.",
+          state: "먹은 양은 충분하지만 지방 비중이 높습니다.",
           action: "소스, 튀김, 간식은 제한하세요."
         },
         bulkQualityHigh: {
-          state: "지방과 술, 고칼로리 조합은 벌크 칼로리로 보기 어렵습니다.",
+          state: "지방과 술, 고칼로리 조합은 벌크에 도움이 되는 식사로 보기 어렵습니다.",
           action: "술, 안주, 고지방 음식으로 채우지 마세요."
         }
       }
@@ -10135,7 +10163,9 @@ Notes:
 
     function getDailyCoachAlcoholCardOverride(cardContext){
       if (!shouldTodayAlcoholOverridePreviousContext(cardContext)) return null;
-      return DAILY_COACH_CARD_POLICIES[cardContext.configKey]?.alcoholModeratePlus || null;
+      if (cardContext.configKey === "calorie") return DAILY_COACH_CARD_POLICIES.calorie.alcoholModeratePlus;
+      if (cardContext.configKey === "fat" && cardContext.fatHigh) return DAILY_COACH_CARD_POLICIES.fat.alcoholModeratePlus;
+      return null;
     }
 
     function getDailyCoachGoalCardOverride(cardContext){
@@ -10191,7 +10221,9 @@ Notes:
         hasTraining
       };
 
-      if (shouldKeepProteinLowAboveRecovery(cardContext)) return null;
+      if (shouldKeepProteinLowAboveRecovery(cardContext)) {
+        return getDailyCoachGoalCardOverride(cardContext);
+      }
 
       const alcoholOverride = getDailyCoachAlcoholCardOverride(cardContext);
       if (alcoholOverride) return alcoholOverride;
@@ -11762,7 +11794,11 @@ Notes:
           assertTest(text.includes("탄수화물") && text.includes("40g / 남은 60g") && text.includes("목표 100g"), "carb card should show consumed, remaining, and target grams");
           assertTest(text.includes("총 칼로리") && text.includes("480kcal / 남은 520kcal") && text.includes("목표 1,000kcal"), "kcal card should use total kcal against snapshot target");
           assertTest(text.includes("탄단지 330kcal"), "kcal card should expose macro kcal as a helper when non-macro kcal exists");
-          assertTest(!text.includes("술 kcal") && !text.includes("기타 kcal"), "selected meal totals should not add extra non-macro summary cards");
+          assertTest(!text.includes("알코올 kcal") && !text.includes("기타 kcal"), "selected meal totals should not add extra non-macro summary cards");
+
+          renderSelectedDateMeals("2026-04-22");
+          const mealListText = document.getElementById("selectedMealsList").textContent || "";
+          assertIncludesAll(mealListText, ["알코올 100kcal", "기타 50kcal", "총 480kcal"], "selected meal list should show alcohol kcal energy detail");
 
           recordsState.items = normalizeRecordsCollection([{
             date: "2026-04-21",
@@ -13978,7 +14014,7 @@ Notes:
           assertFirstDecision("lean_bulk", { kcal: 1.3, fat: 1.45 }, {
             key: "calorie",
             decisionType: "calorie_fat_high",
-            includes: ["흑자 품질", "술", "튀김", "소스"]
+            includes: ["먹은 양은 충분", "술", "튀김", "소스"]
           });
         }));
 
@@ -14016,7 +14052,7 @@ Notes:
           assertFirstDecision("bulk", { kcal: 1.2, fat: 1.45, alcoholKcal: 500 }, {
             key: "alcohol",
             decisionType: "alcohol_high_fat_high",
-            includes: ["벌크 칼로리로 보기 어렵", "술과 안주", "억지로 채우지"]
+            includes: ["벌크에 도움이 되는 식사", "술과 안주", "억지로 채우지"]
           });
         }));
 
@@ -14085,11 +14121,84 @@ Notes:
             return wrapper.textContent;
           };
           assertIncludesAll(renderCards("diet", { kcal: 1.24, fat: 1.5 }), ["총칼로리", "마무리", "초과", "지방", "기름진 음식"], "diet calorie high cards");
-          assertIncludesAll(renderCards("lean_bulk", { kcal: 1.3, fat: 1.45 }), ["흑자 품질", "소스", "튀김"], "lean bulk quality cards");
+          assertIncludesAll(renderCards("lean_bulk", { kcal: 1.3, fat: 1.45 }), ["먹은 양은 충분", "소스", "튀김"], "lean bulk quality cards");
           assertIncludesAll(renderCards("bulk", { kcal: 0.82, carbs: 0.65 }), ["총칼로리", "부족", "소화 쉬운 탄수화물"], "bulk low calorie cards");
           assertIncludesAll(renderCards("bulk", { protein: 0.65 }), ["단백질", "탄수화물"], "protein low card");
           assertExcludesAll(renderCards("diet", { kcal: 1, protein: 1, carbs: 0.6, fat: 1 }, { state: { routine: "REST", weightDuration: 0, cardioDuration: 0 } }), ["탄수화물은 운동일 보조"], "diet rest carb card should not over-push carbs");
           assertExcludesAll(renderCards("diet", { fat: 0.6 }), ["지방을 조금 보완", "지방 식품"], "fat low card should not force override");
+        }));
+
+        results.push(runNamedTest("daily coach v6.2.1-A alcohol protein fat combo keeps card roles", () => {
+          const target = { kcal: 2000, protein: 150, carbs: 220, fat: 70 };
+          const result = getDecisionCoach("lean_bulk", { kcal: 1.25, protein: 0.55, fat: 1.45, alcoholKcal: 700 });
+          const alcoholItems = result.output.items.filter(item => item.key === "alcohol");
+          assertTest(result.first?.decisionType === "alcohol_high_protein_low", `expected alcohol_high_protein_low first, got ${result.first?.decisionType}`);
+          assertTest(alcoholItems.length === 1, "alcohol combo should not render duplicate alcohol decisions");
+          assertTest(!result.output.items.some(item => item.decisionType === "alcohol_high_fat_high"), "protein-low alcohol combo should suppress duplicate fat combo decision");
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = renderAdherenceMacroCards({
+            detail: {
+              target,
+              consumed: { kcal: target.kcal * 1.25, protein: target.protein * 0.55, carbs: target.carbs, fat: target.fat * 1.45, alcoholKcal: 700, otherKcal: 0 },
+              componentScores: { kcal: 0.4, protein: 0.4, carbs: 0.9, fat: 0.4 }
+            },
+            reasons: {}
+          }, result.output);
+          const proteinCard = wrapper.querySelector('[data-coach-key="protein"]')?.textContent || "";
+          const fatCard = wrapper.querySelector('[data-coach-key="fat"]')?.textContent || "";
+          assertIncludesAll(proteinCard, ["단백질부터", "보완"], "protein card should keep protein-low action");
+          assertIncludesAll(fatCard, ["지방", "안주"], "fat card should keep fat/alcohol limit role");
+        }));
+
+        results.push(runNamedTest("daily coach v6.2.1-A input wording and fallback copy", () => {
+          ids.recordDate.value = getTodayDateString();
+          const alcoholLabel = Array.from(document.querySelectorAll("label")).find(label => label.textContent.includes("알코올 kcal"));
+          const alcoholField = document.getElementById("mealAlcoholKcal")?.closest(".field");
+          const alcoholHint = alcoholField?.querySelector(".field-note")?.textContent || "";
+          assertTest(!!alcoholLabel && alcoholLabel.textContent.includes("에탄올×7"), "alcohol kcal input label should explain ethanol basis");
+          assertIncludesAll(alcoholHint, ["순수 알코올 g × 7kcal", "안주와 음료 당분", "기타 칼로리"], "alcohol kcal input hint");
+          assertIncludesAll(formatMealEnergyDetailText({ alcoholKcal: 120, otherKcal: 50, totalKcal: 170 }), ["알코올 120kcal", "기타 50kcal", "총 170kcal"], "meal energy detail should use alcohol kcal wording");
+          assertIncludesAll(saveMealEntry.toString(), ["알코올 kcal", "기타 칼로리"], "empty meal validation should use alcohol kcal wording");
+          const fallbackText = [
+            getAdherenceMacroFallbackText({ key: "calorie", label: "총칼로리" }, 0.5, "총칼로리 초과").action,
+            getAdherenceMacroFallbackText({ key: "protein", label: "단백질" }, 0.5, "단백질 부족").action,
+            getAdherenceMacroFallbackText({ key: "carb", label: "탄수화물" }, 0.5, "탄수화물 초과").action,
+            getAdherenceMacroFallbackText({ key: "fat", label: "지방" }, 0.5, "지방 부족").action
+          ].join(" ");
+          assertIncludesAll(fallbackText, ["오늘은 여기서 마무리", "단백질부터", "탄수화물은 더 추가하지", "조금만 채우세요"], "fallback card roles");
+          assertExcludesAll(fallbackText, ["목표와의 차이를", "줄이는 쪽", "정리하세요", "해도 좋습니다"], "fallback should avoid generic old copy");
+        }));
+
+        results.push(runNamedTest("daily coach v6.2.1-A user-facing copy avoids internal and old labels", () => {
+          const renderSampleCards = (goal, ratios) => {
+            const target = { kcal: 2000, protein: 150, carbs: 220, fat: 70 };
+            const result = getDecisionCoach(goal, ratios);
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = renderAdherenceMacroCards({
+              detail: {
+                target,
+                consumed: {
+                  kcal: target.kcal * (Number.isFinite(ratios.kcal) ? ratios.kcal : 1),
+                  protein: target.protein * (Number.isFinite(ratios.protein) ? ratios.protein : 1),
+                  carbs: target.carbs * (Number.isFinite(ratios.carbs) ? ratios.carbs : 1),
+                  fat: target.fat * (Number.isFinite(ratios.fat) ? ratios.fat : 1),
+                  alcoholKcal: ratios.alcoholKcal || 0,
+                  otherKcal: 0
+                },
+                componentScores: { kcal: 0.5, protein: 0.5, carbs: 0.5, fat: 0.5 }
+              },
+              reasons: {}
+            }, result.output);
+            return wrapper.textContent || "";
+          };
+          const samples = [
+            getDecisionCoach("lean_bulk", { kcal: 1.3, fat: 1.45 }).text,
+            getDecisionCoach("bulk", { kcal: 1.25, fat: 1.45, alcoholKcal: 700 }).text,
+            getDecisionCoach("lean_bulk", { kcal: 1.25, protein: 0.55, fat: 1.45, alcoholKcal: 700 }).text,
+            renderSampleCards("lean_bulk", { kcal: 1.3, fat: 1.45 }),
+            renderSampleCards("bulk", { kcal: 1.25, fat: 1.45, alcoholKcal: 700 })
+          ].join(" ");
+          assertExcludesAll(samples, ["흑자 품질", "벌크 칼로리", "나쁜 칼로리", "signal", "severity", "penalty", "score cap", "decisionType", "회복데이", "폭식", "치팅"], "Coach/card user-facing copy should avoid internal or old labels");
         }));
 
         function setInbodyTestRecords(lastOverrides = {}){
@@ -14363,14 +14472,11 @@ Notes:
 
         results.push(runNamedTest("adherence macro cards use role-specific today alcohol wording before previous recovery", () => {
           const rendered = getRenderedAdherenceMacroCardsForScenario({ previousAlcoholKcal: 800, todayAlcoholKcal: 400 });
-          assertTest(rendered.cards.calorie.state === "오늘 술 칼로리까지 들어왔습니다.", "today alcohol calorie state");
+          assertTest(rendered.cards.calorie.state === "오늘 술 영향이 반영됐습니다.", "today alcohol calorie state");
           assertTest(rendered.cards.calorie.action === "남은 식사는 여기서 마무리하세요. 추가 술이나 야식, 기름진 안주는 멈추세요.", "today alcohol calorie action");
-          assertTest(rendered.cards.protein.state === "단백질은 따로 확인하세요.", "today alcohol protein state");
-          assertTest(rendered.cards.protein.action === "단백질이 부족하면 기름진 안주 말고 단백질 식품으로만 보완하세요.", "today alcohol protein action");
-          assertTest(rendered.cards.carb.state === "탄수화물은 더 늘릴 필요가 낮습니다.", "today alcohol carb state");
-          assertTest(rendered.cards.carb.action === "탄수화물은 더 늘리지 말고 지금 식사량 안에서만 유지하세요.", "today alcohol carb action");
-          assertTest(rendered.cards.fat.state === "지방과 안주는 점수를 더 흔듭니다.", "today alcohol fat state");
-          assertTest(rendered.cards.fat.action === "지방은 더 추가하지 말고 지금 수준에서 마무리하세요.", "today alcohol fat action");
+          assertTest(!rendered.cards.protein.state.includes("술") && !rendered.cards.protein.action.includes("안주"), "today alcohol should not overwrite protein card without protein low");
+          assertTest(!rendered.cards.carb.state.includes("술") && !rendered.cards.carb.action.includes("술"), "today alcohol should not overwrite carb card");
+          assertTest(!rendered.cards.fat.state.includes("안주") && !rendered.cards.fat.action.includes("안주"), "today alcohol should not overwrite fat card without fat high");
           const uniqueStateCount = new Set(["calorie", "protein", "carb", "fat"].map(key => rendered.cards[key].state)).size;
           assertTest(uniqueStateCount === 4, "today alcohol macro card states should not repeat");
           assertTest(rendered.cards.calorie.state !== "전날 술 영향이 남아 있을 수 있습니다.", "today alcohol should suppress previous recovery card copy");
@@ -14378,8 +14484,8 @@ Notes:
 
         results.push(runNamedTest("adherence macro cards use today alcohol before previous over-intake", () => {
           const rendered = getRenderedAdherenceMacroCardsForScenario({ previousKcalRatio: 1.25, previousAlcoholKcal: 0, todayAlcoholKcal: 400 });
-          assertTest(rendered.cards.calorie.state === "오늘 술 칼로리까지 들어왔습니다.", "today alcohol should override previous over-intake calorie state");
-          assertTest(rendered.cards.protein.state === "단백질은 따로 확인하세요.", "today alcohol should override previous over-intake protein state");
+          assertTest(rendered.cards.calorie.state === "오늘 술 영향이 반영됐습니다.", "today alcohol should override previous over-intake calorie state");
+          assertTest(!rendered.cards.protein.state.includes("술") && !rendered.cards.protein.action.includes("안주"), "today alcohol should not overwrite protein card without protein low");
           assertTest(rendered.cards.calorie.state !== "어제 섭취가 목표보다 높았습니다.", "previous over-intake should be hidden when today alcohol exists");
         }));
 
@@ -14391,10 +14497,10 @@ Notes:
             const rendered = getRenderedAdherenceMacroCardsForScenario(config);
             const proteinItem = rendered.scenario.output.items.find(item => item.key === "protein");
             assertTest(!!proteinItem, `${config.label} protein low coach item should exist`);
-            assertTest(rendered.cards.protein.state === proteinItem.state, `${config.label} protein card should keep existing protein-low state`);
-            assertTest(rendered.cards.protein.action === proteinItem.action, `${config.label} protein card should keep existing protein-low action`);
+            const proteinCardText = `${rendered.cards.protein.state} ${rendered.cards.protein.action}`;
+            assertIncludesAll(proteinCardText, ["단백질"], `${config.label} protein card should keep protein-low action`);
+            assertTest(proteinCardText.includes("보완") || proteinCardText.includes("보강"), `${config.label} protein card should show protein repair action`);
             assertTest(rendered.cards.protein.state !== "단백질은 오늘 꼭 챙기세요.", `${config.label} protein card should not use strong recovery override`);
-            assertTest(rendered.cards.protein.state !== "단백질부터 챙기세요.", `${config.label} protein card should not use basic recovery override`);
             assertTest(rendered.cards.protein.state !== "단백질은 평소처럼 유지하세요.", `${config.label} protein card should not use over-intake override`);
           });
         }));
@@ -14525,7 +14631,7 @@ Notes:
           const leanFatHigh = getGoalCoachText("lean_bulk", { fat: 1.22 }).text;
           const bulkFatHigh = getGoalCoachText("bulk", { fat: 1.70 }).text;
           assertIncludesAll(dietFatHigh, ["다이어트", "지방", "칼로리"], "diet fat high wording");
-          assertIncludesAll(leanFatHigh, ["린매스업", "흑자 품질", "체지방"], "lean fat high wording");
+          assertIncludesAll(leanFatHigh, ["린매스업", "지방 비중", "체지방"], "lean fat high wording");
           assertIncludesAll(bulkFatHigh, ["벌크", "지방", "고지방"], "bulk fat high wording");
           assertTest(dietFatHigh !== leanFatHigh && leanFatHigh !== bulkFatHigh && dietFatHigh !== bulkFatHigh, "fat high wording should differ by goal");
         }));
