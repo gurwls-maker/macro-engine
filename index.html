@@ -1,22 +1,19 @@
 <!--
-Version: 6.2.1
-Stage: 6.2.1 정합성 안정화 (Alcohol kcal input + Coach/card copy consistency)
+Version: 6.3-A
+Stage: 6.3-A 모드 구조 흡수 (Mode preset → runtime config)
 Date: 2026-05-04
 Notes:
-- 알코올 kcal 입력을 에탄올×7 기준으로 명확화
-- 식사 상세/합산 표시를 알코올 kcal 기준으로 정리
-- alcohol high+ + protein low + fat high 조합의 Coach/card 역할 정리
-- protein low card 보존 규칙 강화
-- alcohol moderate+ card 반복 방지
-- Coach fallback/card 문구를 v6.2 문구 기준에 맞게 정리
-- v6.2.1-A 회귀 QA 통과
+- general / athlete / expert는 사용자-facing preset으로 유지
+- inputDepth / calculationProfile / bodyCompReliability / explanationDepth / uiDensity runtime config 도입
+- 기존 점수 산식과 alcohol penalty/cap 유지
+- 지방 profile 및 fat low g 안내는 변경하지 않음
 -->
 <!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.2.1</title>
+  <title>탄단지 다이어리 v6.3-A</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3207,7 +3204,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.2.1</span>
+               <span class="app-version">v6.3-A</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -4125,6 +4122,7 @@ Notes:
         fatPctHighEnergy: 0.28
       }
     };
+    // v6.3-B: fatPhysioFloor / fatActionFloor / fatTargetRange / fatPracticalCeiling 분리 예정
 
     const EXTREME_CASE_ADJUST = {
       factor: 0.97,
@@ -4207,6 +4205,38 @@ Notes:
         skeletalEditable: true,
         desc: "측정 시간대와 수분, 식사 상태를 비교적 일정하게 맞출 수 있는 사용자에게 적합합니다. 골격근량을 부분 보정에 더 적극적으로 활용합니다."
       }
+    };
+
+    const MODE_RUNTIME_PRESETS = {
+      general: {
+        inputDepth: "basic",
+        calculationProfile: "basic",
+        bodyCompReliability: "none",
+        explanationDepth: "brief",
+        uiDensity: "compact",
+        bmrModel: "mifflin_st_jeor"
+      },
+      athlete: {
+        inputDepth: "training",
+        calculationProfile: "lbm_blend",
+        bodyCompReliability: "trend",
+        explanationDepth: "standard",
+        uiDensity: "standard",
+        bmrModel: "katch_mcardle"
+      },
+      expert: {
+        inputDepth: "advanced",
+        calculationProfile: "lbm_custom",
+        bodyCompReliability: "controlled",
+        explanationDepth: "full",
+        uiDensity: "full",
+        bmrModel: "katch_mcardle"
+      }
+    };
+
+    const BMR_MODEL_LABELS = {
+      mifflin_st_jeor: "Mifflin-St Jeor",
+      katch_mcardle: "Katch-McArdle"
     };
 
     const DEFAULT_STATE = {
@@ -4710,7 +4740,8 @@ Notes:
     }
 
     function getRoutineItems(){
-      if (state.mode === "general" && !state.generalAdvancedSettings) return getGeneralRoutineItems();
+      const modeCfg = getModeRuntimeConfig();
+      if (modeCfg.inputDepth === "basic" && !state.generalAdvancedSettings) return getGeneralRoutineItems();
       return getRoutineScheme().items;
     }
 
@@ -4764,17 +4795,59 @@ Notes:
       return MODE_LBM_ALPHA[mode] ?? 0;
     }
 
-    function getEffectiveModeConfig(){
-      const base = MODE_CONFIGS[state.mode];
-      const homeInbody = !!ids.homeInbody.checked && state.mode !== "general";
-      const baseAlpha = getBaseLbmAlpha(state.mode);
+    function getModeRuntimeConfig(source = state){
+      const hasExplicitSource = !!source && typeof source === "object" && source !== state;
+      const sourceState = typeof source === "string" ? { mode: source } : (hasExplicitSource ? source : state);
+      const mode = MODE_RUNTIME_PRESETS[sourceState.mode] ? sourceState.mode : "general";
+      const preset = MODE_RUNTIME_PRESETS[mode];
+      const base = MODE_CONFIGS[mode] || MODE_CONFIGS.general;
+      const homeInbodyRaw = hasExplicitSource && Object.prototype.hasOwnProperty.call(sourceState, "homeInbody")
+        ? !!sourceState.homeInbody
+        : !!ids.homeInbody?.checked;
+      const homeInbody = homeInbodyRaw && mode !== "general";
+      const bodyFatRaw = hasExplicitSource && Object.prototype.hasOwnProperty.call(sourceState, "bodyFat")
+        ? sourceState.bodyFat
+        : ids.bodyFat?.value;
+      const skeletalRaw = hasExplicitSource && Object.prototype.hasOwnProperty.call(sourceState, "skeletal")
+        ? sourceState.skeletal
+        : ids.skeletal?.value;
+      const hasBodyFatInput = bodyFatRaw !== null && bodyFatRaw !== undefined && String(bodyFatRaw).trim() !== "";
+      const hasSkeletalInput = skeletalRaw !== null && skeletalRaw !== undefined && String(skeletalRaw).trim() !== "";
+      const bodyFatValue = Number(bodyFatRaw);
+      const skeletalValue = Number(skeletalRaw);
+      const hasBodyCompInput = hasBodyFatInput && hasSkeletalInput && Number.isFinite(bodyFatValue) && bodyFatValue >= 0 && Number.isFinite(skeletalValue) && skeletalValue > 0;
+      const bodyCompReliability = mode === "general" || !hasBodyCompInput ? "none" : preset.bodyCompReliability;
+      const baseAlpha = mode === "expert" && hasExplicitSource && Object.prototype.hasOwnProperty.call(sourceState, "expertLbmAlpha")
+        ? clamp(Number(sourceState.expertLbmAlpha), EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max)
+        : getBaseLbmAlpha(mode);
       const reliabilityFactor = homeInbody ? HOME_INBODY_RELIABILITY_FACTOR : 1;
-      const appliedAlpha = clamp(baseAlpha * reliabilityFactor, 0, 1);
-      return { ...base, homeInbody, baseAlpha, reliabilityFactor, appliedAlpha };
+      const appliedAlpha = bodyCompReliability === "none" ? 0 : clamp(baseAlpha * reliabilityFactor, 0, 1);
+      return {
+        preset: mode,
+        label: base.label,
+        className: base.className,
+        skeletalEditable: base.skeletalEditable,
+        desc: base.desc,
+        inputDepth: preset.inputDepth,
+        calculationProfile: preset.calculationProfile,
+        bodyCompReliability,
+        explanationDepth: preset.explanationDepth,
+        uiDensity: preset.uiDensity,
+        homeInbody,
+        baseAlpha,
+        reliabilityFactor,
+        appliedAlpha,
+        bmrModel: preset.bmrModel
+      };
+    }
+
+    function getEffectiveModeConfig(source = state){
+      return getModeRuntimeConfig(source);
     }
 
     function getWorkAdjBounds(){
-      if (state.mode === "general") return { min: 0, max: 0 };
+      const modeCfg = getModeRuntimeConfig();
+      if (modeCfg.inputDepth === "basic") return { min: 0, max: 0 };
       if (ids.activityLevel.value === "very_active" && ids.workType.value === "heavy_field"){
         return { min: -0.10, max: 0.10 };
       }
@@ -4785,8 +4858,8 @@ Notes:
       return s.skeletal / SKELETAL_TO_LBM_RATIO[s.gender];
     }
 
-    function calcBMR(s, lbmEffective){
-      if (state.mode === "general"){
+    function calcBMR(s, lbmEffective, modeCfg = getModeRuntimeConfig()){
+      if (modeCfg.bmrModel === "mifflin_st_jeor"){
         if (s.gender === "female") return 10 * s.weight + 6.25 * s.height - 5 * s.age - 161;
         return 10 * s.weight + 6.25 * s.height - 5 * s.age + 5;
       }
@@ -5069,13 +5142,14 @@ Notes:
 
     function createInvalidCalculationResult(s, validationIssues){
       const safeIssues = Array.isArray(validationIssues) ? validationIssues : [];
+      const modeCfg = getEffectiveModeConfig();
       return {
         s,
-        modeCfg: getEffectiveModeConfig(),
+        modeCfg,
         isCalculable: false,
         validationIssues: safeIssues,
         bmr: 0,
-        bmrModel: state.mode === "general" ? "Mifflin-St Jeor" : "Katch-McArdle",
+        bmrModel: BMR_MODEL_LABELS[modeCfg.bmrModel] || modeCfg.bmrModel,
         lbmBase: 0,
         lbmEffective: 0,
         workloadY: 0,
@@ -5130,11 +5204,11 @@ Notes:
       const lbmEffective = modeCfg.appliedAlpha > 0 ? skeletalAdj.lbmEffective : lbmBase;
       const reality = evaluateReality(s, lbmBase);
 
-      const bmr = calcBMR(s, lbmEffective);
+      const bmr = calcBMR(s, lbmEffective, modeCfg);
       if (!Number.isFinite(bmr) || bmr <= 0) {
         return createInvalidCalculationResult(s, ["기초대사량이 0 이하로 계산됩니다. 체중·키·나이 입력을 다시 확인해 주세요."]);
       }
-      const bmrModel = state.mode === "general" ? "Mifflin-St Jeor" : "Katch-McArdle";
+      const bmrModel = BMR_MODEL_LABELS[modeCfg.bmrModel] || modeCfg.bmrModel;
       const workloadY = clamp((WORK_TYPE_Y[s.workType] ?? 0) + s.workAdj, 0, 1);
       const rawActCoeff = (ACTIVITY_COEFF[s.activityLevel] ?? 1.22) + workloadY * 0.06;
       const actCoeff = clamp(rawActCoeff, 1.08, 1.62);
@@ -5145,7 +5219,7 @@ Notes:
       const isRestDay = s.routine === "REST";
       let xw = 0;
       if (!isRestDay) {
-        if (state.mode === "general" && !state.generalAdvancedSettings) {
+        if (modeCfg.inputDepth === "basic" && !state.generalAdvancedSettings) {
           xw = clamp(0.68 + getGeneralWeeklyTrainingAdj(s.weeklyTrainingDays), 0, 1);
         } else {
           const baseXw = Number(s.intensityOverride);
@@ -5213,20 +5287,17 @@ Notes:
       if (trainingBaselineKcal > 0){
         infoNotes.push("주당 웨이트 빈도는 휴식일에도 유지·회복 수요를 반영하도록 기본 유지칼로리에 소폭 보정됩니다.");
       }
-      if (s.homeInbody && state.mode === "athlete"){
-        infoNotes.push(`가정용 인바디 기준이라 제지방량 반영 비율을 ${Math.round(modeCfg.baseAlpha * 100)}%에서 ${Math.round(modeCfg.appliedAlpha * 100)}%로 낮춰 계산했습니다.`);
-      }
-      if (s.homeInbody && state.mode === "expert"){
-        infoNotes.push(`가정용 인바디 기준이라 설정한 제지방량 반영 비율 ${Math.round(modeCfg.baseAlpha * 100)}%를 ${Math.round(modeCfg.appliedAlpha * 100)}%로 낮춰 계산했습니다.`);
+      if (modeCfg.homeInbody){
+        infoNotes.push("체성분 값은 측정 조건에 따라 반영 정도가 달라집니다.");
       }
       if (s.activityLevel === "very_active" && s.workType === "heavy_field"){
         infoNotes.push("일상 활동량과 업무 유형이 모두 높게 잡혀 있습니다. 실제 유지칼로리와 차이가 크면 한 단계 낮춰 시작하는 편이 안전합니다.");
       }
-      if (state.mode === "general"){
+      if (modeCfg.calculationProfile === "basic"){
         infoNotes.push("숨겨진 고급 보정은 기본값으로 자동 적용되고 있습니다.");
       }
 
-      if (state.mode === "general"){
+      if (modeCfg.bmrModel === "mifflin_st_jeor"){
         infoNotes.push("일반인 모드의 BMR은 체중, 키, 나이, 성별 기반 공식을 사용합니다.");
       } else {
         infoNotes.push("운동인·전문가 모드의 BMR은 제지방량 기반 공식을 사용합니다.");
@@ -5334,7 +5405,7 @@ Notes:
     // 4) UI sync helpers
     function updateModeUI(){
       const app = document.getElementById("app");
-      const cfg = MODE_CONFIGS[state.mode];
+      const cfg = getModeRuntimeConfig();
       app.classList.remove("mode-general", "mode-athlete", "mode-expert");
       app.classList.add(cfg.className);
       app.classList.toggle("general-advanced-on", isGeneralAdvancedMode());
@@ -5366,7 +5437,7 @@ Notes:
     }
 
     function updateBodyCompositionVisibility(){
-      const isGeneral = state.mode === "general";
+      const isGeneral = getModeRuntimeConfig().inputDepth === "basic";
       document.getElementById("bodyFatField").classList.toggle("hidden", isGeneral);
       document.getElementById("bodyFatMassField").classList.toggle("hidden", isGeneral);
       document.getElementById("skeletalField").classList.toggle("hidden", isGeneral);
@@ -5477,10 +5548,10 @@ Notes:
       }
       if (state.mode === "athlete"){
         tip.textContent = ids.homeInbody.checked
-          ? "가정용 인바디 기준이라 제지방량 반영 비율을 낮춰 계산합니다."
+          ? "가정용 인바디 값은 측정 조건을 고려해 더 보수적으로 계산합니다."
           : "제지방량 반영 비율 40% 기준으로 골격근량을 보조 반영합니다.";
         hint.textContent = ids.homeInbody.checked
-          ? "추세 확인용으로 해석해 주세요. 가정용 인바디를 체크하면 반영 비율이 더 낮아집니다."
+          ? "체성분 값은 측정 조건에 따라 반영 정도가 달라집니다."
           : "단백질 기준과 제지방량 보정에 40% 비율로 반영합니다.";
         return;
       }
@@ -5501,8 +5572,8 @@ Notes:
       }
       if (state.mode === "athlete"){
         hint.textContent = ids.homeInbody.checked
-          ? "가정용 인바디라 제지방량 반영 비율을 낮춰 계산합니다."
-          : "가정용 인바디라면 체크해 주세요. 체크하면 제지방량 반영 비율만 더 보수적으로 줄입니다.";
+          ? "체성분 값은 측정 조건에 따라 반영 정도가 달라집니다."
+          : "가정용 인바디라면 체크해 주세요. 체크하면 체성분 값을 더 보수적으로 반영합니다.";
         return;
       }
       hint.textContent = ids.homeInbody.checked
@@ -5528,7 +5599,7 @@ Notes:
         ? "50~90% 범위에서 제지방량 반영 비율을 조절합니다. 가정용 인바디를 체크하면 실제 반영값은 자동으로 더 낮아집니다."
         : "전문가 모드에서만 직접 조절합니다.";
       note.textContent = ids.homeInbody.checked && state.mode === "expert"
-        ? `가정용 인바디 보수 적용: 설정 비율 ${Math.round(baseAlpha * 100)}% × 신뢰도 80% = 실제 반영 ${Math.round(appliedAlpha * 100)}%`
+        ? `가정용 인바디 보수 적용: 설정 비율 ${Math.round(baseAlpha * 100)}% → 실제 반영 ${Math.round(appliedAlpha * 100)}%`
         : state.mode === "expert"
           ? "가정용 인바디를 체크하지 않으면 설정 비율이 그대로 반영됩니다."
           : "일반인 0%, 운동인 40%는 내부 기본값으로 사용합니다.";
@@ -9931,8 +10002,8 @@ Notes:
           <input type="number" value="${round(cfg.appliedAlpha * 100, 0)}" disabled title="가정용 인바디 보수 적용까지 반영한 최종 비율입니다.">
         </div>
         <div class="field disabled-field">
-          <label>가정용 인바디 신뢰도</label>
-          <input type="number" value="${round(cfg.reliabilityFactor, 2)}" disabled title="가정용 인바디 체크 시 제지방량 반영 비율에만 곱해지는 보수 계수입니다.">
+          <label>가정용 보수 계수</label>
+          <input type="number" value="${round(cfg.reliabilityFactor, 2)}" disabled title="가정용 인바디 체크 시 제지방량 반영 비율에 적용되는 보수 계수입니다.">
         </div>
       `;
     }
@@ -11078,7 +11149,7 @@ Notes:
       document.getElementById("tabWeekly").textContent = "Weekly (해석)";
       document.getElementById("tabInbody").textContent = "InBody";
       document.getElementById("tabSettings").textContent = "기본 설정";
-      document.getElementById("todayModeMini").textContent = `${MODE_CONFIGS[state.mode].label} 모드`;
+      document.getElementById("todayModeMini").textContent = `${getModeRuntimeConfig().label} 모드`;
       document.getElementById("todaySettingsBtn").textContent = "⚙ 빠른 설정";
       syncGeneralModeDefaults();
       syncWorkAdjBounds();
@@ -11478,6 +11549,106 @@ Notes:
       ids.cardioDuration.value = "20";
       ids.cardioSpeed.value = "5";
       ids.cardioIncline.value = "8";
+    }
+
+    function runModeRuntimeConfigTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        setValidTodayBalanceTestInputs();
+        state.goal = "lean_bulk";
+
+        results.push(runNamedTest("runtime config general preset axes", () => {
+          state.mode = "general";
+          ids.homeInbody.checked = false;
+          const cfg = getModeRuntimeConfig();
+          assertTest(cfg.inputDepth === "basic", "general inputDepth should be basic");
+          assertTest(cfg.calculationProfile === "basic", "general calculationProfile should be basic");
+          assertTest(cfg.bodyCompReliability === "none", "general bodyCompReliability should be none");
+          assertClose(cfg.appliedAlpha, 0, 0.0001, "general appliedAlpha should be zero");
+          assertTest(cfg.explanationDepth === "brief", "general explanationDepth should be brief");
+          assertTest(cfg.uiDensity === "compact", "general uiDensity should be compact");
+          assertTest(cfg.bmrModel === "mifflin_st_jeor", "general BMR model should stay Mifflin-St Jeor");
+        }));
+
+        results.push(runNamedTest("runtime config athlete preset axes", () => {
+          state.mode = "athlete";
+          ids.homeInbody.checked = false;
+          const cfg = getModeRuntimeConfig();
+          assertTest(cfg.inputDepth === "training", "athlete inputDepth should be training");
+          assertTest(cfg.calculationProfile === "lbm_blend", "athlete calculationProfile should be lbm_blend");
+          assertTest(cfg.bodyCompReliability === "trend", "athlete bodyCompReliability should be trend");
+          assertClose(cfg.appliedAlpha, MODE_LBM_ALPHA.athlete, 0.0001, "athlete appliedAlpha should keep base alpha with valid body composition");
+          assertTest(cfg.explanationDepth === "standard", "athlete explanationDepth should be standard");
+          assertTest(cfg.uiDensity === "standard", "athlete uiDensity should be standard");
+          assertTest(cfg.bmrModel === "katch_mcardle", "athlete BMR model should stay Katch-McArdle");
+        }));
+
+        results.push(runNamedTest("runtime config expert preset axes", () => {
+          state.mode = "expert";
+          ids.homeInbody.checked = false;
+          if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = "75";
+          const cfg = getModeRuntimeConfig();
+          assertTest(cfg.inputDepth === "advanced", "expert inputDepth should be advanced");
+          assertTest(cfg.calculationProfile === "lbm_custom", "expert calculationProfile should be lbm_custom");
+          assertTest(cfg.bodyCompReliability === "controlled", "expert bodyCompReliability should be controlled");
+          assertClose(cfg.appliedAlpha, 0.75, 0.0001, "expert appliedAlpha should keep configured alpha with valid body composition");
+          assertTest(cfg.explanationDepth === "full", "expert explanationDepth should be full");
+          assertTest(cfg.uiDensity === "full", "expert uiDensity should be full");
+          assertTest(cfg.bmrModel === "katch_mcardle", "expert BMR model should stay Katch-McArdle");
+        }));
+
+        results.push(runNamedTest("runtime config home inbody lowers non-general alpha", () => {
+          state.mode = "athlete";
+          ids.homeInbody.checked = true;
+          const athleteCfg = getModeRuntimeConfig();
+          assertClose(athleteCfg.baseAlpha, MODE_LBM_ALPHA.athlete, 0.0001, "athlete base alpha");
+          assertClose(athleteCfg.appliedAlpha, MODE_LBM_ALPHA.athlete * HOME_INBODY_RELIABILITY_FACTOR, 0.0001, "athlete applied alpha should be lowered");
+
+          state.mode = "expert";
+          ids.homeInbody.checked = true;
+          if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = "75";
+          const expertCfg = getModeRuntimeConfig();
+          assertClose(expertCfg.baseAlpha, 0.75, 0.0001, "expert base alpha");
+          assertClose(expertCfg.appliedAlpha, 0.75 * HOME_INBODY_RELIABILITY_FACTOR, 0.0001, "expert applied alpha should be lowered");
+        }));
+
+        results.push(runNamedTest("runtime config invalid body composition disables athlete alpha", () => {
+          const noBodyFat = getModeRuntimeConfig({ mode: "athlete", bodyFat: null, skeletal: 35, homeInbody: false });
+          assertTest(noBodyFat.bodyCompReliability === "none", "athlete without valid bodyFat should have no body composition reliability");
+          assertClose(noBodyFat.appliedAlpha, 0, 0.0001, "athlete without valid bodyFat should not apply alpha");
+
+          const noSkeletal = getModeRuntimeConfig({ mode: "athlete", bodyFat: 15, skeletal: 0, homeInbody: true });
+          assertTest(noSkeletal.bodyCompReliability === "none", "athlete without valid skeletal should have no body composition reliability");
+          assertClose(noSkeletal.appliedAlpha, 0, 0.0001, "athlete without valid skeletal should not apply alpha");
+        }));
+
+        results.push(runNamedTest("runtime config invalid body composition disables expert alpha", () => {
+          const noBodyFat = getModeRuntimeConfig({ mode: "expert", bodyFat: undefined, skeletal: 35, expertLbmAlpha: 0.75, homeInbody: false });
+          assertTest(noBodyFat.bodyCompReliability === "none", "expert without valid bodyFat should have no body composition reliability");
+          assertClose(noBodyFat.appliedAlpha, 0, 0.0001, "expert without valid bodyFat should not apply alpha");
+
+          const noSkeletal = getModeRuntimeConfig({ mode: "expert", bodyFat: 15, skeletal: -1, expertLbmAlpha: 0.75, homeInbody: true });
+          assertTest(noSkeletal.bodyCompReliability === "none", "expert without valid skeletal should have no body composition reliability");
+          assertClose(noSkeletal.appliedAlpha, 0, 0.0001, "expert without valid skeletal should not apply alpha");
+        }));
+
+        results.push(runNamedTest("runtime config keeps adherence scoring version", () => {
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must remain v6.1_alcohol_penalty_v2");
+        }));
+
+        results.push(runNamedTest("runtime config preserves lean bulk calculation models", () => {
+          ["general", "athlete", "expert"].forEach(mode => {
+            state.mode = mode;
+            ids.homeInbody.checked = false;
+            const result = calculate();
+            assertTest(result.isCalculable, `${mode} lean_bulk should remain calculable`);
+            assertTest(result.targetCal > 0 && result.protein > 0 && result.carbs >= 0 && result.fat > 0, `${mode} lean_bulk should produce macro targets`);
+            assertTest(result.bmrModel === (mode === "general" ? "Mifflin-St Jeor" : "Katch-McArdle"), `${mode} BMR label should be preserved`);
+          });
+        }));
+
+        return results;
+      });
     }
 
     function runRecordMigrationTests(){
@@ -14999,6 +15170,7 @@ Notes:
     window.runMealRecordTests = runMealRecordTests;
     window.runTodayConsumptionTests = runTodayConsumptionTests;
     window.runTodayBalanceTests = runTodayBalanceTests;
+    window.runModeRuntimeConfigTests = runModeRuntimeConfigTests;
     window.runAdherenceScoringTests = runAdherenceScoringTests;
     window.runAdherenceUiTests = runAdherenceUiTests;
     window.runWeeklyAdherenceTests = runWeeklyAdherenceTests;
