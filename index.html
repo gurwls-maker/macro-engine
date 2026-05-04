@@ -1599,6 +1599,22 @@ Notes:
     #todayInputPanel #weeklyTrainingDaysField input{
       width:100%;
     }
+    #todayInputPanel .weekly-training-input-row{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      gap:8px;
+      align-items:center;
+    }
+    #todayInputPanel .weekly-training-input-row .secondary-btn{
+      min-height:42px;
+      padding:0 12px;
+      white-space:nowrap;
+    }
+    #todayInputPanel #weeklyTrainingDays[readonly]{
+      background:color-mix(in srgb, var(--surface-soft) 78%, white 22%);
+      color:var(--deep);
+      cursor:default;
+    }
     #todayInputPanel .grid-3{
       grid-template-columns:repeat(3,minmax(0,1fr));
     }
@@ -3561,8 +3577,11 @@ Notes:
             </div>
             <div class="input-group-body training-group-body">
               <div class="field" id="weeklyTrainingDaysField">
-                <label>주당 운동일수</label>
-                <input id="weeklyTrainingDays" type="number" min="0" max="14" step="1" value="3">
+                <label>주당 웨이트일수</label>
+                <div class="weekly-training-input-row">
+                  <input id="weeklyTrainingDays" type="number" min="0" max="14" step="1" value="3" readonly>
+                  <button class="secondary-btn" id="weeklyTrainingDaysEditBtn" type="button" aria-label="주당 웨이트일수 직접 수정">수정</button>
+                </div>
                 <div class="hint" id="weeklyTrainingHint"></div>
               </div>
 
@@ -3726,24 +3745,24 @@ Notes:
                 <input id="mealCarbs" type="number" min="0" step="0.1" inputmode="decimal">
               </div>
               <div class="field">
-                <label>메모 (선택)</label>
-                <input id="mealMemo" type="text" maxlength="80" placeholder="외식, 보충제, 회식, 간단 메모 등">
+                <label>단백질 (g)</label>
+                <input id="mealProtein" type="number" min="0" step="0.1" inputmode="decimal">
               </div>
               <div class="field">
                 <label>지방 (g)</label>
                 <input id="mealFat" type="number" min="0" step="0.1" inputmode="decimal">
               </div>
               <div class="field">
-                <label>단백질 (g)</label>
-                <input id="mealProtein" type="number" min="0" step="0.1" inputmode="decimal">
+                <label>술 칼로리 (kcal)</label>
+                <input id="mealAlcoholKcal" type="number" min="0" step="1" inputmode="decimal">
               </div>
               <div class="field">
                 <label>기타 칼로리 (kcal)</label>
                 <input id="mealOtherKcal" type="number" min="0" step="1" inputmode="decimal">
               </div>
               <div class="field">
-                <label>술 칼로리 (kcal)</label>
-                <input id="mealAlcoholKcal" type="number" min="0" step="1" inputmode="decimal">
+                <label>메모 (선택)</label>
+                <input id="mealMemo" type="text" maxlength="80" placeholder="외식, 보충제, 간단 메모 등">
               </div>
             </div>
             <div class="inline-actions">
@@ -4201,6 +4220,7 @@ Notes:
       homeInbody: false,
       expertLbmAlpha: 0.75,
       weeklyTrainingDays: 3,
+      weeklyTrainingDaysManual: false,
       generalAdvancedSettings: false,
       generalLowDigestCarbs: false,
       autoDietAnalysis: false,
@@ -4265,6 +4285,7 @@ Notes:
         homeInbody: !!ids.homeInbody.checked,
         expertLbmAlpha: Number(ids.expertLbmAlpha?.value) / 100,
         weeklyTrainingDays: Number(ids.weeklyTrainingDays.value),
+        weeklyTrainingDaysManual: !!state.weeklyTrainingDaysManual,
         generalAdvancedSettings: !!ids.generalAdvancedSettings.checked,
         generalLowDigestCarbs: !!ids.generalLowDigestCarbs.checked,
         autoDietAnalysis: !!ids.autoDietAnalysis.checked,
@@ -4322,6 +4343,7 @@ Notes:
       loaded.homeInbody = readStoredValue("homeInbody") === "true";
       loaded.expertLbmAlpha = clamp(parseNumberOrDefault(readStoredValue("expertLbmAlpha"), loaded.expertLbmAlpha), EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max);
       loaded.weeklyTrainingDays = clamp(parseNumberOrDefault(readStoredValue("weeklyTrainingDays"), loaded.weeklyTrainingDays), 0, 14);
+      loaded.weeklyTrainingDaysManual = readStoredValue("weeklyTrainingDaysManual") === "true";
       loaded.generalAdvancedSettings = readStoredValue("generalAdvancedSettings") === "true";
       loaded.generalLowDigestCarbs = readStoredValue("generalLowDigestCarbs") === "true";
       loaded.autoDietAnalysis = readStoredValue("autoDietAnalysis") === "true";
@@ -4355,6 +4377,9 @@ Notes:
       } catch (_error) {
         recordsState.items = [];
       }
+      if (!loaded.weeklyTrainingDaysManual) {
+        loaded.weeklyTrainingDays = getRecentWeightTrainingDayCount();
+      }
       try {
         const parsedInbody = JSON.parse(readStoredValue("inbodyRecords") || "[]");
         loaded.inbodyRecords = Array.isArray(parsedInbody) ? parsedInbody.filter(item => item && typeof item.date === "string") : [];
@@ -4376,6 +4401,8 @@ Notes:
       uiState.activeTab = "today";
       recordsState.items = [];
       recordsState.feedback = null;
+      state.weeklyTrainingDaysManual = false;
+      state.weeklyTrainingDays = getRecentWeightTrainingDayCount();
       applyStateToInputs();
       populateRecordInputsFromToday();
       render();
@@ -4395,6 +4422,7 @@ Notes:
       ids.homeInbody.checked = state.homeInbody;
       if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = String(Math.round(clamp(state.expertLbmAlpha, EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max) * 100));
       ids.weeklyTrainingDays.value = state.weeklyTrainingDays;
+      ids.weeklyTrainingDays.readOnly = !state.weeklyTrainingDaysManual;
       ids.generalAdvancedSettings.checked = state.generalAdvancedSettings;
       ids.generalLowDigestCarbs.checked = state.generalLowDigestCarbs;
       ids.autoDietAnalysis.checked = state.autoDietAnalysis;
@@ -5018,7 +5046,7 @@ Notes:
         ["유산소 속도", s.cardioSpeed],
         ["유산소 경사도", s.cardioIncline],
         ["강도 보정", s.intensityOverride],
-        ["주당 운동 세션 수", s.weeklyTrainingDays]
+        ["주당 웨이트일수", s.weeklyTrainingDays]
       ];
       numericFields.forEach(([label, value]) => {
         if (!Number.isFinite(value)) issues.push(`${label} 입력값을 숫자로 확인해 주세요.`);
@@ -5032,7 +5060,7 @@ Notes:
       if (Number.isFinite(s.cardioDuration) && s.cardioDuration < 0) issues.push("유산소 시간은 음수가 될 수 없습니다.");
       if (Number.isFinite(s.cardioSpeed) && s.cardioSpeed < 0) issues.push("유산소 속도는 음수가 될 수 없습니다.");
       if (Number.isFinite(s.cardioIncline) && s.cardioIncline < 0) issues.push("유산소 경사도는 음수가 될 수 없습니다.");
-      if (Number.isFinite(s.weeklyTrainingDays) && s.weeklyTrainingDays < 0) issues.push("주당 운동 세션 수는 음수가 될 수 없습니다.");
+      if (Number.isFinite(s.weeklyTrainingDays) && s.weeklyTrainingDays < 0) issues.push("주당 웨이트일수는 음수가 될 수 없습니다.");
       return { isValid: issues.length === 0, issues };
     }
 
@@ -5180,7 +5208,7 @@ Notes:
         infoNotes.push("감량 설정에서 목표 칼로리가 기초대사량(BMR)보다 낮아 안전을 위해 최소값을 BMR 수준으로 보정했습니다.");
       }
       if (trainingBaselineKcal > 0){
-        infoNotes.push("주당 훈련 빈도는 휴식일에도 유지·회복 수요를 반영하도록 기본 유지칼로리에 소폭 보정됩니다.");
+        infoNotes.push("주당 웨이트 빈도는 휴식일에도 유지·회복 수요를 반영하도록 기본 유지칼로리에 소폭 보정됩니다.");
       }
       if (s.homeInbody && state.mode === "athlete"){
         infoNotes.push(`가정용 인바디 기준이라 제지방량 반영 비율을 ${Math.round(modeCfg.baseAlpha * 100)}%에서 ${Math.round(modeCfg.appliedAlpha * 100)}%로 낮춰 계산했습니다.`);
@@ -5387,7 +5415,7 @@ Notes:
         if (generalHint){
           generalHint.textContent = state.routine === "REST"
             ? "쉬는 날로 선택하면 웨이트 강도와 시간은 계산에 반영되지 않습니다."
-            : `운동하는 날은 주당 운동 횟수를 참고해 자동 강도 Xw ${autoXw.toFixed(2)}를 적용합니다.`;
+            : `운동하는 날은 주당 웨이트일수를 참고해 자동 강도 Xw ${autoXw.toFixed(2)}를 적용합니다.`;
         }
       } else {
         document.getElementById("routinePlanHint").textContent = `${getRoutineScheme().label} 기준으로 오늘 루틴을 고릅니다.`;
@@ -5517,24 +5545,18 @@ Notes:
     }
 
     function updateWeeklyTrainingText(){
+      syncWeeklyTrainingDaysInput();
       const days = clamp(Math.round(Number(ids.weeklyTrainingDays.value) || 0), 0, 14);
-      ids.weeklyTrainingDays.value = String(days);
       const hint = document.getElementById("weeklyTrainingHint");
-      if (state.mode === "general") {
-        hint.textContent = days <= 1
-          ? "주당 이번 주 운동 횟수가 적어 오늘 운동 강도는 자동으로 조금 낮게 잡습니다."
-          : days >= 8
-            ? "주간 세션 수가 높아 오늘 운동 강도는 자동으로 조금 높게 잡습니다."
-            : days === 0
-              ? "이번 주 운동 계획이 없다면 오늘 운동 강도는 가장 낮은 기준으로 자동 적용됩니다."
-              : "주당 운동 세션 수는 오늘 운동 강도를 자동으로 맞출 때 참고합니다.";
+      if (state.weeklyTrainingDaysManual) {
+        hint.textContent = "직접 입력 중입니다. 자동으로 돌리려면 자동을 누르세요.";
         return;
       }
-      hint.textContent = days === 0
-        ? "이번 주 운동 세션이 없다면 Xw는 가장 낮은 기준에서 시작합니다."
-        : days >= 8
-          ? "주당 세션 수가 높아 Xw에 아주 작은 가산만 반영합니다."
-          : "주당 운동 세션 수는 Xw에만 아주 약하게 반영합니다.";
+      if (days === 0) {
+        hint.textContent = "최근 7일 웨이트 기록이 없어 0회로 반영됩니다.";
+        return;
+      }
+      hint.textContent = "최근 7일 웨이트 기록 기준으로 자동 반영됩니다.";
     }
 
     function updateGeneralAdvancedText(){
@@ -5875,6 +5897,50 @@ Notes:
 
     function getSortedRecords(){
       return normalizeRecordsCollection(recordsState.items);
+    }
+
+    function isWeightTrainingSnapshot(snapshot){
+      if (!snapshot || typeof snapshot !== "object") return false;
+      const weightDuration = Number(snapshot.weightDuration);
+      if (!(weightDuration > 0)) return false;
+      return !("routine" in snapshot) || snapshot.routine !== "REST";
+    }
+
+    function getRecentWeightTrainingDayCount(days = 7){
+      const windowDays = Math.max(1, Math.round(Number(days) || 7));
+      const today = getTodayDateString();
+      const startDate = shiftDateString(today, -(windowDays - 1));
+      if (!today || !startDate) return 0;
+      const countedDates = new Set();
+      getSortedRecords().forEach(record => {
+        if (
+          record.date >= startDate &&
+          record.date <= today &&
+          isWeightTrainingSnapshot(record.goalSnapshot)
+        ) {
+          countedDates.add(record.date);
+        }
+      });
+      return countedDates.size;
+    }
+
+    function syncWeeklyTrainingDaysInput(){
+      if (!state.weeklyTrainingDaysManual) {
+        state.weeklyTrainingDays = getRecentWeightTrainingDayCount();
+        ids.weeklyTrainingDays.value = String(state.weeklyTrainingDays);
+      } else {
+        const days = clamp(Math.round(Number(ids.weeklyTrainingDays.value) || 0), 0, 14);
+        state.weeklyTrainingDays = days;
+        ids.weeklyTrainingDays.value = String(days);
+      }
+      ids.weeklyTrainingDays.readOnly = !state.weeklyTrainingDaysManual;
+      const button = document.getElementById("weeklyTrainingDaysEditBtn");
+      if (!button) return;
+      button.textContent = state.weeklyTrainingDaysManual ? "자동" : "수정";
+      button.setAttribute(
+        "aria-label",
+        state.weeklyTrainingDaysManual ? "최근 7일 기록 기준으로 자동 반영" : "주당 웨이트일수 직접 수정"
+      );
     }
 
     function getWeightedRecords(records = getSortedRecords()){
@@ -8801,7 +8867,7 @@ Notes:
       const rows = [
         ["1. 기초대사량 BMR", "체중, 키, 나이, 성별과 모드 기준으로 추정한 기본 대사량입니다.", `${Math.round(r.bmr).toLocaleString()} kcal`],
         ["2. 기본 생활 소비", "평소 움직임과 업무 강도를 반영한 하루 기본 소비입니다. 운동 소모는 아직 더하지 않습니다.", `${Math.round(r.baseDaily).toLocaleString()} kcal`],
-        ["3. 주간 훈련 보정", "주당 운동 빈도를 반영한 유지·회복 수요입니다. REST여도 완전 비훈련자처럼 낮추지 않기 위한 보정입니다.", `+${Math.round(r.trainingBaselineKcal).toLocaleString()} kcal`],
+        ["3. 주간 훈련 보정", "주당 웨이트 빈도를 반영한 유지·회복 수요입니다. REST여도 완전 비훈련자처럼 낮추지 않기 위한 보정입니다.", `+${Math.round(r.trainingBaselineKcal).toLocaleString()} kcal`],
         ["4. 웨이트 추가", "오늘 루틴, 웨이트 강도, 운동 시간으로 추정한 웨이트 소모입니다.", `+${Math.round(r.weightKcal).toLocaleString()} kcal`],
         ["5. 유산소 추가", "ACSM 기반 추정으로 계산한 유산소 소모입니다.", `+${Math.round(r.cardio.kcal).toLocaleString()} kcal`],
         ["6. EPOC 추가", "고강도 유산소일 때만 소량 더하는 회복 소모입니다.", `+${Math.round(r.epocKcal).toLocaleString()} kcal`],
@@ -10287,6 +10353,15 @@ Notes:
         state.generalLowDigestCarbs = !!ids.generalLowDigestCarbs.checked;
         render();
       });
+      document.getElementById("weeklyTrainingDaysEditBtn")?.addEventListener("click", () => {
+        state.weeklyTrainingDaysManual = !state.weeklyTrainingDaysManual;
+        if (!state.weeklyTrainingDaysManual) {
+          state.weeklyTrainingDays = getRecentWeightTrainingDayCount();
+          ids.weeklyTrainingDays.value = String(state.weeklyTrainingDays);
+        }
+        render();
+        if (state.weeklyTrainingDaysManual) ids.weeklyTrainingDays.focus();
+      });
       ids.autoDietAnalysis.addEventListener("change", () => {
         state.autoDietAnalysis = !!ids.autoDietAnalysis.checked;
         render();
@@ -10432,6 +10507,7 @@ Notes:
         homeInbody: ids.homeInbody.checked,
         expertLbmAlpha: ids.expertLbmAlpha?.value,
         weeklyTrainingDays: ids.weeklyTrainingDays.value,
+        weeklyTrainingDaysManual: state.weeklyTrainingDaysManual,
         generalAdvancedSettings: ids.generalAdvancedSettings.checked,
         generalLowDigestCarbs: ids.generalLowDigestCarbs.checked,
         autoDietAnalysis: ids.autoDietAnalysis.checked,
@@ -10475,6 +10551,7 @@ Notes:
         ids.homeInbody.checked = snapshot.homeInbody;
         if (ids.expertLbmAlpha && snapshot.expertLbmAlpha !== undefined) ids.expertLbmAlpha.value = snapshot.expertLbmAlpha;
         ids.weeklyTrainingDays.value = snapshot.weeklyTrainingDays;
+        state.weeklyTrainingDaysManual = snapshot.weeklyTrainingDaysManual;
         ids.generalAdvancedSettings.checked = snapshot.generalAdvancedSettings;
         ids.generalLowDigestCarbs.checked = snapshot.generalLowDigestCarbs;
         ids.autoDietAnalysis.checked = snapshot.autoDietAnalysis;
@@ -13635,6 +13712,103 @@ Notes:
       });
     }
 
+    function runWeeklyTrainingDayAutoTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const day1 = today;
+        const day2 = shiftDateString(today, -1);
+        const day3 = shiftDateString(today, -2);
+        const day4 = shiftDateString(today, -3);
+        const day5 = shiftDateString(today, -4);
+        const outside = shiftDateString(today, -7);
+        const trainingSnapshot = (overrides = {}) => ({
+          targetCal: 2500,
+          protein: 150,
+          carbs: 300,
+          fat: 70,
+          weightDuration: 60,
+          routine: "PUSH",
+          weeklyTrainingDays: 9,
+          ...overrides
+        });
+
+        results.push(runNamedTest("weekly training auto counts recent weight days only", () => {
+          recordsState.items = normalizeRecordsCollection([
+            { date: day1, goalSnapshot: trainingSnapshot({ routine: "PUSH", weightDuration: 45 }) },
+            { date: day1, goalSnapshot: trainingSnapshot({ routine: "PULL", weightDuration: 30 }) },
+            { date: day2, goalSnapshot: trainingSnapshot({ routine: "LEGS", weightDuration: 60 }) },
+            { date: day3, goalSnapshot: trainingSnapshot({ routine: "PULL", weightDuration: 30 }) },
+            { date: outside, goalSnapshot: trainingSnapshot({ routine: "PUSH", weightDuration: 90 }) }
+          ]);
+          assertTest(getRecentWeightTrainingDayCount() === 3, "recent seven days should count three unique weight dates");
+        }));
+
+        results.push(runNamedTest("weekly training auto ignores cardio rest zero and snapshotless", () => {
+          recordsState.items = normalizeRecordsCollection([
+            { date: day1, goalSnapshot: trainingSnapshot({ routine: "REST", weightDuration: 60, cardioDuration: 40 }) },
+            { date: day2, goalSnapshot: trainingSnapshot({ routine: "PUSH", weightDuration: 0, cardioDuration: 40 }) },
+            { date: day3, goalSnapshot: trainingSnapshot({ routine: "PULL", weightDuration: null, cardioDuration: 40 }) },
+            { date: day4, weight: 75, note: "웨이트" },
+            { date: day5, goalSnapshot: { weeklyTrainingDays: 6 } }
+          ]);
+          assertTest(getRecentWeightTrainingDayCount() === 0, "non-weight sources should not count");
+        }));
+
+        results.push(runNamedTest("weekly training auto allows legacy missing routine", () => {
+          recordsState.items = normalizeRecordsCollection([
+            { date: day1, goalSnapshot: trainingSnapshot({ routine: undefined, weightDuration: 50 }) }
+          ]);
+          assertTest(getRecentWeightTrainingDayCount() === 1, "legacy snapshot without routine should count when duration is positive");
+        }));
+
+        results.push(runNamedTest("weekly training auto render feeds calculation", () => {
+          setValidTodayBalanceTestInputs();
+          state.weeklyTrainingDaysManual = false;
+          recordsState.items = normalizeRecordsCollection([
+            { date: day1, goalSnapshot: trainingSnapshot({ routine: "PUSH", weightDuration: 45 }) },
+            { date: day2, goalSnapshot: trainingSnapshot({ routine: "LEGS", weightDuration: 60 }) },
+            { date: day3, goalSnapshot: trainingSnapshot({ routine: "PULL", weightDuration: 30 }) }
+          ]);
+          render();
+          const autoResult = calculate();
+          assertTest(ids.weeklyTrainingDays.value === "3", "auto render should display recent count");
+          assertTest(autoResult.s.weeklyTrainingDays === 3, "calculate should read auto count");
+          state.weeklyTrainingDaysManual = true;
+          ids.weeklyTrainingDays.value = "5";
+          render();
+          const manualResult = calculate();
+          assertTest(ids.weeklyTrainingDays.value === "5", "manual render should keep manual value");
+          assertTest(manualResult.s.weeklyTrainingDays === 5, "calculate should read manual count");
+          state.weeklyTrainingDaysManual = false;
+          render();
+          assertTest(ids.weeklyTrainingDays.value === "3", "auto return should restore recent count");
+        }));
+
+        results.push(runNamedTest("weekly training auto empty records shows zero", () => {
+          state.weeklyTrainingDaysManual = false;
+          recordsState.items = [];
+          ids.weeklyTrainingDays.value = "5";
+          render();
+          assertTest(ids.weeklyTrainingDays.value === "0", "empty recent records should show zero");
+          assertTest(document.getElementById("weeklyTrainingHint").textContent.includes("0회"), "empty auto hint should mention zero");
+        }));
+
+        results.push(runNamedTest("weekly training reset restores auto mode", () => {
+          state.weeklyTrainingDaysManual = true;
+          ids.weeklyTrainingDays.value = "5";
+          recordsState.items = normalizeRecordsCollection([
+            { date: day1, goalSnapshot: trainingSnapshot({ routine: "PUSH", weightDuration: 45 }) }
+          ]);
+          resetState();
+          assertTest(state.weeklyTrainingDaysManual === false, "reset should turn manual mode off");
+          assertTest(ids.weeklyTrainingDays.value === "0", "reset clears records and shows auto zero");
+        }));
+
+        return results;
+      });
+    }
+
     window.runRecordMigrationTests = runRecordMigrationTests;
     window.runMealRecordTests = runMealRecordTests;
     window.runTodayConsumptionTests = runTodayConsumptionTests;
@@ -13645,6 +13819,7 @@ Notes:
     window.runMacroCalibrationTests = runMacroCalibrationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
+    window.runWeeklyTrainingDayAutoTests = runWeeklyTrainingDayAutoTests;
 
     function initialize(){
       loadState();
