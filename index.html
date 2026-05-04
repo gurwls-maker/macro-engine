@@ -6908,8 +6908,32 @@ Notes:
       return DAILY_COACH_SIGNAL_PRIORITY[signal?.key] ?? 999;
     }
 
+    const DAILY_COACH_COMMON_GATE_POLICY = {
+      dataQualityBlockSeverity: 2,
+      dataQualityBlockReasonCodes: ["data_quality_no_meals", "data_quality_low_meal_count"],
+      dataQualitySevereSeverity: 3,
+      todayAlcoholOverrideToneMin: "moderate",
+      keepProteinLowAboveRecovery: true
+    };
+
+    const DAILY_COACH_COMBO_POLICY_TYPES = [
+      "alcohol_high_fat_high",
+      "alcohol_high_protein_low",
+      "recovery_current_over",
+      "recovery_current_low",
+      "previous_today_high",
+      "calorie_fat_high",
+      "calorie_low_protein_low",
+      "calorie_carb_low",
+      "carb_low_training"
+    ];
+
     const DAILY_COACH_DECISION_PROFILES = {
       diet: {
+        gatePolicy: DAILY_COACH_COMMON_GATE_POLICY,
+        comboPolicy: {
+          decisionTypes: DAILY_COACH_COMBO_POLICY_TYPES
+        },
         priority: [
           "data_quality_severe",
           "data_quality_insufficient",
@@ -6923,6 +6947,7 @@ Notes:
           "calorie_high",
           "fat_high",
           "recovery_current_over",
+          "recovery_current_low",
           "previous_today_high",
           "recovery",
           "carb_high",
@@ -6931,6 +6956,10 @@ Notes:
         ]
       },
       lean_bulk: {
+        gatePolicy: DAILY_COACH_COMMON_GATE_POLICY,
+        comboPolicy: {
+          decisionTypes: DAILY_COACH_COMBO_POLICY_TYPES
+        },
         priority: [
           "data_quality_severe",
           "data_quality_insufficient",
@@ -6945,6 +6974,7 @@ Notes:
           "carb_low_training",
           "fat_high",
           "recovery_current_over",
+          "recovery_current_low",
           "recovery",
           "previous_today_high",
           "previous_over_intake",
@@ -6953,6 +6983,10 @@ Notes:
         ]
       },
       bulk: {
+        gatePolicy: DAILY_COACH_COMMON_GATE_POLICY,
+        comboPolicy: {
+          decisionTypes: DAILY_COACH_COMBO_POLICY_TYPES
+        },
         priority: [
           "data_quality_severe",
           "data_quality_insufficient",
@@ -6965,7 +6999,7 @@ Notes:
           "protein_low",
           "carb_low",
           "recovery_current_over",
-          "recovery_calorie_low",
+          "recovery_current_low",
           "recovery",
           "alcohol_high_fat_high",
           "fat_high_severe",
@@ -6996,6 +7030,32 @@ Notes:
       return signal?.status === status && Number(signal.severity || 0) >= minSeverity;
     }
 
+    function isDailyCoachAlcoholHighPlusTone(alcoholTone){
+      return ["high", "very_high", "extreme", "extreme_plus"].includes(alcoholTone);
+    }
+
+    function isDailyCoachAlcoholModeratePlusTone(alcoholTone){
+      return ["moderate", "high", "very_high", "extreme", "extreme_plus"].includes(alcoholTone);
+    }
+
+    function shouldBlockCoachByDataQuality(dataQualitySignal, gatePolicy = DAILY_COACH_COMMON_GATE_POLICY){
+      const severity = Number(dataQualitySignal?.severity || 0);
+      const reasonCode = dataQualitySignal?.reasonCode || "";
+      return severity >= gatePolicy.dataQualityBlockSeverity || gatePolicy.dataQualityBlockReasonCodes.includes(reasonCode);
+    }
+
+    function isSevereDataQualitySignal(dataQualitySignal, gatePolicy = DAILY_COACH_COMMON_GATE_POLICY){
+      return Number(dataQualitySignal?.severity || 0) >= gatePolicy.dataQualitySevereSeverity;
+    }
+
+    function shouldTodayAlcoholOverridePreviousContext(cardContext){
+      return !!cardContext?.alcoholModeratePlus;
+    }
+
+    function shouldKeepProteinLowAboveRecovery(cardContext){
+      return cardContext?.configKey === "protein" && !!cardContext?.proteinLow;
+    }
+
     function buildDailyCoachDecisionContext(signals){
       const signalList = Array.isArray(signals)
         ? signals.filter(Boolean)
@@ -7005,8 +7065,8 @@ Notes:
       const goalType = getDailyCoachGoalType(currentState?.goal || (!Array.isArray(signals) ? signals?.currentResult?.s?.goal : null) || state.goal);
       const balance = !Array.isArray(signals) ? (signals?.balance || null) : null;
       const alcoholTone = signalsByKey.alcohol?.alcoholImpact?.coachTone || signalsByKey.alcohol?.alcoholImpact?.severity || "none";
-      const alcoholHighPlus = ["high", "very_high", "extreme", "extreme_plus"].includes(alcoholTone);
-      const alcoholModeratePlus = ["moderate", "high", "very_high", "extreme", "extreme_plus"].includes(alcoholTone);
+      const alcoholHighPlus = isDailyCoachAlcoholHighPlusTone(alcoholTone);
+      const alcoholModeratePlus = isDailyCoachAlcoholModeratePlusTone(alcoholTone);
       const weightMinutes = Math.max(0, Number(currentState?.weightDuration) || 0);
       const cardioMinutes = Math.max(0, Number(currentState?.cardioDuration) || 0);
       const hasWeightTraining = currentState?.routine !== "REST" && weightMinutes > 0;
@@ -7014,13 +7074,8 @@ Notes:
       const recoveryActive = signalsByKey.recovery?.status !== "ok" && Number(signalsByKey.recovery?.severity || 0) > 0;
       const previousOverActive = signalsByKey.previousOverIntake?.status !== "ok" && Number(signalsByKey.previousOverIntake?.severity || 0) > 0;
       const dataQualitySeverity = Number(signalsByKey.dataQuality?.severity || 0);
-      const dataQualityReasonCode = signalsByKey.dataQuality?.reasonCode || "";
-      const dataQualityBlocksCoach = (
-        dataQualitySeverity >= 3 ||
-        dataQualityReasonCode === "data_quality_no_meals" ||
-        dataQualityReasonCode === "data_quality_low_meal_count" ||
-        dataQualitySeverity >= 2
-      );
+      const gatePolicy = getDailyCoachDecisionProfile(goalType).gatePolicy || DAILY_COACH_COMMON_GATE_POLICY;
+      const dataQualityBlocksCoach = shouldBlockCoachByDataQuality(signalsByKey.dataQuality, gatePolicy);
       return {
         signalList,
         signalsByKey,
@@ -7033,7 +7088,7 @@ Notes:
         alcoholTone,
         alcoholHighPlus,
         alcoholModeratePlus,
-        dataQualitySevere: dataQualitySeverity >= 3,
+        dataQualitySevere: isSevereDataQualitySignal(signalsByKey.dataQuality, gatePolicy),
         dataQualityBlocksCoach,
         recoveryActive,
         previousOverActive,
@@ -7080,6 +7135,153 @@ Notes:
       (decision.coveredKeys || []).forEach(key => coveredKeys.add(key));
     }
 
+    function shouldCreateAlcoholHighFatHighDecision(context, coveredKeys){
+      return context.alcoholHighPlus && context.fatHigh;
+    }
+
+    function shouldCreateAlcoholHighProteinLowDecision(context, coveredKeys){
+      return context.alcoholHighPlus && context.proteinLow;
+    }
+
+    function shouldCreateRecoveryCurrentOverDecision(context, coveredKeys){
+      return context.recoveryActive && (context.calorieHigh || context.fatHigh);
+    }
+
+    function shouldCreateRecoveryCurrentLowDecision(context, coveredKeys){
+      return context.recoveryActive && context.calorieLow && !coveredKeys.has("recovery");
+    }
+
+    function shouldCreatePreviousTodayHighDecision(context, coveredKeys){
+      if (!context.previousOverActive || !context.calorieHigh) return false;
+      const d = context.signalsByKey;
+      return context.goalType !== "bulk" || context.fatHigh || context.alcoholModeratePlus || Number(d.calorie?.severity || 0) >= 3;
+    }
+
+    function shouldCreateCalorieFatHighDecision(context, coveredKeys){
+      return context.calorieHigh && context.fatHigh && !coveredKeys.has("calorie");
+    }
+
+    function shouldCreateCalorieLowProteinLowDecision(context, coveredKeys){
+      return context.calorieLow && context.proteinLow && !coveredKeys.has("calorie");
+    }
+
+    function shouldCreateCalorieCarbLowDecision(context, coveredKeys){
+      return context.calorieLow && context.carbLow && !coveredKeys.has("calorie") && context.goalType !== "diet";
+    }
+
+    function shouldCreateDietCarbLowTrainingDecision(context, coveredKeys){
+      return context.goalType === "diet" && context.carbLow && context.hasTraining && !coveredKeys.has("carb");
+    }
+
+    const DAILY_COACH_COMBO_POLICIES = [
+      {
+        decisionType: "alcohol_high_fat_high",
+        key: "alcohol",
+        copyIntent: "alcohol_high_fat_high",
+        coveredKeys: ["alcohol", "fat"],
+        goals: ["diet", "lean_bulk", "bulk"],
+        condition: shouldCreateAlcoholHighFatHighDecision,
+        severity: context => Math.max(context.signalsByKey.alcohol?.severity || 0, context.signalsByKey.fat?.severity || 0)
+      },
+      {
+        decisionType: "alcohol_high_protein_low",
+        key: "alcohol",
+        copyIntent: "alcohol_high_protein_low",
+        coveredKeys: ["alcohol", "protein"],
+        goals: ["diet", "lean_bulk", "bulk"],
+        condition: shouldCreateAlcoholHighProteinLowDecision,
+        severity: context => Math.max(context.signalsByKey.alcohol?.severity || 0, context.signalsByKey.protein?.severity || 0)
+      },
+      {
+        decisionType: "recovery_current_over",
+        key: "calorie",
+        copyIntent: "recovery_current_over",
+        coveredKeys: ["recovery", "calorie", "fat"],
+        goals: ["diet", "lean_bulk", "bulk"],
+        condition: shouldCreateRecoveryCurrentOverDecision,
+        severity: context => Math.max(context.signalsByKey.recovery?.severity || 0, context.signalsByKey.calorie?.severity || 0, context.signalsByKey.fat?.severity || 0)
+      },
+      {
+        decisionType: "recovery_current_low",
+        key: "recovery",
+        copyIntent: "recovery_current_low",
+        coveredKeys: ["recovery", "calorie"],
+        goals: ["diet", "lean_bulk", "bulk"],
+        condition: shouldCreateRecoveryCurrentLowDecision,
+        severity: context => Math.max(context.signalsByKey.recovery?.severity || 0, context.signalsByKey.calorie?.severity || 0)
+      },
+      {
+        decisionType: "previous_today_high",
+        key: "previousOverIntake",
+        copyIntent: "previous_today_high",
+        coveredKeys: ["previousOverIntake", "calorie"],
+        goals: ["diet", "lean_bulk", "bulk"],
+        condition: shouldCreatePreviousTodayHighDecision,
+        severity: context => {
+          const d = context.signalsByKey;
+          return context.goalType === "diet"
+            ? Math.max(3, d.previousOverIntake?.severity || 0, d.calorie?.severity || 0)
+            : Math.max(d.previousOverIntake?.severity || 0, d.calorie?.severity || 0);
+        }
+      },
+      {
+        decisionType: "calorie_fat_high",
+        key: "calorie",
+        copyIntent: "calorie_fat_high",
+        coveredKeys: ["calorie", "fat"],
+        goals: ["diet", "lean_bulk", "bulk"],
+        condition: shouldCreateCalorieFatHighDecision,
+        severity: context => Math.max(context.signalsByKey.calorie?.severity || 0, context.signalsByKey.fat?.severity || 0)
+      },
+      {
+        decisionType: "calorie_low_protein_low",
+        key: "calorie",
+        copyIntent: "calorie_low_protein_low",
+        coveredKeys: ["calorie", "protein"],
+        goals: ["diet", "lean_bulk", "bulk"],
+        condition: shouldCreateCalorieLowProteinLowDecision,
+        severity: context => Math.max(context.signalsByKey.calorie?.severity || 0, context.signalsByKey.protein?.severity || 0)
+      },
+      {
+        decisionType: "calorie_carb_low",
+        key: "calorie",
+        copyIntent: "calorie_carb_low",
+        coveredKeys: ["calorie", "carb"],
+        goals: ["lean_bulk", "bulk"],
+        condition: shouldCreateCalorieCarbLowDecision,
+        severity: context => Math.max(context.signalsByKey.calorie?.severity || 0, context.signalsByKey.carb?.severity || 0)
+      },
+      {
+        decisionType: "carb_low_training",
+        key: "carb",
+        copyIntent: "carb_low_training",
+        coveredKeys: ["carb"],
+        goals: ["diet"],
+        condition: shouldCreateDietCarbLowTrainingDecision
+      }
+    ];
+
+    function getDailyCoachComboPoliciesForContext(context){
+      const allowed = new Set(context.profile?.comboPolicy?.decisionTypes || []);
+      return DAILY_COACH_COMBO_POLICIES.filter(policy => {
+        return allowed.has(policy.decisionType) && (!policy.goals || policy.goals.includes(context.goalType));
+      });
+    }
+
+    function addDailyCoachComboDecisions(decisions, coveredKeys, context){
+      getDailyCoachComboPoliciesForContext(context).forEach(policy => {
+        if (!policy.condition(context, coveredKeys)) return;
+        addDailyCoachDecision(decisions, coveredKeys, context, {
+          key: policy.key,
+          decisionType: policy.decisionType,
+          comboKey: policy.decisionType,
+          copyIntent: policy.copyIntent,
+          severity: typeof policy.severity === "function" ? policy.severity(context) : undefined,
+          coveredKeys: policy.coveredKeys
+        });
+      });
+    }
+
     function buildDailyCoachDecisions(signals){
       const context = buildDailyCoachDecisionContext(signals);
       const d = context.signalsByKey;
@@ -7096,93 +7298,7 @@ Notes:
         return { decisions, context };
       }
 
-      if (context.alcoholHighPlus && context.fatHigh) {
-        addDailyCoachDecision(decisions, coveredKeys, context, {
-          key: "alcohol",
-          decisionType: "alcohol_high_fat_high",
-          comboKey: "alcohol_high_fat_high",
-          copyIntent: "alcohol_high_fat_high",
-          severity: Math.max(d.alcohol?.severity || 0, d.fat?.severity || 0),
-          coveredKeys: ["alcohol", "fat"]
-        });
-      }
-      if (context.alcoholHighPlus && context.proteinLow) {
-        addDailyCoachDecision(decisions, coveredKeys, context, {
-          key: "alcohol",
-          decisionType: "alcohol_high_protein_low",
-          comboKey: "alcohol_high_protein_low",
-          copyIntent: "alcohol_high_protein_low",
-          severity: Math.max(d.alcohol?.severity || 0, d.protein?.severity || 0),
-          coveredKeys: ["alcohol", "protein"]
-        });
-      }
-      if (context.recoveryActive && (context.calorieHigh || context.fatHigh)) {
-        addDailyCoachDecision(decisions, coveredKeys, context, {
-          key: "calorie",
-          decisionType: "recovery_current_over",
-          comboKey: "recovery_current_over",
-          copyIntent: "recovery_current_over",
-          severity: Math.max(d.recovery?.severity || 0, d.calorie?.severity || 0, d.fat?.severity || 0),
-          coveredKeys: ["recovery", "calorie", "fat"]
-        });
-      }
-      if (context.recoveryActive && context.calorieLow && !coveredKeys.has("recovery")) {
-        addDailyCoachDecision(decisions, coveredKeys, context, {
-          key: "recovery",
-          decisionType: "recovery_calorie_low",
-          comboKey: "recovery_calorie_low",
-          copyIntent: "recovery_calorie_low",
-          severity: Math.max(d.recovery?.severity || 0, d.calorie?.severity || 0),
-          coveredKeys: ["recovery", "calorie"]
-        });
-      }
-      if (context.previousOverActive && context.calorieHigh) {
-        const allowBulkPrevious = context.goalType !== "bulk" || context.fatHigh || context.alcoholModeratePlus || Number(d.calorie?.severity || 0) >= 3;
-        if (allowBulkPrevious) {
-          addDailyCoachDecision(decisions, coveredKeys, context, {
-            key: "previousOverIntake",
-            decisionType: "previous_today_high",
-            comboKey: "previous_today_high",
-            copyIntent: "previous_today_high",
-            severity: context.goalType === "diet"
-              ? Math.max(3, d.previousOverIntake?.severity || 0, d.calorie?.severity || 0)
-              : Math.max(d.previousOverIntake?.severity || 0, d.calorie?.severity || 0),
-            coveredKeys: ["previousOverIntake", "calorie"]
-          });
-        }
-      }
-      if (context.calorieHigh && context.fatHigh && !coveredKeys.has("calorie")) {
-        addDailyCoachDecision(decisions, coveredKeys, context, {
-          key: "calorie",
-          decisionType: "calorie_fat_high",
-          comboKey: "calorie_fat_high",
-          copyIntent: "calorie_fat_high",
-          severity: Math.max(d.calorie?.severity || 0, d.fat?.severity || 0),
-          coveredKeys: ["calorie", "fat"]
-        });
-      }
-      if (context.calorieLow && context.proteinLow && !coveredKeys.has("calorie")) {
-        addDailyCoachDecision(decisions, coveredKeys, context, {
-          key: "calorie",
-          decisionType: "calorie_low_protein_low",
-          comboKey: "calorie_low_protein_low",
-          copyIntent: "calorie_low_protein_low",
-          severity: Math.max(d.calorie?.severity || 0, d.protein?.severity || 0),
-          coveredKeys: ["calorie", "protein"]
-        });
-      }
-      if (context.calorieLow && context.carbLow && !coveredKeys.has("calorie")) {
-        if (context.goalType !== "diet") {
-          addDailyCoachDecision(decisions, coveredKeys, context, {
-            key: "calorie",
-            decisionType: "calorie_carb_low",
-            comboKey: "calorie_carb_low",
-            copyIntent: "calorie_carb_low",
-            severity: Math.max(d.calorie?.severity || 0, d.carb?.severity || 0),
-            coveredKeys: ["calorie", "carb"]
-          });
-        }
-      }
+      addDailyCoachComboDecisions(decisions, coveredKeys, context);
 
       if (context.alcoholModeratePlus && !coveredKeys.has("alcohol")) {
         addDailyCoachDecision(decisions, coveredKeys, context, {
@@ -7562,7 +7678,7 @@ Notes:
             action: "탄수화물은 운동 전후 식사 안에서 필요한 만큼만 보완하세요."
           }
         },
-        recovery_calorie_low: {
+        recovery_current_low: {
           diet: {
             state: "낮게 먹어도 되는 날일 수 있지만 단백질은 핵심입니다.",
             reason: "전날 회복 부담이 있어 오늘은 무리해서 채우기보다 식단 질을 지키는 편이 낫습니다.",
@@ -9938,6 +10054,114 @@ Notes:
       };
     }
 
+    const DAILY_COACH_CARD_POLICIES = {
+      calorie: {
+        alcoholModeratePlus: {
+          state: "오늘 술 칼로리까지 들어왔습니다.",
+          action: "남은 식사는 여기서 마무리하세요. 추가 술이나 야식, 기름진 안주는 멈추세요."
+        },
+        dietCalorieHigh: {
+          state: "총칼로리는 오늘 초과 상태라 여기서 마무리할 구간입니다.",
+          action: "추가 간식과 야식은 끊으세요. 굶어서 만회하지는 마세요."
+        },
+        leanBulkQualityHigh: {
+          state: "총칼로리는 넘었지만 흑자 품질이 좋지 않습니다.",
+          action: "술, 튀김, 소스, 간식은 중단하세요. 다음 식사는 단백질과 탄수화물 위주로 정리하세요."
+        },
+        bulkCalorieLow: {
+          state: "총칼로리는 벌크업 기준으로 부족합니다.",
+          action: "부족분은 단백질과 밥, 감자, 오트밀처럼 소화 쉬운 탄수화물로 채우세요."
+        }
+      },
+      protein: {
+        preserveLowCoachItem: true,
+        alcoholModeratePlus: {
+          state: "단백질은 따로 확인하세요.",
+          action: "단백질이 부족하면 기름진 안주 말고 단백질 식품으로만 보완하세요."
+        },
+        proteinLow: {
+          diet: {
+            state: "단백질부터 챙기세요.",
+            action: "지방 낮은 단백질로 보강하세요. 다이어트 중에도 단백질은 줄이지 마세요."
+          },
+          lean_bulk: {
+            state: "단백질부터 챙기세요.",
+            action: "다음 식사에서 단백질을 먼저 보완하세요. 회복 품질을 위해 우선순위를 높게 둡니다."
+          },
+          bulk: {
+            state: "단백질부터 챙기세요.",
+            action: "성장 재료부터 확보하세요. 단백질을 넣고 소화 쉬운 탄수화물도 함께 챙기세요."
+          }
+        }
+      },
+      carb: {
+        alcoholModeratePlus: {
+          state: "탄수화물은 더 늘릴 필요가 낮습니다.",
+          action: "탄수화물은 더 늘리지 말고 지금 식사량 안에서만 유지하세요."
+        },
+        dietTrainingLow: {
+          state: "탄수화물은 운동일 보조로만 확인하세요.",
+          action: "운동 전후 식사 안에서 필요한 만큼만 보완하세요."
+        },
+        leanBulkLow: {
+          state: "탄수화물은 회복 재료로 부족합니다.",
+          action: "탄수화물은 운동 전후로 나눠 넣으세요."
+        },
+        bulkCalorieCarbLow: {
+          state: "탄수화물은 총량 부족을 채울 핵심입니다.",
+          action: "밥, 감자, 오트밀처럼 소화 쉬운 탄수화물을 추가하세요."
+        }
+      },
+      fat: {
+        alcoholModeratePlus: {
+          state: "지방과 안주는 점수를 더 흔듭니다.",
+          action: "지방은 더 추가하지 말고 지금 수준에서 마무리하세요."
+        },
+        dietHigh: {
+          state: "지방은 감량 흐름을 막는 항목입니다.",
+          action: "간식, 튀김, 소스, 기름진 음식은 끊으세요."
+        },
+        leanBulkHigh: {
+          state: "지방이 흑자 품질을 낮추고 있습니다.",
+          action: "소스, 튀김, 간식은 제한하세요."
+        },
+        bulkQualityHigh: {
+          state: "지방과 술, 고칼로리 조합은 벌크 칼로리로 보기 어렵습니다.",
+          action: "술, 안주, 고지방 음식으로 채우지 마세요."
+        }
+      }
+    };
+
+    function getDailyCoachAlcoholCardOverride(cardContext){
+      if (!shouldTodayAlcoholOverridePreviousContext(cardContext)) return null;
+      return DAILY_COACH_CARD_POLICIES[cardContext.configKey]?.alcoholModeratePlus || null;
+    }
+
+    function getDailyCoachGoalCardOverride(cardContext){
+      const policy = DAILY_COACH_CARD_POLICIES[cardContext.configKey];
+      if (!policy) return null;
+      if (cardContext.configKey === "protein" && cardContext.proteinLow) {
+        return policy.proteinLow?.[cardContext.goalType] || null;
+      }
+      if (cardContext.configKey === "calorie") {
+        if (cardContext.goalType === "diet" && (cardContext.calorieHigh || cardContext.macroCoachItem?.comboKey === "recovery_current_over")) return policy.dietCalorieHigh;
+        if (cardContext.goalType === "lean_bulk" && cardContext.calorieHigh && (cardContext.fatHigh || cardContext.alcoholModeratePlus)) return policy.leanBulkQualityHigh;
+        if (cardContext.goalType === "bulk" && cardContext.calorieLow) return policy.bulkCalorieLow;
+      }
+      if (cardContext.configKey === "carb") {
+        if (cardContext.goalType === "diet" && cardContext.carbLow && !cardContext.hasTraining) return null;
+        if (cardContext.goalType === "diet" && cardContext.carbLow && cardContext.hasTraining) return policy.dietTrainingLow;
+        if (cardContext.goalType === "lean_bulk" && cardContext.carbLow) return policy.leanBulkLow;
+        if (cardContext.goalType === "bulk" && cardContext.calorieLow && cardContext.carbLow) return policy.bulkCalorieCarbLow;
+      }
+      if (cardContext.configKey === "fat") {
+        if (cardContext.fatHigh && cardContext.goalType === "diet") return policy.dietHigh;
+        if (cardContext.fatHigh && cardContext.goalType === "lean_bulk") return policy.leanBulkHigh;
+        if (cardContext.fatHigh && cardContext.goalType === "bulk" && (cardContext.alcoholModeratePlus || cardContext.calorieHigh)) return policy.bulkQualityHigh;
+      }
+      return null;
+    }
+
     function getAdherenceMacroCardOverride(adherenceResult, coach, config){
       const macroCoachItem = getCoachItemByKey(coach, config.key);
       const goalType = getDailyCoachGoalType(coach?.goalType || state.goal);
@@ -9946,113 +10170,33 @@ Notes:
       const consumed = adherenceResult?.detail?.consumed || {};
       const alcoholImpact = allSignals.alcohol?.alcoholImpact || analyzeAlcoholImpact(consumed);
       const alcoholTone = alcoholImpact?.coachTone || alcoholImpact?.severity || "none";
-      const alcoholHighPlus = ["high", "very_high", "extreme", "extreme_plus"].includes(alcoholTone);
-      const alcoholModeratePlus = ["moderate", "high", "very_high", "extreme", "extreme_plus"].includes(alcoholTone);
+      const alcoholModeratePlus = isDailyCoachAlcoholModeratePlusTone(alcoholTone);
       const calorieHigh = allSignals.calorie?.status === "high" || macroCoachItem?.comboKey === "calorie_fat_high";
       const calorieLow = allSignals.calorie?.status === "low" || macroCoachItem?.comboKey === "calorie_low_protein_low" || macroCoachItem?.comboKey === "calorie_carb_low";
       const proteinLow = allSignals.protein?.status === "low" || macroCoachItem?.comboKey === "calorie_low_protein_low" || macroCoachItem?.comboKey === "alcohol_high_protein_low";
       const carbLow = allSignals.carb?.status === "low" || macroCoachItem?.comboKey === "calorie_carb_low";
       const fatHigh = allSignals.fat?.status === "high" || macroCoachItem?.comboKey === "calorie_fat_high" || macroCoachItem?.comboKey === "alcohol_high_fat_high";
       const hasTraining = !!coach?.decisionContext?.hasTraining;
+      const cardContext = {
+        configKey: config.key,
+        macroCoachItem,
+        goalType,
+        alcoholModeratePlus,
+        calorieHigh,
+        calorieLow,
+        proteinLow,
+        carbLow,
+        fatHigh,
+        hasTraining
+      };
 
-      if (config.key === "protein" && (macroCoachItem?.status === "low" || proteinLow)) return null;
+      if (shouldKeepProteinLowAboveRecovery(cardContext)) return null;
 
-      if (alcoholModeratePlus) {
-        const alcoholCardCopy = {
-          calorie: {
-            state: "오늘 술 칼로리까지 들어왔습니다.",
-            action: "남은 식사는 여기서 마무리하세요. 추가 술이나 야식, 기름진 안주는 멈추세요."
-          },
-          protein: {
-            state: "단백질은 따로 확인하세요.",
-            action: "단백질이 부족하면 기름진 안주 말고 단백질 식품으로만 보완하세요."
-          },
-          carb: {
-            state: "탄수화물은 더 늘릴 필요가 낮습니다.",
-            action: "탄수화물은 더 늘리지 말고 지금 식사량 안에서만 유지하세요."
-          },
-          fat: {
-            state: "지방과 안주는 점수를 더 흔듭니다.",
-            action: "지방은 더 추가하지 말고 지금 수준에서 마무리하세요."
-          }
-        };
-        return alcoholCardCopy[config.key] || null;
-      }
+      const alcoholOverride = getDailyCoachAlcoholCardOverride(cardContext);
+      if (alcoholOverride) return alcoholOverride;
 
-      if (config.key === "protein" && proteinLow) {
-        return {
-          state: "단백질부터 챙기세요.",
-          action: goalType === "diet"
-            ? "지방 낮은 단백질로 보강하세요. 다이어트 중에도 단백질은 줄이지 마세요."
-            : goalType === "bulk"
-              ? "성장 재료부터 확보하세요. 단백질을 넣고 소화 쉬운 탄수화물도 함께 챙기세요."
-              : "다음 식사에서 단백질을 먼저 보완하세요. 회복 품질을 위해 우선순위를 높게 둡니다."
-        };
-      }
-
-      if (config.key === "calorie") {
-        if (goalType === "diet" && (calorieHigh || macroCoachItem?.comboKey === "recovery_current_over")) {
-          return {
-            state: "총칼로리는 오늘 초과 상태라 여기서 마무리할 구간입니다.",
-            action: "추가 간식과 야식은 끊으세요. 굶어서 만회하지는 마세요."
-          };
-        }
-        if (goalType === "lean_bulk" && calorieHigh && (fatHigh || alcoholModeratePlus)) {
-          return {
-            state: "총칼로리는 넘었지만 흑자 품질이 좋지 않습니다.",
-            action: "술, 튀김, 소스, 간식은 중단하세요. 다음 식사는 단백질과 탄수화물 위주로 정리하세요."
-          };
-        }
-        if (goalType === "bulk" && calorieLow) {
-          return {
-            state: "총칼로리는 벌크업 기준으로 부족합니다.",
-            action: "부족분은 단백질과 밥, 감자, 오트밀처럼 소화 쉬운 탄수화물로 채우세요."
-          };
-        }
-      }
-
-      if (config.key === "carb") {
-        if (goalType === "diet" && carbLow && !hasTraining) return null;
-        if (goalType === "diet" && carbLow && hasTraining) {
-          return {
-            state: "탄수화물은 운동일 보조로만 확인하세요.",
-            action: "운동 전후 식사 안에서 필요한 만큼만 보완하세요."
-          };
-        }
-        if (goalType === "lean_bulk" && carbLow) {
-          return {
-            state: "탄수화물은 회복 재료로 부족합니다.",
-            action: "탄수화물은 운동 전후로 나눠 넣으세요."
-          };
-        }
-        if (goalType === "bulk" && calorieLow && carbLow) {
-          return {
-            state: "탄수화물은 총량 부족을 채울 핵심입니다.",
-            action: "밥, 감자, 오트밀처럼 소화 쉬운 탄수화물을 추가하세요."
-          };
-        }
-      }
-
-      if (config.key === "fat") {
-        if (fatHigh && goalType === "diet") {
-          return {
-            state: "지방은 감량 흐름을 막는 항목입니다.",
-            action: "간식, 튀김, 소스, 기름진 음식은 끊으세요."
-          };
-        }
-        if (fatHigh && goalType === "lean_bulk") {
-          return {
-            state: "지방이 흑자 품질을 낮추고 있습니다.",
-            action: "소스, 튀김, 간식은 제한하세요."
-          };
-        }
-        if (fatHigh && goalType === "bulk" && (alcoholModeratePlus || calorieHigh)) {
-          return {
-            state: "지방과 술, 고칼로리 조합은 벌크 칼로리로 보기 어렵습니다.",
-            action: "술, 안주, 고지방 음식으로 채우지 마세요."
-          };
-        }
-      }
+      const goalOverride = getDailyCoachGoalCardOverride(cardContext);
+      if (goalOverride) return goalOverride;
 
       if (signal?.status === "low" && config.key === "fat") return null;
       if (signal?.status === "high" && config.key === "protein") return null;
@@ -13560,6 +13704,52 @@ Notes:
             assertTest(!text.includes(keyword), `${message}: should not include ${keyword}`);
           });
         }
+
+        results.push(runNamedTest("daily coach decision profile policies are registered", () => {
+          const requiredDecisionTypes = [
+            "data_quality_severe",
+            "data_quality_insufficient",
+            "alcohol_high",
+            "alcohol_high_fat_high",
+            "alcohol_high_protein_low",
+            "protein_low_severe",
+            "calorie_low_protein_low",
+            "calorie_fat_high",
+            "carb_low_training",
+            "calorie_carb_low",
+            "recovery_current_over",
+            "recovery_current_low",
+            "previous_today_high"
+          ];
+          ["diet", "lean_bulk", "bulk"].forEach(goal => {
+            const profile = getDailyCoachDecisionProfile(goal);
+            assertTest(Array.isArray(profile.priority) && profile.priority.length > 0, `${goal} profile should expose priority`);
+            assertTest(profile.comboPolicy?.decisionTypes?.length > 0, `${goal} profile should expose combo policy`);
+            assertTest(profile.gatePolicy === DAILY_COACH_COMMON_GATE_POLICY, `${goal} profile should link common gate policy`);
+          });
+          requiredDecisionTypes.forEach(decisionType => {
+            const inPriority = Object.values(DAILY_COACH_DECISION_PROFILES).some(profile => profile.priority.includes(decisionType));
+            const inPolicy = DAILY_COACH_COMBO_POLICIES.some(policy => policy.decisionType === decisionType);
+            assertTest(inPriority || inPolicy, `${decisionType} should be registered in priority or combo policy`);
+          });
+          DAILY_COACH_COMBO_POLICIES.forEach(policy => {
+            assertTest(!Object.prototype.hasOwnProperty.call(policy, "policyDecisionType"), `${policy.decisionType} should not use policyDecisionType alias`);
+            assertTest(policy.decisionType && policy.key && policy.copyIntent, `${policy.decisionType} should expose decision metadata`);
+            assertTest(Array.isArray(policy.coveredKeys) && policy.coveredKeys.length > 0, `${policy.decisionType} should expose coveredKeys`);
+            assertTest(typeof policy.condition === "function", `${policy.decisionType} should expose a condition helper`);
+          });
+        }));
+
+        results.push(runNamedTest("daily coach gate and card policies are normalized", () => {
+          assertTest(shouldBlockCoachByDataQuality({ severity: 2, reasonCode: "data_quality_partial_meals" }) === true, "data quality s2 should hard block coach");
+          assertTest(shouldBlockCoachByDataQuality({ severity: 1, reasonCode: "data_quality_partial_inputs" }) === false, "data quality s1 should not hard block coach");
+          assertTest(shouldBlockCoachByDataQuality({ severity: 1, reasonCode: "data_quality_no_meals" }) === true, "no meal reason should hard block coach");
+          assertTest(shouldTodayAlcoholOverridePreviousContext({ alcoholModeratePlus: true }) === true, "today alcohol moderate+ should override previous context cards");
+          assertTest(shouldKeepProteinLowAboveRecovery({ configKey: "protein", proteinLow: true }) === true, "protein low should keep its card above recovery");
+          assertTest(shouldKeepProteinLowAboveRecovery({ configKey: "calorie", proteinLow: true }) === false, "protein low guard should only apply to protein card");
+          const cardKeys = Object.keys(DAILY_COACH_CARD_POLICIES).sort().join(",");
+          assertTest(cardKeys === "calorie,carb,fat,protein", "card policy should only expose macro card keys");
+        }));
 
         function setupPreviousDayCoachScenario(config = {}){
           setValidTodayBalanceTestInputs();
