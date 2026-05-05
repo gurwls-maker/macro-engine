@@ -1,10 +1,10 @@
 <!--
-Version: 6.4-B
-Stage: 6.4-B Daily Coach recentContext 주입
+Version: 6.4-C
+Stage: 6.4-C 최근 흐름 탭 및 Weekly 재해석
 Date: 2026-05-05
 Notes:
-- Daily Coach에 recentContext를 read-only로 주입
-- 점수 산식 / 저장 schema / import/export schema / Weekly UI 재구성 / fat low 행동 문구 / Coach decision matrix 변경 없음
+- 최근 흐름 탭 / Weekly 화면 재해석
+- 점수 산식 / 저장 schema / import/export schema / Coach decision matrix / fat low 행동 문구 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -12,7 +12,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.4-B</title>
+  <title>탄단지 다이어리 v6.4-C</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2316,34 +2316,52 @@ Notes:
       max-width:62ch;
       text-wrap:pretty;
     }
-    .recent-flow-preview{
+    .recent-flow-overview{
       margin-top:18px;
+      margin-bottom:18px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+    .recent-flow-summary-card,
+    .recent-flow-window-card,
+    .recent-flow-points{
       padding:14px 16px;
       border:1px solid color-mix(in srgb, var(--accent-strong) 18%, var(--line) 82%);
-      border-radius:16px;
+      border-radius:14px;
       background:rgba(255,255,255,.56);
     }
-    .recent-flow-preview h4{
+    .recent-flow-summary-card h4,
+    .recent-flow-points h4{
       margin:0 0 8px;
       font-size:14px;
       line-height:1.35;
       color:var(--deep);
       font-weight:900;
     }
-    .recent-flow-preview p{
+    .recent-flow-conclusion{
+      margin:0 0 6px;
+      font-size:18px;
+      line-height:1.35;
+      color:var(--deep);
+      font-weight:900;
+      text-wrap:pretty;
+    }
+    .recent-flow-summary-card p,
+    .recent-flow-points p{
       margin:0;
       font-size:13px;
       line-height:1.65;
       color:var(--muted);
       max-width:64ch;
     }
-    .recent-flow-preview .preview-chips{
+    .recent-flow-overview .preview-chips{
       display:flex;
       flex-wrap:wrap;
       gap:8px;
       margin-top:12px;
     }
-    .recent-flow-preview .preview-chip{
+    .recent-flow-overview .preview-chip{
       display:inline-flex;
       align-items:center;
       min-height:30px;
@@ -2354,6 +2372,73 @@ Notes:
       color:var(--deep);
       font-size:12px;
       font-weight:800;
+    }
+    .recent-flow-window-grid{
+      display:grid;
+      grid-template-columns:repeat(5, minmax(0, 1fr));
+      gap:10px;
+    }
+    .recent-flow-window-card{
+      padding:12px;
+      min-height:148px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .recent-flow-window-card .eyebrow{
+      margin:0;
+      font-size:11px;
+      letter-spacing:0;
+      color:var(--muted);
+      font-weight:900;
+    }
+    .recent-flow-window-card .title{
+      margin:0;
+      font-size:15px;
+      line-height:1.3;
+      color:var(--deep);
+      font-weight:900;
+    }
+    .recent-flow-window-card .status{
+      display:inline-flex;
+      align-self:flex-start;
+      padding:5px 8px;
+      border-radius:999px;
+      background:rgba(255,252,247,.82);
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      color:var(--deep);
+      font-size:12px;
+      font-weight:900;
+      line-height:1.25;
+    }
+    .recent-flow-window-card .meta,
+    .recent-flow-window-card .caution{
+      margin:0;
+      font-size:12px;
+      line-height:1.5;
+      color:var(--muted);
+    }
+    .recent-flow-point-list{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:8px;
+      margin-top:10px;
+    }
+    .recent-flow-point{
+      margin:0;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      background:rgba(255,252,247,.7);
+      font-size:12.5px;
+      line-height:1.58;
+      color:var(--muted);
+    }
+    .recent-flow-point strong{
+      display:block;
+      margin-bottom:3px;
+      color:var(--deep);
+      font-weight:900;
     }
     .weekly-reference-block{
       margin-top:14px;
@@ -3194,6 +3279,13 @@ Notes:
         grid-template-columns:1fr;
         column-gap:0;
       }
+      .recent-flow-window-grid,
+      .recent-flow-point-list{
+        grid-template-columns:1fr;
+      }
+      .recent-flow-window-card{
+        min-height:auto;
+      }
       .weekly-interpretation-block{
         margin-top:14px;
         padding-top:10px;
@@ -3278,7 +3370,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.4-B</span>
+               <span class="app-version">v6.4-C</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -3350,7 +3442,7 @@ Notes:
     <div class="tabs">
       <button class="tab-btn active" id="tabToday" type="button">오늘 계산</button>
       <button class="tab-btn" id="tabRecords" type="button">데이터 기록</button>
-      <button class="tab-btn" id="tabWeekly" type="button">주간 분석</button>
+      <button class="tab-btn" id="tabWeekly" type="button">최근 흐름</button>
       <button class="tab-btn" id="tabInbody" type="button">InBody</button>
       <button class="tab-btn" id="tabSettings" type="button">기본 설정</button>
     </div>
@@ -3893,13 +3985,14 @@ Notes:
     <section class="tab-panel" id="weeklyPanel" hidden>
       <div class="layout weekly-layout">
         <section class="panel weekly-analysis-panel">
-          <h3>주간 분석</h3>
-          <h2>최근 기록 해석과 조정 제안</h2>
-          <div class="mini-note">최근 7일 기록을 기준으로 식단과 체중 흐름을 확인하는 영역입니다. 지금 설정 기준으로 비교해 보는 참고용 분석입니다.</div>
+          <h3>최근 흐름</h3>
+          <h2>최근 기록 흐름과 오늘 행동 기준</h2>
+          <div class="mini-note">최근 1일 / 3일 / 7일 / 14일 / 28일 기록을 나눠 보고, 지금 판단을 얼마나 믿을 수 있는지 확인합니다.</div>
+          <div id="recentFlowPreviewHost"></div>
           <div class="section-group weekly-report-group">
             <div class="section-group-head">
-              <h4>주간 상태 요약</h4>
-              <p>최근 기록을 상태, 권장 행동, 해석 지표 순서로 읽는 리포트 구간입니다.</p>
+              <h4>7일 참고 분석</h4>
+              <p>기존 7일 평균 기반 분석은 보조 참고로 확인합니다.</p>
             </div>
             <div class="section-group-body">
           <div class="weekly-hero ok" id="weeklyHero">
@@ -3919,9 +4012,8 @@ Notes:
           </div>
             </div>
           </div>
-          <div id="recentFlowPreviewHost"></div>
           <div class="weekly-interpretation-block">
-            <h4>주간 해석</h4>
+            <h4>7일 참고 해석</h4>
             <p class="weekly-interpretation-text" id="weeklyInterpretationText">기록이 아직 충분하지 않아 추세 판단은 이릅니다. 며칠 더 누적하면 더 정확하게 볼 수 있습니다.</p>
           </div>
           <div id="weeklyInfoHost"></div>
@@ -3933,27 +4025,27 @@ Notes:
             <div class="flow">
               <div class="step">
                 <div>
-                  <div class="title">최소 기록 조건</div>
-                  <div class="text">최근 7일 안에 체중과 식단 달성률 기록이 4일 이상 있어야 분석을 시작합니다.</div>
+                  <div class="title">최근 흐름을 보는 기준</div>
+                  <div class="text">식사와 체중 기록이 충분히 쌓일수록 반복 패턴과 추세를 더 안정적으로 참고할 수 있습니다.</div>
                 </div>
-                <div class="num">4일+</div>
+                <div class="num">기록</div>
               </div>
               <div class="step">
                 <div>
-                  <div class="title">기록 신뢰 기준</div>
-                  <div class="text">기록이 부족하거나 불확실한 경우 결과 해석의 신뢰도가 낮을 수 있습니다. 식사 기록을 더 정확히 남긴 뒤 다시 확인해 보세요.</div>
+                  <div class="title">보수적으로 보는 경우</div>
+                  <div class="text">목표가 바뀌었거나 기타 칼로리, 식사 누락이 많으면 이전 흐름을 그대로 비교하지 않습니다.</div>
                 </div>
-                <div class="num">상/중</div>
+                <div class="num">주의</div>
               </div>
               <div class="step">
                 <div>
-                  <div class="title">자동으로 변경되지는 않습니다.</div>
-                  <div class="text">결과가 맞지 않는다고 느껴지면 설정에서 직접 조절해 주세요.</div>
+                  <div class="title">오늘 행동 참고</div>
+                  <div class="text">결과는 자동 조정이 아니라 오늘 식사와 기록을 정리하기 위한 참고로 봅니다.</div>
                 </div>
-                <div class="num">제안형</div>
+                <div class="num">오늘</div>
               </div>
             </div>
-            <div class="mini-note weekly-principles-note">이 영역은 분석을 읽는 기준만 정리합니다. 실제 상태 판단은 왼쪽 결과 카드에 집중되도록 유지했습니다.</div>
+            <div class="mini-note weekly-principles-note">체중 변화만으로 목표 칼로리를 바로 바꾸기보다, 오늘 할 일은 Today 코치에서 먼저 확인하세요.</div>
           </div>
         </section>
       </div>
@@ -11266,21 +11358,176 @@ Notes:
       renderMealRecordSection(selectedDate);
     }
 
-    // UI 슬롯만 준비합니다. 최근 흐름 판단 로직이나 기간별 계산은 v6.4-A 이후 단계에서 다룹니다.
-    function renderRecentFlowPreview(){
+    const RECENT_FLOW_WINDOW_LABELS = {
+      1: "오늘 기록",
+      3: "단기 흐름",
+      7: "반복 패턴",
+      14: "체중 흐름 참고",
+      28: "장기 흐름 후보"
+    };
+
+    function getRecentFlowWindowStatus(window){
+      if (!window) return "기록 부족";
+      if (window.goalChangeDetected) return "목표 변경 주의";
+      if (window.otherKcalHeavyDays > 0) return "기타 칼로리 주의";
+      const level = getRecentContextConfidenceMin(
+        window.recordConfidence || "blocked",
+        window.windowFit || "blocked",
+        window.contextFit || "blocked"
+      );
+      if (level === "high") return "판단 가능";
+      if (level === "medium") return "보수적으로 참고";
+      return "기록 부족";
+    }
+
+    function getRecentFlowWindowCaution(window){
+      if (!window) return "기록을 먼저 쌓아 주세요.";
+      if (window.goalChangeDetected) return "현재 목표 기준으로 봅니다.";
+      if (window.otherKcalHeavyDays > 0) return "탄단지 흐름은 보수적으로 봅니다.";
+      if (window.proteinLowDays >= 2) return "오늘은 단백질을 먼저 채우세요.";
+      if (window.carbLowTrainingDays > 0 && window.actualWeightTrainingDays > 0) return "운동이 있다면 탄수화물을 식사 안에서 보완하세요.";
+      if (window.alcoholDays > 0) return "술이 있었던 날은 체중 변동을 보수적으로 보세요.";
+      if (window.usableDietDays <= 0) return "주요 식사부터 탄단지로 기록하세요.";
+      return "오늘 할 일은 Today 코치에서 먼저 확인하세요.";
+    }
+
+    function getRecentFlowOverviewCopy(recentContext){
+      const guard = getRecentContextCoachGuard(recentContext);
+      if (guard.goalChangeDetected) {
+        return {
+          conclusion: "최근 목표가 바뀐 기록이 있어 이전 흐름을 그대로 비교하기는 어렵습니다.",
+          detail: "오늘은 현재 목표 기준으로 식사를 맞추세요.",
+          guard
+        };
+      }
+      if (guard.level === "blocked" || guard.level === "low") {
+        return {
+          conclusion: "기록이 아직 부족해 최근 흐름 판단은 보수적으로 봅니다.",
+          detail: "체중 변화만 보고 목표 칼로리를 조정하기에는 아직 이릅니다. 오늘은 주요 식사 2끼 이상을 탄단지로 기록하세요.",
+          guard
+        };
+      }
+      if (guard.otherKcalRepeated) {
+        return {
+          conclusion: "현재 기록 기준으로 최근 흐름을 참고할 수 있습니다.",
+          detail: "기타 칼로리가 큰 날이 있어 탄단지 흐름은 보수적으로 봅니다. 오늘은 가능한 탄단지로 나눠 기록하세요.",
+          guard
+        };
+      }
+      return {
+        conclusion: "현재 기록 기준으로 최근 흐름을 참고할 수 있습니다.",
+        detail: "오늘 할 일은 Today 코치에서 먼저 확인하세요.",
+        guard
+      };
+    }
+
+    function getRecentFlowOverviewChips(recentContext, guard){
+      const window7 = recentContext?.windows?.[7] || guard?.sourceWindow || {};
+      const chips = [
+        `식사 기록 ${Number(window7.mealRecordDays || 0)}일`,
+        `체중 기록 ${Number(window7.weightDays || 0)}일`
+      ];
+      chips.push(Number(window7.goalSnapshotDays || 0) > 0 ? "목표 기준 있음" : "목표 기준 부족");
+      chips.push(`웨이트 기록 ${Number(window7.actualWeightTrainingDays || 0)}일`);
+      if (Number(window7.otherKcalHeavyDays || 0) > 0) chips.push(`기타 칼로리 주의 ${Number(window7.otherKcalHeavyDays || 0)}일`);
+      return chips.slice(0, 5);
+    }
+
+    function getRecentFlowPointItems(recentContext, guard){
+      const window7 = recentContext?.windows?.[7] || guard?.sourceWindow || {};
+      const points = [];
+      if (guard?.goalChangeDetected) {
+        points.push({
+          title: "목표 변경 기록이 있습니다",
+          action: "이전 흐름을 그대로 비교하지 말고 오늘은 현재 목표 기준으로 식사를 맞추세요."
+        });
+      }
+      if (guard?.level === "blocked" || guard?.level === "low") {
+        points.push({
+          title: "기록 보완이 우선입니다",
+          action: "오늘은 주요 식사 2끼 이상을 탄단지로 기록하고, 가능하면 아침 공복 체중도 저장하세요."
+        });
+      }
+      if (Number(window7.otherKcalHeavyDays || 0) > 0) {
+        points.push({
+          title: "기타 칼로리가 큰 날이 있습니다",
+          action: "좋고 나쁨으로 단정하지 않고 탄단지 흐름을 보수적으로 봅니다. 오늘은 가능한 탄단지로 나눠 기록하세요."
+        });
+      }
+      if (guard?.proteinLowRepeated) {
+        points.push({
+          title: "단백질 부족이 반복됩니다",
+          action: "오늘 남은 식사에서는 단백질을 먼저 채우세요."
+        });
+      }
+      if (guard?.carbLowTrainingRepeated) {
+        points.push({
+          title: "실제 웨이트일 탄수화물이 낮은 날이 있습니다",
+          action: "오늘 운동이 있다면 탄수화물은 운동 전후 식사 안에서 보완하세요."
+        });
+      }
+      if (Number(window7.alcoholDays || 0) > 0) {
+        points.push({
+          title: "술이 있었던 날은 보수적으로 봅니다",
+          action: "술이 있었던 날은 회복과 체중 변동을 보수적으로 보고, 오늘은 수분과 단백질부터 챙기세요."
+        });
+      }
+      if (!points.length) {
+        points.push({
+          title: "큰 반복 주의점은 아직 없습니다",
+          action: "오늘 할 일은 Today 코치에서 먼저 확인하세요."
+        });
+      }
+      return points.slice(0, 4);
+    }
+
+    function renderRecentFlowOverview(currentResult, recentContext){
       const host = document.getElementById("recentFlowPreviewHost");
       if (!host) return;
+      const context = recentContext || buildRecentContext(currentResult);
+      const overview = getRecentFlowOverviewCopy(context);
+      const chips = getRecentFlowOverviewChips(context, overview.guard);
+      const points = getRecentFlowPointItems(context, overview.guard);
+      const windowCards = RECENT_CONTEXT_WINDOWS.map(days => {
+        const window = context.windows?.[days];
+        const label = RECENT_FLOW_WINDOW_LABELS[days] || `${days}일`;
+        return `
+          <div class="recent-flow-window-card" data-recent-flow-days="${days}">
+            <div class="eyebrow">${days}일</div>
+            <div class="title">${escapeHtml(label)}</div>
+            <div class="status">${escapeHtml(getRecentFlowWindowStatus(window))}</div>
+            <p class="meta">식사 기록 ${Number(window?.mealRecordDays || 0)}일 · 체중 기록 ${Number(window?.weightDays || 0)}일</p>
+            <p class="caution">${escapeHtml(getRecentFlowWindowCaution(window))}</p>
+          </div>
+        `;
+      }).join("");
       host.innerHTML = `
-        <div class="recent-flow-preview">
-          <h4>최근 흐름 준비</h4>
-          <p>최근 흐름 판단은 다음 단계에서 확장됩니다. 지금은 최근 7일 기록 기준으로만 참고해 주세요. 오늘 할 일은 Today 코치에서 먼저 확인하세요.</p>
-          <div class="preview-chips">
-            <span class="preview-chip">주간 분석 기준</span>
-            <span class="preview-chip">기록 누적 후 확장</span>
-            <span class="preview-chip">Today 먼저 확인</span>
+        <div class="recent-flow-overview">
+          <div class="recent-flow-summary-card">
+            <h4>최근 흐름 판단 상태</h4>
+            <div class="recent-flow-conclusion">${escapeHtml(overview.conclusion)}</div>
+            <p>${escapeHtml(overview.detail)}</p>
+            <div class="preview-chips">
+              ${chips.map(chip => `<span class="preview-chip">${escapeHtml(chip)}</span>`).join("")}
+            </div>
+          </div>
+          <div class="recent-flow-window-grid">
+            ${windowCards}
+          </div>
+          <div class="recent-flow-points">
+            <h4>최근 반복 포인트</h4>
+            <div class="recent-flow-point-list">
+              ${points.map(point => `
+                <p class="recent-flow-point"><strong>${escapeHtml(point.title)}</strong>${escapeHtml(point.action)}</p>
+              `).join("")}
+            </div>
           </div>
         </div>
       `;
+    }
+
+    function renderRecentFlowPreview(){
+      renderRecentFlowOverview(calculate(), buildRecentContext(calculate()));
     }
 
     function renderWeeklyPanel(currentResult){
@@ -11301,11 +11548,12 @@ Notes:
           <div class="value">${v}</div>
         </div>
       `).join("");
-      renderRecentFlowPreview();
+      const recentContext = buildRecentContext(currentResult);
+      renderRecentFlowOverview(currentResult, recentContext);
       document.getElementById("weeklyInterpretationText").textContent = getWeeklyInterpretationText();
 
       const infoHost = document.getElementById("weeklyInfoHost");
-      infoHost.innerHTML = `<div class="weekly-reference-block"><h4>조정 참고</h4><p>이 영역은 자동 반영이 아닌 참고용 안내입니다.</p><p>필요 시 하루 100~150 kcal 범위에서 보수적으로 조정 여부를 검토할 수 있습니다.</p><p>식단 달성률 변동이 크거나 흐름이 불안정할 때 참고할 수 있습니다.</p></div>`;
+      infoHost.innerHTML = `<div class="weekly-reference-block"><h4>조정 참고</h4><p>이 영역은 자동 반영이 아닌 참고용 안내입니다.</p><p>기록이 충분히 쌓였을 때만 설정 변경 여부를 보수적으로 검토하세요.</p><p>오늘 행동은 Today 코치에서 먼저 확인하세요.</p></div>`;
 
       const warnHost = document.getElementById("weeklyWarningHost");
       warnHost.innerHTML = "";
@@ -11776,7 +12024,7 @@ Notes:
       syncPhilosophyBannerUI();
       document.getElementById("tabToday").textContent = "Today (실행)";
       document.getElementById("tabRecords").textContent = "Records (입력)";
-      document.getElementById("tabWeekly").textContent = "주간 분석";
+      document.getElementById("tabWeekly").textContent = "최근 흐름";
       document.getElementById("tabInbody").textContent = "InBody";
       document.getElementById("tabSettings").textContent = "기본 설정";
       document.getElementById("todayModeMini").textContent = `${getModeRuntimeConfig().label} 모드`;
@@ -14003,32 +14251,141 @@ Notes:
         const results = [];
         setValidTodayBalanceTestInputs();
 
-        results.push(runNamedTest("weekly recent flow preview slot renders inside weekly panel", () => {
+        results.push(runNamedTest("weekly recent flow summary renders inside weekly panel", () => {
           renderWeeklyPanel(calculate());
           const host = document.getElementById("recentFlowPreviewHost");
           assertTest(!!host?.closest("#weeklyPanel"), "recent flow preview host should live inside weekly panel");
           const text = host.textContent || "";
-          assertIncludesAll(text, ["최근 흐름 준비", "최근 흐름 판단은 다음 단계에서 확장됩니다", "Today 먼저 확인"], "recent flow preview copy");
+          assertIncludesAll(text, ["최근 흐름 판단 상태", "오늘 기록", "단기 흐름", "반복 패턴", "체중 흐름 참고", "장기 흐름 후보"], "recent flow summary copy");
         }));
 
-        results.push(runNamedTest("weekly recent flow preview avoids internal labels and future window values", () => {
+        results.push(runNamedTest("weekly recent flow summary avoids internal labels and five day value", () => {
           renderWeeklyPanel(calculate());
           const text = document.getElementById("recentFlowPreviewHost").textContent || "";
-          assertExcludesAll(text, ["confidence", "signal", "severity", "penalty", "cap", "decision", "recentContext", "engine", "primitive", "windowFit", "contextFit"], "recent flow preview internal labels");
-          assertExcludesAll(text, ["1일", "3일", "5일", "14일", "28일"], "recent flow preview should not expose future window values");
+          assertExcludesAll(text, ["confidence", "signal", "severity", "penalty", "cap", "decision", "recentContext", "engine", "primitive", "windowFit", "contextFit", "recordConfidence", "threshold"], "recent flow summary internal labels");
+          assertExcludesAll(text, ["5일"], "recent flow summary should not expose five day value");
         }));
 
-        results.push(runNamedTest("weekly tab label stays Korean weekly analysis", () => {
+        results.push(runNamedTest("weekly tab label changes to recent flow", () => {
           render();
-          assertTest(document.getElementById("tabWeekly").textContent.trim() === "주간 분석", "weekly tab label should stay 주간 분석");
+          assertTest(document.getElementById("tabWeekly").textContent.trim() === "최근 흐름", "weekly tab label should be recent flow");
         }));
 
-        results.push(runNamedTest("weekly existing sections remain rendered with preview slot", () => {
+        results.push(runNamedTest("weekly existing sections remain rendered as reference", () => {
           renderWeeklyPanel(calculate());
           assertTest((document.getElementById("weeklySummaryRows").textContent || "").trim().length > 0, "weekly summary rows should stay rendered");
           assertTest((document.getElementById("weeklyInterpretationText").textContent || "").trim().length > 0, "weekly interpretation should stay rendered");
           assertTest((document.getElementById("weeklyInfoHost").textContent || "").includes("조정 참고"), "weekly info host should keep adjustment reference");
+          assertTest((document.querySelector(".weekly-report-group")?.textContent || "").includes("7일 참고 분석"), "weekly report group should be lowered to reference");
           assertTest(!!document.getElementById("weeklyHero"), "weekly hero should remain present");
+        }));
+
+        const makeWeeklyFlowMeal = (date, id, overrides = {}) => ({
+          id,
+          mealLabel: "meal",
+          carbs: 60,
+          protein: 35,
+          fat: 18,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "",
+          createdAt: `${date}T08:00:00.000Z`,
+          ...overrides
+        });
+        const makeWeeklyFlowSnapshot = (overrides = {}) => ({
+          targetCal: 2000,
+          protein: 130,
+          carbs: 240,
+          fat: 70,
+          goal: "lean_bulk",
+          routine: "REST",
+          weightDuration: 0,
+          weeklyTrainingDays: 6,
+          ...overrides
+        });
+        const setWeeklyFlowRecords = records => {
+          recordsState.items = normalizeRecordsCollection(records);
+          renderWeeklyPanel(calculate());
+          return document.getElementById("weeklyPanel").textContent || "";
+        };
+
+        results.push(runNamedTest("weekly recent flow keeps only configured period cards", () => {
+          renderWeeklyPanel(calculate());
+          const cards = Array.from(document.querySelectorAll("[data-recent-flow-days]")).map(card => card.getAttribute("data-recent-flow-days"));
+          assertTest(JSON.stringify(cards) === JSON.stringify(["1", "3", "7", "14", "28"]), "recent flow cards should be 1/3/7/14/28");
+          assertTest(!cards.includes("5"), "recent flow cards should exclude five day card");
+        }));
+
+        results.push(runNamedTest("weekly recent flow shows action when records are low", () => {
+          recordsState.items = normalizeRecordsCollection([]);
+          renderWeeklyPanel(calculate());
+          const text = document.getElementById("recentFlowPreviewHost").textContent || "";
+          assertIncludesAll(text, ["기록이 아직 부족", "주요 식사 2끼 이상", "아침 공복 체중"], "low records should still show action");
+        }));
+
+        results.push(runNamedTest("weekly recent flow goal change gets conservative copy", () => {
+          state.goal = "lean_bulk";
+          const today = getTodayDateString();
+          const yesterday = shiftDateString(today, -1);
+          const text = setWeeklyFlowRecords([
+            { date: yesterday, goalSnapshot: makeWeeklyFlowSnapshot({ goal: "diet" }), meals: [makeWeeklyFlowMeal(yesterday, "m1"), makeWeeklyFlowMeal(yesterday, "m2")] },
+            { date: today, goalSnapshot: makeWeeklyFlowSnapshot({ goal: "bulk" }), meals: [makeWeeklyFlowMeal(today, "m3"), makeWeeklyFlowMeal(today, "m4")] }
+          ]);
+          assertIncludesAll(text, ["최근 목표가 바뀐 기록", "현재 목표 기준"], "goal change copy should lead");
+        }));
+
+        results.push(runNamedTest("weekly recent flow other kcal copy treats it as interpretation limit", () => {
+          const today = getTodayDateString();
+          const yesterday = shiftDateString(today, -1);
+          const text = setWeeklyFlowRecords([
+            { date: yesterday, goalSnapshot: makeWeeklyFlowSnapshot(), meals: [makeWeeklyFlowMeal(yesterday, "m1", { otherKcal: 360 }), makeWeeklyFlowMeal(yesterday, "m2")] },
+            { date: today, goalSnapshot: makeWeeklyFlowSnapshot(), meals: [makeWeeklyFlowMeal(today, "m3"), makeWeeklyFlowMeal(today, "m4")] }
+          ]);
+          assertIncludesAll(text, ["기타 칼로리", "탄단지 흐름을 보수적으로", "탄단지로 나눠 기록"], "other kcal should be framed as interpretation limit");
+        }));
+
+        results.push(runNamedTest("weekly recent flow repeated protein low shows protein action", () => {
+          const today = getTodayDateString();
+          const yesterday = shiftDateString(today, -1);
+          const text = setWeeklyFlowRecords([
+            { date: yesterday, goalSnapshot: makeWeeklyFlowSnapshot({ protein: 150 }), meals: [makeWeeklyFlowMeal(yesterday, "m1", { protein: 20 }), makeWeeklyFlowMeal(yesterday, "m2", { protein: 20 })] },
+            { date: today, goalSnapshot: makeWeeklyFlowSnapshot({ protein: 150 }), meals: [makeWeeklyFlowMeal(today, "m3", { protein: 20 }), makeWeeklyFlowMeal(today, "m4", { protein: 20 })] }
+          ]);
+          assertIncludesAll(text, ["단백질 부족이 반복", "단백질을 먼저 채우세요"], "protein repeated low should show action");
+        }));
+
+        results.push(runNamedTest("weekly recent flow avoids training carb copy without actual training days", () => {
+          const today = getTodayDateString();
+          const yesterday = shiftDateString(today, -1);
+          const text = setWeeklyFlowRecords([
+            { date: yesterday, goalSnapshot: makeWeeklyFlowSnapshot({ routine: "REST", weightDuration: 0 }), meals: [makeWeeklyFlowMeal(yesterday, "m1", { carbs: 10 }), makeWeeklyFlowMeal(yesterday, "m2", { carbs: 10 })] },
+            { date: today, goalSnapshot: makeWeeklyFlowSnapshot({ routine: "REST", weightDuration: 0 }), meals: [makeWeeklyFlowMeal(today, "m3", { carbs: 10 }), makeWeeklyFlowMeal(today, "m4", { carbs: 10 })] }
+          ]);
+          assertTest(!text.includes("실제 웨이트일 탄수화물이 낮은 날"), "training carb copy should require actual training days");
+        }));
+
+        results.push(runNamedTest("weekly recent flow fat low alone does not add fat action", () => {
+          const today = getTodayDateString();
+          const yesterday = shiftDateString(today, -1);
+          const text = setWeeklyFlowRecords([
+            { date: yesterday, goalSnapshot: makeWeeklyFlowSnapshot({ fat: 80 }), meals: [makeWeeklyFlowMeal(yesterday, "m1", { fat: 2 }), makeWeeklyFlowMeal(yesterday, "m2", { fat: 2 })] },
+            { date: today, goalSnapshot: makeWeeklyFlowSnapshot({ fat: 80 }), meals: [makeWeeklyFlowMeal(today, "m3", { fat: 2 }), makeWeeklyFlowMeal(today, "m4", { fat: 2 })] }
+          ]);
+          assertExcludesAll(text, ["지방을 먼저", "지방을 무조건", "지방 섭취를 올리"], "fat low alone should not add action");
+        }));
+
+        results.push(runNamedTest("weekly recent flow screen avoids internal user facing labels", () => {
+          renderWeeklyPanel(calculate());
+          const text = document.getElementById("weeklyPanel").textContent || "";
+          assertExcludesAll(text, ["recentContext", "confidence", "signal", "severity", "penalty", "cap", "decision", "windowFit", "contextFit", "recordConfidence", "primitive", "engine", "threshold"], "weekly screen internal labels");
+        }));
+
+        results.push(runNamedTest("today coach remains before KPI after recent flow rewrite", () => {
+          render();
+          const coachHost = document.getElementById("coachHost");
+          const kpiPanel = document.getElementById("kpiPanel");
+          assertTest(!!coachHost && !!kpiPanel, "coach and KPI hosts should exist");
+          assertTest(!!(coachHost.compareDocumentPosition(kpiPanel) & Node.DOCUMENT_POSITION_FOLLOWING), "coach should remain before KPI");
         }));
 
         results.push(runNamedTest("weekly no data", () => {
@@ -14592,13 +14949,14 @@ Notes:
           assertExcludesAll(result.text, ["지방을 먼저", "지방을 무조건", "지방 식품을 소량 추가"], "fat low alone should not add action");
         }));
 
-        results.push(runNamedTest("daily coach keeps weekly preview and tab label unchanged", () => {
+        results.push(runNamedTest("daily coach leaves recent flow tab and panel connected", () => {
           renderWeeklyPanel(calculate());
           const weeklyText = document.getElementById("weeklyPanel").textContent || "";
-          const previewText = document.getElementById("recentFlowPreviewHost").textContent || "";
-          assertTest(document.getElementById("tabWeekly").textContent.trim() === "주간 분석", "weekly tab label should remain");
-          assertIncludesAll(weeklyText, ["최근 흐름 준비", "최근 흐름 판단은 다음 단계에서 확장됩니다"], "weekly preview copy should remain");
-          assertExcludesAll(previewText, ["1일", "3일", "5일", "14일", "28일"], "weekly preview should not expose window values");
+          const flowText = document.getElementById("recentFlowPreviewHost").textContent || "";
+          render();
+          assertTest(document.getElementById("tabWeekly").textContent.trim() === "최근 흐름", "weekly tab label should be recent flow");
+          assertIncludesAll(weeklyText, ["최근 흐름 판단 상태", "7일 참고 분석"], "recent flow panel should stay connected");
+          assertExcludesAll(flowText, ["5일"], "recent flow panel should not expose five day value");
         }));
 
         results.push(runNamedTest("daily coach recent context still excludes five day window", () => {
