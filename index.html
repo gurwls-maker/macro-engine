@@ -1,10 +1,10 @@
 <!--
-Version: 6.3-C
-Stage: 6.3-C 지방 profile 역할 분리
+Version: 6.4-A
+Stage: 6.4-A recentContext engine 구현
 Date: 2026-05-05
 Notes:
-- 지방 profile을 내부 안전 하한 / 향후 행동 기준 / 목표 범위 / 현실 상한으로 분리
-- 점수 산식 / 저장 schema / import/export schema / recentContext engine / fat low 안내 / Coach decision matrix 변경 없음
+- recentContext engine 구현
+- Daily Coach 주입 / 점수 산식 / 저장 schema / import/export schema / fat low 안내 / Coach decision matrix / UI 재구성 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -12,7 +12,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.3-C</title>
+  <title>탄단지 다이어리 v6.4-A</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3278,7 +3278,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.3-C</span>
+               <span class="app-version">v6.4-A</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -4367,6 +4367,13 @@ Notes:
     };
     let suppressTodayRecordAutoSync = false;
     const ADHERENCE_SCORING_VERSION = "v6.1_alcohol_penalty_v2";
+    const RECENT_CONTEXT_WINDOWS = [1, 3, 7, 14, 28];
+    const RECENT_CONTEXT_CONFIDENCE_ORDER = {
+      blocked: 0,
+      low: 1,
+      medium: 2,
+      high: 3
+    };
 
     function storageKey(name){
       return `${STORAGE_PREFIX}${name}`;
@@ -6114,6 +6121,251 @@ Notes:
         }
       });
       return countedDates.size;
+    }
+
+    function getRecentContextConfidenceMin(...levels){
+      return levels.reduce((minLevel, level) => {
+        const currentRank = RECENT_CONTEXT_CONFIDENCE_ORDER[level] ?? 0;
+        const minRank = RECENT_CONTEXT_CONFIDENCE_ORDER[minLevel] ?? Infinity;
+        return currentRank < minRank ? level : minLevel;
+      }, "high");
+    }
+
+    function getRecentContextRecordConfidence(windowDays, usableDietDays, mealRecordDays){
+      if (!mealRecordDays) return "blocked";
+      if (!usableDietDays) return "low";
+      const requiredUsableDays = windowDays === 1
+        ? 1
+        : windowDays === 3
+          ? 2
+          : Math.ceil(windowDays * 0.55);
+      if (usableDietDays >= requiredUsableDays) return "high";
+      if (usableDietDays >= Math.max(1, Math.ceil(requiredUsableDays * 0.5))) return "medium";
+      return "low";
+    }
+
+    function getRecentContextWindowFit(windowDays, usableDietDays, weightDays){
+      if (!usableDietDays && !weightDays) return "blocked";
+      if (windowDays === 1) return usableDietDays ? "high" : "low";
+      const patternMinimum = windowDays === 3 ? 2 : windowDays === 7 ? 4 : windowDays === 14 ? 7 : 12;
+      if (usableDietDays >= patternMinimum) return "high";
+      if (usableDietDays >= Math.max(1, Math.ceil(patternMinimum * 0.5))) return "medium";
+      return "low";
+    }
+
+    function getGoalKeyFromSnapshot(snapshot){
+      if (!snapshot || typeof snapshot !== "object") return null;
+      const goalKey = String(snapshot.goal || snapshot.goalType || "").trim();
+      return goalKey || null;
+    }
+
+    function getRecentContextRecordSummary(record){
+      const normalized = normalizeRecord(record);
+      const meals = Array.isArray(normalized.meals) ? normalized.meals : [];
+      const totals = meals.reduce((sum, meal) => {
+        const energy = calculateMealEnergy(meal);
+        sum.carbs += meal.carbs;
+        sum.protein += meal.protein;
+        sum.fat += meal.fat;
+        sum.macroKcal += energy.macroKcal;
+        sum.alcoholKcal += energy.alcoholKcal;
+        sum.otherKcal += energy.otherKcal;
+        sum.totalKcal += energy.totalKcal;
+        return sum;
+      }, { carbs: 0, protein: 0, fat: 0, macroKcal: 0, alcoholKcal: 0, otherKcal: 0, totalKcal: 0 });
+      const mealCount = meals.length;
+      const hasMeals = mealCount > 0;
+      const hasGoalSnapshot = !!normalized.goalSnapshot;
+      const goalType = getGoalKeyFromSnapshot(normalized.goalSnapshot);
+      return {
+        date: normalized.date,
+        hasMeals,
+        mealCount,
+        totalKcal: totals.totalKcal,
+        macroKcal: totals.macroKcal,
+        carbs: totals.carbs,
+        protein: totals.protein,
+        fat: totals.fat,
+        alcoholKcal: totals.alcoholKcal,
+        otherKcal: totals.otherKcal,
+        hasWeight: Number.isFinite(normalized.weight),
+        weight: Number.isFinite(normalized.weight) ? normalized.weight : null,
+        adherencePercent: Number.isFinite(normalized.adherencePercent) ? normalized.adherencePercent : null,
+        adherenceSource: normalized.adherenceSource || "manual",
+        adherenceScoringVersion: normalized.adherenceScoringVersion || null,
+        hasGoalSnapshot,
+        snapshotSource: normalized.snapshotSource || null,
+        goalType,
+        targetCal: hasGoalSnapshot ? normalized.goalSnapshot.targetCal : null,
+        targetProtein: hasGoalSnapshot ? normalized.goalSnapshot.protein : null,
+        targetCarbs: hasGoalSnapshot ? normalized.goalSnapshot.carbs : null,
+        targetFat: hasGoalSnapshot ? normalized.goalSnapshot.fat : null,
+        isActualWeightTrainingDay: isWeightTrainingSnapshot(normalized.goalSnapshot),
+        usableDietDay: hasMeals && (totals.totalKcal >= 500 || (mealCount >= 2 && totals.totalKcal > 0)),
+        partialDietDay: hasMeals && !(totals.totalKcal >= 500 || (mealCount >= 2 && totals.totalKcal > 0)),
+        otherKcalHeavy: totals.otherKcal >= 300 || (totals.totalKcal > 0 && totals.otherKcal / totals.totalKcal >= 0.35),
+        componentEligible: hasGoalSnapshot && mealCount >= 2 && (totals.totalKcal >= 500 || totals.totalKcal > 0)
+      };
+    }
+
+    function getRecentContextGoalChange(recordSummaries, currentResult){
+      const goalKeys = new Set(recordSummaries.map(item => item.goalType).filter(Boolean));
+      const currentGoal = String(currentResult?.s?.goal || state.goal || "").trim();
+      if (currentGoal && goalKeys.size > 0) goalKeys.add(currentGoal);
+      return goalKeys.size > 1;
+    }
+
+    function getRecentContextComponentCounts(recordSummaries){
+      return recordSummaries.reduce((counts, item) => {
+        if (!item.componentEligible) return counts;
+        if (Number.isFinite(item.targetProtein) && item.targetProtein > 0) {
+          if (item.protein < item.targetProtein * 0.90) counts.proteinLowDays += 1;
+          if (item.protein < item.targetProtein * 0.65) counts.proteinSevereLowDays += 1;
+        }
+        if (Number.isFinite(item.targetCarbs) && item.targetCarbs > 0 && item.carbs < item.targetCarbs * 0.85) {
+          if (item.isActualWeightTrainingDay) counts.carbLowTrainingDays += 1;
+          else counts.carbLowRestDays += 1;
+        }
+        if (Number.isFinite(item.targetFat) && item.targetFat > 0) {
+          const fatLowFloor = Math.max(0, item.targetFat * 0.75);
+          if (item.fat < fatLowFloor) counts.fatLowDays += 1;
+          if (item.fat > item.targetFat * 1.25) counts.fatHighDays += 1;
+        }
+        return counts;
+      }, {
+        proteinLowDays: 0,
+        proteinSevereLowDays: 0,
+        fatLowDays: 0,
+        fatHighDays: 0,
+        carbLowTrainingDays: 0,
+        carbLowRestDays: 0
+      });
+    }
+
+    function getRecentContextContextFit({ recordConfidence, goalSnapshotCoverage, goalChangeDetected, otherKcalHeavyDays, usableDietDays, manualAdherenceDays, actualWeightTrainingDays, componentCandidateDays, windowDays }){
+      let contextFit = recordConfidence;
+      if (!usableDietDays) return "blocked";
+      if (goalSnapshotCoverage < 0.35) contextFit = getRecentContextConfidenceMin(contextFit, "low");
+      else if (goalSnapshotCoverage < 0.70) contextFit = getRecentContextConfidenceMin(contextFit, "medium");
+      if (goalChangeDetected) contextFit = getRecentContextConfidenceMin(contextFit, "medium");
+      if (otherKcalHeavyDays >= Math.max(1, Math.ceil(usableDietDays * 0.35))) {
+        contextFit = getRecentContextConfidenceMin(contextFit, "medium");
+      }
+      if (manualAdherenceDays > 0 && manualAdherenceDays >= Math.ceil(usableDietDays * 0.6)) {
+        contextFit = getRecentContextConfidenceMin(contextFit, "medium");
+      }
+      if (windowDays >= 7 && componentCandidateDays > 0 && actualWeightTrainingDays === 0) {
+        contextFit = getRecentContextConfidenceMin(contextFit, "medium");
+      }
+      return contextFit;
+    }
+
+    function buildRecentContextWindow(windowDays, currentResult, options = {}){
+      const safeWindowDays = Number(windowDays);
+      const asOfDate = normalizeDateString(options.asOfDate) || getTodayDateString();
+      const includeToday = options.includeToday !== false;
+      const endDate = includeToday ? asOfDate : shiftDateString(asOfDate, -1);
+      const startDate = shiftDateString(endDate, -(safeWindowDays - 1));
+      const sourceRecords = Array.isArray(options.records) ? normalizeRecordsCollection(options.records) : getSortedRecords();
+      const records = sourceRecords
+        .filter(record => record.date >= startDate && record.date <= endDate)
+        .map(getRecentContextRecordSummary)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      const recordCount = records.length;
+      const mealRecordDays = records.filter(item => item.hasMeals).length;
+      const usableDietDays = records.filter(item => item.usableDietDay).length;
+      const weightDays = records.filter(item => item.hasWeight).length;
+      const usableSnapshotRecords = records.filter(item => item.usableDietDay && item.hasGoalSnapshot);
+      const goalSnapshotDays = usableSnapshotRecords.length;
+      const snapshotMissingDays = records
+        .filter(item => item.usableDietDay && !item.hasGoalSnapshot)
+        .map(item => item.date);
+      const goalSnapshotCoverage = usableDietDays > 0 ? goalSnapshotDays / usableDietDays : 0;
+      const goalTypes = Array.from(new Set(records.map(item => item.goalType).filter(Boolean)));
+      const goalChangeDetected = getRecentContextGoalChange(records, currentResult);
+      const actualWeightTrainingDays = records.filter(item => item.isActualWeightTrainingDay).length;
+      const otherKcalHeavyDays = records.filter(item => item.otherKcalHeavy).length;
+      const alcoholDays = records.filter(item => item.alcoholKcal > 0).length;
+      const alcoholKcalTotal = records.reduce((sum, item) => sum + item.alcoholKcal, 0);
+      const alcoholWithHighFatDays = records.filter(item =>
+        item.alcoholKcal > 0 &&
+        Number.isFinite(item.targetFat) &&
+        item.targetFat > 0 &&
+        item.fat > item.targetFat * 1.25
+      ).length;
+      const componentCounts = getRecentContextComponentCounts(records);
+      const manualAdherenceDays = records.filter(item => item.usableDietDay && item.adherenceSource !== "auto").length;
+      const componentCandidateDays = records.filter(item => item.componentEligible).length;
+      const recordConfidence = getRecentContextRecordConfidence(safeWindowDays, usableDietDays, mealRecordDays);
+      const windowFit = getRecentContextWindowFit(safeWindowDays, usableDietDays, weightDays);
+      const contextFit = getRecentContextContextFit({
+        recordConfidence,
+        goalSnapshotCoverage,
+        goalChangeDetected,
+        otherKcalHeavyDays,
+        usableDietDays,
+        manualAdherenceDays,
+        actualWeightTrainingDays,
+        componentCandidateDays,
+        windowDays: safeWindowDays
+      });
+
+      return {
+        windowDays: safeWindowDays,
+        startDate,
+        endDate,
+        records,
+        recordCount,
+        mealRecordDays,
+        usableDietDays,
+        partialDietDays: records.filter(item => item.partialDietDay).length,
+        weightDays,
+        goalSnapshotDays,
+        goalSnapshotCoverage,
+        snapshotMissingDays,
+        goalTypes,
+        goalChangeDetected,
+        actualWeightTrainingDays,
+        otherKcalHeavyDays,
+        alcoholDays,
+        alcoholKcalTotal,
+        alcoholWithHighFatDays,
+        ...componentCounts,
+        recordConfidence,
+        windowFit,
+        contextFit
+      };
+    }
+
+    function buildRecentContext(currentResult = calculate(), options = {}){
+      const asOfDate = normalizeDateString(options.asOfDate) || getTodayDateString();
+      const sourceRecords = Array.isArray(options.records) ? normalizeRecordsCollection(options.records) : getSortedRecords();
+      const windows = RECENT_CONTEXT_WINDOWS.reduce((acc, windowDays) => {
+        acc[windowDays] = buildRecentContextWindow(windowDays, currentResult, {
+          ...options,
+          asOfDate,
+          records: sourceRecords
+        });
+        return acc;
+      }, {});
+      const usableWindows = RECENT_CONTEXT_WINDOWS.map(days => windows[days])
+        .filter(window => window.usableDietDays > 0 || window.weightDays > 0);
+      const rankedWindows = usableWindows.slice().sort((a, b) => {
+        const aRank = (RECENT_CONTEXT_CONFIDENCE_ORDER[a.contextFit] ?? 0) + (RECENT_CONTEXT_CONFIDENCE_ORDER[a.windowFit] ?? 0) + (RECENT_CONTEXT_CONFIDENCE_ORDER[a.recordConfidence] ?? 0);
+        const bRank = (RECENT_CONTEXT_CONFIDENCE_ORDER[b.contextFit] ?? 0) + (RECENT_CONTEXT_CONFIDENCE_ORDER[b.windowFit] ?? 0) + (RECENT_CONTEXT_CONFIDENCE_ORDER[b.recordConfidence] ?? 0);
+        return bRank - aRank || b.windowDays - a.windowDays;
+      });
+      return {
+        asOfDate,
+        windows,
+        summary: {
+          recordConfidence: windows[7]?.recordConfidence || "blocked",
+          shortestUsableWindow: usableWindows.length ? Math.min(...usableWindows.map(window => window.windowDays)) : null,
+          strongestUsableWindow: rankedWindows.length ? rankedWindows[0].windowDays : null,
+          goalChangeDetected: RECENT_CONTEXT_WINDOWS.some(days => windows[days].goalChangeDetected),
+          generatedAt: new Date().toISOString()
+        }
+      };
     }
 
     function syncWeeklyTrainingDaysInput(){
@@ -13784,6 +14036,168 @@ Notes:
       });
     }
 
+    function runRecentContextTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        setValidTodayBalanceTestInputs();
+        ids.autoDietAnalysis.checked = true;
+        const asOfDate = "2026-04-28";
+        const makeMeal = (id, overrides = {}) => ({
+          id,
+          mealLabel: "meal",
+          carbs: 60,
+          protein: 35,
+          fat: 18,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "",
+          createdAt: `${asOfDate}T08:00:00.000Z`,
+          ...overrides
+        });
+        const makeSnapshot = (overrides = {}) => ({
+          targetCal: 2000,
+          protein: 120,
+          carbs: 240,
+          fat: 70,
+          goal: "lean_bulk",
+          routine: "REST",
+          weightDuration: 0,
+          weeklyTrainingDays: 6,
+          ...overrides
+        });
+        const buildContext = (records, options = {}) => buildRecentContext(calculate(), {
+          asOfDate,
+          records,
+          ...options
+        });
+
+        results.push(runNamedTest("recent context windows stay fixed and exclude five day window", () => {
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows should be 1/3/7/14/28");
+          const context = buildContext([]);
+          assertIncludesAll(Object.keys(context.windows).join(","), ["1", "3", "7", "14", "28"], "recent context should build all configured windows");
+          assertTest(!Object.prototype.hasOwnProperty.call(context.windows, "5"), "recent context should not build five day window");
+        }));
+
+        results.push(runNamedTest("recent context usable diet days separate empty partial and usable meal days", () => {
+          const context = buildContext([
+            { date: "2026-04-26", weight: 75, meals: [] },
+            { date: "2026-04-27", meals: [makeMeal("m1", { carbs: 30, protein: 20, fat: 10 })] },
+            { date: "2026-04-28", meals: [makeMeal("m2"), makeMeal("m3")] }
+          ]);
+          const window3 = context.windows[3];
+          assertTest(window3.recordCount === 3, "three records should be read");
+          assertTest(window3.mealRecordDays === 2, "two days should have meals");
+          assertTest(window3.partialDietDays === 1, "one single low-energy day should be partial");
+          assertTest(window3.usableDietDays === 1, "only the two meal day should be usable");
+        }));
+
+        results.push(runNamedTest("recent seven low usable diet days cannot be high confidence", () => {
+          const context = buildContext([
+            { date: "2026-04-26", meals: [makeMeal("m1"), makeMeal("m2")] },
+            { date: "2026-04-28", meals: [makeMeal("m3")] }
+          ]);
+          assertTest(context.windows[7].usableDietDays < 4, "test fixture should stay below four usable days");
+          assertTest(context.windows[7].recordConfidence !== "high", "recent seven should not be high with low usable days");
+        }));
+
+        results.push(runNamedTest("recent context goal snapshot coverage uses usable diet days only", () => {
+          const context = buildContext([
+            { date: "2026-04-26", goalSnapshot: makeSnapshot(), meals: [makeMeal("m1"), makeMeal("m2")] },
+            { date: "2026-04-27", meals: [makeMeal("m3"), makeMeal("m4")] },
+            { date: "2026-04-28", goalSnapshot: makeSnapshot(), meals: [makeMeal("m5"), makeMeal("m6")] }
+          ]);
+          const window3 = context.windows[3];
+          assertTest(window3.usableDietDays === 3, "all three days should be usable");
+          assertClose(window3.goalSnapshotCoverage, 2 / 3, 0.0001, "snapshot coverage should be two of three usable days");
+          assertTest(window3.snapshotMissingDays.join(",") === "2026-04-27", "missing snapshot day should be listed");
+        }));
+
+        results.push(runNamedTest("recent context does not compare snapshotless records to today goal", () => {
+          const context = buildContext([
+            { date: "2026-04-27", meals: [makeMeal("m1", { carbs: 0, protein: 0, fat: 0 }), makeMeal("m2", { carbs: 0, protein: 0, fat: 0, otherKcal: 700 })] },
+            { date: "2026-04-28", goalSnapshot: makeSnapshot(), meals: [makeMeal("m3", { protein: 50, carbs: 120, fat: 20 }), makeMeal("m4", { protein: 10, carbs: 20, fat: 5 })] }
+          ]);
+          const window3 = context.windows[3];
+          assertTest(window3.proteinLowDays === 1, "only snapshot-backed usable day should count protein low");
+          assertTest(window3.fatLowDays === 1, "only snapshot-backed usable day should count fat low");
+          assertTest(window3.snapshotMissingDays.includes("2026-04-27"), "snapshotless usable day should remain a coverage gap");
+        }));
+
+        results.push(runNamedTest("recent context detects goal change inside window and against current result", () => {
+          state.goal = "lean_bulk";
+          const sameCurrent = buildContext([
+            { date: "2026-04-27", goalSnapshot: makeSnapshot({ goal: "diet" }), meals: [makeMeal("m1"), makeMeal("m2")] },
+            { date: "2026-04-28", goalSnapshot: makeSnapshot({ goal: "diet" }), meals: [makeMeal("m3"), makeMeal("m4")] }
+          ]);
+          assertTest(sameCurrent.windows[3].goalChangeDetected === true, "current goal mixed with snapshot goal should flag change");
+          const insideWindow = buildContext([
+            { date: "2026-04-27", goalSnapshot: makeSnapshot({ goal: "diet" }), meals: [makeMeal("m1"), makeMeal("m2")] },
+            { date: "2026-04-28", goalSnapshot: makeSnapshot({ goal: "bulk" }), meals: [makeMeal("m3"), makeMeal("m4")] }
+          ]);
+          assertTest(insideWindow.windows[3].goalChangeDetected === true, "two snapshot goals should flag change");
+        }));
+
+        results.push(runNamedTest("recent context counts actual weight training only from goal snapshot", () => {
+          const context = buildContext([
+            { date: "2026-04-26", note: "웨이트", meals: [makeMeal("m1"), makeMeal("m2")] },
+            { date: "2026-04-27", goalSnapshot: makeSnapshot({ routine: "REST", weightDuration: 60, weeklyTrainingDays: 7 }), meals: [makeMeal("m3"), makeMeal("m4")] },
+            { date: "2026-04-28", goalSnapshot: makeSnapshot({ routine: "PUSH", weightDuration: 45, weeklyTrainingDays: 7 }), meals: [makeMeal("m5"), makeMeal("m6")] }
+          ]);
+          assertTest(context.windows[3].actualWeightTrainingDays === 1, "only recorded non-rest weight snapshot should count");
+        }));
+
+        results.push(runNamedTest("recent context separates other kcal and alcohol metrics", () => {
+          const context = buildContext([
+            { date: "2026-04-27", goalSnapshot: makeSnapshot(), meals: [makeMeal("m1", { otherKcal: 320 }), makeMeal("m2")] },
+            { date: "2026-04-28", goalSnapshot: makeSnapshot(), meals: [makeMeal("m3", { alcoholKcal: 140 }), makeMeal("m4", { alcoholKcal: 70 })] }
+          ]);
+          const window3 = context.windows[3];
+          assertTest(window3.otherKcalHeavyDays === 1, "high other kcal day should be counted");
+          assertTest(window3.alcoholDays === 1, "alcohol day should be counted from alcohol kcal");
+          assertClose(window3.alcoholKcalTotal, 210, 0.0001, "alcohol kcal total should use ethanol kcal field");
+        }));
+
+        results.push(runNamedTest("recent context macro frequencies use snapshot backed usable days", () => {
+          const context = buildContext([
+            { date: "2026-04-27", goalSnapshot: makeSnapshot({ routine: "PUSH", weightDuration: 45 }), meals: [makeMeal("m1", { carbs: 60, protein: 40, fat: 18 }), makeMeal("m2", { carbs: 40, protein: 20, fat: 12 })] },
+            { date: "2026-04-28", goalSnapshot: makeSnapshot({ routine: "REST", weightDuration: 0 }), meals: [makeMeal("m3", { carbs: 70, protein: 45, fat: 55 }), makeMeal("m4", { carbs: 60, protein: 40, fat: 50 })] }
+          ]);
+          const window3 = context.windows[3];
+          assertTest(window3.proteinLowDays === 2, "protein low should count snapshot-backed usable days");
+          assertTest(window3.proteinSevereLowDays === 1, "severe protein low should count only strong low days");
+          assertTest(window3.carbLowTrainingDays === 1, "training carb low should require actual training snapshot");
+          assertTest(window3.carbLowRestDays === 1, "rest carb low should stay separate");
+          assertTest(window3.fatLowDays === 1, "fat low should be internal frequency only");
+          assertTest(window3.fatHighDays === 1, "fat high should count high fat day");
+        }));
+
+        results.push(runNamedTest("recent context summary exposes primitive fit values without UI wiring", () => {
+          const context = buildContext([
+            { date: "2026-04-27", goalSnapshot: makeSnapshot(), meals: [makeMeal("m1"), makeMeal("m2")] },
+            { date: "2026-04-28", goalSnapshot: makeSnapshot(), meals: [makeMeal("m3"), makeMeal("m4")] }
+          ]);
+          assertTest(["high", "medium", "low", "blocked"].includes(context.windows[3].recordConfidence), "record confidence primitive should exist");
+          assertTest(["high", "medium", "low", "blocked"].includes(context.windows[3].windowFit), "window fit primitive should exist");
+          assertTest(["high", "medium", "low", "blocked"].includes(context.windows[3].contextFit), "context fit primitive should exist");
+          assertTest(Number.isInteger(context.summary.strongestUsableWindow), "summary should choose a strongest usable window");
+        }));
+
+        results.push(runNamedTest("weekly snapshot remains separate from recent context engine", () => {
+          const weeklySnapshot = buildWeeklyDataSnapshot();
+          assertTest(!Object.prototype.hasOwnProperty.call(weeklySnapshot, "windows"), "weekly data snapshot should not become recent context");
+          assertTest(typeof buildRecentContext === "function", "recent context should stay in its own entry point");
+        }));
+
+        results.push(runNamedTest("recent context internals do not render on default UI", () => {
+          render();
+          const bodyText = document.body.innerText || "";
+          assertExcludesAll(bodyText, ["recentContext", "confidence", "signal", "severity", "penalty", "cap", "decision", "windowFit", "contextFit"], "default UI should not expose recent context internals");
+        }));
+
+        return results;
+      });
+    }
+
     function setMacroCalibrationInputs(goal = "lean_bulk"){
       state.mode = "athlete";
       ids.weight.value = "74.2";
@@ -15527,10 +15941,13 @@ Notes:
     window.runAdherenceScoringTests = runAdherenceScoringTests;
     window.runAdherenceUiTests = runAdherenceUiTests;
     window.runWeeklyAdherenceTests = runWeeklyAdherenceTests;
+    window.runRecentContextTests = runRecentContextTests;
     window.runMacroCalibrationTests = runMacroCalibrationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
     window.runWeeklyTrainingDayAutoTests = runWeeklyTrainingDayAutoTests;
+    window.RECENT_CONTEXT_WINDOWS = RECENT_CONTEXT_WINDOWS;
+    window.buildRecentContext = buildRecentContext;
 
     function initialize(){
       loadState();
