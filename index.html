@@ -1,10 +1,10 @@
 <!--
-Version: 6.4-A
-Stage: 6.4-A recentContext engine 구현
+Version: 6.4-B
+Stage: 6.4-B Daily Coach recentContext 주입
 Date: 2026-05-05
 Notes:
-- recentContext engine 구현
-- Daily Coach 주입 / 점수 산식 / 저장 schema / import/export schema / fat low 안내 / Coach decision matrix / UI 재구성 변경 없음
+- Daily Coach에 recentContext를 read-only로 주입
+- 점수 산식 / 저장 schema / import/export schema / Weekly UI 재구성 / fat low 행동 문구 / Coach decision matrix 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -12,7 +12,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.4-A</title>
+  <title>탄단지 다이어리 v6.4-B</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3278,7 +3278,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.4-A</span>
+               <span class="app-version">v6.4-B</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -7331,6 +7331,7 @@ Notes:
         balance,
         currentResult,
         state: currentState,
+        recentContext: context.recentContext || null,
         focusKey: context.focusKey || null
       };
     }
@@ -8615,6 +8616,178 @@ Notes:
       return "현재 기록 기준으로는 위와 같이 보입니다. 정확한 분석을 위해 기록을 보완해 주세요";
     }
 
+    function getCoachContextConfidence(recentContext){
+      if (!recentContext?.windows || !recentContext?.summary) {
+        return {
+          level: "blocked",
+          strongestWindow: null,
+          recent7: null,
+          goalChangeDetected: false,
+          goalSnapshotCoverage: 0
+        };
+      }
+      const strongestWindow = recentContext.windows[recentContext.summary.strongestUsableWindow]
+        || recentContext.windows[7]
+        || null;
+      const recent7 = recentContext.windows[7] || strongestWindow || null;
+      const goalSnapshotCoverage = Number.isFinite(strongestWindow?.goalSnapshotCoverage)
+        ? strongestWindow.goalSnapshotCoverage
+        : 0;
+      let level = getRecentContextConfidenceMin(
+        recentContext.summary.recordConfidence || "blocked",
+        strongestWindow?.recordConfidence || "blocked",
+        strongestWindow?.windowFit || "blocked",
+        strongestWindow?.contextFit || "blocked"
+      );
+      if (recentContext.summary.goalChangeDetected || strongestWindow?.goalChangeDetected) {
+        level = getRecentContextConfidenceMin(level, "medium");
+      }
+      if (goalSnapshotCoverage < 0.35) level = getRecentContextConfidenceMin(level, "low");
+      else if (goalSnapshotCoverage < 0.70) level = getRecentContextConfidenceMin(level, "medium");
+      return {
+        level,
+        strongestWindow,
+        recent7,
+        goalChangeDetected: !!(recentContext.summary.goalChangeDetected || strongestWindow?.goalChangeDetected),
+        goalSnapshotCoverage
+      };
+    }
+
+    function getRecentContextCoachGuard(recentContext){
+      const confidence = getCoachContextConfidence(recentContext);
+      const sourceWindow = confidence.recent7 || confidence.strongestWindow || {};
+      const usableDietDays = Number(sourceWindow.usableDietDays || 0);
+      const otherKcalHeavyDays = Number(sourceWindow.otherKcalHeavyDays || 0);
+      const proteinLowDays = Number(sourceWindow.proteinLowDays || 0);
+      const carbLowTrainingDays = Number(sourceWindow.carbLowTrainingDays || 0);
+      const actualWeightTrainingDays = Number(sourceWindow.actualWeightTrainingDays || 0);
+      const alcoholDays = Number(sourceWindow.alcoholDays || 0);
+      const otherKcalRepeated = otherKcalHeavyDays >= 2 || (usableDietDays > 0 && otherKcalHeavyDays / usableDietDays >= 0.35);
+      const proteinLowRepeated = proteinLowDays >= 2 || (usableDietDays >= 3 && proteinLowDays / usableDietDays >= 0.45);
+      const carbLowTrainingRepeated = carbLowTrainingDays >= 2 && actualWeightTrainingDays > 0;
+      return {
+        ...confidence,
+        sourceWindow,
+        usableDietDays,
+        otherKcalHeavyDays,
+        proteinLowDays,
+        carbLowTrainingDays,
+        actualWeightTrainingDays,
+        alcoholDays,
+        otherKcalRepeated,
+        proteinLowRepeated,
+        carbLowTrainingRepeated,
+        hasRecentContext: !!recentContext?.windows
+      };
+    }
+
+    function createRecentContextCoachItem(type, overrides = {}){
+      const copy = {
+        goal_change: {
+          key: "contextGuard",
+          state: "최근 목표가 바뀐 기록이 있습니다.",
+          reason: "이전 기록을 현재 목표와 그대로 비교하기는 어렵습니다.",
+          action: "오늘은 현재 목표 기준으로 식사를 맞추세요."
+        },
+        blocked: {
+          key: "contextGuard",
+          state: "최근 흐름 판단은 아직 이릅니다.",
+          reason: "기록이 부족하면 체중 변화만 보고 목표 칼로리를 조정하기 어렵습니다.",
+          action: "오늘은 주요 식사부터 탄단지로 기록하고, 가능하면 아침 공복 체중도 저장하세요."
+        },
+        low: {
+          key: "contextGuard",
+          state: "최근 흐름은 보수적으로 봅니다.",
+          reason: "최근 기록이 아직 부족해 체중 변화만 보고 목표 칼로리를 조정하기에는 이릅니다.",
+          action: "오늘은 주요 식사 2끼 이상을 기록하고 단백질을 먼저 채우세요."
+        },
+        other_kcal: {
+          key: "contextGuard",
+          state: "기타 칼로리가 큰 날이 있어 해석을 보수적으로 봅니다.",
+          reason: "총칼로리는 반영되지만 탄단지 흐름은 실제 식사와 다르게 보일 수 있습니다.",
+          action: "오늘은 가능한 탄단지로 나눠 기록하세요."
+        },
+        protein_low: {
+          key: "protein",
+          state: "최근 기록에서 단백질 부족이 반복됩니다.",
+          reason: "단백질이 반복해서 낮으면 회복과 식단 안정성이 흔들릴 수 있습니다.",
+          action: "오늘 남은 식사에서는 단백질을 먼저 채우세요."
+        },
+        carb_training_low: {
+          key: "carb",
+          state: "실제 웨이트 기록일에 탄수화물 부족이 반복됩니다.",
+          reason: "운동한 날 탄수화물이 반복해서 낮으면 훈련 볼륨과 회복이 흔들릴 수 있습니다.",
+          action: "오늘 운동이 있다면 탄수화물은 운동 전후 식사 안에서 보완하세요."
+        },
+        alcohol: {
+          key: "contextGuard",
+          state: "술이 있었던 날은 해석을 보수적으로 봅니다.",
+          reason: "술이 있었던 날은 회복과 식사 기록 해석이 흔들릴 수 있습니다.",
+          action: "오늘은 술을 더하지 말고 수분과 단백질부터 챙기세요."
+        }
+      }[type];
+      if (!copy) return null;
+      return {
+        ...copy,
+        status: "low",
+        severity: 1,
+        decisionType: `recent_context_${type}`,
+        contextGuardType: type,
+        ...overrides
+      };
+    }
+
+    function getRecentContextCoachItems(guard){
+      if (!guard?.hasRecentContext) return [];
+      const items = [];
+      if (guard.goalChangeDetected) {
+        items.push(createRecentContextCoachItem("goal_change", { severity: 2 }));
+        return items.filter(Boolean);
+      }
+      if (guard.level === "blocked") {
+        items.push(createRecentContextCoachItem("blocked", { severity: 2 }));
+        return items.filter(Boolean);
+      }
+      if (guard.level === "low") items.push(createRecentContextCoachItem("low"));
+      if (guard.otherKcalRepeated) items.push(createRecentContextCoachItem("other_kcal"));
+      if (guard.proteinLowRepeated) items.push(createRecentContextCoachItem("protein_low"));
+      if (guard.carbLowTrainingRepeated) items.push(createRecentContextCoachItem("carb_training_low"));
+      if (guard.alcoholDays >= 2) items.push(createRecentContextCoachItem("alcohol"));
+      return items.filter(Boolean);
+    }
+
+    function getRecentContextCoachNotice(guard){
+      if (!guard?.hasRecentContext) return "";
+      if (guard.goalChangeDetected) return "최근 목표가 바뀐 기록이 있어, 이전 흐름보다 오늘 목표 기준 행동을 먼저 봅니다.";
+      if (guard.level === "blocked") return "최근 흐름 판단은 아직 이릅니다. 오늘은 기록 보완이 우선입니다.";
+      if (guard.level === "low") return "최근 기록이 아직 부족해 체중 변화만 보고 조정하기에는 이릅니다.";
+      if (guard.otherKcalRepeated) return "최근 기록 중 기타 칼로리가 큰 날이 있어 탄단지 흐름 해석은 보수적으로 봅니다.";
+      if (guard.level === "medium") return "최근 기록 기준으로 참고하되, 오늘 행동을 먼저 보세요.";
+      return "";
+    }
+
+    function applyRecentContextToDailyCoachOutput(output, signals){
+      const recentContext = Array.isArray(signals) ? null : signals?.recentContext;
+      const guard = getRecentContextCoachGuard(recentContext);
+      const contextItems = getRecentContextCoachItems(guard);
+      const baseItems = Array.isArray(output.items) ? output.items : [];
+      const mergedItems = [];
+      contextItems.forEach(item => {
+        if (!mergedItems.some(existing => existing.contextGuardType === item.contextGuardType)) mergedItems.push(item);
+      });
+      baseItems.forEach(item => {
+        if (mergedItems.length >= 6) return;
+        const duplicatesContext = item.key === "dataQuality" && mergedItems.some(existing => ["blocked", "low"].includes(existing.contextGuardType));
+        if (!duplicatesContext) mergedItems.push(item);
+      });
+      return {
+        ...output,
+        items: mergedItems.length ? mergedItems : baseItems,
+        contextGuard: guard,
+        contextNotice: getRecentContextCoachNotice(guard)
+      };
+    }
+
     function selectDailyCoachSignals(signals){
       return selectDailyCoachDecisions(signals);
     }
@@ -8629,7 +8802,7 @@ Notes:
       const selectedDecisions = selectDailyCoachDecisions(signals);
       const inbodySignal = getInbodyCoachSignal();
       const inbodyHint = getDailyCoachInbodyText(inbodySignal, goalType);
-      return {
+      const output = {
         items: selectedDecisions.map(decision => ({
           key: decision.key,
           status: decision.status,
@@ -8652,6 +8825,7 @@ Notes:
         inbodySignal,
         inbodyHint: inbodyHint
       };
+      return applyRecentContextToDailyCoachOutput(output, signals);
     }
 
     function getRecordSummaryByDate(date){
@@ -10269,14 +10443,15 @@ Notes:
     }
 
     */
-    function renderCoachPanel(r, balance, adherenceResult){
+    function renderCoachPanel(r, balance, adherenceResult, options = {}){
       const host = document.getElementById("coachHost");
       if (!host) return;
       const signals = getDailyCoachSignals({
         currentResult: r,
         balance,
         adherenceResult,
-        state: r?.s
+        state: r?.s,
+        recentContext: options.recentContext || null
       });
       const coach = generateDailyCoachOutput(signals);
       const coachItems = Array.isArray(coach?.items) && coach.items.length
@@ -10305,6 +10480,12 @@ Notes:
         confidenceEl.className = "coach-summary";
         confidenceEl.textContent = coach.confidence;
         gridEl?.before(confidenceEl);
+      }
+      if (coach?.contextNotice) {
+        const contextNoticeEl = document.createElement("div");
+        contextNoticeEl.className = "coach-summary";
+        contextNoticeEl.textContent = coach.contextNotice;
+        gridEl?.before(contextNoticeEl);
       }
       if (!gridEl) return;
       coachItems.forEach(item => {
@@ -10451,6 +10632,7 @@ Notes:
       previousOverIntake: "전날 과식",
       otherKcal: "기타칼로리",
       training: "운동 참고",
+      contextGuard: "최근 기록",
       dataQuality: "기록 확인",
       inbody: "InBody 참고"
     };
@@ -11664,11 +11846,13 @@ Notes:
       const todayBalance = getTodayMacroBalance(result);
       const todayAdherence = getTodayAdherenceScore(result);
       const todaySnapshot = buildTodayDataSnapshot(result);
+      const recentContext = buildRecentContext(result);
       const todayCoachSignals = getDailyCoachSignals({
         currentResult: result,
         balance: todayBalance,
         adherenceResult: todayAdherence,
-        state: result?.s
+        state: result?.s,
+        recentContext
       });
       const todayCoach = generateDailyCoachOutput(todayCoachSignals);
       // 5.3.3: todaySnapshot is a read-only bridge for upcoming UI layers.
@@ -11676,7 +11860,7 @@ Notes:
       renderTodayConsumptionPanel(todayBalance);
       renderTodayRemainingPanel(todayBalance);
       renderTodayAdherencePanel(todayAdherence, { coach: todayCoach });
-      renderCoachPanel(result, todayBalance, todayAdherence);
+      renderCoachPanel(result, todayBalance, todayAdherence, { recentContext });
       renderTodaySignalSummary(todaySnapshot);
       renderFlowRows(result);
       renderMetaRows(result);
@@ -11976,6 +12160,13 @@ Notes:
       const source = String(text || "");
       const missing = keywords.filter(keyword => !source.includes(keyword));
       if (missing.length) throw new Error(`${message}: missing ${missing.join(", ")}`);
+    }
+
+    function assertIncludesAny(text, keywords, message){
+      const source = String(text || "");
+      if (!keywords.some(keyword => source.includes(keyword))) {
+        throw new Error(`${message}: missing any of ${keywords.join(", ")}`);
+      }
     }
 
     function assertExcludesAll(text, keywords, message){
@@ -14198,6 +14389,227 @@ Notes:
       });
     }
 
+    function runDailyCoachRecentContextTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        setValidTodayBalanceTestInputs();
+        ids.autoDietAnalysis.checked = true;
+
+        function createMockRecentContext(config = {}){
+          const level = config.level || "medium";
+          const usableDietDays = Number.isFinite(config.usableDietDays) ? config.usableDietDays : 5;
+          const goalSnapshotCoverage = Number.isFinite(config.goalSnapshotCoverage) ? config.goalSnapshotCoverage : 1;
+          const window7 = {
+            windowDays: 7,
+            startDate: "2026-04-22",
+            endDate: "2026-04-28",
+            records: [],
+            recordCount: usableDietDays,
+            mealRecordDays: usableDietDays,
+            usableDietDays,
+            weightDays: Number.isFinite(config.weightDays) ? config.weightDays : usableDietDays,
+            goalSnapshotDays: Math.round(usableDietDays * goalSnapshotCoverage),
+            goalSnapshotCoverage,
+            snapshotMissingDays: [],
+            goalTypes: config.goalTypes || ["lean_bulk"],
+            goalChangeDetected: !!config.goalChangeDetected,
+            actualWeightTrainingDays: Number.isFinite(config.actualWeightTrainingDays) ? config.actualWeightTrainingDays : 0,
+            otherKcalHeavyDays: Number.isFinite(config.otherKcalHeavyDays) ? config.otherKcalHeavyDays : 0,
+            alcoholDays: Number.isFinite(config.alcoholDays) ? config.alcoholDays : 0,
+            alcoholKcalTotal: Number.isFinite(config.alcoholKcalTotal) ? config.alcoholKcalTotal : 0,
+            proteinLowDays: Number.isFinite(config.proteinLowDays) ? config.proteinLowDays : 0,
+            proteinSevereLowDays: Number.isFinite(config.proteinSevereLowDays) ? config.proteinSevereLowDays : 0,
+            fatLowDays: Number.isFinite(config.fatLowDays) ? config.fatLowDays : 0,
+            fatHighDays: Number.isFinite(config.fatHighDays) ? config.fatHighDays : 0,
+            carbLowTrainingDays: Number.isFinite(config.carbLowTrainingDays) ? config.carbLowTrainingDays : 0,
+            carbLowRestDays: Number.isFinite(config.carbLowRestDays) ? config.carbLowRestDays : 0,
+            recordConfidence: level,
+            windowFit: config.windowFit || level,
+            contextFit: config.contextFit || level
+          };
+          return {
+            asOfDate: "2026-04-28",
+            windows: {
+              1: { ...window7, windowDays: 1, usableDietDays: Math.min(1, usableDietDays) },
+              3: { ...window7, windowDays: 3, usableDietDays: Math.min(3, usableDietDays) },
+              7: window7,
+              14: { ...window7, windowDays: 14 },
+              28: { ...window7, windowDays: 28 }
+            },
+            summary: {
+              recordConfidence: level,
+              shortestUsableWindow: usableDietDays > 0 ? 1 : null,
+              strongestUsableWindow: usableDietDays > 0 ? 7 : null,
+              goalChangeDetected: !!config.goalChangeDetected,
+              generatedAt: "2026-04-28T00:00:00.000Z"
+            }
+          };
+        }
+
+        function buildCoachWithContext(recentContext, config = {}){
+          const target = calculate();
+          const today = getTodayDateString();
+          const targetMacros = {
+            kcal: Number.isFinite(config.target?.kcal) ? config.target.kcal : target.targetCal,
+            protein: Number.isFinite(config.target?.protein) ? config.target.protein : target.protein,
+            carbs: Number.isFinite(config.target?.carbs) ? config.target.carbs : target.carbs,
+            fat: Number.isFinite(config.target?.fat) ? config.target.fat : target.fat
+          };
+          const consumed = {
+            kcal: Number.isFinite(config.consumed?.kcal) ? config.consumed.kcal : targetMacros.kcal,
+            protein: Number.isFinite(config.consumed?.protein) ? config.consumed.protein : targetMacros.protein,
+            carbs: Number.isFinite(config.consumed?.carbs) ? config.consumed.carbs : targetMacros.carbs,
+            fat: Number.isFinite(config.consumed?.fat) ? config.consumed.fat : targetMacros.fat,
+            alcoholKcal: Number.isFinite(config.consumed?.alcoholKcal) ? config.consumed.alcoholKcal : 0,
+            otherKcal: Number.isFinite(config.consumed?.otherKcal) ? config.consumed.otherKcal : 0
+          };
+          const mealCount = Number.isFinite(config.mealCount) ? config.mealCount : 3;
+          const signals = getDailyCoachSignals({
+            currentResult: target,
+            state: { ...target.s, goal: config.goal || "lean_bulk", ...(config.state || {}) },
+            recentContext,
+            balance: {
+              date: today,
+              todayDate: today,
+              target: targetMacros,
+              consumed,
+              remaining: {
+                kcal: targetMacros.kcal - consumed.kcal,
+                protein: targetMacros.protein - consumed.protein,
+                carbs: targetMacros.carbs - consumed.carbs,
+                fat: targetMacros.fat - consumed.fat
+              },
+              exceeded: {
+                kcal: consumed.kcal > targetMacros.kcal,
+                protein: consumed.protein > targetMacros.protein,
+                carbs: consumed.carbs > targetMacros.carbs,
+                fat: consumed.fat > targetMacros.fat
+              },
+              isGoalAvailable: true,
+              mealCount,
+              hasMeals: mealCount > 0,
+              goalSnapshot: null
+            },
+            previousDayContext: { hasPreviousRecord: false, recoveryLevel: "not_recovery", previousOverIntakeLevel: "none" }
+          });
+          const output = generateDailyCoachOutput(signals);
+          return {
+            signals,
+            output,
+            text: [
+              output.contextNotice || "",
+              ...output.items.map(item => `${item.state} ${item.reason} ${item.action}`)
+            ].join(" ")
+          };
+        }
+
+        results.push(runNamedTest("daily coach accepts recent context without changing record schema", () => {
+          const today = getTodayDateString();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            weight: 75,
+            goalSnapshot: buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry"),
+            meals: [
+              { id: "m1", mealLabel: "meal", carbs: 40, protein: 30, fat: 10, memo: "", createdAt: `${today}T08:00:00.000Z` },
+              { id: "m2", mealLabel: "meal2", carbs: 40, protein: 30, fat: 10, memo: "", createdAt: `${today}T12:00:00.000Z` }
+            ]
+          }]);
+          const beforeKeys = Object.keys(getRecordByDate(today)).sort().join(",");
+          render();
+          const afterKeys = Object.keys(getRecordByDate(today)).sort().join(",");
+          assertTest(beforeKeys === afterKeys, "render with recent context should not add record fields");
+          assertTest(!afterKeys.includes("recentContext"), "record schema should not store recent context");
+        }));
+
+        results.push(runNamedTest("daily coach low and blocked context still returns today action", () => {
+          ["low", "blocked"].forEach(level => {
+            const result = buildCoachWithContext(createMockRecentContext({ level, usableDietDays: level === "blocked" ? 0 : 1, goalSnapshotCoverage: 0 }), {
+              mealCount: level === "blocked" ? 0 : 1,
+              consumed: { kcal: 300, protein: 10, carbs: 20, fat: 5 }
+            });
+            assertTest(result.output.items.length > 0, `${level} context should not empty coach`);
+            assertIncludesAny(result.text, ["기록 보완", "주요 식사", "단백질"], `${level} context should keep today action`);
+            assertExcludesAll(result.text, ["recentContext", "confidence", "signal", "severity", "penalty", "cap", "decision", "windowFit", "contextFit", "recordConfidence"], `${level} context should hide internal labels`);
+            assertExcludesAll(result.text, ["목표 칼로리를 올리", "목표 칼로리를 내리", "100 kcal", "150 kcal"], `${level} context should not suggest calorie adjustment`);
+          });
+        }));
+
+        results.push(runNamedTest("daily coach goal change context gets conservative priority", () => {
+          const result = buildCoachWithContext(createMockRecentContext({
+            level: "high",
+            goalChangeDetected: true,
+            goalTypes: ["diet", "bulk"]
+          }), {
+            consumed: { kcal: 2800, protein: 170, carbs: 300, fat: 110 }
+          });
+          assertTest(result.output.items[0]?.contextGuardType === "goal_change", "goal change guard should lead recent context items");
+          assertIncludesAll(result.text, ["최근 목표가 바뀐 기록", "현재 목표 기준"], "goal change conservative wording");
+        }));
+
+        results.push(runNamedTest("daily coach repeated other kcal limits interpretation", () => {
+          const result = buildCoachWithContext(createMockRecentContext({
+            level: "medium",
+            usableDietDays: 5,
+            otherKcalHeavyDays: 2
+          }));
+          assertIncludesAll(result.text, ["기타 칼로리", "탄단지", "보수적으로"], "other kcal guard wording");
+          assertIncludesAny(result.text, ["나눠 기록", "탄단지로 나눠"], "other kcal guard action");
+        }));
+
+        results.push(runNamedTest("daily coach protein repeated low adds protein first action", () => {
+          const result = buildCoachWithContext(createMockRecentContext({
+            level: "medium",
+            usableDietDays: 5,
+            proteinLowDays: 3
+          }));
+          assertIncludesAll(result.text, ["단백질", "먼저 채우"], "protein repeated low action");
+        }));
+
+        results.push(runNamedTest("daily coach carb training low requires actual training days", () => {
+          const withoutTraining = buildCoachWithContext(createMockRecentContext({
+            level: "medium",
+            usableDietDays: 5,
+            carbLowTrainingDays: 3,
+            actualWeightTrainingDays: 0
+          }));
+          assertTest(!withoutTraining.text.includes("실제 웨이트 기록일에 탄수화물 부족"), "carb training wording should not show without actual training days");
+
+          const withTraining = buildCoachWithContext(createMockRecentContext({
+            level: "medium",
+            usableDietDays: 5,
+            carbLowTrainingDays: 3,
+            actualWeightTrainingDays: 3
+          }));
+          assertIncludesAll(withTraining.text, ["실제 웨이트 기록일", "운동 전후"], "actual training carb wording");
+        }));
+
+        results.push(runNamedTest("daily coach fat low alone does not add fat low action", () => {
+          const result = buildCoachWithContext(createMockRecentContext({
+            level: "medium",
+            usableDietDays: 5,
+            fatLowDays: 5
+          }));
+          assertExcludesAll(result.text, ["지방을 먼저", "지방을 무조건", "지방 식품을 소량 추가"], "fat low alone should not add action");
+        }));
+
+        results.push(runNamedTest("daily coach keeps weekly preview and tab label unchanged", () => {
+          renderWeeklyPanel(calculate());
+          const weeklyText = document.getElementById("weeklyPanel").textContent || "";
+          const previewText = document.getElementById("recentFlowPreviewHost").textContent || "";
+          assertTest(document.getElementById("tabWeekly").textContent.trim() === "주간 분석", "weekly tab label should remain");
+          assertIncludesAll(weeklyText, ["최근 흐름 준비", "최근 흐름 판단은 다음 단계에서 확장됩니다"], "weekly preview copy should remain");
+          assertExcludesAll(previewText, ["1일", "3일", "5일", "14일", "28일"], "weekly preview should not expose window values");
+        }));
+
+        results.push(runNamedTest("daily coach recent context still excludes five day window", () => {
+          const context = buildRecentContext(calculate(), { asOfDate: "2026-04-28", records: [] });
+          assertTest(!Object.prototype.hasOwnProperty.call(context.windows, "5"), "recent context should not build five day window");
+        }));
+
+        return results;
+      });
+    }
+
     function setMacroCalibrationInputs(goal = "lean_bulk"){
       state.mode = "athlete";
       ids.weight.value = "74.2";
@@ -15942,6 +16354,7 @@ Notes:
     window.runAdherenceUiTests = runAdherenceUiTests;
     window.runWeeklyAdherenceTests = runWeeklyAdherenceTests;
     window.runRecentContextTests = runRecentContextTests;
+    window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
     window.runMacroCalibrationTests = runMacroCalibrationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
