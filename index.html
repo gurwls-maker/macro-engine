@@ -1,9 +1,9 @@
 <!--
-Version: 6.3-B1-B
-Stage: 6.3-B1-B Records 기록 품질 summary 슬롯 준비
+Version: 6.3-B1-C
+Stage: 6.3-B1-C Weekly 최근 흐름 뼈대 슬롯 준비
 Date: 2026-05-05
 Notes:
-- Records 기록 품질 summary 슬롯 준비
+- Weekly 최근 흐름 뼈대 슬롯 준비
 - 점수 산식 / 저장 schema / recentContext engine / fat profile 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
@@ -12,7 +12,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.3-B1-B</title>
+  <title>탄단지 다이어리 v6.3-B1-C</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2316,6 +2316,45 @@ Notes:
       max-width:62ch;
       text-wrap:pretty;
     }
+    .recent-flow-preview{
+      margin-top:18px;
+      padding:14px 16px;
+      border:1px solid color-mix(in srgb, var(--accent-strong) 18%, var(--line) 82%);
+      border-radius:16px;
+      background:rgba(255,255,255,.56);
+    }
+    .recent-flow-preview h4{
+      margin:0 0 8px;
+      font-size:14px;
+      line-height:1.35;
+      color:var(--deep);
+      font-weight:900;
+    }
+    .recent-flow-preview p{
+      margin:0;
+      font-size:13px;
+      line-height:1.65;
+      color:var(--muted);
+      max-width:64ch;
+    }
+    .recent-flow-preview .preview-chips{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-top:12px;
+    }
+    .recent-flow-preview .preview-chip{
+      display:inline-flex;
+      align-items:center;
+      min-height:30px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      background:rgba(255,252,247,.8);
+      color:var(--deep);
+      font-size:12px;
+      font-weight:800;
+    }
     .weekly-reference-block{
       margin-top:14px;
       padding-top:12px;
@@ -3239,7 +3278,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.3-B1-B</span>
+               <span class="app-version">v6.3-B1-C</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -3880,6 +3919,7 @@ Notes:
           </div>
             </div>
           </div>
+          <div id="recentFlowPreviewHost"></div>
           <div class="weekly-interpretation-block">
             <h4>주간 해석</h4>
             <p class="weekly-interpretation-text" id="weeklyInterpretationText">기록이 아직 충분하지 않아 추세 판단은 이릅니다. 며칠 더 누적하면 더 정확하게 볼 수 있습니다.</p>
@@ -10750,6 +10790,23 @@ Notes:
       renderMealRecordSection(selectedDate);
     }
 
+    // UI 슬롯만 준비합니다. 최근 흐름 판단 로직이나 기간별 계산은 v6.4-A 이후 단계에서 다룹니다.
+    function renderRecentFlowPreview(){
+      const host = document.getElementById("recentFlowPreviewHost");
+      if (!host) return;
+      host.innerHTML = `
+        <div class="recent-flow-preview">
+          <h4>최근 흐름 준비</h4>
+          <p>최근 흐름 판단은 다음 단계에서 확장됩니다. 지금은 최근 7일 기록 기준으로만 참고해 주세요. 오늘 할 일은 Today 코치에서 먼저 확인하세요.</p>
+          <div class="preview-chips">
+            <span class="preview-chip">주간 분석 기준</span>
+            <span class="preview-chip">기록 누적 후 확장</span>
+            <span class="preview-chip">Today 먼저 확인</span>
+          </div>
+        </div>
+      `;
+    }
+
     function renderWeeklyPanel(currentResult){
       const weeklySnapshot = buildWeeklyDataSnapshot();
       // 5.3.3: weeklySnapshot is a read-only bridge for upcoming UI layers.
@@ -10768,6 +10825,7 @@ Notes:
           <div class="value">${v}</div>
         </div>
       `).join("");
+      renderRecentFlowPreview();
       document.getElementById("weeklyInterpretationText").textContent = getWeeklyInterpretationText();
 
       const infoHost = document.getElementById("weeklyInfoHost");
@@ -11242,7 +11300,7 @@ Notes:
       syncPhilosophyBannerUI();
       document.getElementById("tabToday").textContent = "Today (실행)";
       document.getElementById("tabRecords").textContent = "Records (입력)";
-      document.getElementById("tabWeekly").textContent = "Weekly (해석)";
+      document.getElementById("tabWeekly").textContent = "주간 분석";
       document.getElementById("tabInbody").textContent = "InBody";
       document.getElementById("tabSettings").textContent = "기본 설정";
       document.getElementById("todayModeMini").textContent = `${getModeRuntimeConfig().label} 모드`;
@@ -13459,6 +13517,34 @@ Notes:
       return withRecordTestSandbox(() => {
         const results = [];
         setValidTodayBalanceTestInputs();
+
+        results.push(runNamedTest("weekly recent flow preview slot renders inside weekly panel", () => {
+          renderWeeklyPanel(calculate());
+          const host = document.getElementById("recentFlowPreviewHost");
+          assertTest(!!host?.closest("#weeklyPanel"), "recent flow preview host should live inside weekly panel");
+          const text = host.textContent || "";
+          assertIncludesAll(text, ["최근 흐름 준비", "최근 흐름 판단은 다음 단계에서 확장됩니다", "Today 먼저 확인"], "recent flow preview copy");
+        }));
+
+        results.push(runNamedTest("weekly recent flow preview avoids internal labels and future window values", () => {
+          renderWeeklyPanel(calculate());
+          const text = document.getElementById("recentFlowPreviewHost").textContent || "";
+          assertExcludesAll(text, ["confidence", "signal", "severity", "penalty", "cap", "decision", "recentContext", "engine", "primitive", "windowFit", "contextFit"], "recent flow preview internal labels");
+          assertExcludesAll(text, ["1일", "3일", "5일", "14일", "28일"], "recent flow preview should not expose future window values");
+        }));
+
+        results.push(runNamedTest("weekly tab label stays Korean weekly analysis", () => {
+          render();
+          assertTest(document.getElementById("tabWeekly").textContent.trim() === "주간 분석", "weekly tab label should stay 주간 분석");
+        }));
+
+        results.push(runNamedTest("weekly existing sections remain rendered with preview slot", () => {
+          renderWeeklyPanel(calculate());
+          assertTest((document.getElementById("weeklySummaryRows").textContent || "").trim().length > 0, "weekly summary rows should stay rendered");
+          assertTest((document.getElementById("weeklyInterpretationText").textContent || "").trim().length > 0, "weekly interpretation should stay rendered");
+          assertTest((document.getElementById("weeklyInfoHost").textContent || "").includes("조정 참고"), "weekly info host should keep adjustment reference");
+          assertTest(!!document.getElementById("weeklyHero"), "weekly hero should remain present");
+        }));
 
         results.push(runNamedTest("weekly no data", () => {
           recordsState.items = normalizeRecordsCollection([]);
