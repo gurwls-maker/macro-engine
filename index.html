@@ -1,19 +1,18 @@
 <!--
-Version: 6.3-A
-Stage: 6.3-A 모드 구조 흡수 (Mode preset → runtime config)
-Date: 2026-05-04
+Version: 6.3-B1-A
+Stage: 6.3-B1-A Today 코치 우선 구조 준비
+Date: 2026-05-05
 Notes:
-- general / athlete / expert는 사용자-facing preset으로 유지
-- inputDepth / calculationProfile / bodyCompReliability / explanationDepth / uiDensity runtime config 도입
-- 기존 점수 산식과 alcohol penalty/cap 유지
-- 지방 profile 및 fat low g 안내는 변경하지 않음
+- Today 화면을 Coach-first 구조로 정리
+- 점수 산식 / 저장 schema / recentContext engine / fat profile 변경 없음
+- ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.3-A</title>
+  <title>탄단지 다이어리 v6.3-B1-A</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -1257,7 +1256,7 @@ Notes:
     }
     .today-execution-shell{
       gap:14px;
-      order:2;
+      order:1;
     }
     #kpiPanel{
       padding:18px 18px 16px;
@@ -1364,6 +1363,7 @@ Notes:
       line-height:1.35;
     }
     #todayInputPanel{
+      order:2;
       padding:14px 16px 16px;
       background:color-mix(in srgb, var(--panel-soft) 72%, white 28%);
       border-color:color-mix(in srgb, var(--line) 76%, white 24%);
@@ -2690,22 +2690,6 @@ Notes:
       line-height:1.55;
       color:var(--muted);
     }
-    .adherence-priority-action{
-      margin-top:12px;
-      padding:12px 14px;
-      border:1px solid color-mix(in srgb, var(--accent-strong) 22%, var(--line) 78%);
-      border-radius:14px;
-      background:rgba(16,141,134,.08);
-      font-size:13px;
-      line-height:1.6;
-      color:var(--ink);
-    }
-    .adherence-priority-action strong{
-      display:block;
-      margin-bottom:4px;
-      color:var(--deep);
-      font-size:12px;
-    }
     .adherence-extra{
       margin-top:16px;
       padding-top:14px;
@@ -3204,7 +3188,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.3-A</span>
+               <span class="app-version">v6.3-B1-A</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -3311,6 +3295,7 @@ Notes:
     <div class="today-layout">
       <section class="result-shell today-execution-shell">
         <div class="today-primary-stack">
+          <div id="coachHost"></div>
           <div class="panel simple" id="kpiPanel">
             <h3>결과</h3>
             <div class="kpi-panel-head">
@@ -3389,7 +3374,6 @@ Notes:
         </div>
 
         <div class="today-secondary-stack">
-          <div id="coachHost"></div>
           <details class="panel panel-muted today-support-details hidden">
             <summary>
               <div class="today-support-summary">
@@ -10364,12 +10348,6 @@ Notes:
       `;
     }
 
-    function getAdherencePriorityAction(coach){
-      const first = getCoachItems(coach)[0];
-      if (!first?.action) return "";
-      return cleanIntegratedCoachAction(first, getCoachItems(coach));
-    }
-
     function renderTodayAdherencePanel(adherenceResult, options = {}){
       const host = document.getElementById("todayAdherenceContent");
       const coach = options.coach || null;
@@ -10400,10 +10378,6 @@ Notes:
         return;
       }
 
-      const priorityAction = getAdherencePriorityAction(coach);
-      const priorityActionHtml = priorityAction
-        ? `<div class="adherence-priority-action"><strong>오늘 우선 행동</strong>${escapeHtml(priorityAction)}</div>`
-        : "";
       const extraChecksHtml = renderAdherenceExtraChecks(coach);
 
       if (adherenceResult.status === "pending" || adherenceResult.status === "pending_over") {
@@ -10425,7 +10399,6 @@ Notes:
               <div><span class="adherence-badge muted">${escapeHtml(pendingBadgeText)}</span></div>
               <div class="copy">${escapeHtml(pendingCopyText)}</div>
               ${progressText}
-              ${priorityActionHtml}
             </div>
             <div class="adherence-detail-card">
               <h4>간단 해석</h4>
@@ -10450,7 +10423,6 @@ Notes:
             <div class="big">${adherenceResult.percent}%</div>
             <div><span class="adherence-badge ${adherenceResult.tone}">${adherenceResult.label}</span></div>
             <div class="copy">${escapeHtml(adherenceResult.summaryText || "오늘은 단백질과 총 섭취량이 점수에 가장 크게 반영되었습니다.")}</div>
-            ${priorityActionHtml}
           </div>
           <div class="adherence-detail-card">
             <h4>간단 해석</h4>
@@ -11228,9 +11200,8 @@ Notes:
       renderTodayConsumptionPanel(todayBalance);
       renderTodayRemainingPanel(todayBalance);
       renderTodayAdherencePanel(todayAdherence, { coach: todayCoach });
+      renderCoachPanel(result, todayBalance, todayAdherence);
       renderTodaySignalSummary(todaySnapshot);
-      const coachHost = document.getElementById("coachHost");
-      if (coachHost) coachHost.innerHTML = "";
       renderFlowRows(result);
       renderMetaRows(result);
       renderInfoAndWarnings(result);
