@@ -1,10 +1,10 @@
 <!--
-Version: 6.3-B1-C
-Stage: 6.3-B1-C Weekly 최근 흐름 뼈대 슬롯 준비
+Version: 6.3-C
+Stage: 6.3-C 지방 profile 역할 분리
 Date: 2026-05-05
 Notes:
-- Weekly 최근 흐름 뼈대 슬롯 준비
-- 점수 산식 / 저장 schema / recentContext engine / fat profile 변경 없음
+- 지방 profile을 내부 안전 하한 / 향후 행동 기준 / 목표 범위 / 현실 상한으로 분리
+- 점수 산식 / 저장 schema / import/export schema / recentContext engine / fat low 안내 / Coach decision matrix 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -12,7 +12,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.3-B1-C</title>
+  <title>탄단지 다이어리 v6.3-C</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3278,7 +3278,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.3-B1-C</span>
+               <span class="app-version">v6.3-C</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -4163,19 +4163,6 @@ Notes:
 
     const HOME_INBODY_RELIABILITY_FACTOR = 0.80;
 
-    const DIET_FAT_FLOOR_KG = {
-      male: 0.80,
-      female: 0.85
-    };
-
-    const SURPLUS_FAT_BASELINE_KG = {
-      lean_bulk: 1.00,
-      bulk: 1.00
-    };
-
-    const SURPLUS_RATIO_BASE = { carbs: 0.80, fat: 0.20 };
-    const SURPLUS_RATIO_SOFT = { carbs: 0.90, fat: 0.10 };
-    const FAT_SOFT_CAP_KG = 1.20;
     const FAT_HARD_CAP_KG = 1.50;
 
     const PLAUSIBILITY_CAPS = {
@@ -4184,21 +4171,27 @@ Notes:
       fatKg: 1.5
     };
 
-    const MACRO_TARGET_PROFILES = {
+    const FAT_TARGET_PROFILES = {
       diet: {
-        fatPctLowEnergy: 0.25,
-        fatPctHighEnergy: 0.23
+        fatTargetPctLowEnergy: 0.25,
+        fatTargetPctHighEnergy: 0.23,
+        fatPhysioFloorKg: { male: 0.45, female: 0.50 },
+        fatActionFloorKg: { male: 0.60, female: 0.65 }
       },
       lean_bulk: {
-        fatPctLowEnergy: 0.30,
-        fatPctHighEnergy: 0.25
+        fatTargetPctLowEnergy: 0.30,
+        fatTargetPctHighEnergy: 0.25,
+        fatPhysioFloorKg: { male: 0.45, female: 0.50 },
+        fatActionFloorKg: { male: 0.60, female: 0.65 }
       },
       bulk: {
-        fatPctLowEnergy: 0.32,
-        fatPctHighEnergy: 0.28
+        fatTargetPctLowEnergy: 0.32,
+        fatTargetPctHighEnergy: 0.28,
+        fatPhysioFloorKg: { male: 0.45, female: 0.50 },
+        fatActionFloorKg: { male: 0.60, female: 0.65 }
       }
     };
-    // v6.3-B: fatPhysioFloor / fatActionFloor / fatTargetRange / fatPracticalCeiling 분리 예정
+    const MACRO_TARGET_PROFILES = FAT_TARGET_PROFILES;
 
     const EXTREME_CASE_ADJUST = {
       factor: 0.97,
@@ -5044,8 +5037,12 @@ Notes:
       return tbwBasis * (1 - alpha) + leanBasis * alpha;
     }
 
+    function getFatTargetProfile(goalType){
+      return FAT_TARGET_PROFILES[goalType] || FAT_TARGET_PROFILES.lean_bulk;
+    }
+
     function getMacroTargetProfile(goalType){
-      return MACRO_TARGET_PROFILES[goalType] || MACRO_TARGET_PROFILES.lean_bulk;
+      return getFatTargetProfile(goalType);
     }
 
     function smoothstep01(value){
@@ -5057,56 +5054,57 @@ Notes:
       return start + (end - start) * t;
     }
 
-    function getFatTargetFromProfile(targetCal, weight, goalType){
-      const profile = getMacroTargetProfile(goalType);
-      const kcalPerKg = weight > 0 ? targetCal / weight : 0;
-      const t = smoothstep01((kcalPerKg - 26) / (40 - 26));
-      const fatPct = lerp(profile.fatPctLowEnergy, profile.fatPctHighEnergy, t);
-      return Math.max(0, targetCal * fatPct / 9);
+    function getGenderFatKgValue(value, gender){
+      if (value && typeof value === "object") return Number(value[gender]) || Number(value.male) || 0;
+      return Number(value) || 0;
     }
 
-    function allocateSurplusMacros(targetCal, protein, weight, goal){
-      const baselineFat = Math.max(0, (SURPLUS_FAT_BASELINE_KG[goal] ?? 0) * weight);
-      const softCap = FAT_SOFT_CAP_KG * weight;
-      const hardCap = FAT_HARD_CAP_KG * weight;
-      let fat = baselineFat;
-      let carbs = 0;
-      let remainingKcal = Math.max(0, targetCal - protein * 4 - fat * 9);
-
-      if (fat < softCap && remainingKcal > 0){
-        const fatRoomKcal = Math.max(0, (softCap - fat) * 9);
-        const tranche = Math.min(remainingKcal, fatRoomKcal / SURPLUS_RATIO_BASE.fat);
-        fat += tranche * SURPLUS_RATIO_BASE.fat / 9;
-        carbs += tranche * SURPLUS_RATIO_BASE.carbs / 4;
-        remainingKcal -= tranche;
-      }
-
-      if (fat < hardCap && remainingKcal > 0){
-        const fatRoomKcal = Math.max(0, (hardCap - fat) * 9);
-        const tranche = Math.min(remainingKcal, fatRoomKcal / SURPLUS_RATIO_SOFT.fat);
-        fat += tranche * SURPLUS_RATIO_SOFT.fat / 9;
-        carbs += tranche * SURPLUS_RATIO_SOFT.carbs / 4;
-        remainingKcal -= tranche;
-      }
-
-      if (remainingKcal > 0){
-        carbs += remainingKcal / 4;
-      }
-
+    function getFatTargetContext({ targetCal, weight, gender, goalType }){
+      const profile = getFatTargetProfile(goalType);
+      const safeTargetCal = Math.max(0, Number(targetCal) || 0);
+      const safeWeight = Math.max(0, Number(weight) || 0);
+      const kcalPerKg = safeWeight > 0 ? safeTargetCal / safeWeight : 0;
+      const t = smoothstep01((kcalPerKg - 26) / (40 - 26));
+      const lowEnergyPct = Number(profile.fatTargetPctLowEnergy) || 0;
+      const highEnergyPct = Number(profile.fatTargetPctHighEnergy) || lowEnergyPct;
+      const rawPreferredPct = lerp(lowEnergyPct, highEnergyPct, t);
+      const targetPctMin = Math.min(lowEnergyPct, highEnergyPct);
+      const targetPctMax = Math.max(lowEnergyPct, highEnergyPct);
+      const fatPracticalCeilingG = FAT_HARD_CAP_KG * safeWeight;
+      const rawTargetMinG = safeTargetCal * targetPctMin / 9;
+      const rawTargetMaxG = safeTargetCal * targetPctMax / 9;
+      const rawTargetPreferredG = safeTargetCal * rawPreferredPct / 9;
+      const fatTargetPreferredG = Math.min(rawTargetPreferredG, fatPracticalCeilingG || rawTargetPreferredG);
+      const fatTargetMinG = Math.min(rawTargetMinG, fatTargetPreferredG);
+      const fatTargetMaxG = Math.max(fatTargetPreferredG, Math.min(rawTargetMaxG, fatPracticalCeilingG || rawTargetMaxG));
+      const rawPhysioFloorG = getGenderFatKgValue(profile.fatPhysioFloorKg, gender) * safeWeight;
+      const rawActionFloorG = getGenderFatKgValue(profile.fatActionFloorKg, gender) * safeWeight;
+      const fatPhysioFloorG = Math.min(rawPhysioFloorG, fatTargetPreferredG);
+      const fatActionFloorG = Math.min(Math.max(fatPhysioFloorG, rawActionFloorG), fatTargetPreferredG);
+      const fatPctApplied = safeTargetCal > 0 ? (fatTargetPreferredG * 9 / safeTargetCal) : 0;
       return {
-        fat,
-        carbs,
-        fatBaseline: baselineFat,
-        fatSoftCap: softCap,
-        fatHardCap: hardCap
+        fatPhysioFloorG,
+        fatActionFloorG,
+        fatTargetMinG,
+        fatTargetMaxG,
+        fatTargetPreferredG,
+        fatPracticalCeilingG,
+        fatPctApplied,
+        fatTargetPctPreferred: rawPreferredPct,
+        internalProfileKey: getFatTargetProfile(goalType) === FAT_TARGET_PROFILES[goalType] ? goalType : "lean_bulk"
       };
     }
 
+    function getFatTargetFromProfile(targetCal, weight, goalType){
+      // Legacy compatibility: returns the preferred target only, not a floor.
+      return getFatTargetContext({ targetCal, weight, gender: state.gender, goalType }).fatTargetPreferredG;
+    }
+
     function applyPlausibilityLayer(config){
-      const { s, targetCal, protein, carbs, fat, fatBaseline, fatSoftCap, fatHardCap } = config;
+      const { s, targetCal, protein, carbs, fat, fatTargetContext } = config;
       const proteinCap = (PLAUSIBILITY_CAPS.proteinKg[state.mode] ?? PLAUSIBILITY_CAPS.proteinKg.general) * s.weight;
       const carbsCap = getCarbsPlausibilityCapKg(state.mode) * s.weight;
-      const fatCap = PLAUSIBILITY_CAPS.fatKg * s.weight;
+      const fatCap = Math.min(PLAUSIBILITY_CAPS.fatKg * s.weight, fatTargetContext?.fatPracticalCeilingG ?? Infinity);
       let nextProtein = Math.min(protein, proteinCap);
       let nextCarbs = Math.min(carbs, carbsCap);
       let nextFat = Math.min(fat, fatCap);
@@ -5126,9 +5124,21 @@ Notes:
         protein: nextProtein,
         carbs: nextCarbs,
         fat: nextFat,
-        fatBaseline,
-        fatSoftCap,
-        fatHardCap,
+        fatTargetG: nextFat,
+        fatTargetPreferredG: fatTargetContext?.fatTargetPreferredG ?? nextFat,
+        fatTargetRange: {
+          min: fatTargetContext?.fatTargetMinG ?? nextFat,
+          max: fatTargetContext?.fatTargetMaxG ?? nextFat
+        },
+        fatPhysioFloorG: fatTargetContext?.fatPhysioFloorG ?? 0,
+        fatActionFloorG: fatTargetContext?.fatActionFloorG ?? 0,
+        fatPracticalCeilingG: fatTargetContext?.fatPracticalCeilingG ?? fatCap,
+        fatTargetContext,
+        // Legacy aliases: older callers read these as a baseline/floor, but they now mirror the preferred target.
+        fatBaseline: fatTargetContext?.fatTargetPreferredG ?? nextFat,
+        fatFloor: fatTargetContext?.fatTargetPreferredG ?? nextFat,
+        fatSoftCap: fatTargetContext?.fatTargetMaxG ?? nextFat,
+        fatHardCap: fatTargetContext?.fatPracticalCeilingG ?? fatCap,
         proteinCap,
         carbsCap,
         fatCap,
@@ -5144,7 +5154,13 @@ Notes:
       const proteinRaw = Math.max(0, GOALS[s.goal].proteinKg * proteinBasisWeight);
       const defaultProteinCap = targetCal * 0.35 / 4;
       const protein = Math.max(0, Math.min(proteinRaw, defaultProteinCap));
-      const fatTarget = getFatTargetFromProfile(targetCal, s.weight, s.goal);
+      const fatTargetContext = getFatTargetContext({
+        targetCal,
+        weight: s.weight,
+        gender: s.gender,
+        goalType: s.goal
+      });
+      const fatTarget = Math.min(fatTargetContext.fatTargetPreferredG, fatTargetContext.fatPracticalCeilingG || fatTargetContext.fatTargetPreferredG);
       const carbs = Math.max(0, (targetCal - protein * 4 - fatTarget * 9) / 4);
       const plausibility = applyPlausibilityLayer({
         s,
@@ -5152,9 +5168,7 @@ Notes:
         protein,
         carbs,
         fat: fatTarget,
-        fatBaseline: fatTarget,
-        fatSoftCap: FAT_SOFT_CAP_KG * s.weight,
-        fatHardCap: FAT_HARD_CAP_KG * s.weight
+        fatTargetContext
       });
       return { ...plausibility, proteinBasisWeight, proteinKgApplied: proteinBasisWeight > 0 ? plausibility.protein / proteinBasisWeight : 0 };
     }
@@ -5259,6 +5273,21 @@ Notes:
         pctCarb: 0,
         pctFat: 0,
         carbCap: 0,
+        fatTargetG: 0,
+        fatTargetRange: { min: 0, max: 0 },
+        fatPhysioFloorG: 0,
+        fatActionFloorG: 0,
+        fatPracticalCeilingG: 0,
+        fatTargetContext: {
+          fatPhysioFloorG: 0,
+          fatActionFloorG: 0,
+          fatTargetMinG: 0,
+          fatTargetMaxG: 0,
+          fatTargetPreferredG: 0,
+          fatPracticalCeilingG: 0,
+          fatPctApplied: 0,
+          fatTargetPctPreferred: 0
+        },
         bmi: 0,
         infoNotes: ["엑셀 기반 계산 엔진은 유효한 신체 입력이 있을 때만 의미가 있습니다. 필요한 값을 먼저 입력하면 계산을 다시 시작합니다."],
         cautionNotes: [],
@@ -5343,6 +5372,13 @@ Notes:
       const carbs = macroPlan.carbs;
       const fat = macroPlan.fat;
       const carbCap = macroPlan.carbsCap;
+      const fatTargetG = macroPlan.fatTargetG;
+      const fatTargetRange = macroPlan.fatTargetRange;
+      const fatPhysioFloorG = macroPlan.fatPhysioFloorG;
+      const fatActionFloorG = macroPlan.fatActionFloorG;
+      const fatPracticalCeilingG = macroPlan.fatPracticalCeilingG;
+      const fatTargetContext = macroPlan.fatTargetContext;
+      // Legacy alias for older UI/tests; this is the preferred target, not a true floor.
       const fatFloor = macroPlan.fatBaseline;
       const finalEffectiveGoalFactor = totalBurn > 0 ? finalTargetCal / totalBurn : appliedGoalFactor;
 
@@ -5386,7 +5422,7 @@ Notes:
         infoNotes.push("일상 활동량은 업무 밖 움직임, 업무 유형은 근무 중 움직임으로 나눠서 반영합니다.");
       }
 
-      const dietMinimumFat = (s.gender === "female" ? DIET_FAT_FLOOR_KG.female : DIET_FAT_FLOOR_KG.male) * s.weight;
+      const dietMinimumFat = fatPhysioFloorG;
       if (s.goal === "diet" && fat + 1e-6 < dietMinimumFat){
         dangerNotes.push("지방이 성별 기준 하한보다 낮게 계산됩니다. 현재 목표 칼로리가 너무 공격적일 수 있습니다.");
       }
@@ -5458,6 +5494,12 @@ Notes:
         pctCarb,
         pctFat,
         carbCap,
+        fatTargetG,
+        fatTargetRange,
+        fatPhysioFloorG,
+        fatActionFloorG,
+        fatPracticalCeilingG,
+        fatTargetContext,
         fatFloor,
         fatSoftCap: macroPlan.fatSoftCap,
         fatHardCap: macroPlan.fatHardCap,
@@ -9857,10 +9899,10 @@ Notes:
         ["웨이트 강도 Xw", `${round(r.xw, 2)}`],
         ["통합강도 X", `${round(r.x, 2)}`],
         ["유산소 MET", `${round(r.cardio.met, 2)}`],
-        ["지방 기준선", `${round(r.fatFloor, 1)} g/day`],
-        ["지방 보수 상한", `${round(r.fatSoftCap, 1)} g/day`],
-        ["지방 hard cap", `${round(r.fatHardCap, 1)} g/day`],
-        ["탄수 plausibility cap", `${Math.round(r.carbCap)} g/day`]
+        ["지방 목표", `${round(r.fatTargetG, 1)} g/day`],
+        ["지방 목표 범위", `${round(r.fatTargetRange.min, 1)}-${round(r.fatTargetRange.max, 1)} g/day`],
+        ["지방 현실 상한", `${round(r.fatPracticalCeilingG, 1)} g/day`],
+        ["탄수 현실 상한", `${Math.round(r.carbCap)} g/day`]
       ];
       if (state.mode === "expert"){
         rows.splice(4, 0, ["최종 적용 배율", `${round(r.effectiveGoalFactor, 3)}`]);
@@ -13822,6 +13864,7 @@ Notes:
             protein: plan.protein,
             carbs: plan.carbs,
             fat: plan.fat,
+            fatTargetContext: plan.fatTargetContext,
             proteinKcal: plan.protein * 4,
             carbsKcal: plan.carbs * 4,
             fatKcal: plan.fat * 9
@@ -13902,10 +13945,73 @@ Notes:
         results.push(runNamedTest("macro target profiles expose goal fallback", () => {
           ["diet", "lean_bulk", "bulk"].forEach(goal => {
             const profile = getMacroTargetProfile(goal);
-            assertTest(Number.isFinite(profile.fatPctLowEnergy), `${goal} should expose low energy fat percent`);
-            assertTest(Number.isFinite(profile.fatPctHighEnergy), `${goal} should expose high energy fat percent`);
+            assertTest(Number.isFinite(profile.fatTargetPctLowEnergy), `${goal} should expose low energy fat percent`);
+            assertTest(Number.isFinite(profile.fatTargetPctHighEnergy), `${goal} should expose high energy fat percent`);
           });
           assertTest(getMacroTargetProfile("unknown_goal") === getMacroTargetProfile("lean_bulk"), "unknown macro target profile should fall back to lean_bulk");
+        }));
+
+        results.push(runNamedTest("fat target context exposes separated roles", () => {
+          const context = getFatTargetContext({ targetCal: 2500, weight: 75, gender: "male", goalType: "lean_bulk" });
+          [
+            "fatPhysioFloorG",
+            "fatActionFloorG",
+            "fatTargetMinG",
+            "fatTargetMaxG",
+            "fatTargetPreferredG",
+            "fatPracticalCeilingG",
+            "fatPctApplied",
+            "fatTargetPctPreferred"
+          ].forEach(key => {
+            assertTest(Number.isFinite(context[key]), `${key} should be finite`);
+          });
+          assertTest(context.fatPhysioFloorG <= context.fatActionFloorG, "physio floor should not exceed action floor");
+          assertTest(context.fatActionFloorG <= context.fatTargetPreferredG, "action floor should not exceed preferred target");
+          assertTest(context.fatTargetMinG <= context.fatTargetPreferredG, "target min should not exceed preferred target");
+          assertTest(context.fatTargetPreferredG <= context.fatTargetMaxG, "preferred target should not exceed target max");
+          assertTest(context.fatTargetPreferredG <= context.fatPracticalCeilingG, "preferred target should not exceed practical ceiling");
+        }));
+
+        results.push(runNamedTest("fat target context stays finite for each goal", () => {
+          ["diet", "lean_bulk", "bulk"].forEach(goal => {
+            const context = getFatTargetContext({ targetCal: 2400, weight: 75, gender: "male", goalType: goal });
+            assertTest(Number.isFinite(context.fatTargetPreferredG), `${goal} preferred fat should be finite`);
+            assertTest(context.fatTargetPreferredG > 0, `${goal} preferred fat should be positive`);
+          });
+        }));
+
+        results.push(runNamedTest("fat target preferred preserves legacy representative values", () => {
+          const cases = [
+            ["diet", 2000],
+            ["diet", 2500],
+            ["lean_bulk", 2500],
+            ["bulk", 3000]
+          ];
+          cases.forEach(([goal, targetCal]) => {
+            const weight = 75;
+            const profile = getFatTargetProfile(goal);
+            const kcalPerKg = targetCal / weight;
+            const t = smoothstep01((kcalPerKg - 26) / (40 - 26));
+            const legacyFatTarget = targetCal * lerp(profile.fatTargetPctLowEnergy, profile.fatTargetPctHighEnergy, t) / 9;
+            const context = getFatTargetContext({ targetCal, weight, gender: "male", goalType: goal });
+            assertClose(context.fatTargetPreferredG, legacyFatTarget, 0.0001, `${goal} ${targetCal} preferred fat should preserve legacy target`);
+          });
+        }));
+
+        results.push(runNamedTest("macro targets include fat target context", () => {
+          const target = getFixedKcalMacroTarget("lean_bulk", 2500);
+          const context = target.fatTargetContext;
+          assertTest(!!context, "macro target plan should include fat target context");
+          assertTest(Number.isFinite(context.fatTargetPreferredG), "macro target context preferred fat should be finite");
+          assertClose(target.fat, context.fatTargetPreferredG, 0.0001, "macro target fat should use preferred fat target");
+        }));
+
+        results.push(runNamedTest("fat profile internal labels stay out of user-facing meta rows", () => {
+          setMacroTargetAcceptanceInputs("lean_bulk");
+          const result = calculate();
+          renderMetaRows(result);
+          const text = document.getElementById("metaRows").textContent;
+          assertExcludesAll(text, ["fatPhysioFloor", "fatActionFloor", "fatTargetRange", "fatPracticalCeiling", "floor", "cap", "threshold", "signal", "severity", "decision", "confidence"], "fat profile internal labels should not render");
         }));
 
         results.push(runNamedTest("macro target current goal acceptance ranges", () => {
