@@ -1,10 +1,10 @@
 <!--
-Version: 6.4-D1.1
-Stage: 6.4-D1.1 Today Coach 카드 행동/이유 순서 정리
+Version: 6.4-D2
+Stage: 6.4-D2 식단 달성률 component 문구 정리
 Date: 2026-05-07
 Notes:
-- Today Coach 카드의 행동/이유 표시 순서 정리
-- 점수 산식 / 저장 schema / import/export schema / Coach decision matrix / 식단 달성률 component 카드 / fat low 행동 문구 변경 없음
+- 식단 달성률 component 카드 문구를 점수 근거/상세 중심으로 정리
+- 점수 산식 / 저장 schema / import/export schema / Coach decision matrix / Today Coach 판단 로직 / fat low 행동 문구 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -12,7 +12,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.4-D1.1</title>
+  <title>탄단지 다이어리 v6.4-D2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3458,7 +3458,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.4-D1.1</span>
+               <span class="app-version">v6.4-D2</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -9233,34 +9233,34 @@ Notes:
     function getAdherenceSummaryText(adherenceResult){
       const direction = adherenceResult?.direction;
       if (adherenceResult?.status === "pending_over") {
-        return "현재 기록은 아직 하루 전체 평가 전이지만, 목표를 의미 있게 넘은 항목이 있습니다.";
+        return "아직 하루 전체 점수는 보류하지만, 이미 목표를 넘은 항목은 점수에서 불리합니다.";
       }
-      if (direction === "over") return "총 섭취량과 일부 영양소가 목표를 넘어 전체 점수에 반영되었습니다.";
-      if (direction === "mixed") return "부족과 초과가 함께 있어 전체 균형 재조정이 필요합니다.";
-      if (direction === "under") return "아직 채워야 할 항목이 남아 있어 남은 식사에서 보완이 필요합니다.";
-      return "오늘 저장된 식사 총합이 목표 범위에 얼마나 가까운지 기준으로 계산했습니다.";
+      if (direction === "over") return "목표를 넘은 항목이 오늘 점수에서 깎였습니다.";
+      if (direction === "mixed") return "부족과 초과가 함께 있어 항목별 감점이 나뉘었습니다.";
+      if (direction === "under") return "부족 항목이 오늘 점수에서 깎였습니다.";
+      return "오늘 저장된 식사 총합이 목표 범위와 얼마나 가까운지 점수에 반영했습니다.";
     }
 
     function buildMacroReason(key, balance, componentScore, proteinRatio, proteinCap, capApplied = false){
       const delta = balance.consumed[key] - balance.target[key];
       const absDelta = Math.abs(delta);
       if (key === "protein") {
-        if (capApplied && proteinRatio < 0.65) return `단백질 섭취가 크게 부족해 오늘 점수 상한이 ${proteinCap}%로 제한되었습니다.`;
-        if (capApplied && proteinRatio < 0.80) return `단백질 섭취가 부족해 오늘 점수 상한이 ${proteinCap}%로 제한되었습니다.`;
-        if (delta < -10) return "단백질이 목표보다 부족합니다. 회복과 유지 관점에서 우선 보완이 필요합니다.";
-        if (delta > 20) return "단백질은 충분하지만 목표보다 다소 높습니다. 부족한 경우보다는 완만하게 반영합니다.";
-        return "단백질이 목표에 비교적 잘 맞았습니다.";
+        if (capApplied && proteinRatio < 0.65) return "단백질이 크게 비었습니다. 가장 먼저 확인할 감점 근거입니다.";
+        if (capApplied && proteinRatio < 0.80) return "단백질이 부족합니다. 오늘 점수에서 크게 깎였습니다.";
+        if (delta < -10) return "단백질이 부족합니다. 오늘 점수에서 깎였습니다.";
+        if (delta > 20) return "단백질은 충분합니다. 목표보다 높지만 부족한 경우보다 감점은 작습니다.";
+        return "단백질이 충분히 채워졌습니다. 이 항목은 점수에 도움이 됩니다.";
       }
       if (key === "kcal") {
-        if (absDelta <= Math.max(balance.target.kcal * 0.08, 100)) return "칼로리가 목표에 비교적 가깝습니다.";
-        return delta > 0 ? "칼로리가 목표보다 높아 점수에 일부 반영되었습니다." : "칼로리가 목표보다 낮아 점수에 일부 반영되었습니다.";
+        if (absDelta <= Math.max(balance.target.kcal * 0.08, 100)) return "목표 칼로리와 가깝습니다. 점수 감점은 작습니다.";
+        return delta > 0 ? "목표보다 많이 넘었습니다. 오늘 점수에서 깎였습니다." : "목표보다 많이 부족합니다. 기록이 충분한 날이면 섭취 부족으로 봅니다.";
       }
       if (key === "carbs") {
-        if (componentScore >= 0.85) return "탄수화물 섭취가 목표 범위에 비교적 잘 들어왔습니다.";
-        return delta > 0 ? "탄수화물이 목표보다 높아 점수에 일부 반영되었습니다." : "탄수화물이 목표보다 낮아 점수에 일부 반영되었습니다.";
+        if (componentScore >= 0.85) return "탄수화물이 목표 범위와 가깝습니다.";
+        return delta > 0 ? "탄수화물이 많아 오늘 점수에서 깎였습니다." : "탄수화물이 부족해 오늘 점수에서 깎였습니다.";
       }
-      if (componentScore >= 0.85) return "지방 섭취가 비교적 안정적입니다.";
-      return delta > 0 ? "지방이 목표보다 높아 점수에 일부 반영되었습니다." : "지방이 목표보다 낮아 점수에 일부 반영되었습니다.";
+      if (componentScore >= 0.85) return "지방이 목표 범위와 가깝습니다.";
+      return delta > 0 ? "지방이 목표보다 많아 오늘 점수에서 깎였습니다." : "지방이 낮게 기록됐지만, 하루 단독으로 강한 행동을 정하지 않습니다.";
     }
 
     function getDailyAdherenceScore(date, currentResult = calculate(), options = {}){
@@ -9297,9 +9297,9 @@ Notes:
           isAvailable: false,
           status: "no_meals",
           reasons: {
-            protein: "오늘 식사 기록이 없어 자동 평가를 만들지 않았습니다.",
-            kcal: "아직 오늘 식사 기록이 없어 점수를 계산하지 않았습니다.",
-            carbs: "데이터 기록 탭에 오늘 식사를 저장하면 오늘 식단 평가가 시작됩니다.",
+            protein: "식사 기록이 없어 오늘 식단 점수는 보류됩니다.",
+            kcal: "기록이 없어 탄·단·지 부족으로 판단하지 않습니다.",
+            carbs: "기록이 쌓이면 항목별 감점 근거를 나눠 볼 수 있습니다.",
             fat: "식사 총합이 있어야 하루 기준 평가를 계산할 수 있습니다."
           },
           detail: {
@@ -9329,10 +9329,10 @@ Notes:
           : null;
         const concentrationHint = getMealConcentrationHint(balance, intakeProgress);
         const pendingSummaryText = hasExceededMacro
-          ? "현재 기록은 아직 하루 전체 평가 전이지만, 목표를 의미 있게 넘은 항목이 있습니다."
+          ? "아직 하루 전체 점수는 보류하지만, 이미 목표를 넘은 항목은 점수에서 불리합니다."
           : (Number.isFinite(intakeProgress) && intakeProgress >= 0.85
-            ? "현재 기록 기준으로는 목표 범위에 가깝습니다."
-            : "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다. 추가 식사가 있다면 이어서 기록해 주세요.");
+            ? "한 끼 기준이라 하루 전체 점수는 보류합니다. 현재 기록은 목표 범위와 가깝습니다."
+            : "한 끼만으로 하루 식단을 판단하지 않습니다.");
         return {
           percent: null,
           label: hasExceededMacro ? "조절 필요" : "평가 보류",
@@ -9344,10 +9344,10 @@ Notes:
           direction: hasExceededMacro ? "over" : (Number.isFinite(intakeProgress) && intakeProgress >= 0.85 ? "balanced" : "under"),
           summaryText: pendingSummaryText,
           reasons: {
-            protein: hasExceededMacro ? "현재 기록 기준으로 목표를 의미 있게 넘은 항목이 있습니다." : (Number.isFinite(intakeProgress) && intakeProgress >= 0.85 ? "현재 기록 기준으로는 목표 범위에 가깝습니다." : "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다."),
-            kcal: hasExceededMacro ? "남은 식사는 추가 섭취보다 조절을 우선해 주세요." : "추가 식사가 있다면 이어서 기록해 주세요.",
-            carbs: "데이터 기록 탭에 오늘 식사를 저장하면 오늘 식단 평가가 이어집니다.",
-            fat: "점수는 오늘 저장된 식사 총합 기준입니다."
+            protein: hasExceededMacro ? "아직 하루 전체 점수는 보류하지만, 이미 목표를 넘은 항목은 점수에서 불리합니다." : "기록이 부족해 단백질 부족으로 단정하지 않습니다.",
+            kcal: hasExceededMacro ? "이미 넘은 항목은 점수에서 불리하게 반영될 수 있습니다." : "기록이 부족해 칼로리 부족으로 단정하지 않습니다.",
+            carbs: "기록이 부족해 탄수화물 부족으로 단정하지 않습니다.",
+            fat: "기록이 부족해 지방 부족으로 단정하지 않습니다."
           },
           mealConcentrationHint: concentrationHint,
           detail: {
@@ -10787,7 +10787,7 @@ Notes:
       alcohol: "술 영향",
       recovery: "회복 관리",
       previousOverIntake: "전날 과식",
-      otherKcal: "기타칼로리",
+      otherKcal: "기타 칼로리",
       training: "운동 참고",
       contextGuard: "최근 기록",
       dataQuality: "기록 확인",
@@ -10810,56 +10810,69 @@ Notes:
       return action;
     }
 
-    function getAdherenceMacroFallbackText(config, score, reason){
+    function getAdherenceMacroFallbackText(config, score, reason, adherenceResult = null){
       const label = config.label;
       const subject = label === "총칼로리" ? "총칼로리는" : `${label}은`;
       const key = config.key;
-      const fallbackActions = {
-        calorie: {
-          high: "오늘은 여기서 마무리하세요.",
-          low: "부족분은 식사로 채우세요.",
-          mid: "남은 식사는 목표 안에서 이어가세요."
-        },
-        protein: {
-          high: "단백질은 더 늘리지 말고 다음 식사는 균형을 확인하세요.",
-          low: "단백질부터 챙기세요.",
-          mid: "다음 식사에서 단백질을 먼저 확인하세요."
-        },
-        carb: {
-          high: "탄수화물은 더 추가하지 마세요.",
-          low: "운동 전후 식사 안에서 보완하세요.",
-          mid: "탄수화물은 다음 식사에서 필요한 만큼만 맞추세요."
-        },
-        fat: {
-          high: "기름진 음식과 간식은 끊으세요.",
-          low: "지방은 다음 식사 안에서 조금만 채우세요.",
-          mid: "지방은 다음 식사에서 조금만 맞추세요."
-        }
-      };
       const status = reason?.includes("초과") || reason?.includes("높") ? "high"
         : (reason?.includes("부족") || reason?.includes("낮") ? "low" : "mid");
-      const action = fallbackActions[key]?.[status] || "오늘 기록을 이어가며 흐름을 확인하세요.";
+      const pendingEvidence = {
+        calorie: "기록이 부족해 칼로리 부족으로 단정하지 않습니다.",
+        protein: "기록이 부족해 단백질 부족으로 단정하지 않습니다.",
+        carb: "기록이 부족해 탄수화물 부족으로 단정하지 않습니다.",
+        fat: "기록이 부족해 지방 부족으로 단정하지 않습니다."
+      };
+      const hasPendingScore = adherenceResult?.status === "pending" || adherenceResult?.status === "pending_over";
       if (!Number.isFinite(score)) {
         return {
-          state: `${subject} 오늘 기록 기준으로 확인 중입니다.`,
-          action: reason || action
+          state: reason || pendingEvidence[key] || `${subject} 기록이 부족해 항목별 감점을 보류합니다.`,
+          action: pendingEvidence[key] || "식사 기록이 쌓이면 점수 근거를 나눠 볼 수 있습니다."
         };
+      }
+      if (hasPendingScore) {
+        return {
+          state: reason || pendingEvidence[key] || `${subject} 하루 전체 점수는 아직 보류합니다.`,
+          action: pendingEvidence[key] || "한 끼만으로 하루 식단을 단정하지 않습니다."
+        };
+      }
+      if (key === "protein") {
+        if (score >= 0.85) return { state: reason || "단백질이 충분히 채워졌습니다.", action: "이 항목은 점수에 도움이 됩니다." };
+        if (score >= 0.60) return { state: reason || "단백질이 부족합니다.", action: "단백질 항목이 오늘 점수에서 깎였습니다." };
+        return { state: reason || "단백질이 크게 비었습니다.", action: "가장 먼저 확인할 감점 근거입니다." };
+      }
+      if (key === "calorie") {
+        if (score >= 0.85) return { state: reason || "목표 칼로리와 가깝습니다.", action: "총칼로리 감점은 작습니다." };
+        if (status === "high") return { state: reason || "목표보다 많이 넘었습니다.", action: "총칼로리 항목이 오늘 점수에서 깎였습니다." };
+        if (status === "low") return { state: reason || "목표보다 많이 부족합니다.", action: "기록이 충분한 날이면 섭취 부족으로 봅니다." };
+        return { state: reason || "총칼로리가 목표와 차이가 있습니다.", action: "총칼로리 항목이 오늘 점수에서 깎였습니다." };
+      }
+      if (key === "carb") {
+        if (score >= 0.85) return { state: reason || "탄수화물이 목표 범위와 가깝습니다.", action: "탄수화물 감점은 작습니다." };
+        if (status === "high") return { state: reason || "탄수화물이 많습니다.", action: "탄수화물 항목이 오늘 점수에서 깎였습니다." };
+        if (status === "low") return { state: reason || "탄수화물이 부족합니다.", action: "탄수화물 항목이 오늘 점수에서 깎였습니다." };
+        return { state: reason || "탄수화물이 목표와 차이가 있습니다.", action: "탄수화물 항목이 오늘 점수에서 깎였습니다." };
+      }
+      if (key === "fat") {
+        if (score >= 0.85) return { state: reason || "지방이 목표 범위와 가깝습니다.", action: "지방 감점은 작습니다." };
+        if (status === "high") return { state: reason || "지방이 목표보다 많습니다.", action: "지방 항목이 오늘 점수에서 깎였습니다." };
+        if (status === "low") return { state: reason || "지방이 낮게 기록됐습니다.", action: "하루 단독으로 지방 행동을 정하지 않습니다." };
+        return { state: reason || "지방이 목표와 차이가 있습니다.", action: "지방 항목이 오늘 점수에서 깎였습니다." };
       }
       if (score >= 0.85) {
         return {
           state: reason || `${subject} 목표 범위에 비교적 가깝습니다.`,
-          action: `${label} 흐름은 오늘 기록 기준으로 크게 흔들리지 않았습니다.`
+          action: `${label} 감점은 작습니다.`
         };
       }
       if (score >= 0.60) {
         return {
-          state: `${subject} 오늘 기록 기준으로 목표와 차이가 있습니다.`,
-          action
+          state: reason || `${subject} 목표와 차이가 있습니다.`,
+          action: `${label} 항목이 오늘 점수에서 일부 깎였습니다.`
         };
       }
       return {
-        state: `${subject} 오늘 기록 기준으로 우선 확인이 필요합니다.`,
-        action
+        state: reason || `${subject} 목표와 크게 벗어났습니다.`,
+        action: `${label} 항목이 오늘 점수에서 크게 깎였습니다.`
       };
     }
 
@@ -11017,15 +11030,12 @@ Notes:
     }
 
     function renderAdherenceMacroCards(adherenceResult, coach){
-      const items = getCoachItems(coach);
       return ADHERENCE_MACRO_CARD_CONFIG.map(config => {
-        const coachItem = getCoachItemByKey(coach, config.key);
         const score = adherenceResult?.detail?.componentScores?.[config.componentKey];
         const scoreText = Number.isFinite(score) ? `${(score * 100).toFixed(1)}점` : "계산 대기";
-        const fallback = getAdherenceMacroFallbackText(config, score, adherenceResult?.reasons?.[config.reasonKey]);
-        const override = getAdherenceMacroCardOverride(adherenceResult, coach, config);
-        const stateText = override?.state || coachItem?.state || fallback.state;
-        const actionText = override?.action || cleanIntegratedCoachAction(coachItem, items) || fallback.action;
+        const fallback = getAdherenceMacroFallbackText(config, score, adherenceResult?.reasons?.[config.reasonKey], adherenceResult);
+        const stateText = fallback.state;
+        const actionText = fallback.action;
         return `
           <div class="adherence-component" data-coach-key="${config.key}">
             <div class="label">${config.label}</div>
@@ -11037,23 +11047,91 @@ Notes:
       }).join("");
     }
 
-    function renderAdherenceExtraChecks(coach){
+    function getAdherenceExtraEvidenceItem(item, coachItems = [], adherenceResult = null){
+      const consumed = adherenceResult?.detail?.consumed || {};
+      if (item?.key === "alcohol" || item?.key === "recovery" || item?.contextGuardType === "alcohol") {
+        return {
+          key: item.key || "alcohol",
+          label: ADHERENCE_EXTRA_LABELS[item.key] || ADHERENCE_EXTRA_LABELS.alcohol,
+          state: "알코올 kcal가 오늘 점수에 반영됐습니다.",
+          action: "알코올 kcal는 순수 술 부담입니다. 안주와 음료 당분은 탄·단·지나 기타 칼로리에서 따로 봅니다."
+        };
+      }
+      if (item?.key === "otherKcal" || item?.contextGuardType === "other_kcal" || Number(consumed.otherKcal || 0) >= 300) {
+        return {
+          key: item.key || "otherKcal",
+          label: ADHERENCE_EXTRA_LABELS.otherKcal,
+          state: "기타 칼로리가 감점 원인을 나누기 어렵게 만듭니다.",
+          action: "기타 칼로리가 많아 탄·단·지 중 어디서 어긋났는지 보기 어렵습니다."
+        };
+      }
+      if (item?.key === "dataQuality" || item?.contextGuardType === "blocked" || item?.contextGuardType === "low") {
+        return {
+          key: item.key || "dataQuality",
+          label: ADHERENCE_EXTRA_LABELS.dataQuality,
+          state: "기록 부족은 점수 해석을 제한합니다.",
+          action: "기록이 부족해 탄·단·지 부족으로 단정하지 않습니다."
+        };
+      }
+      if (item?.contextGuardType === "goal_change") {
+        return {
+          key: item.key || "contextGuard",
+          label: ADHERENCE_EXTRA_LABELS.contextGuard,
+          state: "목표가 바뀐 기록은 비교를 어렵게 만듭니다.",
+          action: "이전 목표 기록은 오늘 점수의 세부 근거로 섞지 않습니다."
+        };
+      }
+      if (item?.contextGuardType === "protein_low") {
+        return {
+          key: item.key || "protein",
+          label: ADHERENCE_EXTRA_LABELS.contextGuard,
+          state: "단백질 부족 기록이 오늘 점수 해석의 배경입니다.",
+          action: "오늘 점수에서는 오늘 입력된 단백질 양을 기준으로 봅니다."
+        };
+      }
+      if (item?.contextGuardType === "carb_training_low" || item?.key === "training") {
+        return {
+          key: item.key || "training",
+          label: ADHERENCE_EXTRA_LABELS.training,
+          state: "운동 기록은 탄수화물 해석의 보조 근거입니다.",
+          action: "오늘 점수에서는 실제 입력된 식사 기록만 감점에 반영합니다."
+        };
+      }
+      if (item?.key === "previousOverIntake") {
+        return {
+          key: item.key,
+          label: ADHERENCE_EXTRA_LABELS.previousOverIntake,
+          state: "전날 기록은 오늘 해석의 보조 근거입니다.",
+          action: "오늘 식단 점수는 오늘 저장된 식사 총합으로 계산합니다."
+        };
+      }
+      return {
+        key: item?.key || "contextGuard",
+        label: ADHERENCE_EXTRA_LABELS[item?.key] || "추가 확인",
+        state: item?.reason || item?.state || "오늘 점수 해석의 보조 근거입니다.",
+        action: "오늘 식단 점수는 저장된 식사 총합과 항목별 감점으로 봅니다."
+      };
+    }
+
+    function renderAdherenceExtraChecks(coach, adherenceResult = null){
       const coachItems = getCoachItems(coach);
       const macroKeys = new Set(["calorie", "protein", "carb", "fat"]);
       const extraItems = coachItems
         .filter(item => item?.key && !macroKeys.has(item.key))
-        .map(item => ({
-          key: item.key,
-          label: ADHERENCE_EXTRA_LABELS[item.key] || "추가 확인",
-          state: item.state,
-          action: cleanIntegratedCoachAction(item, coachItems) || item.reason
-        }));
+        .map(item => getAdherenceExtraEvidenceItem(item, coachItems, adherenceResult));
+      const consumed = adherenceResult?.detail?.consumed || {};
+      if (Number(consumed.alcoholKcal || 0) > 0 && !extraItems.some(item => item.key === "alcohol" || item.key === "recovery")) {
+        extraItems.push(getAdherenceExtraEvidenceItem({ key: "alcohol" }, coachItems, adherenceResult));
+      }
+      if (Number(consumed.otherKcal || 0) >= 300 && !extraItems.some(item => item.key === "otherKcal")) {
+        extraItems.push(getAdherenceExtraEvidenceItem({ key: "otherKcal" }, coachItems, adherenceResult));
+      }
       if (coach?.inbodyHint) {
         extraItems.push({
           key: "inbody",
           label: ADHERENCE_EXTRA_LABELS.inbody,
-          state: "InBody 기록 참고",
-          action: coach.inbodyHint
+          state: "InBody는 오늘 점수의 보조 근거입니다.",
+          action: "체성분 기록은 식단 점수의 보조 설명으로만 봅니다."
         });
       }
       if (!extraItems.length) return "";
@@ -11065,7 +11143,7 @@ Notes:
               <div class="adherence-extra-item" data-extra-key="${item.key}">
                 <div class="label">${escapeHtml(item.label)}</div>
                 <div class="state">${escapeHtml(item.state || item.label)}</div>
-                <div class="action">${escapeHtml(item.action || "오늘 기록 기준으로 참고하세요.")}</div>
+                <div class="action">${escapeHtml(item.action || "오늘 식단 점수는 저장된 식사 총합 기준입니다.")}</div>
               </div>
             `).join("")}
           </div>
@@ -11081,8 +11159,8 @@ Notes:
           <div class="notice">
             <h4>직접 기록 유지 중</h4>
             <ul>
-              <li>자동 식단 평가는 꺼져 있습니다. 데이터 기록 탭의 상/중/하 직접 입력 구조는 그대로 유지됩니다.</li>
-              <li>자동 분석을 켜면 오늘 먹은 총합을 기준으로 식단 달성률을 계산합니다.</li>
+              <li>직접 평가로 저장되는 상태입니다. 탄·단·지 세부 감점은 자동 계산보다 약하게 봅니다.</li>
+              <li>자동 분석을 켜면 오늘 먹은 총합을 기준으로 식단 달성률 근거를 나눠 계산합니다.</li>
             </ul>
           </div>
         `;
@@ -11103,7 +11181,7 @@ Notes:
         return;
       }
 
-      const extraChecksHtml = renderAdherenceExtraChecks(coach);
+      const extraChecksHtml = renderAdherenceExtraChecks(coach, adherenceResult);
 
       if (adherenceResult.status === "pending" || adherenceResult.status === "pending_over") {
         const progressText = Number.isFinite(adherenceResult.progressPercent)
@@ -11112,8 +11190,8 @@ Notes:
         const isPendingOver = adherenceResult.status === "pending_over";
         const pendingBadgeText = adherenceResult.label || (isPendingOver ? "조절 필요" : "평가 보류");
         const pendingCopyText = adherenceResult.reasons?.protein || (isPendingOver ? "현재 기록 기준으로 목표를 의미 있게 넘은 항목이 있습니다." : "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다.");
-        const pendingActionText = adherenceResult.reasons?.kcal || (isPendingOver ? "남은 식사는 추가 섭취보다 조절을 우선해 주세요." : "추가 식사가 있다면 이어서 기록해 주세요.");
-        const pendingTotalText = adherenceResult.reasons?.fat || "점수는 오늘 저장된 식사 총합 기준입니다.";
+        const pendingActionText = adherenceResult.reasons?.kcal || (isPendingOver ? "이미 넘은 항목은 점수에서 불리하게 반영될 수 있습니다." : "기록이 부족해 칼로리 부족으로 단정하지 않습니다.");
+        const pendingTotalText = adherenceResult.reasons?.fat || "기록이 부족해 지방 부족으로 단정하지 않습니다.";
         const mealHintText = adherenceResult.mealConcentrationHint || "";
         const mealHintNote = mealHintText ? `<div class="mini-note meal-concentration-note">${escapeHtml(mealHintText)}</div>` : "";
         host.innerHTML = `
@@ -11132,7 +11210,7 @@ Notes:
                 <li>${escapeHtml(adherenceResult.summaryText || getAdherenceSummaryText(adherenceResult))}</li>
                 <li>${escapeHtml(pendingTotalText)}</li>
               </ul>
-              <div class="mini-note">오늘 누적 섭취와 목표 대비 남은 양은 위 영역에서 계속 확인할 수 있습니다.</div>
+              <div class="mini-note">오늘 누적 섭취와 목표 대비 남은 양은 위 영역에서 따로 확인합니다.</div>
               ${mealHintNote}
               ${extraChecksHtml}
             </div>
@@ -11160,8 +11238,8 @@ Notes:
             <div class="adherence-components">
               ${renderAdherenceMacroCards(adherenceResult, coach)}
             </div>
-            <div class="mini-note">지방은 정확한 목표치보다 적정 범위 유지가 중요해, 너무 낮거나 과할 때만 감점됩니다.</div>
-            ${adherenceResult.capApplied ? `<div class="mini-note">단백질 섭취가 크게 부족해 오늘 점수 상한이 ${adherenceResult.proteinCap}%로 제한되었습니다.</div>` : `<div class="mini-note">점수는 오늘 저장된 식사 총합 기준입니다.</div>`}
+            <div class="mini-note">지방은 하루 단독 부족만으로 강한 행동을 정하지 않고, 과하거나 오래 낮을 때 점수 근거로 봅니다.</div>
+            ${adherenceResult.capApplied ? `<div class="mini-note">단백질 섭취가 크게 부족해 오늘 점수는 단백질 부족을 크게 반영했습니다.</div>` : `<div class="mini-note">점수는 오늘 저장된 식사 총합 기준입니다.</div>`}
             ${adherenceResult.mealConcentrationHint ? `<div class="mini-note meal-concentration-note">${escapeHtml(adherenceResult.mealConcentrationHint)}</div>` : ""}
             ${extraChecksHtml}
           </div>
@@ -11180,17 +11258,17 @@ Notes:
       const signals = todaySnapshot.signals;
       let text = "";
       if (!signals.hasAnyMeal){
-        text = "\uC624\uB298\uC740 \uC544\uC9C1 \uC2DD\uC0AC \uAE30\uB85D\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.";
+        text = "식사 기록이 없어 오늘 식단 점수는 보류됩니다.";
       } else if (!signals.hasEnoughMeals){
-        text = "현재 기록만으로는 하루 식단을 평가하기에 아직 이릅니다.";
+        text = "한 끼만으로 하루 식단을 판단하지 않습니다.";
       } else if (signals.adherenceBand === "HIGH"){
-        text = "\uD604\uC7AC \uBAA9\uD45C \uBC94\uC704\uB97C \uC798 \uC720\uC9C0\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4.";
+        text = "오늘 점수 감점은 작습니다.";
       } else if (signals.adherenceBand === "MID"){
-        text = "\uC77C\uBD80 \uD3B8\uCC28\uAC00 \uC788\uC9C0\uB9CC \uC804\uBC18\uC801\uC778 \uD750\uB984\uC740 \uC720\uC9C0\uB418\uACE0 \uC788\uC2B5\uB2C8\uB2E4.";
+        text = "일부 항목이 점수에서 깎였습니다.";
       } else if (signals.adherenceBand === "LOW"){
-        text = "\uD604\uC7AC \uBAA9\uD45C \uBC94\uC704\uB97C \uBC97\uC5B4\uB09C \uC0C1\uD0DC\uC785\uB2C8\uB2E4.";
+        text = "목표 범위를 벗어난 항목이 오늘 점수에서 크게 깎였습니다.";
       } else {
-        text = "\uD604\uC7AC \uC0C1\uD0DC\uB97C \uD310\uB2E8\uD558\uAE30\uC5D0 \uC815\uBCF4\uAC00 \uBD80\uC871\uD569\uB2C8\uB2E4.";
+        text = "기록이 부족해 점수 근거를 나누기 어렵습니다.";
       }
       el.textContent = text;
       el.classList.toggle("hidden", !text);
@@ -14466,7 +14544,7 @@ Notes:
           ids.autoDietAnalysis.checked = false;
           renderTodayAdherencePanel({ isAvailable: false });
           const text = document.getElementById("todayAdherenceContent").textContent || "";
-          assertTest(text.includes("직접") && text.includes("데이터 기록 탭"), "manual guidance should render when auto analysis is off");
+          assertTest(text.includes("직접 평가") && text.includes("탄·단·지 세부 감점"), "manual guidance should render when auto analysis is off");
         }));
 
         results.push(runNamedTest("adherence toggle on renders score", () => {
@@ -14480,6 +14558,90 @@ Notes:
           renderTodayAdherencePanel(score);
           const text = document.getElementById("todayAdherenceContent").textContent || "";
           assertTest(text.includes("%") && text.includes(score.label), "score panel should render percent and label");
+        }));
+
+        results.push(runNamedTest("adherence D2 no meals does not assert macro shortage", () => {
+          ids.autoDietAnalysis.checked = true;
+          recordsState.items = normalizeRecordsCollection([]);
+          const score = getTodayAdherenceScore(calculate());
+          renderTodayAdherencePanel(score);
+          const text = document.getElementById("todayAdherenceContent").textContent || "";
+          assertIncludesAll(text, ["식사 기록이 없어", "점수는 보류", "부족으로 판단하지 않습니다"], "no meal adherence evidence copy");
+          assertExcludesAll(text, ["단백질부터", "탄수화물을 넣으세요", "지방을 올리"], "no meal adherence should not show Coach action");
+        }));
+
+        results.push(runNamedTest("adherence D2 one meal does not judge full day macros", () => {
+          ids.autoDietAnalysis.checked = true;
+          const target = calculate();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            meals: [{ id: "m1", mealLabel: "one meal", carbs: 20, protein: 12, fat: 6, memo: "", createdAt: `${today}T08:00:00.000Z` }]
+          }]);
+          const score = getTodayAdherenceScore(target);
+          renderTodayAdherencePanel(score);
+          const text = document.getElementById("todayAdherenceContent").textContent || "";
+          assertIncludesAll(text, ["한 끼만으로 하루 식단을 판단하지 않습니다", "부족으로 단정하지 않습니다"], "one meal adherence pending copy");
+          assertExcludesAll(text, ["단백질부터", "다음 식사", "보완하세요"], "one meal adherence should not repeat coach action");
+        }));
+
+        results.push(runNamedTest("adherence D2 component cards explain score evidence", () => {
+          ids.autoDietAnalysis.checked = true;
+          const target = calculate();
+          const score = {
+            status: "available",
+            detail: {
+              target: { kcal: target.targetCal, protein: target.protein, carbs: target.carbs, fat: target.fat },
+              consumed: { kcal: target.targetCal * 1.2, scoringKcal: target.targetCal * 1.2, protein: target.protein * 0.5, carbs: target.carbs, fat: target.fat * 1.4, alcoholKcal: 0, otherKcal: 0 },
+              componentScores: { kcal: 0.45, protein: 0.35, carbs: 0.9, fat: 0.45 }
+            },
+            reasons: {
+              kcal: "목표보다 많이 넘었습니다. 오늘 점수에서 깎였습니다.",
+              protein: "단백질이 크게 비었습니다. 가장 먼저 확인할 감점 근거입니다.",
+              carbs: "탄수화물이 목표 범위와 가깝습니다.",
+              fat: "지방이 목표보다 많아 오늘 점수에서 깎였습니다."
+            }
+          };
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = renderAdherenceMacroCards(score, {
+            items: [
+              { key: "protein", state: "단백질부터 채우세요.", action: "다음 식사는 단백질부터 채우세요." },
+              { key: "fat", state: "지방이 과합니다.", action: "튀김과 안주는 멈추세요." }
+            ]
+          });
+          const text = wrapper.textContent || "";
+          assertIncludesAll(text, ["오늘 점수에서 깎였습니다", "감점 근거", "감점은 작습니다"], "component evidence copy");
+          assertExcludesAll(text, ["단백질부터 채우세요", "다음 식사는", "튀김과 안주는 멈추세요"], "component cards should not repeat coach actions");
+        }));
+
+        results.push(runNamedTest("adherence D2 alcohol and other kcal evidence copy", () => {
+          ids.autoDietAnalysis.checked = true;
+          const score = {
+            status: "available",
+            detail: {
+              consumed: { alcoholKcal: 320, otherKcal: 420 },
+              componentScores: { kcal: 0.5, protein: 0.8, carbs: 0.8, fat: 0.8 }
+            },
+            reasons: {}
+          };
+          const html = renderAdherenceExtraChecks({
+            items: [
+              { key: "alcohol", state: "오늘 술 부담이 큽니다.", action: "추가 술과 안주는 멈추세요." },
+              { key: "otherKcal", state: "기타칼로리 비율도 높습니다.", action: "기타 칼로리 기존 문구" }
+            ]
+          }, score);
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = html;
+          const text = wrapper.textContent || "";
+          assertIncludesAll(text, ["알코올 kcal는 순수 술 부담입니다", "안주와 음료 당분", "기타 칼로리가 많아 탄·단·지 중 어디서 어긋났는지 보기 어렵습니다"], "alcohol and other kcal evidence copy");
+          assertExcludesAll(text, ["기타 칼로리가 탄단지 판단을 가립니다", "추가 술과 안주는 멈추세요"], "extra evidence should not repeat coach actions or banned other kcal copy");
+        }));
+
+        results.push(runNamedTest("adherence D2 direct evaluation uses easy copy", () => {
+          ids.autoDietAnalysis.checked = false;
+          renderTodayAdherencePanel({ isAvailable: false });
+          const text = document.getElementById("todayAdherenceContent").textContent || "";
+          assertIncludesAll(text, ["직접 평가", "탄·단·지 세부 감점", "자동 계산보다 약하게 봅니다"], "direct evaluation copy");
+          assertExcludesAll(text, ["manual", "manual adherence"], "direct evaluation should not expose internal manual wording");
         }));
 
         results.push(runNamedTest("records manual adherence input disables when auto is on", () => {
@@ -16225,7 +16387,7 @@ Notes:
           assertTest(!bulkCarbHigh.output.items.some(item => item.key === "carb" && item.status === "high"), "bulk carb high alone should not be main warning");
         }));
 
-        results.push(runNamedTest("daily coach v6.2-A goal-aware macro card overrides", () => {
+        results.push(runNamedTest("daily coach v6.2-A adherence macro cards stay evidence-only", () => {
           const target = { kcal: 2000, protein: 150, carbs: 220, fat: 70 };
           const makeScore = consumed => ({
             detail: {
@@ -16249,12 +16411,24 @@ Notes:
             wrapper.innerHTML = renderAdherenceMacroCards(score, result.output);
             return wrapper.textContent;
           };
-          assertIncludesAll(renderCards("diet", { kcal: 1.24, fat: 1.5 }), ["총칼로리", "마무리", "초과", "지방", "기름진 음식"], "diet calorie high cards");
-          assertIncludesAll(renderCards("lean_bulk", { kcal: 1.3, fat: 1.45 }), ["먹은 양은 충분", "소스", "튀김"], "lean bulk quality cards");
-          assertIncludesAll(renderCards("bulk", { kcal: 0.82, carbs: 0.65 }), ["총칼로리", "부족", "소화 쉬운 탄수화물"], "bulk low calorie cards");
-          assertIncludesAll(renderCards("bulk", { protein: 0.65 }), ["단백질", "탄수화물"], "protein low card");
-          assertExcludesAll(renderCards("diet", { kcal: 1, protein: 1, carbs: 0.6, fat: 1 }, { state: { routine: "REST", weightDuration: 0, cardioDuration: 0 } }), ["탄수화물은 운동일 보조"], "diet rest carb card should not over-push carbs");
-          assertExcludesAll(renderCards("diet", { fat: 0.6 }), ["지방을 조금 보완", "지방 식품"], "fat low card should not force override");
+          const dietHigh = renderCards("diet", { kcal: 1.24, fat: 1.5 });
+          assertIncludesAll(dietHigh, ["총칼로리", "점수에서", "깎", "지방"], "diet calorie high evidence cards");
+          assertExcludesAll(dietHigh, ["마무리", "기름진 음식은 끊으세요", "간식과 야식은 끊으세요"], "diet card should not repeat coach action");
+
+          const leanQuality = renderCards("lean_bulk", { kcal: 1.3, fat: 1.45 });
+          assertIncludesAll(leanQuality, ["총칼로리", "지방", "점수에서"], "lean bulk quality evidence cards");
+          assertExcludesAll(leanQuality, ["소스", "튀김", "간식은 중단"], "lean bulk component card should not repeat coach action");
+
+          const bulkLow = renderCards("bulk", { kcal: 0.82, carbs: 0.65 });
+          assertIncludesAll(bulkLow, ["총칼로리", "부족", "점수에서"], "bulk low calorie evidence cards");
+          assertExcludesAll(bulkLow, ["소화 쉬운 탄수화물", "추가하세요", "채우세요"], "bulk component card should not repeat coach action");
+
+          const proteinLow = renderCards("bulk", { protein: 0.65 });
+          assertIncludesAll(proteinLow, ["단백질", "점수에서"], "protein low card evidence");
+          assertExcludesAll(proteinLow, ["단백질부터", "챙기세요"], "protein card should not repeat coach action");
+
+          assertExcludesAll(renderCards("diet", { kcal: 1, protein: 1, carbs: 0.6, fat: 1 }, { state: { routine: "REST", weightDuration: 0, cardioDuration: 0 } }), ["탄수화물은 운동일 보조", "운동 전후"], "diet rest carb card should not over-push carbs");
+          assertExcludesAll(renderCards("diet", { fat: 0.6 }), ["지방을 조금 보완", "지방 식품", "지방을 올리"], "fat low card should not force override");
         }));
 
         results.push(runNamedTest("daily coach v6.2.1-A alcohol protein fat combo keeps card roles", () => {
@@ -16275,8 +16449,10 @@ Notes:
           }, result.output);
           const proteinCard = wrapper.querySelector('[data-coach-key="protein"]')?.textContent || "";
           const fatCard = wrapper.querySelector('[data-coach-key="fat"]')?.textContent || "";
-          assertIncludesAll(proteinCard, ["단백질부터", "보완"], "protein card should keep protein-low action");
-          assertIncludesAll(fatCard, ["지방", "안주"], "fat card should keep fat/alcohol limit role");
+          assertIncludesAll(proteinCard, ["단백질", "점수"], "protein card should explain protein score evidence");
+          assertExcludesAll(proteinCard, ["단백질부터", "보완하세요"], "protein card should not repeat protein action");
+          assertIncludesAll(fatCard, ["지방", "점수"], "fat card should explain fat score evidence");
+          assertExcludesAll(fatCard, ["안주", "멈추세요", "추가하지"], "fat card should not repeat fat/alcohol action");
         }));
 
         results.push(runNamedTest("daily coach v6.2.1-A input wording and fallback copy", () => {
@@ -16294,8 +16470,8 @@ Notes:
             getAdherenceMacroFallbackText({ key: "carb", label: "탄수화물" }, 0.5, "탄수화물 초과").action,
             getAdherenceMacroFallbackText({ key: "fat", label: "지방" }, 0.5, "지방 부족").action
           ].join(" ");
-          assertIncludesAll(fallbackText, ["오늘은 여기서 마무리", "단백질부터", "탄수화물은 더 추가하지", "조금만 채우세요"], "fallback card roles");
-          assertExcludesAll(fallbackText, ["목표와의 차이를", "줄이는 쪽", "정리하세요", "해도 좋습니다"], "fallback should avoid generic old copy");
+          assertIncludesAll(fallbackText, ["점수에서", "가장 먼저 확인할 감점 근거", "하루 단독으로 지방 행동을 정하지 않습니다"], "fallback card evidence roles");
+          assertExcludesAll(fallbackText, ["오늘은 여기서 마무리", "단백질부터", "탄수화물은 더 추가하지", "조금만 채우세요", "보완하세요"], "fallback should avoid coach action copy");
         }));
 
         results.push(runNamedTest("daily coach v6.2.1-A user-facing copy avoids internal and old labels", () => {
