@@ -1,9 +1,9 @@
 <!--
-Version: 6.4-C
-Stage: 6.4-C 최근 흐름 탭 및 Weekly 재해석
+Version: 6.4-C1
+Stage: 6.4-C1 최근 흐름 카드 판단 구조 재정렬
 Date: 2026-05-05
 Notes:
-- 최근 흐름 탭 / Weekly 화면 재해석
+- 최근 흐름 카드 판단 구조 재정렬
 - 점수 산식 / 저장 schema / import/export schema / Coach decision matrix / fat low 행동 문구 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
@@ -12,7 +12,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.4-C</title>
+  <title>탄단지 다이어리 v6.4-C1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -1979,6 +1979,9 @@ Notes:
       align-items:start;
       gap:18px;
     }
+    .weekly-layout{
+      grid-template-columns:minmax(0,1fr);
+    }
     .records-input-panel,
     .records-review-shell,
     .records-review-shell > *,
@@ -2375,7 +2378,7 @@ Notes:
     }
     .recent-flow-window-grid{
       display:grid;
-      grid-template-columns:repeat(5, minmax(0, 1fr));
+      grid-template-columns:repeat(4, minmax(0, 1fr));
       gap:10px;
     }
     .recent-flow-window-card{
@@ -2399,6 +2402,80 @@ Notes:
       color:var(--deep);
       font-weight:900;
     }
+    .recent-flow-range-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:nowrap;
+      overflow-x:auto;
+      padding-bottom:2px;
+    }
+    .recent-flow-range-controls{
+      display:inline-flex;
+      gap:6px;
+      flex:0 0 auto;
+    }
+    .recent-flow-range-btn{
+      min-height:32px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      background:rgba(255,252,247,.78);
+      color:var(--muted);
+      font-size:12px;
+      font-weight:900;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .recent-flow-range-btn.active{
+      border-color:color-mix(in srgb, var(--accent-strong) 56%, var(--line) 44%);
+      background:rgba(255,255,255,.92);
+      color:var(--deep);
+    }
+    .recent-flow-range-stats{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:10px;
+      min-width:max-content;
+      font-size:12px;
+      font-weight:900;
+      white-space:nowrap;
+    }
+    .recent-flow-range-stat{
+      display:inline-flex;
+      align-items:center;
+      gap:5px;
+    }
+    .recent-flow-range-stat.training{
+      color:#3f7865;
+    }
+    .recent-flow-range-stat.weight{
+      color:#5a64b4;
+    }
+    .recent-flow-goal-line{
+      margin:10px 0 0;
+      color:var(--deep);
+      font-size:13px;
+      font-weight:900;
+      line-height:1.45;
+    }
+    .recent-flow-window-card .role{
+      margin:0;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:900;
+      line-height:1.35;
+    }
+    .recent-flow-window-card .conclusion{
+      margin:0;
+      color:var(--deep);
+      font-size:14px;
+      line-height:1.45;
+      font-weight:900;
+      text-wrap:pretty;
+    }
     .recent-flow-window-card .status{
       display:inline-flex;
       align-self:flex-start;
@@ -2412,11 +2489,22 @@ Notes:
       line-height:1.25;
     }
     .recent-flow-window-card .meta,
-    .recent-flow-window-card .caution{
+    .recent-flow-window-card .caution,
+    .recent-flow-window-card .reason{
       margin:0;
       font-size:12px;
       line-height:1.5;
       color:var(--muted);
+    }
+    .recent-flow-window-card .metric{
+      margin:0;
+      margin-top:auto;
+      padding-top:6px;
+      border-top:1px dashed color-mix(in srgb, var(--line) 82%, white 18%);
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+      font-weight:800;
     }
     .recent-flow-point-list{
       display:grid;
@@ -3370,7 +3458,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.4-C</span>
+               <span class="app-version">v6.4-C1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -3987,7 +4075,7 @@ Notes:
         <section class="panel weekly-analysis-panel">
           <h3>최근 흐름</h3>
           <h2>최근 기록 흐름과 오늘 행동 기준</h2>
-          <div class="mini-note">최근 1일 / 3일 / 7일 / 14일 / 28일 기록을 나눠 보고, 지금 판단을 얼마나 믿을 수 있는지 확인합니다.</div>
+          <div class="mini-note">최근 기록을 기간별로 나눠 분석합니다.</div>
           <div id="recentFlowPreviewHost"></div>
           <div class="section-group weekly-report-group">
             <div class="section-group-head">
@@ -4018,35 +4106,6 @@ Notes:
           </div>
           <div id="weeklyInfoHost"></div>
           <div id="weeklyWarningHost"></div>
-        </section>
-        <section class="weekly-guidance-shell">
-          <div class="panel panel-muted weekly-principles-panel">
-            <h3>분석 원칙</h3>
-            <div class="flow">
-              <div class="step">
-                <div>
-                  <div class="title">최근 흐름을 보는 기준</div>
-                  <div class="text">식사와 체중 기록이 충분히 쌓일수록 반복 패턴과 추세를 더 안정적으로 참고할 수 있습니다.</div>
-                </div>
-                <div class="num">기록</div>
-              </div>
-              <div class="step">
-                <div>
-                  <div class="title">보수적으로 보는 경우</div>
-                  <div class="text">목표가 바뀌었거나 기타 칼로리, 식사 누락이 많으면 이전 흐름을 그대로 비교하지 않습니다.</div>
-                </div>
-                <div class="num">주의</div>
-              </div>
-              <div class="step">
-                <div>
-                  <div class="title">오늘 행동 참고</div>
-                  <div class="text">결과는 자동 조정이 아니라 오늘 식사와 기록을 정리하기 위한 참고로 봅니다.</div>
-                </div>
-                <div class="num">오늘</div>
-              </div>
-            </div>
-            <div class="mini-note weekly-principles-note">체중 변화만으로 목표 칼로리를 바로 바꾸기보다, 오늘 할 일은 Today 코치에서 먼저 확인하세요.</div>
-          </div>
         </section>
       </div>
     </section>
@@ -11358,126 +11417,293 @@ Notes:
       renderMealRecordSection(selectedDate);
     }
 
-    const RECENT_FLOW_WINDOW_LABELS = {
-      1: "오늘 기록",
-      3: "단기 흐름",
-      7: "반복 패턴",
-      14: "체중 흐름 참고",
-      28: "장기 흐름 후보"
+    const RECENT_FLOW_UI_CARD_DAYS = [3, 7, 14, 28];
+    const RECENT_FLOW_RANGE_DAYS = [7, 14, 28];
+    const RECENT_FLOW_CARD_LABELS = {
+      3: { title: "단기 흐름", role: "단기 식단 안정성" },
+      7: { title: "반복 패턴", role: "식단 패턴과 운동 빈도" },
+      14: { title: "목표 진행", role: "목표별 진행 진단" },
+      28: { title: "설정 조정", role: "장기 설정 판단" }
     };
+    let recentFlowSelectedRangeDays = 7;
 
-    function getRecentFlowWindowStatus(window){
-      if (!window) return "기록 부족";
-      if (window.goalChangeDetected) return "목표 변경 주의";
-      if (window.otherKcalHeavyDays > 0) return "기타 칼로리 주의";
-      const level = getRecentContextConfidenceMin(
-        window.recordConfidence || "blocked",
-        window.windowFit || "blocked",
-        window.contextFit || "blocked"
-      );
-      if (level === "high") return "판단 가능";
-      if (level === "medium") return "보수적으로 참고";
-      return "기록 부족";
+    function getRecentFlowSelectedRangeDays(){
+      return RECENT_FLOW_RANGE_DAYS.includes(recentFlowSelectedRangeDays) ? recentFlowSelectedRangeDays : 7;
     }
 
-    function getRecentFlowWindowCaution(window){
-      if (!window) return "기록을 먼저 쌓아 주세요.";
-      if (window.goalChangeDetected) return "현재 목표 기준으로 봅니다.";
-      if (window.otherKcalHeavyDays > 0) return "탄단지 흐름은 보수적으로 봅니다.";
-      if (window.proteinLowDays >= 2) return "오늘은 단백질을 먼저 채우세요.";
-      if (window.carbLowTrainingDays > 0 && window.actualWeightTrainingDays > 0) return "운동이 있다면 탄수화물을 식사 안에서 보완하세요.";
-      if (window.alcoholDays > 0) return "술이 있었던 날은 체중 변동을 보수적으로 보세요.";
-      if (window.usableDietDays <= 0) return "주요 식사부터 탄단지로 기록하세요.";
-      return "오늘 할 일은 Today 코치에서 먼저 확인하세요.";
+    function getRecentFlowGoalLabel(goalKey){
+      const key = String(goalKey || "").trim();
+      return GOALS[key]?.label || key || "목표 미기록";
     }
 
-    function getRecentFlowOverviewCopy(recentContext){
-      const guard = getRecentContextCoachGuard(recentContext);
-      if (guard.goalChangeDetected) {
+    function getRecentFlowGoalBreakdown(window){
+      const records = Array.isArray(window?.records) ? window.records : [];
+      const counts = records.reduce((acc, item) => {
+        if (!item.hasGoalSnapshot || !item.goalType) return acc;
+        acc[item.goalType] = (acc[item.goalType] || 0) + 1;
+        return acc;
+      }, {});
+      const entries = Object.entries(counts).sort((a, b) => b[1] - a[1] || getRecentFlowGoalLabel(a[0]).localeCompare(getRecentFlowGoalLabel(b[0])));
+      if (!entries.length) return "목표: 기록 없음";
+      return `목표: ${entries.map(([goal, count]) => `${getRecentFlowGoalLabel(goal)} ${count}일`).join(" · ")}`;
+    }
+
+    function getRecentFlowWeightChange(window){
+      const weightRecords = (Array.isArray(window?.records) ? window.records : [])
+        .filter(item => item.hasWeight && Number.isFinite(item.weight))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      if (weightRecords.length < 2) return null;
+      return weightRecords[weightRecords.length - 1].weight - weightRecords[0].weight;
+    }
+
+    function getRecentFlowAverageAdherence(window){
+      const values = (Array.isArray(window?.records) ? window.records : [])
+        .map(item => item.adherencePercent)
+        .filter(Number.isFinite);
+      if (!values.length) return null;
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    }
+
+    function getRecentFlowHighCarbDays(window){
+      return (Array.isArray(window?.records) ? window.records : []).filter(item =>
+        item.componentEligible &&
+        Number.isFinite(item.targetCarbs) &&
+        item.targetCarbs > 0 &&
+        item.carbs > item.targetCarbs * 1.15
+      ).length;
+    }
+
+    function getRecentFlowCarbLowDays(window){
+      return Number(window?.carbLowTrainingDays || 0) + Number(window?.carbLowRestDays || 0);
+    }
+
+    function getRecentFlowTrainingMetric(window){
+      const days = Number(window?.windowDays || 0);
+      const trainingDays = Number(window?.actualWeightTrainingDays || 0);
+      if (!days) return "웨이트 기록이 없습니다.";
+      if (trainingDays <= 0) return `최근 ${days}일 웨이트 기록이 없습니다.`;
+      return `최근 ${days}일 중 ${trainingDays}일 웨이트 기록이 있습니다.`;
+    }
+
+    function getRecent3DaySummary(window3){
+      const trainingMetric = getRecentFlowTrainingMetric(window3);
+      if (!window3 || window3.usableDietDays < 2) {
         return {
-          conclusion: "최근 목표가 바뀐 기록이 있어 이전 흐름을 그대로 비교하기는 어렵습니다.",
-          detail: "오늘은 현재 목표 기준으로 식사를 맞추세요.",
-          guard
+          conclusion: "최근 3일 식단 기록이 부족합니다.",
+          reason: "분석이 어렵습니다.",
+          metric: trainingMetric
         };
       }
-      if (guard.level === "blocked" || guard.level === "low") {
+      if (window3.otherKcalHeavyDays > 0) {
         return {
-          conclusion: "기록이 아직 부족해 최근 흐름 판단은 보수적으로 봅니다.",
-          detail: "체중 변화만 보고 목표 칼로리를 조정하기에는 아직 이릅니다. 오늘은 주요 식사 2끼 이상을 탄단지로 기록하세요.",
-          guard
+          conclusion: "최근 3일 식단이 불안정합니다.",
+          reason: "기타 칼로리가 원인입니다.",
+          metric: trainingMetric
         };
       }
-      if (guard.otherKcalRepeated) {
+      if (window3.alcoholDays > 0) {
         return {
-          conclusion: "현재 기록 기준으로 최근 흐름을 참고할 수 있습니다.",
-          detail: "기타 칼로리가 큰 날이 있어 탄단지 흐름은 보수적으로 봅니다. 오늘은 가능한 탄단지로 나눠 기록하세요.",
-          guard
+          conclusion: "최근 3일 식단이 불안정합니다.",
+          reason: "술 기록이 원인입니다.",
+          metric: trainingMetric
+        };
+      }
+      if (window3.proteinLowDays > 0) {
+        return {
+          conclusion: "최근 3일 식단이 불안정합니다.",
+          reason: "단백질 부족이 반복됐습니다.",
+          metric: trainingMetric
+        };
+      }
+      if (window3.partialDietDays > 0 || window3.mealRecordDays < 3) {
+        return {
+          conclusion: "최근 3일 식단이 불안정합니다.",
+          reason: "식사 기록이 빠진 날이 있습니다.",
+          metric: trainingMetric
         };
       }
       return {
-        conclusion: "현재 기록 기준으로 최근 흐름을 참고할 수 있습니다.",
-        detail: "오늘 할 일은 Today 코치에서 먼저 확인하세요.",
-        guard
+        conclusion: "최근 3일 식단은 안정적입니다.",
+        reason: "기타 칼로리와 식사 누락이 크게 보이지 않습니다.",
+        metric: trainingMetric
       };
     }
 
-    function getRecentFlowOverviewChips(recentContext, guard){
-      const window7 = recentContext?.windows?.[7] || guard?.sourceWindow || {};
-      const chips = [
-        `식사 기록 ${Number(window7.mealRecordDays || 0)}일`,
-        `체중 기록 ${Number(window7.weightDays || 0)}일`
-      ];
-      chips.push(Number(window7.goalSnapshotDays || 0) > 0 ? "목표 기준 있음" : "목표 기준 부족");
-      chips.push(`웨이트 기록 ${Number(window7.actualWeightTrainingDays || 0)}일`);
-      if (Number(window7.otherKcalHeavyDays || 0) > 0) chips.push(`기타 칼로리 주의 ${Number(window7.otherKcalHeavyDays || 0)}일`);
-      return chips.slice(0, 5);
+    function getRecent7PatternSummary(window7){
+      const trainingDays = Number(window7?.actualWeightTrainingDays || 0);
+      const trainingMetric = trainingDays >= 3
+        ? `7일 중 ${trainingDays}일 웨이트 기록이 있습니다. 운동 흐름은 좋습니다.`
+        : "이번 주는 웨이트 기록이 부족합니다.";
+      if (!window7 || window7.usableDietDays < 4) {
+        return {
+          conclusion: "7일 반복 패턴 분석이 어렵습니다.",
+          reason: "기록 가능한 날이 부족합니다.",
+          metric: trainingMetric
+        };
+      }
+      const highCarbDays = getRecentFlowHighCarbDays(window7);
+      const lowCarbDays = getRecentFlowCarbLowDays(window7);
+      const highFatDays = Number(window7.fatHighDays || 0);
+      let conclusion = "단백질은 잘 챙겼습니다.";
+      let reason = "큰 탄단지 반복 문제는 아직 뚜렷하지 않습니다.";
+      if (lowCarbDays >= 2 && highFatDays >= 2) {
+        conclusion = "저탄수 고지방 식사가 반복됐습니다.";
+        reason = "탄수 보완보다 지방 쪽으로 식사가 치우친 날이 있습니다.";
+      } else if (highCarbDays >= 2) {
+        conclusion = "고탄수 식사가 반복됐습니다.";
+        reason = "탄수 비중이 목표보다 큰 날이 여러 번 있습니다.";
+      } else if (lowCarbDays >= 2) {
+        conclusion = "저탄수 식사가 반복됐습니다.";
+        reason = "운동일과 휴식일을 나눠 탄수 기록을 확인합니다.";
+      } else if (highFatDays >= 2) {
+        conclusion = "고지방 식사가 반복됐습니다.";
+        reason = "지방 비중이 큰 날이 여러 번 있습니다.";
+      } else if (window7.proteinLowDays >= 2) {
+        conclusion = "단백질이 자주 빠졌습니다.";
+        reason = "단백질 부족일이 여러 번 있습니다.";
+      } else if (window7.otherKcalHeavyDays >= 2) {
+        conclusion = "기타 칼로리가 반복됐습니다.";
+        reason = "탄단지로 나뉘지 않은 열량이 여러 번 있습니다.";
+      } else if (window7.alcoholDays >= 2) {
+        conclusion = "술 기록이 반복됐습니다.";
+        reason = "술이 있었던 날은 회복과 체중 변동을 따로 봅니다.";
+      }
+      return { conclusion, reason, metric: trainingMetric };
     }
 
-    function getRecentFlowPointItems(recentContext, guard){
-      const window7 = recentContext?.windows?.[7] || guard?.sourceWindow || {};
+    function getRecent14ProgressSummary(window14, currentResult){
+      const goal = currentResult?.s?.goal || state.goal;
+      const change = getRecentFlowWeightChange(window14);
+      const goalMetric = getRecentFlowGoalBreakdown(window14);
+      if (window14?.goalChangeDetected) {
+        return {
+          conclusion: "목표가 섞여 있어 14일 진행 진단이 어렵습니다.",
+          reason: "이전 흐름을 현재 목표와 그대로 비교하지 않습니다.",
+          metric: goalMetric
+        };
+      }
+      if (!window14 || window14.usableDietDays < 7 || window14.weightDays < 2 || change === null) {
+        return {
+          conclusion: "14일 목표 진행 진단이 어렵습니다.",
+          reason: "체중과 식단 기록이 부족합니다.",
+          metric: goalMetric
+        };
+      }
+      if (goal === "diet") {
+        if (change <= -0.3) return { conclusion: "다이어트는 목표대로 진행되고 있습니다.", reason: "현재 식단을 유지하세요.", metric: goalMetric };
+        return { conclusion: "체중 변화가 목표보다 느립니다.", reason: "칼로리는 아직 바꾸지 말고 28일 기록에서 결정하세요.", metric: goalMetric };
+      }
+      if (goal === "bulk") {
+        if (change >= 0.3) return { conclusion: "벌크업 흐름이 목표와 맞습니다.", reason: "현재 식단을 유지하세요.", metric: goalMetric };
+        return { conclusion: "벌크업 중인데 체중이 거의 늘지 않았습니다.", reason: "칼로리는 아직 바꾸지 말고 28일 기록에서 결정하세요.", metric: goalMetric };
+      }
+      if (change >= 0.1 && change <= 0.8) return { conclusion: "린매스업 흐름이 안정적입니다.", reason: "현재 식단을 유지하세요.", metric: goalMetric };
+      if (Math.abs(change) < 0.1) return { conclusion: "린매스업 중인데 체중 변화가 거의 없습니다.", reason: "칼로리는 아직 바꾸지 말고 28일 기록에서 결정하세요.", metric: goalMetric };
+      return { conclusion: "린매스업 진행 속도를 확인해야 합니다.", reason: "칼로리는 아직 바꾸지 말고 28일 기록에서 결정하세요.", metric: goalMetric };
+    }
+
+    function getRecent28AdjustmentSummary(window28, currentResult){
+      const goal = currentResult?.s?.goal || state.goal;
+      const change = getRecentFlowWeightChange(window28);
+      const avgAdherence = getRecentFlowAverageAdherence(window28);
+      const goalMetric = getRecentFlowGoalBreakdown(window28);
+      if (!window28 || window28.usableDietDays < 18 || window28.weightDays < 12 || change === null) {
+        return {
+          conclusion: "장기 판단에 필요한 기록이 부족합니다.",
+          reason: "칼로리는 아직 바꾸지 마세요.",
+          metric: goalMetric
+        };
+      }
+      if (window28.goalChangeDetected) {
+        return {
+          conclusion: "목표가 섞여 있습니다.",
+          reason: "현재 목표 기록을 더 쌓은 뒤 판단하세요.",
+          metric: goalMetric
+        };
+      }
+      if (Number(window28.goalSnapshotCoverage || 0) < 0.7) {
+        return {
+          conclusion: "목표 기록이 부족합니다.",
+          reason: "칼로리는 아직 바꾸지 마세요.",
+          metric: goalMetric
+        };
+      }
+      if (!Number.isFinite(avgAdherence) || avgAdherence < 85) {
+        return {
+          conclusion: "식단 실행이 충분하지 않습니다.",
+          reason: "칼로리는 아직 바꾸지 마세요.",
+          metric: goalMetric
+        };
+      }
+      const otherKcalTooMany = Number(window28.otherKcalHeavyDays || 0) >= 3 || Number(window28.otherKcalHeavyDays || 0) / Math.max(1, Number(window28.usableDietDays || 0)) >= 0.15;
+      if (otherKcalTooMany) {
+        return {
+          conclusion: "기타 칼로리가 원인입니다.",
+          reason: "칼로리는 바꾸지 말고 탄단지 기록부터 정리하세요.",
+          metric: goalMetric
+        };
+      }
+      const alcoholTooMany = Number(window28.alcoholDays || 0) >= 2 || Number(window28.alcoholDays || 0) / Math.max(1, Number(window28.usableDietDays || 0)) >= 0.10;
+      if (alcoholTooMany) {
+        return {
+          conclusion: "술 기록이 체중 흐름을 흐립니다.",
+          reason: "칼로리는 아직 바꾸지 마세요.",
+          metric: goalMetric
+        };
+      }
+      if (goal === "diet") {
+        if (change <= -0.6) return { conclusion: "체중 흐름이 목표와 맞습니다.", reason: "현재 설정을 유지하세요.", metric: goalMetric };
+        if (change > 0.1) return { conclusion: "식단을 지켰는데도 체중이 계속 오릅니다.", reason: "하루 100~150kcal 낮추세요.", metric: goalMetric };
+        return { conclusion: "식단을 지켰는데도 체중이 거의 줄지 않습니다.", reason: "하루 100~150kcal 낮추세요.", metric: goalMetric };
+      }
+      if (goal === "bulk") {
+        if (change >= 0.6 && change <= 2.4) return { conclusion: "체중 흐름이 목표와 맞습니다.", reason: "현재 설정을 유지하세요.", metric: goalMetric };
+        if (change < 0.6) return { conclusion: "식단을 지켰는데도 체중이 거의 늘지 않습니다.", reason: "하루 100~150kcal 올리세요.", metric: goalMetric };
+        return { conclusion: "식단을 지켰는데도 체중이 계속 오릅니다.", reason: "하루 100~150kcal 낮추세요.", metric: goalMetric };
+      }
+      if (change >= 0.2 && change <= 1.4) return { conclusion: "체중 흐름이 목표와 맞습니다.", reason: "현재 설정을 유지하세요.", metric: goalMetric };
+      if (change < 0.2) return { conclusion: "식단을 지켰는데도 체중이 거의 늘지 않습니다.", reason: "하루 100~150kcal 올리세요.", metric: goalMetric };
+      return { conclusion: "식단을 지켰는데도 체중이 계속 오릅니다.", reason: "하루 100~150kcal 낮추세요.", metric: goalMetric };
+    }
+
+    function getRecentFlowCardSummary(days, window, currentResult){
+      if (days === 3) return getRecent3DaySummary(window);
+      if (days === 7) return getRecent7PatternSummary(window);
+      if (days === 14) return getRecent14ProgressSummary(window, currentResult);
+      return getRecent28AdjustmentSummary(window, currentResult);
+    }
+
+    function getRecentFlowOverviewChips(window){
+      const chips = [`식사 기록 ${Number(window?.mealRecordDays || 0)}일`];
+      if (Number(window?.otherKcalHeavyDays || 0) > 0) chips.push(`기타 칼로리 ${Number(window.otherKcalHeavyDays)}일`);
+      if (Number(window?.alcoholDays || 0) > 0) chips.push(`술 기록 ${Number(window.alcoholDays)}일`);
+      return chips.slice(0, 3);
+    }
+
+    function getRecentFlowPointItems(window, selectedRangeDays = 7){
       const points = [];
-      if (guard?.goalChangeDetected) {
-        points.push({
-          title: "목표 변경 기록이 있습니다",
-          action: "이전 흐름을 그대로 비교하지 말고 오늘은 현재 목표 기준으로 식사를 맞추세요."
-        });
-      }
-      if (guard?.level === "blocked" || guard?.level === "low") {
-        points.push({
-          title: "기록 보완이 우선입니다",
-          action: "오늘은 주요 식사 2끼 이상을 탄단지로 기록하고, 가능하면 아침 공복 체중도 저장하세요."
-        });
-      }
-      if (Number(window7.otherKcalHeavyDays || 0) > 0) {
-        points.push({
-          title: "기타 칼로리가 큰 날이 있습니다",
-          action: "좋고 나쁨으로 단정하지 않고 탄단지 흐름을 보수적으로 봅니다. 오늘은 가능한 탄단지로 나눠 기록하세요."
-        });
-      }
-      if (guard?.proteinLowRepeated) {
-        points.push({
-          title: "단백질 부족이 반복됩니다",
-          action: "오늘 남은 식사에서는 단백질을 먼저 채우세요."
-        });
-      }
-      if (guard?.carbLowTrainingRepeated) {
-        points.push({
-          title: "실제 웨이트일 탄수화물이 낮은 날이 있습니다",
-          action: "오늘 운동이 있다면 탄수화물은 운동 전후 식사 안에서 보완하세요."
-        });
-      }
-      if (Number(window7.alcoholDays || 0) > 0) {
-        points.push({
-          title: "술이 있었던 날은 보수적으로 봅니다",
-          action: "술이 있었던 날은 회복과 체중 변동을 보수적으로 보고, 오늘은 수분과 단백질부터 챙기세요."
-        });
-      }
-      if (!points.length) {
-        points.push({
-          title: "큰 반복 주의점은 아직 없습니다",
-          action: "오늘 할 일은 Today 코치에서 먼저 확인하세요."
-        });
-      }
+      const proteinLowDays = Number(window?.proteinLowDays || 0);
+      const otherKcalHeavyDays = Number(window?.otherKcalHeavyDays || 0);
+      const alcoholDays = Number(window?.alcoholDays || 0);
+      const trainingDays = Number(window?.actualWeightTrainingDays || 0);
+      const trainingMinimum = selectedRangeDays >= 28 ? 8 : selectedRangeDays >= 14 ? 4 : 3;
+      if (proteinLowDays > 0) points.push({
+        title: `단백질 부족 ${proteinLowDays}일`,
+        text: proteinLowDays === 1 ? "단백질이 부족한 날이 있습니다." : "단백질이 자주 빠졌습니다."
+      });
+      if (otherKcalHeavyDays > 0) points.push({
+        title: `기타 칼로리 ${otherKcalHeavyDays}일`,
+        text: otherKcalHeavyDays === 1 ? "기타 칼로리가 큰 날이 있습니다." : "기타 칼로리가 반복됐습니다."
+      });
+      if (trainingDays < trainingMinimum) points.push({
+        title: `웨이트 기록 ${trainingDays}일`,
+        text: `최근 ${selectedRangeDays}일 웨이트 기록이 부족합니다.`
+      });
+      if (alcoholDays > 0) points.push({
+        title: `술 기록 ${alcoholDays}일`,
+        text: alcoholDays === 1 ? "술 기록이 있습니다." : "술 기록이 반복됐습니다."
+      });
+      if (!points.length) points.push({ title: "큰 주의점 없음", text: "큰 주의점은 아직 보이지 않습니다." });
       return points.slice(0, 4);
     }
 
@@ -11485,28 +11711,42 @@ Notes:
       const host = document.getElementById("recentFlowPreviewHost");
       if (!host) return;
       const context = recentContext || buildRecentContext(currentResult);
-      const overview = getRecentFlowOverviewCopy(context);
-      const chips = getRecentFlowOverviewChips(context, overview.guard);
-      const points = getRecentFlowPointItems(context, overview.guard);
-      const windowCards = RECENT_CONTEXT_WINDOWS.map(days => {
+      const selectedRangeDays = getRecentFlowSelectedRangeDays();
+      const selectedWindow = context.windows?.[selectedRangeDays] || context.windows?.[7] || {};
+      const chips = getRecentFlowOverviewChips(selectedWindow);
+      const points = getRecentFlowPointItems(selectedWindow, selectedRangeDays);
+      const goalLine = getRecentFlowGoalBreakdown(selectedWindow);
+      const windowCards = RECENT_FLOW_UI_CARD_DAYS.map(days => {
         const window = context.windows?.[days];
-        const label = RECENT_FLOW_WINDOW_LABELS[days] || `${days}일`;
+        const label = RECENT_FLOW_CARD_LABELS[days] || { title: `${days}일`, role: "기간 분석" };
+        const summary = getRecentFlowCardSummary(days, window, currentResult);
         return `
           <div class="recent-flow-window-card" data-recent-flow-days="${days}">
             <div class="eyebrow">${days}일</div>
-            <div class="title">${escapeHtml(label)}</div>
-            <div class="status">${escapeHtml(getRecentFlowWindowStatus(window))}</div>
-            <p class="meta">식사 기록 ${Number(window?.mealRecordDays || 0)}일 · 체중 기록 ${Number(window?.weightDays || 0)}일</p>
-            <p class="caution">${escapeHtml(getRecentFlowWindowCaution(window))}</p>
+            <div class="title">${escapeHtml(label.title)}</div>
+            <p class="role">${escapeHtml(label.role)}</p>
+            <div class="conclusion">${escapeHtml(summary.conclusion)}</div>
+            <p class="reason">${escapeHtml(summary.reason)}</p>
+            <p class="metric">${escapeHtml(summary.metric)}</p>
           </div>
         `;
       }).join("");
       host.innerHTML = `
         <div class="recent-flow-overview">
           <div class="recent-flow-summary-card">
-            <h4>최근 흐름 판단 상태</h4>
-            <div class="recent-flow-conclusion">${escapeHtml(overview.conclusion)}</div>
-            <p>${escapeHtml(overview.detail)}</p>
+            <h4>기록 범위</h4>
+            <div class="recent-flow-range-row">
+              <div class="recent-flow-range-controls" aria-label="기록 범위 선택">
+                ${RECENT_FLOW_RANGE_DAYS.map(days => `
+                  <button class="recent-flow-range-btn ${days === selectedRangeDays ? "active" : ""}" type="button" data-recent-flow-range="${days}">${days === selectedRangeDays ? `최근 ${days}일 기준` : `${days}일`}</button>
+                `).join("")}
+              </div>
+              <div class="recent-flow-range-stats">
+                <span class="recent-flow-range-stat training"><span>운동일</span><strong>${Number(selectedWindow.actualWeightTrainingDays || 0)}/${selectedRangeDays}</strong></span>
+                <span class="recent-flow-range-stat weight"><span>체중일</span><strong>${Number(selectedWindow.weightDays || 0)}/${selectedRangeDays}</strong></span>
+              </div>
+            </div>
+            <div class="recent-flow-goal-line">${escapeHtml(goalLine)}</div>
             <div class="preview-chips">
               ${chips.map(chip => `<span class="preview-chip">${escapeHtml(chip)}</span>`).join("")}
             </div>
@@ -11515,10 +11755,10 @@ Notes:
             ${windowCards}
           </div>
           <div class="recent-flow-points">
-            <h4>최근 반복 포인트</h4>
+            <h4>최근 주의 포인트</h4>
             <div class="recent-flow-point-list">
               ${points.map(point => `
-                <p class="recent-flow-point"><strong>${escapeHtml(point.title)}</strong>${escapeHtml(point.action)}</p>
+                <p class="recent-flow-point"><strong>${escapeHtml(point.title)}</strong>${escapeHtml(point.text)}</p>
               `).join("")}
             </div>
           </div>
@@ -12216,6 +12456,14 @@ Notes:
       document.getElementById("tabSettings").addEventListener("click", () => {
         setActiveTab("settings");
         saveState();
+      });
+      document.getElementById("recentFlowPreviewHost").addEventListener("click", event => {
+        const button = event.target.closest("[data-recent-flow-range]");
+        if (!button) return;
+        const days = Number(button.getAttribute("data-recent-flow-range"));
+        if (!RECENT_FLOW_RANGE_DAYS.includes(days)) return;
+        recentFlowSelectedRangeDays = days;
+        renderWeeklyPanel(calculate());
       });
       document.getElementById("todaySettingsBtn").addEventListener("click", () => {
         const panel = document.getElementById("quickSettingsPanel");
@@ -14249,6 +14497,7 @@ Notes:
     function runWeeklyAdherenceTests(){
       return withRecordTestSandbox(() => {
         const results = [];
+        recentFlowSelectedRangeDays = 7;
         setValidTodayBalanceTestInputs();
 
         results.push(runNamedTest("weekly recent flow summary renders inside weekly panel", () => {
@@ -14256,7 +14505,8 @@ Notes:
           const host = document.getElementById("recentFlowPreviewHost");
           assertTest(!!host?.closest("#weeklyPanel"), "recent flow preview host should live inside weekly panel");
           const text = host.textContent || "";
-          assertIncludesAll(text, ["최근 흐름 판단 상태", "오늘 기록", "단기 흐름", "반복 패턴", "체중 흐름 참고", "장기 흐름 후보"], "recent flow summary copy");
+          assertIncludesAll(text, ["기록 범위", "최근 7일", "단기 흐름", "반복 패턴", "목표 진행", "설정 조정"], "recent flow summary copy");
+          assertTest(!Array.from(document.querySelectorAll("[data-recent-flow-days]")).map(card => card.textContent || "").join(" ").includes("오늘 기록"), "recent flow UI should not show one day card label");
         }));
 
         results.push(runNamedTest("weekly recent flow summary avoids internal labels and five day value", () => {
@@ -14308,22 +14558,72 @@ Notes:
           renderWeeklyPanel(calculate());
           return document.getElementById("weeklyPanel").textContent || "";
         };
+        const buildWeeklyFlowRecords = (days, options = {}) => {
+          const today = getTodayDateString();
+          return Array.from({ length: days }, (_, index) => {
+            const date = shiftDateString(today, -(days - 1 - index));
+            const weight = Number.isFinite(options.startWeight)
+              ? options.startWeight + (Number(options.weightStep || 0) * index)
+              : 75;
+            const goal = typeof options.goalForIndex === "function" ? options.goalForIndex(index) : (options.goal || "lean_bulk");
+            const routine = typeof options.routineForIndex === "function" ? options.routineForIndex(index) : "REST";
+            const weightDuration = typeof options.weightDurationForIndex === "function" ? options.weightDurationForIndex(index) : 0;
+            return {
+              date,
+              weight,
+              adherencePercent: Number.isFinite(options.adherencePercent) ? options.adherencePercent : 90,
+              adherenceSource: "auto",
+              adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+              goalSnapshot: makeWeeklyFlowSnapshot({ goal, routine, weightDuration }),
+              meals: [makeWeeklyFlowMeal(date, `m${index}a`), makeWeeklyFlowMeal(date, `m${index}b`)]
+            };
+          });
+        };
 
         results.push(runNamedTest("weekly recent flow keeps only configured period cards", () => {
           renderWeeklyPanel(calculate());
           const cards = Array.from(document.querySelectorAll("[data-recent-flow-days]")).map(card => card.getAttribute("data-recent-flow-days"));
-          assertTest(JSON.stringify(cards) === JSON.stringify(["1", "3", "7", "14", "28"]), "recent flow cards should be 1/3/7/14/28");
+          assertTest(JSON.stringify(cards) === JSON.stringify(["3", "7", "14", "28"]), "recent flow UI cards should be 3/7/14/28");
+          assertTest(!cards.includes("1"), "recent flow UI should exclude one day card");
           assertTest(!cards.includes("5"), "recent flow cards should exclude five day card");
         }));
 
-        results.push(runNamedTest("weekly recent flow shows action when records are low", () => {
+        results.push(runNamedTest("weekly recent flow shows clear limits when records are low", () => {
           recordsState.items = normalizeRecordsCollection([]);
           renderWeeklyPanel(calculate());
           const text = document.getElementById("recentFlowPreviewHost").textContent || "";
-          assertIncludesAll(text, ["기록이 아직 부족", "주요 식사 2끼 이상", "아침 공복 체중"], "low records should still show action");
+          assertIncludesAll(text, ["분석이 어렵습니다", "칼로리는 아직 바꾸지 마세요"], "low records should show clear limits");
         }));
 
-        results.push(runNamedTest("weekly recent flow goal change gets conservative copy", () => {
+        results.push(runNamedTest("weekly recent flow range selector swaps top-line counts", () => {
+          const today = getTodayDateString();
+          const records = buildWeeklyFlowRecords(14, {
+            routineForIndex: index => index >= 11 ? "PUSH" : "REST",
+            weightDurationForIndex: index => index >= 11 ? 45 : 0
+          });
+          setWeeklyFlowRecords(records);
+          let text = document.querySelector(".recent-flow-range-row").textContent || "";
+          assertIncludesAll(text, ["최근 7일", "운동일3/7", "체중일7/7"], "default range top line should show seven day counts");
+          document.querySelector('[data-recent-flow-range="14"]').click();
+          text = document.querySelector(".recent-flow-range-row").textContent || "";
+          assertIncludesAll(text, ["최근 14일", "운동일3/14", "체중일14/14"], "fourteen day range should update same top line");
+          assertTest(!text.includes("1일") && !text.includes("5일"), "range selector should not expose one or five day choices");
+          recentFlowSelectedRangeDays = 7;
+          recordsState.items = normalizeRecordsCollection([{ date: today, weight: 75 }]);
+        }));
+
+        results.push(runNamedTest("weekly recent flow goal display uses goal day counts", () => {
+          state.goal = "lean_bulk";
+          const today = getTodayDateString();
+          const text = setWeeklyFlowRecords(buildWeeklyFlowRecords(7, {
+            goalForIndex: index => index < 3 ? "diet" : "lean_bulk"
+          }));
+          assertIncludesAll(text, ["목표: 린매스업 4일", "다이어트 3일"], "goal display should show per goal day counts");
+          assertTest(!text.includes("목표 기준 있음"), "goal display should not use vague snapshot wording");
+          recordsState.items = normalizeRecordsCollection([{ date: today, weight: 75 }]);
+        }));
+
+        results.push(runNamedTest("weekly recent flow goal change gets diagnosis copy", () => {
           state.goal = "lean_bulk";
           const today = getTodayDateString();
           const yesterday = shiftDateString(today, -1);
@@ -14331,7 +14631,7 @@ Notes:
             { date: yesterday, goalSnapshot: makeWeeklyFlowSnapshot({ goal: "diet" }), meals: [makeWeeklyFlowMeal(yesterday, "m1"), makeWeeklyFlowMeal(yesterday, "m2")] },
             { date: today, goalSnapshot: makeWeeklyFlowSnapshot({ goal: "bulk" }), meals: [makeWeeklyFlowMeal(today, "m3"), makeWeeklyFlowMeal(today, "m4")] }
           ]);
-          assertIncludesAll(text, ["최근 목표가 바뀐 기록", "현재 목표 기준"], "goal change copy should lead");
+          assertIncludesAll(text, ["목표가 섞여", "현재 목표와 그대로 비교하지 않습니다"], "goal change copy should be diagnostic");
         }));
 
         results.push(runNamedTest("weekly recent flow other kcal copy treats it as interpretation limit", () => {
@@ -14341,17 +14641,17 @@ Notes:
             { date: yesterday, goalSnapshot: makeWeeklyFlowSnapshot(), meals: [makeWeeklyFlowMeal(yesterday, "m1", { otherKcal: 360 }), makeWeeklyFlowMeal(yesterday, "m2")] },
             { date: today, goalSnapshot: makeWeeklyFlowSnapshot(), meals: [makeWeeklyFlowMeal(today, "m3"), makeWeeklyFlowMeal(today, "m4")] }
           ]);
-          assertIncludesAll(text, ["기타 칼로리", "탄단지 흐름을 보수적으로", "탄단지로 나눠 기록"], "other kcal should be framed as interpretation limit");
+          assertIncludesAll(text, ["식단이 불안정합니다", "기타 칼로리가 원인입니다"], "other kcal should be framed as short-term cause");
         }));
 
-        results.push(runNamedTest("weekly recent flow repeated protein low shows protein action", () => {
+        results.push(runNamedTest("weekly recent flow repeated protein low shows pattern copy", () => {
           const today = getTodayDateString();
           const yesterday = shiftDateString(today, -1);
           const text = setWeeklyFlowRecords([
             { date: yesterday, goalSnapshot: makeWeeklyFlowSnapshot({ protein: 150 }), meals: [makeWeeklyFlowMeal(yesterday, "m1", { protein: 20 }), makeWeeklyFlowMeal(yesterday, "m2", { protein: 20 })] },
             { date: today, goalSnapshot: makeWeeklyFlowSnapshot({ protein: 150 }), meals: [makeWeeklyFlowMeal(today, "m3", { protein: 20 }), makeWeeklyFlowMeal(today, "m4", { protein: 20 })] }
           ]);
-          assertIncludesAll(text, ["단백질 부족이 반복", "단백질을 먼저 채우세요"], "protein repeated low should show action");
+          assertIncludesAll(text, ["단백질 부족이 반복됐습니다", "단백질이 자주 빠졌습니다"], "protein repeated low should show pattern copy");
         }));
 
         results.push(runNamedTest("weekly recent flow avoids training carb copy without actual training days", () => {
@@ -14372,6 +14672,88 @@ Notes:
             { date: today, goalSnapshot: makeWeeklyFlowSnapshot({ fat: 80 }), meals: [makeWeeklyFlowMeal(today, "m3", { fat: 2 }), makeWeeklyFlowMeal(today, "m4", { fat: 2 })] }
           ]);
           assertExcludesAll(text, ["지방을 먼저", "지방을 무조건", "지방 섭취를 올리"], "fat low alone should not add action");
+        }));
+
+        results.push(runNamedTest("weekly recent fourteen day card avoids calorie adjustment command", () => {
+          state.goal = "lean_bulk";
+          const text = setWeeklyFlowRecords(buildWeeklyFlowRecords(14, { startWeight: 75, weightStep: 0 }));
+          const cardText = document.querySelector('[data-recent-flow-days="14"]').textContent || "";
+          assertIncludesAll(cardText, ["목표 진행", "린매스업 중인데 체중 변화가 거의 없습니다"], "fourteen day card should diagnose goal progress");
+          assertExcludesAll(cardText, ["올리세요", "낮추세요", "100~150kcal"], "fourteen day card should not command calorie changes");
+          assertTest(cardText.includes("칼로리는 아직 바꾸지 말고 28일 기록에서 결정하세요"), "fourteen day card should defer calorie changes to twenty eight day record");
+          assertTest(text.includes("목표: 린매스업 7일") || text.includes("목표: 린매스업 14일"), "goal count should stay visible");
+        }));
+
+        results.push(runNamedTest("weekly recent caution points title and range linkage", () => {
+          const records = buildWeeklyFlowRecords(28, {
+            routineForIndex: index => index >= 21 ? "PUSH" : "REST",
+            weightDurationForIndex: index => index >= 21 ? 45 : 0
+          }).map((record, index) => {
+            const next = { ...record, meals: record.meals.map(meal => ({ ...meal })) };
+            if (index === 10) next.meals[0] = { ...next.meals[0], alcoholKcal: 160 };
+            if (index === 20) next.meals[0] = { ...next.meals[0], alcoholKcal: 160 };
+            if (index === 24) next.meals[0] = { ...next.meals[0], otherKcal: 360 };
+            return next;
+          });
+          setWeeklyFlowRecords(records);
+          let pointsText = document.querySelector(".recent-flow-points").textContent || "";
+          assertIncludesAll(pointsText, ["최근 주의 포인트", "기타 칼로리 1일", "기타 칼로리가 큰 날이 있습니다"], "seven day points should use selected seven day window");
+          assertTest(!pointsText.includes("최근 반복 포인트"), "old points title should not render");
+          document.querySelector('[data-recent-flow-range="14"]').click();
+          pointsText = document.querySelector(".recent-flow-points").textContent || "";
+          assertIncludesAll(pointsText, ["술 기록 1일", "술 기록이 있습니다", "기타 칼로리 1일"], "fourteen day points should use selected fourteen day window");
+          document.querySelector('[data-recent-flow-range="28"]').click();
+          pointsText = document.querySelector(".recent-flow-points").textContent || "";
+          assertIncludesAll(pointsText, ["술 기록 2일", "술 기록이 반복됐습니다"], "twenty eight day points should use selected twenty eight day window");
+          recentFlowSelectedRangeDays = 7;
+        }));
+
+        results.push(runNamedTest("weekly recent twenty eight day card gives clear setting call when enough data", () => {
+          state.goal = "lean_bulk";
+          setWeeklyFlowRecords(buildWeeklyFlowRecords(28, { startWeight: 75, weightStep: 0, adherencePercent: 90 }));
+          const cardText = document.querySelector('[data-recent-flow-days="28"]').textContent || "";
+          assertIncludesAll(cardText, ["설정 조정", "체중이 거의 늘지 않습니다", "하루 100~150kcal 올리세요"], "twenty eight day card should give clear setting call");
+        }));
+
+        results.push(runNamedTest("weekly recent twenty eight day card blocks change when data is low", () => {
+          recordsState.items = normalizeRecordsCollection([]);
+          renderWeeklyPanel(calculate());
+          const cardText = document.querySelector('[data-recent-flow-days="28"]').textContent || "";
+          assertIncludesAll(cardText, ["장기 판단에 필요한 기록이 부족합니다", "칼로리는 아직 바꾸지 마세요"], "twenty eight day low data should block changes");
+        }));
+
+        results.push(runNamedTest("weekly recent twenty eight day blocks adjustment when adherence is low", () => {
+          state.goal = "lean_bulk";
+          setWeeklyFlowRecords(buildWeeklyFlowRecords(28, { startWeight: 75, weightStep: 0, adherencePercent: 82 }));
+          const cardText = document.querySelector('[data-recent-flow-days="28"]').textContent || "";
+          assertIncludesAll(cardText, ["식단 실행이 충분하지 않습니다", "칼로리는 아직 바꾸지 마세요"], "twenty eight day low adherence should block changes");
+          assertExcludesAll(cardText, ["올리세요", "낮추세요"], "low adherence should not command calorie changes");
+        }));
+
+        results.push(runNamedTest("weekly recent twenty eight day blocks adjustment for other kcal cause", () => {
+          state.goal = "lean_bulk";
+          const records = buildWeeklyFlowRecords(28, { startWeight: 75, weightStep: 0, adherencePercent: 90 }).map((record, index) => {
+            if (![4, 12, 20].includes(index)) return record;
+            return { ...record, meals: record.meals.map((meal, mealIndex) => mealIndex === 0 ? { ...meal, otherKcal: 360 } : meal) };
+          });
+          setWeeklyFlowRecords(records);
+          const cardText = document.querySelector('[data-recent-flow-days="28"]').textContent || "";
+          assertIncludesAll(cardText, ["기타 칼로리가 원인입니다", "탄단지 기록부터 정리하세요"], "twenty eight day other kcal should block changes");
+          assertExcludesAll(cardText, ["올리세요", "낮추세요"], "other kcal should not command calorie changes");
+        }));
+
+        results.push(runNamedTest("weekly recent twenty eight day blocks adjustment for goal changes", () => {
+          state.goal = "lean_bulk";
+          const records = buildWeeklyFlowRecords(28, {
+            startWeight: 75,
+            weightStep: 0,
+            adherencePercent: 90,
+            goalForIndex: index => index < 14 ? "diet" : "lean_bulk"
+          });
+          setWeeklyFlowRecords(records);
+          const cardText = document.querySelector('[data-recent-flow-days="28"]').textContent || "";
+          assertIncludesAll(cardText, ["목표가 섞여 있습니다", "현재 목표 기록을 더 쌓은 뒤 판단하세요"], "twenty eight day goal changes should block changes");
+          assertExcludesAll(cardText, ["올리세요", "낮추세요"], "goal changes should not command calorie changes");
         }));
 
         results.push(runNamedTest("weekly recent flow screen avoids internal user facing labels", () => {
@@ -14955,7 +15337,7 @@ Notes:
           const flowText = document.getElementById("recentFlowPreviewHost").textContent || "";
           render();
           assertTest(document.getElementById("tabWeekly").textContent.trim() === "최근 흐름", "weekly tab label should be recent flow");
-          assertIncludesAll(weeklyText, ["최근 흐름 판단 상태", "7일 참고 분석"], "recent flow panel should stay connected");
+          assertIncludesAll(weeklyText, ["기록 범위", "7일 참고 분석"], "recent flow panel should stay connected");
           assertExcludesAll(flowText, ["5일"], "recent flow panel should not expose five day value");
         }));
 
