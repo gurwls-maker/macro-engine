@@ -1,10 +1,10 @@
 <!--
-Version: 6.4-D2
-Stage: 6.4-D2 식단 달성률 component 문구 정리
+Version: 6.4-D3
+Stage: 6.4-D3 목표별 문구 회귀 테스트 및 중복 QA
 Date: 2026-05-07
 Notes:
-- 식단 달성률 component 카드 문구를 점수 근거/상세 중심으로 정리
-- 점수 산식 / 저장 schema / import/export schema / Coach decision matrix / Today Coach 판단 로직 / fat low 행동 문구 변경 없음
+- 목표별 문구 회귀 테스트 및 Coach/식단 달성률 중복 QA
+- 점수 산식 / 저장 schema / import/export schema / Coach decision matrix / recentContext engine / fat low 행동 문구 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -12,7 +12,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.4-D2</title>
+  <title>탄단지 다이어리 v6.4-D3</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3458,7 +3458,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.4-D2</span>
+               <span class="app-version">v6.4-D3</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -8854,8 +8854,8 @@ Notes:
         },
         other_kcal: {
           key: "contextGuard",
-          state: "기타 칼로리가 탄단지 판단을 가립니다.",
-          reason: "기타 칼로리가 많으면 단백질·탄수화물·지방 부족을 구분하기 어렵습니다.",
+          state: "기타 칼로리가 많습니다.",
+          reason: "기타 칼로리가 많아 탄·단·지 중 어디서 어긋났는지 보기 어렵습니다.",
           action: "남은 음식은 탄수화물·단백질·지방으로 나눠 기록하세요."
         },
         protein_low: {
@@ -8912,7 +8912,7 @@ Notes:
       if (guard.goalChangeDetected) return "최근 목표가 바뀌었습니다. 오늘은 현재 목표 기준으로 식사를 맞추세요.";
       if (guard.level === "blocked") return "최근 흐름 판단은 멈춥니다. 오늘은 첫 식사부터 탄단지로 기록하세요.";
       if (guard.level === "low") return "최근 흐름 판단보다 오늘 기록 완성이 우선입니다. 주요 식사 2끼 이상을 기록하세요.";
-      if (guard.otherKcalRepeated) return "기타 칼로리가 탄단지 판단을 가립니다. 남은 음식은 탄수화물·단백질·지방으로 나눠 기록하세요.";
+      if (guard.otherKcalRepeated) return "기타 칼로리가 많아 탄·단·지 중 어디서 어긋났는지 보기 어렵습니다. 남은 음식은 탄수화물·단백질·지방으로 나눠 기록하세요.";
       return "";
     }
 
@@ -15478,7 +15478,7 @@ Notes:
             usableDietDays: 5,
             otherKcalHeavyDays: 2
           }));
-          assertIncludesAll(result.text, ["기타 칼로리", "탄단지 판단을 가립니다"], "other kcal guard wording");
+          assertIncludesAll(result.text, ["기타 칼로리", "탄·단·지 중 어디서 어긋났는지 보기 어렵습니다"], "other kcal guard wording");
           assertIncludesAll(result.text, ["탄수화물", "단백질", "지방", "나눠 기록"], "other kcal guard action");
         }));
 
@@ -15519,7 +15519,7 @@ Notes:
             buildCoachWithContext(createMockRecentContext({ level: "medium", usableDietDays: 5, carbLowTrainingDays: 2, actualWeightTrainingDays: 2 }))
           ];
           const combined = cases.map(item => item.text).join(" ");
-          assertIncludesAll(combined, ["첫 식사", "주요 식사", "탄단지 판단을 가립니다", "술을 더하지 말고", "첫 보완 항목은 단백질", "운동 전후 식사"], "D1 guard wording should point to concrete actions");
+          assertIncludesAll(combined, ["첫 식사", "주요 식사", "탄·단·지 중 어디서 어긋났는지 보기 어렵습니다", "술을 더하지 말고", "첫 보완 항목은 단백질", "운동 전후 식사"], "D1 guard wording should point to concrete actions");
           assertExcludesAll(combined, ["보수적으로 봅니다", "참고할 수 있습니다", "후보입니다", "가능하면", "해보세요", "Today 코치에서 확인하세요"], "D1 coach guard should remove weak wording");
         }));
 
@@ -17095,6 +17095,297 @@ Notes:
       });
     }
 
+    function buildCopyRegressionCoachOutput(goal, ratios = {}, extra = {}){
+      const currentResult = calculate();
+      const target = {
+        kcal: Number.isFinite(extra.target?.kcal) ? extra.target.kcal : 2000,
+        protein: Number.isFinite(extra.target?.protein) ? extra.target.protein : 150,
+        carbs: Number.isFinite(extra.target?.carbs) ? extra.target.carbs : 220,
+        fat: Number.isFinite(extra.target?.fat) ? extra.target.fat : 70
+      };
+      const consumed = {
+        kcal: target.kcal * (Number.isFinite(ratios.kcal) ? ratios.kcal : 1),
+        protein: target.protein * (Number.isFinite(ratios.protein) ? ratios.protein : 1),
+        carbs: target.carbs * (Number.isFinite(ratios.carbs) ? ratios.carbs : 1),
+        fat: target.fat * (Number.isFinite(ratios.fat) ? ratios.fat : 1),
+        alcoholKcal: Number.isFinite(ratios.alcoholKcal) ? ratios.alcoholKcal : 0,
+        otherKcal: Number.isFinite(ratios.otherKcal) ? ratios.otherKcal : 0
+      };
+      const mealCount = Number.isFinite(extra.mealCount) ? extra.mealCount : 3;
+      const signals = getDailyCoachSignals({
+        currentResult,
+        state: { ...currentResult.s, goal, ...(extra.state || {}) },
+        recentContext: extra.recentContext || null,
+        balance: {
+          date: getTodayDateString(),
+          todayDate: getTodayDateString(),
+          target,
+          consumed,
+          remaining: {
+            kcal: target.kcal - consumed.kcal,
+            protein: target.protein - consumed.protein,
+            carbs: target.carbs - consumed.carbs,
+            fat: target.fat - consumed.fat
+          },
+          exceeded: {
+            kcal: consumed.kcal > target.kcal,
+            protein: consumed.protein > target.protein,
+            carbs: consumed.carbs > target.carbs,
+            fat: consumed.fat > target.fat
+          },
+          isGoalAvailable: extra.isGoalAvailable !== undefined ? !!extra.isGoalAvailable : true,
+          mealCount,
+          hasMeals: mealCount > 0,
+          goalSnapshot: null
+        },
+        previousDayContext: extra.previousDayContext || { hasPreviousRecord: false, recoveryLevel: "not_recovery", previousOverIntakeLevel: "none" }
+      });
+      const output = generateDailyCoachOutput(signals);
+      return {
+        signals,
+        output,
+        target,
+        consumed,
+        text: [
+          output.contextNotice || "",
+          output.confidence || "",
+          ...output.items.map(item => `${item.key} ${item.state} ${item.reason} ${item.action}`)
+        ].join(" ")
+      };
+    }
+
+    function renderCopyRegressionAdherenceCards(coachResult, overrides = {}){
+      const target = overrides.target || coachResult.target;
+      const consumed = overrides.consumed || coachResult.consumed;
+      const score = {
+        status: "available",
+        detail: {
+          target,
+          consumed: { ...consumed, scoringKcal: Number.isFinite(consumed.scoringKcal) ? consumed.scoringKcal : consumed.kcal },
+          componentScores: overrides.componentScores || { kcal: 0.5, protein: 0.5, carbs: 0.5, fat: 0.5 }
+        },
+        reasons: overrides.reasons || {}
+      };
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = renderAdherenceMacroCards(score, coachResult.output);
+      return {
+        wrapper,
+        text: wrapper.textContent || "",
+        score
+      };
+    }
+
+    const USER_FACING_FORBIDDEN_COPY = [
+      "recentContext",
+      "confidence",
+      "signal",
+      "severity",
+      "penalty",
+      "cap",
+      "decision",
+      "windowFit",
+      "contextFit",
+      "recordConfidence",
+      "primitive",
+      "engine",
+      "threshold",
+      "macro",
+      "surplus",
+      "deficit",
+      "참고할 수 있습니다",
+      "보수적으로 봅니다",
+      "후보입니다",
+      "가능하면",
+      "해보세요",
+      "흐름을 복구하세요",
+      "탄단지 판단을 가립니다",
+      "현재 기록 기준으로 볼 수 있습니다",
+      "현재 입력 기준으로 볼 수 있습니다",
+      "Today 코치에서 확인하세요"
+    ];
+
+    function runGoalAwareCopyRegressionTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        setValidTodayBalanceTestInputs();
+
+        results.push(runNamedTest("D3 goal copy: diet over warns stop, not fill", () => {
+          const result = buildCopyRegressionCoachOutput("diet", { kcal: 1.24, fat: 1.5 });
+          assertIncludesAll(result.text, ["마무리", "끊으세요"], "diet over coach should stop extra intake");
+          assertExcludesAll(result.text, ["한 끼 더", "더 채우", "벌크에 도움"], "diet over coach should not ask to fill more");
+        }));
+
+        results.push(runNamedTest("D3 goal copy: lean bulk low frames recovery material", () => {
+          const result = buildCopyRegressionCoachOutput("lean_bulk", { kcal: 0.82, carbs: 0.65 });
+          assertIncludesAll(result.text, ["회복 재료", "운동 전후"], "lean bulk low coach should frame carbs/calories as recovery material");
+          assertExcludesAll(result.text, ["벌크니까 괜찮", "술로 채우", "튀김으로 채우"], "lean bulk low coach should not approve poor fill quality");
+        }));
+
+        results.push(runNamedTest("D3 goal copy: bulk low asks food fill, not alcohol/fat fill", () => {
+          const result = buildCopyRegressionCoachOutput("bulk", { kcal: 0.82, protein: 0.65 });
+          assertIncludesAll(result.text, ["식사량", "단백질부터", "소화 쉬운 탄수화물"], "bulk low coach should ask food-based fill");
+          assertExcludesAll(result.text, ["술로", "안주로", "튀김으로", "고지방으로"], "bulk low coach should not suggest poor calorie fill");
+        }));
+
+        results.push(runNamedTest("D3 goal copy: protein low remains priority across goals", () => {
+          ["diet", "lean_bulk", "bulk"].forEach(goal => {
+            const result = buildCopyRegressionCoachOutput(goal, { protein: 0.65 });
+            assertIncludesAll(result.text, ["단백질"], `${goal} protein low copy should mention protein`);
+            assertIncludesAny(result.text, ["먼저", "보강", "보완", "재료"], `${goal} protein low copy should keep priority wording`);
+          });
+        }));
+
+        results.push(runNamedTest("D3 goal copy: alcohol high is never positive", () => {
+          ["diet", "lean_bulk", "bulk"].forEach(goal => {
+            const result = buildCopyRegressionCoachOutput(goal, { alcoholKcal: 700 });
+            assertIncludesAll(result.text, ["술"], `${goal} alcohol high should mention alcohol`);
+            assertExcludesAll(result.text, ["괜찮습니다", "좋습니다", "좋은 벌크", "벌크니까"], `${goal} alcohol high should not become positive`);
+          });
+          const bulkCombo = buildCopyRegressionCoachOutput("bulk", { kcal: 1.2, fat: 1.45, alcoholKcal: 500 });
+          assertIncludesAll(bulkCombo.text, ["벌크에 도움이 되는 식사로 보기 어렵습니다", "술과 안주"], "bulk alcohol/fat combo should reject poor bulk quality");
+        }));
+
+        return results;
+      });
+    }
+
+    function runCoachAdherenceCopySeparationTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        setValidTodayBalanceTestInputs();
+        ids.autoDietAnalysis.checked = true;
+
+        results.push(runNamedTest("D3 separation: coach action renders before reason", () => {
+          render();
+          const firstBlock = document.querySelector("#coachHost .coach-block");
+          assertTest(!!firstBlock, "coach block should render");
+          const actionEl = firstBlock.querySelector(".coach-action");
+          const reasonEl = firstBlock.querySelector(".coach-reason");
+          assertTest(!!actionEl && !!reasonEl, "coach block should keep action and reason nodes");
+          assertTest(Array.from(firstBlock.children).indexOf(actionEl) < Array.from(firstBlock.children).indexOf(reasonEl), "coach action should stay before reason");
+          const text = firstBlock.textContent || "";
+          assertTest(text.indexOf("행동:") >= 0 && text.indexOf("행동:") < text.indexOf("이유:"), "coach action text should stay before reason text");
+        }));
+
+        results.push(runNamedTest("D3 separation: component cards ignore coach action/state", () => {
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = renderAdherenceMacroCards({
+            status: "available",
+            detail: {
+              componentScores: { kcal: 0.5, protein: 0.4, carbs: 0.9, fat: 0.5 },
+              consumed: { kcal: 2400, protein: 70, carbs: 220, fat: 95, alcoholKcal: 0, otherKcal: 0 }
+            },
+            reasons: {
+              protein: "단백질이 크게 비었습니다. 가장 먼저 확인할 감점 근거입니다.",
+              kcal: "목표보다 많이 넘었습니다. 오늘 점수에서 깎였습니다.",
+              carbs: "탄수화물이 목표 범위와 가깝습니다.",
+              fat: "지방이 목표보다 많아 오늘 점수에서 깎였습니다."
+            }
+          }, {
+            items: [
+              { key: "protein", state: "SENTINEL_STATE 단백질부터 채우세요.", action: "SENTINEL_ACTION 다음 식사는 단백질부터 채우세요." },
+              { key: "fat", state: "SENTINEL_STATE 지방이 과합니다.", action: "SENTINEL_ACTION 추가 술과 안주는 멈추세요." }
+            ]
+          });
+          const text = wrapper.textContent || "";
+          assertIncludesAll(text, ["점수에서", "감점 근거", "감점은 작습니다"], "component cards should render score evidence");
+          assertExcludesAll(text, ["SENTINEL_STATE", "SENTINEL_ACTION", "단백질부터 채우세요", "추가 술과 안주는 멈추세요"], "component cards should not read coach action/state");
+        }));
+
+        results.push(runNamedTest("D3 separation: record shortage blocks macro shortage conclusions", () => {
+          recordsState.items = normalizeRecordsCollection([]);
+          const noMealScore = getTodayAdherenceScore(calculate());
+          renderTodayAdherencePanel(noMealScore);
+          const noMealText = document.getElementById("todayAdherenceContent").textContent || "";
+          assertIncludesAll(noMealText, ["식사 기록이 없어", "점수는 보류", "부족으로 판단하지 않습니다"], "zero meal adherence should be withheld");
+          assertExcludesAll(noMealText, ["칼로리가 부족합니다", "단백질이 부족합니다", "탄수화물이 부족합니다", "지방이 부족합니다"], "zero meal should not conclude macro shortage");
+
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            meals: [{ id: "m1", mealLabel: "one", carbs: 20, protein: 12, fat: 6, memo: "", createdAt: `${today}T08:00:00.000Z` }]
+          }]);
+          const oneMealScore = getTodayAdherenceScore(calculate());
+          renderTodayAdherencePanel(oneMealScore);
+          const oneMealText = document.getElementById("todayAdherenceContent").textContent || "";
+          assertIncludesAll(oneMealText, ["한 끼만으로 하루 식단을 판단하지 않습니다", "부족으로 단정하지 않습니다"], "one meal adherence should avoid full day judgement");
+        }));
+
+        results.push(runNamedTest("D3 separation: other kcal and alcohol remain evidence copy", () => {
+          const html = renderAdherenceExtraChecks({
+            items: [
+              { key: "alcohol", state: "술은 여기서 끊으세요.", action: "추가 술과 안주는 멈추세요." },
+              { key: "otherKcal", state: "기타 칼로리", action: "남은 음식은 탄수화물·단백질·지방으로 나눠 기록하세요." }
+            ]
+          }, {
+            detail: { consumed: { alcoholKcal: 420, otherKcal: 500 } }
+          });
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = html;
+          const text = wrapper.textContent || "";
+          assertIncludesAll(text, ["알코올 kcal는 순수 술 부담입니다", "안주와 음료 당분", "탄·단·지 중 어디서 어긋났는지 보기 어렵습니다"], "extra cards should explain alcohol/other kcal evidence");
+          assertExcludesAll(text, ["추가 술과 안주는 멈추세요", "탄단지 판단을 가립니다"], "extra cards should not repeat Coach action or banned copy");
+        }));
+
+        results.push(runNamedTest("D3 separation: fat low does not create standalone action", () => {
+          const fatLow = getAdherenceMacroFallbackText({ key: "fat", label: "지방" }, 0.5, "지방이 낮게 기록됐습니다.");
+          const coach = buildCopyRegressionCoachOutput("diet", { fat: 0.6 });
+          assertIncludesAll(`${fatLow.state} ${fatLow.action}`, ["지방", "하루 단독"], "fat low component should stay limited");
+          assertExcludesAll(`${fatLow.state} ${fatLow.action} ${coach.text}`, ["지방을 올리", "지방을 무조건", "지방 식품을 소량 추가"], "fat low should not add standalone action");
+        }));
+
+        return results;
+      });
+    }
+
+    function runUserFacingForbiddenCopyTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        setValidTodayBalanceTestInputs();
+        ids.autoDietAnalysis.checked = true;
+
+        results.push(runNamedTest("D3 forbidden copy: other kcal guard uses revised wording", () => {
+          const guardItem = createRecentContextCoachItem("other_kcal");
+          const text = `${guardItem.state} ${guardItem.reason} ${guardItem.action}`;
+          assertIncludesAll(text, ["기타 칼로리", "탄·단·지 중 어디서 어긋났는지 보기 어렵습니다"], "other kcal guard should use evidence wording");
+          assertExcludesAll(text, ["탄단지 판단을 가립니다"], "other kcal guard should avoid banned wording");
+        }));
+
+        results.push(runNamedTest("D3 forbidden copy: Today and adherence user-facing text", () => {
+          const coach = buildCopyRegressionCoachOutput("lean_bulk", { otherKcal: 700 });
+          const cards = renderCopyRegressionAdherenceCards(coach, {
+            componentScores: { kcal: 0.6, protein: 0.8, carbs: 0.8, fat: 0.8 },
+            reasons: { kcal: "목표보다 많이 넘었습니다. 오늘 점수에서 깎였습니다." }
+          });
+          const extraHtml = renderAdherenceExtraChecks({ items: [{ key: "otherKcal", state: "other", action: "other" }] }, { detail: { consumed: { otherKcal: 700 } } });
+          const extra = document.createElement("div");
+          extra.innerHTML = extraHtml;
+          const combined = [coach.text, cards.text, extra.textContent || ""].join(" ");
+          assertExcludesAll(combined, USER_FACING_FORBIDDEN_COPY, "Today coach/adherence copy should avoid forbidden user-facing terms");
+          assertIncludesAll(combined, ["점수", "탄·단·지 중 어디서 어긋났는지 보기 어렵습니다"], "Today/adherence copy should keep evidence wording");
+        }));
+
+        results.push(runNamedTest("D3 forbidden copy: recent flow user-facing text", () => {
+          renderWeeklyPanel(calculate());
+          const text = document.getElementById("recentFlowPreviewHost").textContent || "";
+          assertExcludesAll(text, USER_FACING_FORBIDDEN_COPY, "recent flow user-facing copy should avoid forbidden labels");
+          assertTest(!text.includes("5일"), "recent flow should not expose five day window");
+        }));
+
+        results.push(runNamedTest("D3 forbidden copy: rendered Today keeps Coach before KPI", () => {
+          render();
+          const coachHost = document.getElementById("coachHost");
+          const kpiPanel = document.getElementById("kpiPanel");
+          assertTest(!!coachHost && !!kpiPanel, "coach and KPI hosts should exist");
+          assertTest(!!(coachHost.compareDocumentPosition(kpiPanel) & Node.DOCUMENT_POSITION_FOLLOWING), "coach should remain before KPI");
+          const text = `${coachHost.textContent || ""} ${document.getElementById("todayAdherenceContent").textContent || ""}`;
+          assertExcludesAll(text, USER_FACING_FORBIDDEN_COPY, "rendered Today copy should avoid forbidden terms");
+        }));
+
+        return results;
+      });
+    }
+
     function runTodayInputActionTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -17310,6 +17601,9 @@ Notes:
     window.runWeeklyAdherenceTests = runWeeklyAdherenceTests;
     window.runRecentContextTests = runRecentContextTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
+    window.runGoalAwareCopyRegressionTests = runGoalAwareCopyRegressionTests;
+    window.runCoachAdherenceCopySeparationTests = runCoachAdherenceCopySeparationTests;
+    window.runUserFacingForbiddenCopyTests = runUserFacingForbiddenCopyTests;
     window.runMacroCalibrationTests = runMacroCalibrationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
