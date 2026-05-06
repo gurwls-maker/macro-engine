@@ -1,9 +1,9 @@
 <!--
-Version: 6.4-D1
-Stage: 6.4-D1 Today Coach 메인/guard 문구 교체
+Version: 6.4-D1.1
+Stage: 6.4-D1.1 Today Coach 카드 행동/이유 순서 정리
 Date: 2026-05-07
 Notes:
-- Today Coach 메인/guard 문구 교체
+- Today Coach 카드의 행동/이유 표시 순서 정리
 - 점수 산식 / 저장 schema / import/export schema / Coach decision matrix / 식단 달성률 component 카드 / fat low 행동 문구 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
@@ -12,7 +12,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.4-D1</title>
+  <title>탄단지 다이어리 v6.4-D1.1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3458,7 +3458,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.4-D1</span>
+               <span class="app-version">v6.4-D1.1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -10642,16 +10642,22 @@ Notes:
       coachItems.forEach(item => {
         const block = document.createElement("div");
         const title = document.createElement("div");
-        const reason = document.createElement("div");
-        const action = document.createElement("div");
         title.className = "k";
-        reason.className = "v coach-reason";
-        action.className = "v coach-action";
         title.textContent = item?.state || "현재 상태";
-        reason.textContent = `이유: ${item?.reason || "-"}`;
-        action.textContent = `행동: ${item?.action || "-"}`;
         block.className = "coach-block";
-        block.append(title, reason, action);
+        block.append(title);
+        if (item?.action) {
+          const action = document.createElement("div");
+          action.className = "v coach-action";
+          action.textContent = `행동: ${item.action}`;
+          block.appendChild(action);
+        }
+        if (item?.reason) {
+          const reason = document.createElement("div");
+          reason.className = "v coach-reason";
+          reason.textContent = `이유: ${item.reason}`;
+          block.appendChild(reason);
+        }
         gridEl.appendChild(block);
       });
       const coachContainer = host.querySelector(".coach-panel");
@@ -15258,6 +15264,23 @@ Notes:
           const afterKeys = Object.keys(getRecordByDate(today)).sort().join(",");
           assertTest(beforeKeys === afterKeys, "render with recent context should not add record fields");
           assertTest(!afterKeys.includes("recentContext"), "record schema should not store recent context");
+        }));
+
+        results.push(runNamedTest("daily coach card renders action before reason", () => {
+          render();
+          const firstBlock = document.querySelector("#coachHost .coach-block");
+          assertTest(!!firstBlock, "coach block should render");
+          const actionEl = firstBlock.querySelector(".coach-action");
+          const reasonEl = firstBlock.querySelector(".coach-reason");
+          assertTest(!!actionEl && !!reasonEl, "coach block should have action and reason");
+          assertTest(
+            Array.from(firstBlock.children).indexOf(actionEl) < Array.from(firstBlock.children).indexOf(reasonEl),
+            "coach action should render before reason"
+          );
+          const blockText = firstBlock.textContent || "";
+          assertTest(blockText.indexOf("행동:") >= 0 && blockText.indexOf("행동:") < blockText.indexOf("이유:"), "coach action text should appear before reason text");
+          const summaryText = document.querySelector("#coachHost [data-coach-summary]")?.textContent || "";
+          assertTest(summaryText === actionEl.textContent.replace(/^행동:\s*/, ""), "coach summary should stay action-first");
         }));
 
         results.push(runNamedTest("daily coach low and blocked context still returns today action", () => {
