@@ -1,15 +1,15 @@
 <!--
-Version: 6.5-A2-5
-Stage: 6.5-A2-5 recentContext 기록 해상도 primitive 추가
+Version: 6.5-A2-6
+Stage: 6.5-A2-6 InBody permission 기록 해상도 연결
 Date: 2026-05-07
 Notes:
-- recentContext에 detailed / simple / weight_only 기록 해상도 primitive 추가
-- macro pattern 판단은 detailed 기록 기준으로 제한
-- simple 기록은 낮은 해상도 식단 흐름으로 분리
-- weight_only 기록은 체중 흐름에만 사용하고 식단 원인 판단에서 제외
-- Today Coach가 simple-only / weight-only 흐름에서 탄단지 반복 원인을 단정하지 않도록 보호
+- Today Coach InBody hint/action permission을 recentContext 기록 해상도 primitive와 연결
+- simple-only 최근 식단에서는 InBody 기반 탄단지 원인 단정 차단
+- weight_only 위주 기록에서는 InBody 기반 식단 원인 단정 차단
+- detailed 기록이 충분할 때만 InBody 분석 결과와 최근 식단 원인/action 연결 허용
+- InBody 탭 중립 관찰 유지
 - 자동 점수 토글 제거 기준 유지
-- recentContext window / Coach decision matrix / InBody gate / 점수 산식 변경 없음
+- recentContext window / Coach decision matrix / 점수 산식 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -17,7 +17,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-A2-5</title>
+  <title>탄단지 다이어리 v6.5-A2-6</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3463,7 +3463,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-A2-5</span>
+               <span class="app-version">v6.5-A2-6</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -9338,7 +9338,8 @@ Notes:
       const decisionContext = buildDailyCoachDecisionContext(signals);
       const selectedDecisions = selectDailyCoachDecisions(signals);
       const inbodySignal = getInbodyCoachSignal();
-      const inbodyHint = getDailyCoachInbodyText(inbodySignal, goalType, decisionContext);
+      const recentContext = !Array.isArray(signals) ? (signals?.recentContext || null) : null;
+      const inbodyHint = getDailyCoachInbodyText(inbodySignal, goalType, decisionContext, recentContext);
       const output = {
         items: selectedDecisions.map(decision => ({
           key: decision.key,
@@ -12790,12 +12791,186 @@ Notes:
       return false;
     }
 
-    function getDailyCoachInbodyText(inbodySignal, goalType = "lean_bulk", decisionContext = null){
+    function getInbodyDietEvidenceGuard(recentContext){
+      const confidence = getCoachContextConfidence(recentContext);
+      const sourceWindow = confidence.recent7 || confidence.strongestWindow || {};
+      const usableDietDays = Number(sourceWindow.usableDietDays || 0);
+      const detailedDietDays = Number(sourceWindow.detailedDietDays || 0);
+      const simpleDietDays = Number(sourceWindow.simpleDietDays || 0);
+      const weightOnlyDays = Number(sourceWindow.weightOnlyDays || sourceWindow.weightOnlyRecordDays || 0);
+      const macroAnalysisDays = Number(sourceWindow.macroAnalysisDays || 0);
+      const simpleSummaryDays = Number(sourceWindow.simpleSummaryDays || 0);
+      const goalSnapshotCoverage = Number.isFinite(sourceWindow.goalSnapshotCoverage) ? sourceWindow.goalSnapshotCoverage : 0;
+      const macroPatternAllowed = sourceWindow.macroPatternAllowed === true;
+      const dietCauseAllowed = sourceWindow.dietCauseAllowed === true;
+      const goalChangeDetected = !!(confidence.goalChangeDetected || sourceWindow.goalChangeDetected);
+      const hasRecentContext = !!recentContext?.windows;
+      const simpleOnly = simpleSummaryDays > 0 && macroAnalysisDays === 0;
+      const weightOnlyDominant = weightOnlyDays > 0 && usableDietDays === 0;
+      const detailedEnough = detailedDietDays >= 4 &&
+        macroAnalysisDays >= 4 &&
+        macroPatternAllowed &&
+        dietCauseAllowed &&
+        goalSnapshotCoverage >= 0.7 &&
+        !goalChangeDetected;
+      return {
+        hasRecentContext,
+        sourceWindow,
+        usableDietDays,
+        detailedDietDays,
+        simpleDietDays,
+        weightOnlyDays,
+        macroAnalysisDays,
+        simpleSummaryDays,
+        goalSnapshotCoverage,
+        macroPatternAllowed,
+        dietCauseAllowed,
+        goalChangeDetected,
+        simpleOnly,
+        weightOnlyDominant,
+        detailedEnough,
+        proteinLowDays: Number(sourceWindow.proteinLowDays || 0),
+        carbLowTrainingDays: Number(sourceWindow.carbLowTrainingDays || 0),
+        fatHighDays: Number(sourceWindow.fatHighDays || 0),
+        otherKcalHeavyDays: Number(sourceWindow.otherKcalHeavyDays || 0),
+        alcoholDays: Number(sourceWindow.alcoholDays || 0)
+      };
+    }
+
+    function getInbodyCoachPermissionByDietResolution(inbodySignal, recentContext){
+      if (!inbodySignal?.available || !["medium", "high"].includes(inbodySignal.trendConfidence)) {
+        return { permission: "blocked", reasonCode: "inbody_blocked", guard: getInbodyDietEvidenceGuard(recentContext) };
+      }
+      const guard = getInbodyDietEvidenceGuard(recentContext);
+      if (guard.weightOnlyDominant) return { permission: "weight_context_only", reasonCode: "weight_only_dominant", guard };
+      if (guard.simpleOnly) return { permission: "inbody_reason_only", reasonCode: "simple_only", guard };
+      if (guard.goalChangeDetected) return { permission: "inbody_reason_only", reasonCode: "goal_change", guard };
+      if (inbodySignal.trendConfidence === "medium") return { permission: "inbody_reason_only", reasonCode: "medium_inbody", guard };
+      if (guard.detailedEnough) return { permission: "macro_action_allowed", reasonCode: "detailed_macro_allowed", guard };
+      if (!guard.usableDietDays && guard.weightOnlyDays > 0) return { permission: "weight_context_only", reasonCode: "weight_context_only", guard };
+      return { permission: "inbody_reason_only", reasonCode: guard.hasRecentContext ? "detailed_insufficient" : "no_recent_context", guard };
+    }
+
+    function getInbodyTrendBriefText(trendPattern){
+      return {
+        fat_down_muscle_stable: "체지방은 줄고 골격근량은 유지되는 쪽입니다",
+        weight_up_muscle_up: "체중과 골격근량이 같이 오르는 흐름입니다",
+        fat_gain_dominant: "체지방 쪽 변화는 보입니다",
+        muscle_change_weak: "골격근량 변화는 보입니다",
+        weight_down_muscle_down: "체중과 골격근량 변화는 보입니다",
+        no_meaningful_change: "큰 변화는 아직 보이지 않습니다",
+        unclear: "변화 방향이 아직 섞여 있습니다"
+      }[trendPattern] || "변화는 보입니다";
+    }
+
+    function getInbodyDietResolutionLimitedText(source, permissionInfo, trendPattern){
+      const reasonCode = permissionInfo?.reasonCode || "";
+      const brief = getInbodyTrendBriefText(trendPattern);
+      if (permissionInfo?.permission === "weight_context_only") {
+        return `${source}, ${brief}. 체중 기록은 쌓이고 있지만 식단 기록이 부족합니다. 오늘 먹은 주요 식사부터 상세 기록으로 남기세요.`;
+      }
+      if (reasonCode === "simple_only") {
+        return `${source}, ${brief}. 다만 최근 식단이 간단 기록 위주라 원인은 아직 나누기 어렵습니다. 오늘 식사는 단백질부터 상세 기록으로 남기세요.`;
+      }
+      if (reasonCode === "goal_change") {
+        return `${source}, ${brief}. 최근 목표가 바뀐 기록이 있어 이전 식단 흐름을 그대로 연결하기는 어렵습니다. 오늘은 현재 목표 기준으로 식사를 맞추세요.`;
+      }
+      if (reasonCode === "detailed_insufficient" || reasonCode === "no_recent_context") {
+        return `${source}, ${brief}. 다만 최근 상세 식단 기록이 부족해 식단 원인은 아직 나누기 어렵습니다. 오늘 먹은 주요 식사부터 상세 기록으로 남기세요.`;
+      }
+      return null;
+    }
+
+    function getInbodyDietEvidencePhrase(guard, trendPattern){
+      if (!guard) return "";
+      const musclePattern = trendPattern === "weight_down_muscle_down" || trendPattern === "muscle_change_weak";
+      const fatPattern = trendPattern === "fat_gain_dominant" || trendPattern === "no_meaningful_change" || trendPattern === "unclear" || trendPattern === "weight_up_muscle_up";
+      const parts = [];
+      if (musclePattern && guard.proteinLowDays >= 2) parts.push("최근 단백질 부족도 반복됩니다.");
+      if (musclePattern && guard.carbLowTrainingDays >= 2) parts.push("최근 운동일 탄수화물 부족도 보입니다.");
+      if (fatPattern && guard.alcoholDays >= 2) parts.push("최근 술 기록도 반복됩니다.");
+      if (fatPattern && guard.otherKcalHeavyDays >= 2 && guard.fatHighDays >= 2) parts.push("최근 기타 칼로리와 고지방 기록도 같이 보입니다.");
+      else if (fatPattern && guard.otherKcalHeavyDays >= 2) parts.push("최근 기타 칼로리 기록도 반복됩니다.");
+      else if (fatPattern && guard.fatHighDays >= 2) parts.push("최근 고지방 기록도 반복됩니다.");
+      return parts.join(" ");
+    }
+
+    function hasInbodyAlignedRecentDietEvidence(pattern, guard, decisionContext = null){
+      if (!guard?.detailedEnough) return false;
+      const musclePattern = pattern === "weight_down_muscle_down" || pattern === "muscle_change_weak";
+      const fatPattern = pattern === "fat_gain_dominant" || pattern === "no_meaningful_change" || pattern === "unclear" || pattern === "weight_up_muscle_up";
+      if (musclePattern) {
+        return guard.proteinLowDays >= 2 ||
+          guard.carbLowTrainingDays >= 2 ||
+          hasDailyCoachSignalConcern(decisionContext, ["protein", "calorie", "carb"]);
+      }
+      if (fatPattern) {
+        return guard.fatHighDays >= 2 ||
+          guard.otherKcalHeavyDays >= 2 ||
+          guard.alcoholDays >= 2 ||
+          hasDailyCoachSignalConcern(decisionContext, ["alcohol", "otherKcal", "fat", "calorie"]);
+      }
+      return guard.detailedEnough;
+    }
+
+    function shouldAllowDailyCoachInbodyActionWithDietResolution(inbodySignal, goalType, decisionContext = null, recentContext = null, permissionInfo = null){
+      const info = permissionInfo || getInbodyCoachPermissionByDietResolution(inbodySignal, recentContext);
+      if (info.permission !== "macro_action_allowed") return false;
+      if (decisionContext && isDailyCoachContextBlockingInbodyAction(decisionContext)) return false;
+      const pattern = inbodySignal.trendPattern || inbodySignal.kind;
+      return hasInbodyAlignedRecentDietEvidence(pattern, info.guard, decisionContext);
+    }
+
+    function getDailyCoachInbodyHighActionText(source, trendPattern, goal, guard){
+      const evidence = getInbodyDietEvidencePhrase(guard, trendPattern);
+      const evidenceText = evidence ? `${evidence} ` : "";
+      const texts = {
+        fat_down_muscle_stable: {
+          diet: `${source}, 체지방은 줄고 골격근량은 유지되는 쪽입니다. ${evidenceText}현재 식단을 유지하세요.`,
+          lean_bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. ${evidenceText}현재 식사량을 유지하세요.`,
+          bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. ${evidenceText}현재 식사량을 유지하세요.`
+        },
+        weight_up_muscle_up: {
+          diet: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. ${evidenceText}오늘은 식단 기록 기준으로 술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          lean_bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. ${evidenceText}현재 식사량을 유지하세요.`,
+          bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. ${evidenceText}현재 식사량을 유지하세요.`
+        },
+        fat_gain_dominant: {
+          diet: `${source}, 체지방 쪽 증가가 더 큽니다. ${evidenceText}술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          lean_bulk: `${source}, 체중은 늘었지만 체지방 쪽 증가가 더 큽니다. ${evidenceText}칼로리를 더 올리지 말고 술·기름진 음식부터 정리하세요.`,
+          bulk: `${source}, 체지방만 빠르게 오르는 쪽입니다. ${evidenceText}술·안주·튀김으로 더 채우지 마세요.`
+        },
+        muscle_change_weak: {
+          diet: `${source}, 골격근량 변화가 약합니다. ${evidenceText}칼로리를 더 줄이지 말고 단백질부터 지키세요.`,
+          lean_bulk: `${source}, 골격근량 변화가 약합니다. ${evidenceText}회복 재료가 부족하지 않게 단백질과 탄수화물을 먼저 채우세요.`,
+          bulk: `${source}, 체중 증가에 비해 골격근량 변화가 약합니다. ${evidenceText}단백질부터 고정하고 탄수화물은 식사로 채우세요.`
+        },
+        weight_down_muscle_down: {
+          diet: `${source}, 체중은 줄었지만 골격근량도 같이 줄어드는 쪽입니다. ${evidenceText}칼로리를 더 줄이지 말고 단백질부터 지키세요.`,
+          lean_bulk: `${source}, 체중과 골격근량이 같이 줄어드는 쪽입니다. ${evidenceText}회복 재료가 부족하지 않게 단백질과 탄수화물을 먼저 채우세요.`,
+          bulk: `${source}, 벌크업인데 골격근량이 줄어드는 쪽입니다. ${evidenceText}단백질부터 고정하고 탄수화물은 식사로 채우세요.`
+        },
+        no_meaningful_change: {
+          diet: `${source}, 체지방 변화가 거의 없습니다. ${evidenceText}술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          lean_bulk: `${source}, 골격근량 변화가 약합니다. ${evidenceText}회복 재료가 부족하지 않게 단백질과 탄수화물을 먼저 채우세요.`,
+          bulk: `${source}, 골격근량 변화가 약합니다. ${evidenceText}단백질부터 고정하고 탄수화물은 식사로 채우세요.`
+        },
+        unclear: {
+          diet: `${source}, 변화 방향이 섞여 있습니다. ${evidenceText}오늘은 술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          lean_bulk: `${source}, 변화 방향이 섞여 있습니다. ${evidenceText}칼로리를 더 올리지 말고 단백질과 탄수화물부터 식사로 채우세요.`,
+          bulk: `${source}, 변화 방향이 섞여 있습니다. ${evidenceText}술·안주·튀김으로 더 채우지 마세요.`
+        }
+      };
+      return texts[trendPattern]?.[goal] || null;
+    }
+
+    function getDailyCoachInbodyText(inbodySignal, goalType = "lean_bulk", decisionContext = null, recentContext = null){
       if (!inbodySignal?.available) return null;
       if (!["medium", "high"].includes(inbodySignal.trendConfidence)) return null;
       const goal = getDailyCoachGoalType(goalType);
       const source = inbodySignal.sourceLabel || "인바디 분석 결과";
       const trendPattern = inbodySignal.trendPattern || inbodySignal.kind;
+      const permissionInfo = getInbodyCoachPermissionByDietResolution(inbodySignal, recentContext);
       const mediumTexts = {
         fat_down_muscle_stable: `${source}, 체지방은 줄고 골격근량은 유지되는 쪽입니다. 최근 식단 기록도 안정적이면 지금 흐름을 더 믿을 수 있습니다.`,
         weight_up_muscle_up: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 최근 식단 기록도 안정적이면 증량 흐름을 더 믿을 수 있습니다.`,
@@ -12842,14 +13017,21 @@ Notes:
           bulk: `${source}, 변화 방향이 섞여 있습니다. 술·안주·튀김으로 더 채우지 마세요.`
         }
       };
-      if (inbodySignal.actionPermission === "reason_only" || !shouldAllowDailyCoachInbodyAction(inbodySignal, goal, decisionContext)) {
+      const limitedText = getInbodyDietResolutionLimitedText(source, permissionInfo, trendPattern);
+      if (limitedText) return limitedText;
+      if (
+        inbodySignal.actionPermission === "reason_only" ||
+        !shouldAllowDailyCoachInbodyActionWithDietResolution(inbodySignal, goal, decisionContext, recentContext, permissionInfo)
+      ) {
         return mediumTexts[trendPattern] || null;
       }
-      return highTexts[trendPattern]?.[goal] || null;
+      return getDailyCoachInbodyHighActionText(source, trendPattern, goal, permissionInfo.guard)
+        || highTexts[trendPattern]?.[goal]
+        || null;
     }
 
     function getInbodyCoachHint(goalType = state.goal){
-      return getDailyCoachInbodyText(getInbodyCoachSignal(), goalType);
+      return getDailyCoachInbodyText(getInbodyCoachSignal(), goalType, null, buildRecentContext(calculate()));
     }
 
     function getInbodyInsight(trendContext = buildInbodyTrendContext()){
@@ -17839,12 +18021,63 @@ Notes:
           ];
         }
 
+        function makeInbodyDietContext(overrides = {}){
+          const usableDietDays = Number.isFinite(overrides.usableDietDays) ? overrides.usableDietDays : 5;
+          const detailedDietDays = Number.isFinite(overrides.detailedDietDays) ? overrides.detailedDietDays : usableDietDays;
+          const simpleDietDays = Number.isFinite(overrides.simpleDietDays) ? overrides.simpleDietDays : 0;
+          const weightOnlyDays = Number.isFinite(overrides.weightOnlyDays) ? overrides.weightOnlyDays : 0;
+          const macroAnalysisDays = Number.isFinite(overrides.macroAnalysisDays) ? overrides.macroAnalysisDays : detailedDietDays;
+          const goalSnapshotCoverage = Number.isFinite(overrides.goalSnapshotCoverage) ? overrides.goalSnapshotCoverage : 1;
+          const macroPatternAllowed = Object.prototype.hasOwnProperty.call(overrides, "macroPatternAllowed") ? overrides.macroPatternAllowed === true : macroAnalysisDays >= 4;
+          const dietCauseAllowed = Object.prototype.hasOwnProperty.call(overrides, "dietCauseAllowed") ? overrides.dietCauseAllowed === true : macroPatternAllowed && detailedDietDays >= 4;
+          const window7 = {
+            windowDays: 7,
+            usableDietDays,
+            detailedDietDays,
+            simpleDietDays,
+            weightOnlyDays,
+            weightOnlyRecordDays: weightOnlyDays,
+            macroAnalysisDays,
+            simpleSummaryDays: Number.isFinite(overrides.simpleSummaryDays) ? overrides.simpleSummaryDays : simpleDietDays,
+            detailedGoalSnapshotDays: Math.round(detailedDietDays * goalSnapshotCoverage),
+            goalSnapshotCoverage,
+            macroPatternAllowed,
+            simpleSummaryAllowed: simpleDietDays > 0,
+            dietCauseAllowed,
+            goalChangeDetected: overrides.goalChangeDetected === true,
+            proteinLowDays: Number.isFinite(overrides.proteinLowDays) ? overrides.proteinLowDays : 0,
+            carbLowTrainingDays: Number.isFinite(overrides.carbLowTrainingDays) ? overrides.carbLowTrainingDays : 0,
+            fatHighDays: Number.isFinite(overrides.fatHighDays) ? overrides.fatHighDays : 0,
+            otherKcalHeavyDays: Number.isFinite(overrides.otherKcalHeavyDays) ? overrides.otherKcalHeavyDays : 0,
+            alcoholDays: Number.isFinite(overrides.alcoholDays) ? overrides.alcoholDays : 0,
+            recordConfidence: "high",
+            windowFit: "high",
+            contextFit: "high"
+          };
+          return {
+            windows: {
+              1: { ...window7, windowDays: 1 },
+              3: { ...window7, windowDays: 3 },
+              7: window7,
+              14: { ...window7, windowDays: 14 },
+              28: { ...window7, windowDays: 28 }
+            },
+            summary: {
+              recordConfidence: "high",
+              strongestUsableWindow: 7,
+              shortestUsableWindow: usableDietDays > 0 ? 1 : null,
+              goalChangeDetected: overrides.goalChangeDetected === true,
+              generatedAt: "2026-05-01T00:00:00.000Z"
+            }
+          };
+        }
+
         function getInbodyTextFor(goal, lastOverrides, options = {}){
           setInbodyTestRecords(lastOverrides, options);
           const inbodySignal = getInbodyCoachSignal();
           return {
             inbodySignal,
-            text: getDailyCoachInbodyText(inbodySignal, goal)
+            text: getDailyCoachInbodyText(inbodySignal, goal, null, options.recentContext || null)
           };
         }
 
@@ -17880,12 +18113,13 @@ Notes:
           assertIncludesAll(fatDiet.text, ["인바디 분석 결과", "체지방 쪽 변화"], "medium fat_gain InBody text");
           assertExcludesAll(`${fatDiet.text} ${fatLean.text} ${fatBulk.text}`, ["다이어트", "린매스업", "벌크업", "InBody 참고", "보조 참고", "반영하지 않았습니다", "signal","profile","threshold","severity","macro","surplus"], "medium InBody user-facing text");
 
-          const lossDiet = getInbodyTextFor("diet", { weight: 74.4, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 }, { lastDate: "2026-05-01" });
-          const lossLean = getInbodyTextFor("lean_bulk", { weight: 74.4, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 }, { lastDate: "2026-05-01" });
-          const lossBulk = getInbodyTextFor("bulk", { weight: 74.4, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 }, { lastDate: "2026-05-01" });
+          const detailedProteinContext = makeInbodyDietContext({ proteinLowDays: 3 });
+          const lossDiet = getInbodyTextFor("diet", { weight: 74.4, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 }, { lastDate: "2026-05-01", recentContext: detailedProteinContext });
+          const lossLean = getInbodyTextFor("lean_bulk", { weight: 74.4, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 }, { lastDate: "2026-05-01", recentContext: detailedProteinContext });
+          const lossBulk = getInbodyTextFor("bulk", { weight: 74.4, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 }, { lastDate: "2026-05-01", recentContext: detailedProteinContext });
           assertTest(lossDiet.inbodySignal.trendPattern === "weight_down_muscle_down", `expected weight_down_muscle_down signal, got ${lossDiet.inbodySignal.trendPattern}`);
           assertTest(lossDiet.inbodySignal.trendConfidence === "high", "30 day pair should allow high confidence");
-          assertTest(lossDiet.text !== lossLean.text && lossLean.text !== lossBulk.text, "high InBody text can differ by goal");
+          assertTest(lossDiet.text !== lossLean.text && lossLean.text !== lossBulk.text, "high InBody text can differ by goal when detailed diet evidence is enough");
           assertIncludesAll(lossDiet.text, ["인바디 분석 결과", "골격근량", "단백질부터"], "diet high muscle_loss InBody text");
           assertIncludesAll(lossBulk.text, ["인바디 분석 결과", "단백질부터", "탄수화물"], "bulk high muscle_loss InBody text");
 
@@ -18969,7 +19203,6 @@ Notes:
           warning: "",
           isSuspicious: overrides.isSuspicious === true
         });
-
         results.push(runNamedTest("A1 InBody trend context gates record count", () => {
           const empty = buildInbodyTrendContext([]);
           assertTest(empty.trendConfidence === "blocked", "no InBody records should be blocked");
@@ -19056,6 +19289,37 @@ Notes:
           warning: "",
           isSuspicious: overrides.isSuspicious === true
         });
+        const detailedDietContext = (overrides = {}) => {
+          const window7 = {
+            windowDays: 7,
+            usableDietDays: 5,
+            detailedDietDays: 5,
+            simpleDietDays: 0,
+            weightOnlyDays: 0,
+            weightOnlyRecordDays: 0,
+            macroAnalysisDays: 5,
+            simpleSummaryDays: 0,
+            detailedGoalSnapshotDays: 5,
+            goalSnapshotCoverage: 1,
+            macroPatternAllowed: true,
+            simpleSummaryAllowed: false,
+            dietCauseAllowed: true,
+            goalChangeDetected: false,
+            proteinLowDays: 0,
+            carbLowTrainingDays: 0,
+            fatHighDays: 2,
+            otherKcalHeavyDays: 2,
+            alcoholDays: 0,
+            recordConfidence: "high",
+            windowFit: "high",
+            contextFit: "high",
+            ...overrides
+          };
+          return {
+            windows: { 1: { ...window7, windowDays: 1 }, 3: { ...window7, windowDays: 3 }, 7: window7, 14: { ...window7, windowDays: 14 }, 28: { ...window7, windowDays: 28 } },
+            summary: { recordConfidence: "high", strongestUsableWindow: 7, shortestUsableWindow: 1, goalChangeDetected: !!window7.goalChangeDetected, generatedAt: "2026-05-01T00:00:00.000Z" }
+          };
+        };
 
         results.push(runNamedTest("A1 InBody tab low confidence copy explains measurement action", () => {
           const singleText = getInbodyInsight(buildInbodyTrendContext([record("2026-04-01")]));
@@ -19098,7 +19362,7 @@ Notes:
           const context = buildInbodyTrendContext(state.inbodyRecords);
           const insight = getInbodyInsight(context);
           const signal = getInbodyCoachSignal();
-          const coachText = getDailyCoachInbodyText(signal, "bulk");
+          const coachText = getDailyCoachInbodyText(signal, "bulk", null, detailedDietContext({ alcoholDays: 2 }));
           assertTest(context.trendPattern === "fat_gain_dominant", "fixture should classify as fat_gain_dominant");
           assertTest(signal.trendPattern === context.trendPattern, "Coach signal should reuse trendPattern from context");
           assertTest(signal.trend === null, "Coach signal should not expose legacy independent trend interpretation");
@@ -19138,6 +19402,69 @@ Notes:
           const target = calculate();
           const signals = getDailyCoachSignals({ currentResult: target, state: { ...target.s, goal } });
           return generateDailyCoachOutput(signals);
+        };
+        const coachForGoalWithContext = (goal = "lean_bulk", recentContext = null) => {
+          setValidTodayBalanceTestInputs();
+          state.goal = goal;
+          const target = calculate();
+          const targetMacros = { kcal: target.targetCal, protein: target.protein, carbs: target.carbs, fat: target.fat };
+          const signals = getDailyCoachSignals({
+            currentResult: target,
+            state: { ...target.s, goal },
+            recentContext,
+            balance: {
+              date: getTodayDateString(),
+              todayDate: getTodayDateString(),
+              target: targetMacros,
+              consumed: { ...targetMacros, alcoholKcal: 0, otherKcal: 0 },
+              remaining: { kcal: 0, protein: 0, carbs: 0, fat: 0 },
+              exceeded: { kcal: false, protein: false, carbs: false, fat: false },
+              isGoalAvailable: true,
+              mealCount: 3,
+              hasMeals: true,
+              mealDistribution: null,
+              goalSnapshot: null
+            }
+          });
+          return generateDailyCoachOutput(signals);
+        };
+        const makeDietContext = (overrides = {}) => {
+          const usableDietDays = Number.isFinite(overrides.usableDietDays) ? overrides.usableDietDays : 5;
+          const detailedDietDays = Number.isFinite(overrides.detailedDietDays) ? overrides.detailedDietDays : usableDietDays;
+          const simpleDietDays = Number.isFinite(overrides.simpleDietDays) ? overrides.simpleDietDays : 0;
+          const weightOnlyDays = Number.isFinite(overrides.weightOnlyDays) ? overrides.weightOnlyDays : 0;
+          const macroAnalysisDays = Number.isFinite(overrides.macroAnalysisDays) ? overrides.macroAnalysisDays : detailedDietDays;
+          const goalSnapshotCoverage = Number.isFinite(overrides.goalSnapshotCoverage) ? overrides.goalSnapshotCoverage : 1;
+          const macroPatternAllowed = Object.prototype.hasOwnProperty.call(overrides, "macroPatternAllowed") ? overrides.macroPatternAllowed === true : macroAnalysisDays >= 4;
+          const dietCauseAllowed = Object.prototype.hasOwnProperty.call(overrides, "dietCauseAllowed") ? overrides.dietCauseAllowed === true : macroPatternAllowed && detailedDietDays >= 4;
+          const window7 = {
+            windowDays: 7,
+            usableDietDays,
+            detailedDietDays,
+            simpleDietDays,
+            weightOnlyDays,
+            weightOnlyRecordDays: weightOnlyDays,
+            macroAnalysisDays,
+            simpleSummaryDays: Number.isFinite(overrides.simpleSummaryDays) ? overrides.simpleSummaryDays : simpleDietDays,
+            detailedGoalSnapshotDays: Math.round(detailedDietDays * goalSnapshotCoverage),
+            goalSnapshotCoverage,
+            macroPatternAllowed,
+            simpleSummaryAllowed: simpleDietDays > 0,
+            dietCauseAllowed,
+            goalChangeDetected: overrides.goalChangeDetected === true,
+            proteinLowDays: Number.isFinite(overrides.proteinLowDays) ? overrides.proteinLowDays : 0,
+            carbLowTrainingDays: Number.isFinite(overrides.carbLowTrainingDays) ? overrides.carbLowTrainingDays : 0,
+            fatHighDays: Number.isFinite(overrides.fatHighDays) ? overrides.fatHighDays : 0,
+            otherKcalHeavyDays: Number.isFinite(overrides.otherKcalHeavyDays) ? overrides.otherKcalHeavyDays : 0,
+            alcoholDays: Number.isFinite(overrides.alcoholDays) ? overrides.alcoholDays : 0,
+            recordConfidence: "high",
+            windowFit: "high",
+            contextFit: "high"
+          };
+          return {
+            windows: { 1: { ...window7, windowDays: 1 }, 3: { ...window7, windowDays: 3 }, 7: window7, 14: { ...window7, windowDays: 14 }, 28: { ...window7, windowDays: 28 } },
+            summary: { recordConfidence: "high", strongestUsableWindow: usableDietDays > 0 ? 7 : null, shortestUsableWindow: usableDietDays > 0 ? 1 : null, goalChangeDetected: !!window7.goalChangeDetected, generatedAt: "2026-05-01T00:00:00.000Z" }
+          };
         };
 
         results.push(runNamedTest("A1 Daily Coach hides blocked and low InBody hint", () => {
@@ -19180,9 +19507,87 @@ Notes:
           assertExcludesAll(high.inbodyHint, ["술·안주·튀김"], "record shortage should block strong InBody action");
           const alignedActionText = getDailyCoachInbodyText(high.inbodySignal, "bulk", {
             signalsByKey: { fat: { key: "fat", status: "high", severity: 2 } }
-          });
+          }, makeDietContext({ fatHighDays: 2, otherKcalHeavyDays: 2 }));
           assertIncludesAll(alignedActionText, ["인바디 분석 결과", "술·안주·튀김"], "aligned high hint can carry goal action with source");
           assertExcludesAll(high.inbodyHint, ["InBody 참고", "보조 참고", "인바디도 참고", "반영하지 않았습니다"], "high hint should avoid forbidden InBody wording");
+        }));
+
+        results.push(runNamedTest("A2-6 InBody high simple-only diet stays reason only", () => {
+          state.inbodyRecords = [
+            record("2026-04-01"),
+            record("2026-05-01", { weight: 74.4, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 })
+          ];
+          const output = coachForGoalWithContext("diet", makeDietContext({
+            usableDietDays: 5,
+            detailedDietDays: 0,
+            simpleDietDays: 5,
+            simpleSummaryDays: 5,
+            macroAnalysisDays: 0,
+            goalSnapshotCoverage: 0,
+            macroPatternAllowed: false,
+            dietCauseAllowed: false,
+            proteinLowDays: 4,
+            carbLowTrainingDays: 3
+          }));
+          assertIncludesAll(output.inbodyHint, ["인바디 분석 결과", "간단 기록 위주", "상세 기록"], "simple-only InBody hint should ask for detailed records");
+          assertExcludesAll(output.inbodyHint, ["단백질 부족도 반복", "탄수화물 부족도 보입니다", "칼로리를 더 줄이지 말고", "술·안주·튀김"], "simple-only InBody hint should not state macro cause action");
+        }));
+
+        results.push(runNamedTest("A2-6 InBody high weight-only diet stays weight context only", () => {
+          state.inbodyRecords = [
+            record("2026-04-01"),
+            record("2026-05-01", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 })
+          ];
+          const output = coachForGoalWithContext("bulk", makeDietContext({
+            usableDietDays: 0,
+            detailedDietDays: 0,
+            simpleDietDays: 0,
+            weightOnlyDays: 5,
+            macroAnalysisDays: 0,
+            goalSnapshotCoverage: 0,
+            macroPatternAllowed: false,
+            dietCauseAllowed: false,
+            otherKcalHeavyDays: 4,
+            alcoholDays: 3
+          }));
+          assertIncludesAll(output.inbodyHint, ["인바디 분석 결과", "체중 기록은 쌓이고", "식단 기록이 부족", "상세 기록"], "weight-only InBody hint should avoid diet cause judgment");
+          assertExcludesAll(output.inbodyHint, ["술·안주·튀김", "기타 칼로리 기록도 반복", "식단 원인"], "weight-only InBody hint should not use diet cause action");
+        }));
+
+        results.push(runNamedTest("A2-6 InBody high detailed protein evidence can become action", () => {
+          state.inbodyRecords = [
+            record("2026-04-01"),
+            record("2026-05-01", { weight: 74.4, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 })
+          ];
+          const output = coachForGoalWithContext("diet", makeDietContext({ proteinLowDays: 3 }));
+          assertIncludesAll(output.inbodyHint, ["인바디 분석 결과", "골격근량", "최근 단백질 부족도 반복", "단백질부터 지키세요"], "detailed protein evidence should allow InBody action");
+          assertExcludesAll(output.inbodyHint, ["간단 기록 위주", "식단 기록이 부족", "permission", "dietResolution"], "detailed action should hide internal labels");
+        }));
+
+        results.push(runNamedTest("A2-6 InBody high detailed other kcal and alcohol evidence can become action", () => {
+          state.inbodyRecords = [
+            record("2026-04-01"),
+            record("2026-05-01", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 })
+          ];
+          const otherOutput = coachForGoalWithContext("lean_bulk", makeDietContext({ fatHighDays: 2, otherKcalHeavyDays: 3 }));
+          assertIncludesAll(otherOutput.inbodyHint, ["인바디 분석 결과", "최근 기타 칼로리와 고지방 기록", "기름진 음식"], "detailed other kcal evidence should allow quality action");
+          const alcoholOutput = coachForGoalWithContext("bulk", makeDietContext({ alcoholDays: 3, fatHighDays: 2 }));
+          assertIncludesAll(alcoholOutput.inbodyHint, ["인바디 분석 결과", "최근 술 기록도 반복", "술·안주·튀김"], "detailed alcohol evidence should allow alcohol action");
+        }));
+
+        results.push(runNamedTest("A2-6 InBody goal change weakens diet cause link", () => {
+          state.inbodyRecords = [
+            record("2026-04-01"),
+            record("2026-05-01", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 })
+          ];
+          const output = coachForGoalWithContext("bulk", makeDietContext({
+            goalChangeDetected: true,
+            fatHighDays: 2,
+            otherKcalHeavyDays: 3,
+            alcoholDays: 2
+          }));
+          assertIncludesAll(output.inbodyHint, ["인바디 분석 결과", "최근 목표가 바뀐 기록", "현재 목표 기준"], "goal change should weaken InBody diet cause link");
+          assertExcludesAll(output.inbodyHint, ["술·안주·튀김으로 더 채우지 마세요", "최근 술 기록도 반복", "기타 칼로리와 고지방"], "goal change should block strong diet action");
         }));
 
         return results;
