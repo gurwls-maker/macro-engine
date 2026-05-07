@@ -1,11 +1,11 @@
 <!--
-Version: 6.5-A1.2
-Stage: 6.5-A1.2 legacy copy test debt 정리
+Version: 6.5-A2-2
+Stage: 6.5-A2-2 recordMode dietResolution read-only helper tests
 Date: 2026-05-07
 Notes:
-- v6.4-D4부터 남아 있던 legacy copy test debt 정리
-- 낡은 exact 문구 기대값을 의미 기반 테스트로 전환 또는 삭제
-- 앱 런타임 로직 / 점수 산식 / 저장 schema / import-export / Coach decision matrix / recentContext engine / InBody gate 기준 변경 없음
+- recordMode / dietResolution read-only helper 및 테스트 추가
+- 간단 기록 / 상세 기록 / 체중만 기록 해상도 판별 기준 고정
+- 앱 런타임 로직 / UI / 저장 schema / import-export / Coach decision matrix / recentContext engine / InBody gate 기준 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -13,7 +13,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-A1.2</title>
+  <title>탄단지 다이어리 v6.5-A2-2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3459,7 +3459,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-A1.2</span>
+               <span class="app-version">v6.5-A2-2</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -6244,6 +6244,122 @@ Notes:
         .map(normalizeRecord)
         .filter(item => item.date && isRecordMeaningful(item))
         .sort((a, b) => a.date < b.date ? 1 : -1);
+    }
+
+    function hasDetailedDietSignal(record){
+      const raw = record && typeof record === "object" ? record : {};
+      const meals = Array.isArray(raw.meals) ? normalizeMeals(raw.meals) : [];
+      if (meals.length > 0) return true;
+      return ["carbs", "protein", "fat", "alcoholKcal", "otherKcal"].some(key => {
+        if (!Object.prototype.hasOwnProperty.call(raw, key)) return false;
+        const rawValue = raw[key];
+        if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return false;
+        const value = Number(rawValue);
+        return Number.isFinite(value) && value >= 0;
+      });
+    }
+
+    function hasSimpleDietSignal(record){
+      const raw = record && typeof record === "object" ? record : {};
+      const source = normalizeAdherenceSource(raw.adherenceSource);
+      const hasManualPercent = Object.prototype.hasOwnProperty.call(raw, "adherencePercent") &&
+        source !== "auto" &&
+        Number.isFinite(normalizeAdherencePercent(raw.adherencePercent));
+      if (hasManualPercent) return true;
+
+      if (!Object.prototype.hasOwnProperty.call(raw, "adherence")) return false;
+      const adherence = ["high", "medium", "low"].includes(raw.adherence) ? raw.adherence : null;
+      if (!adherence || source === "auto") return false;
+      if (adherence === "high" || adherence === "low") return true;
+
+      const hasWeight = Number.isFinite(normalizeWeightValue(raw.weight));
+      const hasOnlyDefaultMediumShape = hasWeight &&
+        !Object.prototype.hasOwnProperty.call(raw, "adherencePercent") &&
+        !String(raw.note || "").trim() &&
+        !Object.prototype.hasOwnProperty.call(raw, "adherenceLockedAt");
+      return !hasOnlyDefaultMediumShape;
+    }
+
+    function hasWeightOnlySignal(record){
+      const raw = record && typeof record === "object" ? record : {};
+      return Number.isFinite(normalizeWeightValue(raw.weight)) &&
+        !hasDetailedDietSignal(raw) &&
+        !hasSimpleDietSignal(raw);
+    }
+
+    function inferRecordMode(record){
+      const raw = record && typeof record === "object" ? record : {};
+      const hasDetailedDiet = hasDetailedDietSignal(raw);
+      const hasSimpleDiet = hasSimpleDietSignal(raw);
+      const hasWeightOnly = hasWeightOnlySignal(raw);
+      const hasDietRecord = hasDetailedDiet || hasSimpleDiet;
+      let recordMode = "none";
+      let reason = "no_signal";
+      if (hasDetailedDiet && hasSimpleDiet) {
+        recordMode = "mixed";
+        reason = "mixed_detailed_simple_signals";
+      } else if (hasDetailedDiet) {
+        recordMode = "detailed";
+        reason = "detailed_diet_signal";
+      } else if (hasSimpleDiet) {
+        recordMode = "simple";
+        reason = "simple_manual_signal";
+      } else if (hasWeightOnly) {
+        recordMode = "weight_only";
+        reason = "weight_only_signal";
+      }
+      return {
+        recordMode,
+        hasDetailedDiet,
+        hasSimpleDiet,
+        hasWeightOnly,
+        hasDietRecord,
+        hasMacroAnalysisPermission: recordMode === "detailed",
+        hasCoachActionPermission: recordMode === "detailed",
+        futureGoalSnapshotCandidate: recordMode === "detailed",
+        reason
+      };
+    }
+
+    function getDietAnalysisPermission(summary){
+      const safeSummary = summary || {};
+      const detailedDietDays = Number(safeSummary.detailedDietDays) || 0;
+      const simpleDietDays = Number(safeSummary.simpleDietDays) || 0;
+      const mixedDietDays = Number(safeSummary.mixedDietDays) || 0;
+      if (detailedDietDays >= 4 && mixedDietDays === 0) return "coach_action_allowed";
+      if (detailedDietDays > 0) return "macro_pattern";
+      if (simpleDietDays > 0 && mixedDietDays === 0) return "simple_summary";
+      return "none";
+    }
+
+    function summarizeDietResolution(records = []){
+      const inferences = (Array.isArray(records) ? records : []).map(inferRecordMode);
+      const detailedDietDays = inferences.filter(item => item.recordMode === "detailed").length;
+      const simpleDietDays = inferences.filter(item => item.recordMode === "simple").length;
+      const weightOnlyDays = inferences.filter(item => item.recordMode === "weight_only").length;
+      const mixedDietDays = inferences.filter(item => item.recordMode === "mixed").length;
+      const dietDays = detailedDietDays + simpleDietDays + mixedDietDays;
+      const hasMixedResolution = mixedDietDays > 0 || (detailedDietDays > 0 && simpleDietDays > 0);
+      const dietResolution = hasMixedResolution
+        ? "mixed"
+        : detailedDietDays > 0
+          ? "detailed"
+          : simpleDietDays > 0
+            ? "simple"
+            : "none";
+      const summary = {
+        dietResolution,
+        detailedDietDays,
+        simpleDietDays,
+        weightOnlyDays,
+        mixedDietDays,
+        dietDays,
+        detailedCoverage: dietDays > 0 ? detailedDietDays / dietDays : 0,
+        simpleCoverage: dietDays > 0 ? simpleDietDays / dietDays : 0,
+        analysisPermission: "none"
+      };
+      summary.analysisPermission = getDietAnalysisPermission(summary);
+      return summary;
     }
 
     function getSortedRecords(){
@@ -15515,6 +15631,218 @@ Notes:
       });
     }
 
+    function runRecordModeResolutionTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const makeMeal = (id = "m1", overrides = {}) => ({
+          id,
+          mealLabel: "meal",
+          carbs: 60,
+          protein: 35,
+          fat: 18,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "",
+          createdAt: "2026-04-28T08:00:00.000Z",
+          ...overrides
+        });
+        const makeSnapshot = (overrides = {}) => ({
+          targetCal: 2000,
+          protein: 120,
+          carbs: 240,
+          fat: 70,
+          goal: "lean_bulk",
+          routine: "REST",
+          weightDuration: 0,
+          weeklyTrainingDays: 6,
+          ...overrides
+        });
+
+        results.push(runNamedTest("record mode empty record is none", () => {
+          const mode = inferRecordMode({});
+          const summary = summarizeDietResolution([{}]);
+          assertTest(mode.recordMode === "none", "empty record should be none");
+          assertTest(summary.analysisPermission === "none", "empty record should not allow diet analysis");
+        }));
+
+        results.push(runNamedTest("record mode weight only has no diet permission", () => {
+          const mode = inferRecordMode({ date: "2026-04-28", weight: 75 });
+          assertTest(mode.recordMode === "weight_only", "weight-only record should be weight_only");
+          assertTest(mode.hasWeightOnly === true, "weight-only signal should be true");
+          assertTest(mode.hasDietRecord === false, "weight-only should not be a diet record");
+          assertTest(mode.hasMacroAnalysisPermission === false, "weight-only should not allow macro analysis");
+        }));
+
+        results.push(runNamedTest("record mode manual adherence only is simple", () => {
+          const mode = inferRecordMode({ date: "2026-04-28", adherence: "high", adherenceSource: "manual" });
+          const summary = summarizeDietResolution([{ date: "2026-04-28", adherence: "high", adherenceSource: "manual" }]);
+          assertTest(mode.recordMode === "simple", "manual adherence-only record should be simple");
+          assertTest(summary.dietResolution === "simple", "manual-only summary should be simple");
+          assertTest(summary.analysisPermission === "simple_summary", "simple-only summary should be simple summary only");
+        }));
+
+        results.push(runNamedTest("record mode manual 90 75 60 stays simple not auto score", () => {
+          const summary = summarizeDietResolution([
+            { date: "2026-04-26", adherencePercent: 90, adherenceSource: "manual" },
+            { date: "2026-04-27", adherencePercent: 75, adherenceSource: "manual" },
+            { date: "2026-04-28", adherencePercent: 60, adherenceSource: "manual" }
+          ]);
+          assertTest(summary.dietResolution === "simple", "manual percent records should stay simple");
+          assertTest(summary.simpleDietDays === 3, "manual percent days should count as simple days");
+          assertTest(!Object.prototype.hasOwnProperty.call(summary, "averageScore"), "manual percent should not be exposed as a blended average score");
+          assertTest(summary.analysisPermission === "simple_summary", "manual percent should not become macro permission");
+        }));
+
+        results.push(runNamedTest("record mode meal record is detailed", () => {
+          const mode = inferRecordMode({ date: "2026-04-28", meals: [makeMeal()] });
+          assertTest(mode.recordMode === "detailed", "meal record should be detailed");
+          assertTest(mode.hasMacroAnalysisPermission === true, "detailed meal record should allow macro analysis candidate");
+        }));
+
+        results.push(runNamedTest("record mode auto off with meals remains detailed", () => {
+          const mode = inferRecordMode({
+            date: "2026-04-28",
+            adherenceSource: "manual",
+            adherencePercent: null,
+            meals: [makeMeal()]
+          });
+          assertTest(mode.recordMode === "detailed", "auto-off meal record should stay detailed");
+          assertTest(mode.futureGoalSnapshotCandidate === true, "auto-off detailed record should remain a future goalSnapshot candidate");
+        }));
+
+        results.push(runNamedTest("record mode goal snapshot alone does not imply detailed", () => {
+          const mode = inferRecordMode({ date: "2026-04-28", goalSnapshot: makeSnapshot() });
+          assertTest(mode.recordMode === "none", "goalSnapshot-only record should not be detailed");
+          assertTest(mode.hasDetailedDiet === false, "goalSnapshot-only record should not be a detailed diet signal");
+        }));
+
+        results.push(runNamedTest("record mode simple and detailed signals become mixed", () => {
+          const mode = inferRecordMode({ date: "2026-04-28", adherence: "high", adherenceSource: "manual", meals: [makeMeal()] });
+          assertTest(mode.recordMode === "mixed", "manual and meal signals on the same date should be mixed");
+          assertTest(mode.hasDetailedDiet === true && mode.hasSimpleDiet === true, "mixed should expose both signals");
+        }));
+
+        results.push(runNamedTest("record mode mixed does not auto promote to coach action", () => {
+          const mode = inferRecordMode({ date: "2026-04-28", adherence: "low", meals: [makeMeal()] });
+          const summary = summarizeDietResolution([{ date: "2026-04-28", adherence: "low", meals: [makeMeal()] }]);
+          assertTest(mode.hasMacroAnalysisPermission === false, "mixed record should not be a macro component source by itself");
+          assertTest(mode.hasCoachActionPermission === false, "mixed record should not become a coach action source by itself");
+          assertTest(summary.analysisPermission === "none", "mixed-only window should not auto promote to analysis permission");
+        }));
+
+        results.push(runNamedTest("diet resolution simple only cannot create macro pattern", () => {
+          const summary = summarizeDietResolution([
+            { date: "2026-04-26", adherence: "high" },
+            { date: "2026-04-27", adherence: "medium" },
+            { date: "2026-04-28", adherence: "low" }
+          ]);
+          assertTest(summary.dietResolution === "simple", "simple-only window should be simple");
+          assertTest(summary.analysisPermission === "simple_summary", "simple-only should be simple summary");
+          assertTest(summary.detailedDietDays === 0, "simple-only should have no detailed days");
+        }));
+
+        results.push(runNamedTest("diet resolution detailed only is detailed", () => {
+          const summary = summarizeDietResolution([
+            { date: "2026-04-27", meals: [makeMeal("m1")] },
+            { date: "2026-04-28", meals: [makeMeal("m2")] }
+          ]);
+          assertTest(summary.dietResolution === "detailed", "detailed-only window should be detailed");
+          assertTest(summary.detailedDietDays === 2, "two detailed days should be counted");
+          assertTest(summary.simpleDietDays === 0, "detailed-only should not count simple days");
+        }));
+
+        results.push(runNamedTest("diet resolution enough detailed days can allow coach action candidate", () => {
+          const summary = summarizeDietResolution([
+            { date: "2026-04-25", meals: [makeMeal("m1")] },
+            { date: "2026-04-26", meals: [makeMeal("m2")] },
+            { date: "2026-04-27", meals: [makeMeal("m3")] },
+            { date: "2026-04-28", meals: [makeMeal("m4")] }
+          ]);
+          assertTest(summary.analysisPermission === "coach_action_allowed", "four detailed days should allow coach action candidate");
+        }));
+
+        results.push(runNamedTest("diet resolution low detailed coverage stays macro pattern", () => {
+          const summary = summarizeDietResolution([
+            { date: "2026-04-27", meals: [makeMeal("m1")] },
+            { date: "2026-04-28", weight: 75 }
+          ]);
+          assertTest(summary.analysisPermission === "macro_pattern", "one detailed day should stop at macro pattern candidate");
+          assertTest(summary.weightOnlyDays === 1, "weight-only day should stay separate");
+        }));
+
+        results.push(runNamedTest("diet resolution weight only is excluded from diet days", () => {
+          const summary = summarizeDietResolution([
+            { date: "2026-04-26", weight: 75 },
+            { date: "2026-04-27", weight: 75.2 }
+          ]);
+          assertTest(summary.dietResolution === "none", "weight-only window should have no diet resolution");
+          assertTest(summary.dietDays === 0, "weight-only days should not count as diet days");
+          assertTest(summary.weightOnlyDays === 2, "weight-only days should be counted separately");
+        }));
+
+        results.push(runNamedTest("diet resolution mixed window separates detailed and simple counts", () => {
+          const summary = summarizeDietResolution([
+            { date: "2026-04-26", adherence: "high" },
+            { date: "2026-04-27", meals: [makeMeal("m1")] },
+            { date: "2026-04-28", adherence: "low", meals: [makeMeal("m2")] }
+          ]);
+          assertTest(summary.dietResolution === "mixed", "simple plus detailed plus mixed should be mixed");
+          assertTest(summary.simpleDietDays === 1, "simple days should be separate");
+          assertTest(summary.detailedDietDays === 1, "detailed days should be separate");
+          assertTest(summary.mixedDietDays === 1, "mixed days should be separate");
+        }));
+
+        results.push(runNamedTest("diet resolution does not blend simple and detailed into one score", () => {
+          const summary = summarizeDietResolution([
+            { date: "2026-04-27", adherencePercent: 90, adherenceSource: "manual" },
+            { date: "2026-04-28", adherencePercent: 88, adherenceSource: "auto", meals: [makeMeal("m1")] }
+          ]);
+          assertTest(summary.dietResolution === "mixed", "simple and detailed together should remain mixed");
+          assertTest(Number.isFinite(summary.detailedCoverage), "detailed coverage should be explicit");
+          assertTest(Number.isFinite(summary.simpleCoverage), "simple coverage should be explicit");
+          assertTest(!Object.prototype.hasOwnProperty.call(summary, "averageAdherencePercent"), "summary should not expose a blended adherence average");
+        }));
+
+        results.push(runNamedTest("record mode auto off is not analysis off", () => {
+          const mode = inferRecordMode({
+            date: "2026-04-28",
+            adherenceSource: "manual",
+            adherencePercent: null,
+            adherenceScoringVersion: null,
+            meals: [makeMeal("m1", { protein: 42 })]
+          });
+          assertTest(mode.recordMode === "detailed", "manual-source meal record should remain detailed");
+          assertTest(mode.hasMacroAnalysisPermission === true, "auto-off detailed record should allow macro analysis candidate");
+        }));
+
+        results.push(runNamedTest("record mode auto off is not goal snapshot off", () => {
+          const mode = inferRecordMode({
+            date: "2026-04-28",
+            adherenceSource: "manual",
+            meals: [makeMeal("m1")]
+          });
+          assertTest(mode.futureGoalSnapshotCandidate === true, "detailed auto-off record should stay a future snapshot candidate");
+          assertTest(mode.reason === "detailed_diet_signal", "future snapshot candidate should come from detailed diet signal");
+        }));
+
+        results.push(runNamedTest("record mode detailed auto off future snapshot target is explicit", () => {
+          const detailed = inferRecordMode({ date: "2026-04-28", adherenceSource: "manual", meals: [makeMeal("m1")] });
+          const simple = inferRecordMode({ date: "2026-04-28", adherence: "high", adherenceSource: "manual" });
+          assertTest(detailed.futureGoalSnapshotCandidate === true, "detailed record should be future snapshot target candidate");
+          assertTest(simple.futureGoalSnapshotCandidate === false, "simple record should not be detailed snapshot target candidate");
+        }));
+
+        results.push(runNamedTest("record mode simple cannot become strong InBody diet action evidence", () => {
+          const mode = inferRecordMode({ date: "2026-04-28", adherence: "high" });
+          const summary = summarizeDietResolution([{ date: "2026-04-28", adherence: "high" }]);
+          assertTest(mode.hasCoachActionPermission === false, "simple record should not have coach action permission");
+          assertTest(summary.analysisPermission === "simple_summary", "simple-only summary should remain simple summary even with external evidence");
+        }));
+
+        return results;
+      });
+    }
+
     function runDailyCoachRecentContextTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -18299,6 +18627,7 @@ Notes:
     window.runAdherenceUiTests = runAdherenceUiTests;
     window.runWeeklyAdherenceTests = runWeeklyAdherenceTests;
     window.runRecentContextTests = runRecentContextTests;
+    window.runRecordModeResolutionTests = runRecordModeResolutionTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
     window.runGoalAwareCopyRegressionTests = runGoalAwareCopyRegressionTests;
     window.runCoachAdherenceCopySeparationTests = runCoachAdherenceCopySeparationTests;
@@ -18315,6 +18644,9 @@ Notes:
     window.runInbodyCoachRefreshTests = runInbodyCoachRefreshTests;
     window.runWeeklyTrainingDayAutoTests = runWeeklyTrainingDayAutoTests;
     window.RECENT_CONTEXT_WINDOWS = RECENT_CONTEXT_WINDOWS;
+    window.inferRecordMode = inferRecordMode;
+    window.summarizeDietResolution = summarizeDietResolution;
+    window.getDietAnalysisPermission = getDietAnalysisPermission;
     window.buildRecentContext = buildRecentContext;
     window.buildInbodyTrendContext = buildInbodyTrendContext;
 
