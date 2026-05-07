@@ -1,15 +1,15 @@
 <!--
-Version: 6.5-A2-4
-Stage: 6.5-A2-4 자동 점수 토글 제거 및 기록 방식 기준 정리
+Version: 6.5-A2-5
+Stage: 6.5-A2-5 recentContext 기록 해상도 primitive 추가
 Date: 2026-05-07
 Notes:
-- 식단 점수 자동 계산 토글 제거
-- recordMode 기준으로 식단 기록 / 점수 계산 / 분석 권한 일원화
-- detailed 기록은 항상 자동 식단 점수 계산 및 goalSnapshot 저장
-- simple 기록은 상/중/하 직접 평가만 사용
-- weight_only 기록은 식단 판단 없음
-- autoDietAnalysis 사용자-facing UI 및 동작 의존 제거
-- recentContext / Coach decision matrix / InBody gate / 점수 산식 변경 없음
+- recentContext에 detailed / simple / weight_only 기록 해상도 primitive 추가
+- macro pattern 판단은 detailed 기록 기준으로 제한
+- simple 기록은 낮은 해상도 식단 흐름으로 분리
+- weight_only 기록은 체중 흐름에만 사용하고 식단 원인 판단에서 제외
+- Today Coach가 simple-only / weight-only 흐름에서 탄단지 반복 원인을 단정하지 않도록 보호
+- 자동 점수 토글 제거 기준 유지
+- recentContext window / Coach decision matrix / InBody gate / 점수 산식 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -17,7 +17,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-A2-4</title>
+  <title>탄단지 다이어리 v6.5-A2-5</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3463,7 +3463,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-A2-4</span>
+               <span class="app-version">v6.5-A2-5</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -6440,8 +6440,8 @@ Notes:
       }, "high");
     }
 
-    function getRecentContextRecordConfidence(windowDays, usableDietDays, mealRecordDays){
-      if (!mealRecordDays) return "blocked";
+    function getRecentContextRecordConfidence(windowDays, usableDietDays, dietRecordDays){
+      if (!dietRecordDays) return "blocked";
       if (!usableDietDays) return "low";
       const requiredUsableDays = windowDays === 1
         ? 1
@@ -6470,6 +6470,7 @@ Notes:
 
     function getRecentContextRecordSummary(record){
       const normalized = normalizeRecord(record);
+      const modeInfo = inferRecordMode(normalized);
       const meals = Array.isArray(normalized.meals) ? normalized.meals : [];
       const totals = meals.reduce((sum, meal) => {
         const energy = calculateMealEnergy(meal);
@@ -6486,8 +6487,32 @@ Notes:
       const hasMeals = mealCount > 0;
       const hasGoalSnapshot = !!normalized.goalSnapshot;
       const goalType = getGoalKeyFromSnapshot(normalized.goalSnapshot);
+      const recordMode = modeInfo.recordMode;
+      const hasDetailedDiet = recordMode === "detailed" && modeInfo.hasDetailedDiet;
+      const hasSimpleDiet = recordMode === "simple";
+      const isWeightOnly = recordMode === "weight_only";
+      const manualAdherenceValue = ["high", "medium", "low"].includes(normalized.adherence) && normalized.adherenceSource !== "auto"
+        ? normalized.adherence
+        : null;
+      const autoAdherenceValue = Number.isFinite(normalized.adherencePercent) && normalized.adherenceSource === "auto"
+        ? normalized.adherencePercent
+        : null;
+      const detailedUsableDietDay = hasDetailedDiet && hasMeals && (totals.totalKcal >= 500 || (mealCount >= 2 && totals.totalKcal > 0));
+      const detailedPartialDietDay = hasDetailedDiet && hasMeals && !detailedUsableDietDay;
+      const simpleUsableDietDay = hasSimpleDiet && !!manualAdherenceValue;
+      const macroComponentEligible = hasDetailedDiet && hasGoalSnapshot && mealCount >= 2 && (totals.totalKcal >= 500 || totals.totalKcal > 0);
       return {
         date: normalized.date,
+        recordMode,
+        dietResolution: recordMode === "mixed" ? "mixed" : (hasDetailedDiet ? "detailed" : hasSimpleDiet ? "simple" : "none"),
+        hasDetailedDiet,
+        hasSimpleDiet,
+        isWeightOnly,
+        hasMacroAnalysisPermission: modeInfo.hasMacroAnalysisPermission,
+        hasSimpleDietEvaluation: hasSimpleDiet && !!manualAdherenceValue,
+        simpleAdherenceLevel: hasSimpleDiet ? manualAdherenceValue : null,
+        manualAdherenceValue,
+        autoAdherenceValue,
         hasMeals,
         mealCount,
         totalKcal: totals.totalKcal,
@@ -6503,6 +6528,8 @@ Notes:
         adherenceSource: normalized.adherenceSource || "manual",
         adherenceScoringVersion: normalized.adherenceScoringVersion || null,
         hasGoalSnapshot,
+        hasDetailedGoalSnapshot: hasDetailedDiet && hasGoalSnapshot,
+        hasSimpleGoalContextCandidate: hasSimpleDiet,
         snapshotSource: normalized.snapshotSource || null,
         goalType,
         targetCal: hasGoalSnapshot ? normalized.goalSnapshot.targetCal : null,
@@ -6510,10 +6537,12 @@ Notes:
         targetCarbs: hasGoalSnapshot ? normalized.goalSnapshot.carbs : null,
         targetFat: hasGoalSnapshot ? normalized.goalSnapshot.fat : null,
         isActualWeightTrainingDay: isWeightTrainingSnapshot(normalized.goalSnapshot),
-        usableDietDay: hasMeals && (totals.totalKcal >= 500 || (mealCount >= 2 && totals.totalKcal > 0)),
-        partialDietDay: hasMeals && !(totals.totalKcal >= 500 || (mealCount >= 2 && totals.totalKcal > 0)),
+        usableDietDay: detailedUsableDietDay || simpleUsableDietDay,
+        partialDietDay: detailedPartialDietDay,
+        detailedUsableDietDay,
+        simpleUsableDietDay,
         otherKcalHeavy: totals.otherKcal >= 300 || (totals.totalKcal > 0 && totals.otherKcal / totals.totalKcal >= 0.35),
-        componentEligible: hasGoalSnapshot && mealCount >= 2 && (totals.totalKcal >= 500 || totals.totalKcal > 0)
+        componentEligible: macroComponentEligible
       };
     }
 
@@ -6551,9 +6580,15 @@ Notes:
       });
     }
 
-    function getRecentContextContextFit({ recordConfidence, goalSnapshotCoverage, goalChangeDetected, otherKcalHeavyDays, usableDietDays, manualAdherenceDays, actualWeightTrainingDays, componentCandidateDays, windowDays }){
+    function getRecentContextContextFit({ recordConfidence, goalSnapshotCoverage, goalChangeDetected, otherKcalHeavyDays, usableDietDays, manualAdherenceDays, actualWeightTrainingDays, componentCandidateDays, windowDays, detailedDietDays, simpleDietDays, weightOnlyDays, macroAnalysisDays }){
       let contextFit = recordConfidence;
-      if (!usableDietDays) return "blocked";
+      if (!usableDietDays) return weightOnlyDays > 0 ? "low" : "blocked";
+      if (!macroAnalysisDays && simpleDietDays > 0) {
+        contextFit = getRecentContextConfidenceMin(contextFit, "medium");
+      }
+      if (!macroAnalysisDays && weightOnlyDays > 0) {
+        contextFit = getRecentContextConfidenceMin(contextFit, "low");
+      }
       if (goalSnapshotCoverage < 0.35) contextFit = getRecentContextConfidenceMin(contextFit, "low");
       else if (goalSnapshotCoverage < 0.70) contextFit = getRecentContextConfidenceMin(contextFit, "medium");
       if (goalChangeDetected) contextFit = getRecentContextConfidenceMin(contextFit, "medium");
@@ -6564,6 +6599,9 @@ Notes:
         contextFit = getRecentContextConfidenceMin(contextFit, "medium");
       }
       if (windowDays >= 7 && componentCandidateDays > 0 && actualWeightTrainingDays === 0) {
+        contextFit = getRecentContextConfidenceMin(contextFit, "medium");
+      }
+      if (windowDays >= 7 && detailedDietDays > 0 && detailedDietDays < Math.ceil(windowDays * 0.45)) {
         contextFit = getRecentContextConfidenceMin(contextFit, "medium");
       }
       return contextFit;
@@ -6582,14 +6620,28 @@ Notes:
         .sort((a, b) => a.date.localeCompare(b.date));
       const recordCount = records.length;
       const mealRecordDays = records.filter(item => item.hasMeals).length;
+      const detailedDietDays = records.filter(item => item.hasDetailedDiet).length;
+      const simpleDietDays = records.filter(item => item.hasSimpleDiet).length;
+      const weightOnlyDays = records.filter(item => item.isWeightOnly).length;
+      const mixedDietDays = records.filter(item => item.recordMode === "mixed").length;
+      const detailedAutoScoreDays = records.filter(item => item.hasDetailedDiet && Number.isFinite(item.autoAdherenceValue)).length;
+      const simpleManualScoreDays = records.filter(item => item.hasSimpleDietEvaluation).length;
+      const detailedGoalSnapshotDays = records.filter(item => item.hasDetailedGoalSnapshot).length;
+      const simpleGoalContextDays = records.filter(item => item.hasSimpleGoalContextCandidate).length;
+      const macroAnalysisDays = records.filter(item => item.componentEligible).length;
+      const simpleSummaryDays = records.filter(item => item.simpleUsableDietDay).length;
+      const weightOnlyRecordDays = weightOnlyDays;
+      const dietRecordDays = detailedDietDays + simpleDietDays + mixedDietDays;
       const usableDietDays = records.filter(item => item.usableDietDay).length;
       const weightDays = records.filter(item => item.hasWeight).length;
-      const usableSnapshotRecords = records.filter(item => item.usableDietDay && item.hasGoalSnapshot);
+      const usableSnapshotRecords = records.filter(item => item.detailedUsableDietDay && item.hasDetailedGoalSnapshot);
       const goalSnapshotDays = usableSnapshotRecords.length;
       const snapshotMissingDays = records
-        .filter(item => item.usableDietDay && !item.hasGoalSnapshot)
+        .filter(item => item.detailedUsableDietDay && !item.hasDetailedGoalSnapshot)
         .map(item => item.date);
-      const goalSnapshotCoverage = usableDietDays > 0 ? goalSnapshotDays / usableDietDays : 0;
+      const detailedCoverage = usableDietDays > 0 ? detailedDietDays / usableDietDays : 0;
+      const simpleCoverage = usableDietDays > 0 ? simpleDietDays / usableDietDays : 0;
+      const goalSnapshotCoverage = detailedDietDays > 0 ? detailedGoalSnapshotDays / detailedDietDays : 0;
       const goalTypes = Array.from(new Set(records.map(item => item.goalType).filter(Boolean)));
       const goalChangeDetected = getRecentContextGoalChange(records, currentResult);
       const actualWeightTrainingDays = records.filter(item => item.isActualWeightTrainingDay).length;
@@ -6597,15 +6649,27 @@ Notes:
       const alcoholDays = records.filter(item => item.alcoholKcal > 0).length;
       const alcoholKcalTotal = records.reduce((sum, item) => sum + item.alcoholKcal, 0);
       const alcoholWithHighFatDays = records.filter(item =>
+        item.componentEligible &&
         item.alcoholKcal > 0 &&
         Number.isFinite(item.targetFat) &&
         item.targetFat > 0 &&
         item.fat > item.targetFat * 1.25
       ).length;
       const componentCounts = getRecentContextComponentCounts(records);
-      const manualAdherenceDays = records.filter(item => item.usableDietDay && item.adherenceSource !== "auto").length;
-      const componentCandidateDays = records.filter(item => item.componentEligible).length;
-      const recordConfidence = getRecentContextRecordConfidence(safeWindowDays, usableDietDays, mealRecordDays);
+      const manualAdherenceDays = simpleManualScoreDays;
+      const componentCandidateDays = macroAnalysisDays;
+      const patternMinimum = safeWindowDays === 1 ? 1 : safeWindowDays === 3 ? 2 : safeWindowDays === 7 ? 4 : safeWindowDays === 14 ? 7 : 12;
+      const macroPatternAllowed = macroAnalysisDays >= patternMinimum;
+      const simpleSummaryAllowed = simpleSummaryDays > 0;
+      const dietCauseAllowed = macroPatternAllowed && detailedCoverage >= 0.5;
+      const dietResolution = mixedDietDays > 0 || (detailedDietDays > 0 && simpleDietDays > 0)
+        ? "mixed"
+        : detailedDietDays > 0
+          ? "detailed"
+          : simpleDietDays > 0
+            ? "simple"
+            : "none";
+      const recordConfidence = getRecentContextRecordConfidence(safeWindowDays, usableDietDays, dietRecordDays);
       const windowFit = getRecentContextWindowFit(safeWindowDays, usableDietDays, weightDays);
       const contextFit = getRecentContextContextFit({
         recordConfidence,
@@ -6616,7 +6680,11 @@ Notes:
         manualAdherenceDays,
         actualWeightTrainingDays,
         componentCandidateDays,
-        windowDays: safeWindowDays
+        windowDays: safeWindowDays,
+        detailedDietDays,
+        simpleDietDays,
+        weightOnlyDays,
+        macroAnalysisDays
       });
 
       return {
@@ -6629,6 +6697,23 @@ Notes:
         usableDietDays,
         partialDietDays: records.filter(item => item.partialDietDay).length,
         weightDays,
+        detailedDietDays,
+        simpleDietDays,
+        weightOnlyDays,
+        mixedDietDays,
+        detailedAutoScoreDays,
+        simpleManualScoreDays,
+        detailedGoalSnapshotDays,
+        simpleGoalContextDays,
+        macroAnalysisDays,
+        simpleSummaryDays,
+        weightOnlyRecordDays,
+        dietResolution,
+        detailedCoverage,
+        simpleCoverage,
+        macroPatternAllowed,
+        simpleSummaryAllowed,
+        dietCauseAllowed,
         goalSnapshotDays,
         goalSnapshotCoverage,
         snapshotMissingDays,
@@ -9070,18 +9155,36 @@ Notes:
       const confidence = getCoachContextConfidence(recentContext);
       const sourceWindow = confidence.recent7 || confidence.strongestWindow || {};
       const usableDietDays = Number(sourceWindow.usableDietDays || 0);
+      const detailedDietDays = Number(sourceWindow.detailedDietDays || 0);
+      const simpleDietDays = Number(sourceWindow.simpleDietDays || 0);
+      const weightOnlyDays = Number(sourceWindow.weightOnlyDays || sourceWindow.weightOnlyRecordDays || 0);
+      const macroAnalysisDays = Number(sourceWindow.macroAnalysisDays || 0);
+      const simpleSummaryDays = Number(sourceWindow.simpleSummaryDays || 0);
+      const macroPatternAllowed = sourceWindow.macroPatternAllowed === true;
+      const dietCauseAllowed = sourceWindow.dietCauseAllowed === true;
       const otherKcalHeavyDays = Number(sourceWindow.otherKcalHeavyDays || 0);
       const proteinLowDays = Number(sourceWindow.proteinLowDays || 0);
       const carbLowTrainingDays = Number(sourceWindow.carbLowTrainingDays || 0);
       const actualWeightTrainingDays = Number(sourceWindow.actualWeightTrainingDays || 0);
       const alcoholDays = Number(sourceWindow.alcoholDays || 0);
-      const otherKcalRepeated = otherKcalHeavyDays >= 2 || (usableDietDays > 0 && otherKcalHeavyDays / usableDietDays >= 0.35);
-      const proteinLowRepeated = proteinLowDays >= 2 || (usableDietDays >= 3 && proteinLowDays / usableDietDays >= 0.45);
-      const carbLowTrainingRepeated = carbLowTrainingDays >= 2 && actualWeightTrainingDays > 0;
+      const otherKcalRepeated = dietCauseAllowed && (otherKcalHeavyDays >= 2 || (macroAnalysisDays > 0 && otherKcalHeavyDays / macroAnalysisDays >= 0.35));
+      const proteinLowRepeated = macroPatternAllowed && (proteinLowDays >= 2 || (macroAnalysisDays >= 3 && proteinLowDays / macroAnalysisDays >= 0.45));
+      const carbLowTrainingRepeated = macroPatternAllowed && carbLowTrainingDays >= 2 && actualWeightTrainingDays > 0;
+      const simpleOnlyDietFlow = simpleSummaryDays > 0 && macroAnalysisDays === 0;
+      const weightOnlyDominant = weightOnlyDays > 0 && usableDietDays === 0;
       return {
         ...confidence,
         sourceWindow,
         usableDietDays,
+        detailedDietDays,
+        simpleDietDays,
+        weightOnlyDays,
+        macroAnalysisDays,
+        simpleSummaryDays,
+        macroPatternAllowed,
+        dietCauseAllowed,
+        simpleOnlyDietFlow,
+        weightOnlyDominant,
         otherKcalHeavyDays,
         proteinLowDays,
         carbLowTrainingDays,
@@ -9137,6 +9240,18 @@ Notes:
           state: "술 기록이 반복됩니다.",
           reason: "술이 있는 날은 회복과 식사 기록 해석이 흔들립니다.",
           action: "오늘은 술을 더하지 말고 수분과 단백질부터 챙기세요."
+        },
+        simple_summary: {
+          key: "contextGuard",
+          state: "최근에는 간단 기록이 많습니다.",
+          reason: "간단 기록만으로는 탄단지 반복 원인을 나누기 어렵습니다.",
+          action: "오늘은 주요 식사부터 상세 기록으로 남겨 주세요."
+        },
+        weight_only: {
+          key: "contextGuard",
+          state: "체중 기록은 쌓이고 있지만 식단 기록이 부족합니다.",
+          reason: "체중 흐름만으로 식단 원인을 단정하지 않습니다.",
+          action: "오늘 먹은 주요 식사부터 기록하세요."
         }
       }[type];
       if (!copy) return null;
@@ -9157,6 +9272,14 @@ Notes:
         items.push(createRecentContextCoachItem("goal_change", { severity: 2 }));
         return items.filter(Boolean);
       }
+      if (guard.weightOnlyDominant) {
+        items.push(createRecentContextCoachItem("weight_only", { severity: 2 }));
+        return items.filter(Boolean);
+      }
+      if (guard.simpleOnlyDietFlow) {
+        items.push(createRecentContextCoachItem("simple_summary"));
+        return items.filter(Boolean);
+      }
       if (guard.level === "blocked") {
         items.push(createRecentContextCoachItem("blocked", { severity: 2 }));
         return items.filter(Boolean);
@@ -9172,6 +9295,8 @@ Notes:
     function getRecentContextCoachNotice(guard){
       if (!guard?.hasRecentContext) return "";
       if (guard.goalChangeDetected) return "최근 목표가 바뀌었습니다. 오늘은 현재 목표 기준으로 식사를 맞추세요.";
+      if (guard.weightOnlyDominant) return "체중 기록은 쌓이고 있지만 식단 기록이 부족합니다. 오늘 먹은 주요 식사부터 기록하세요.";
+      if (guard.simpleOnlyDietFlow) return "최근에는 간단 기록이 많아 탄단지 반복 원인은 아직 보기 어렵습니다. 오늘은 주요 식사부터 상세 기록으로 남겨 주세요.";
       if (guard.level === "blocked") return "최근 흐름 판단은 멈춥니다. 오늘은 첫 식사부터 탄단지로 기록하세요.";
       if (guard.level === "low") return "최근 흐름 판단보다 오늘 기록 완성이 우선입니다. 주요 식사 2끼 이상을 기록하세요.";
       if (guard.otherKcalRepeated) return "기타 칼로리가 많아 탄·단·지 중 어디서 어긋났는지 보기 어렵습니다. 남은 음식은 탄수화물·단백질·지방으로 나눠 기록하세요.";
@@ -11879,10 +12004,24 @@ Notes:
 
     function getRecent3DaySummary(window3){
       const trainingMetric = getRecentFlowTrainingMetric(window3);
+      if (window3?.weightOnlyDays > 0 && Number(window3?.usableDietDays || 0) === 0) {
+        return {
+          conclusion: "최근 3일은 체중 기록 중심입니다.",
+          reason: "식단 원인은 아직 단정하지 않습니다.",
+          metric: trainingMetric
+        };
+      }
       if (!window3 || window3.usableDietDays < 2) {
         return {
           conclusion: "최근 3일 식단 기록이 부족합니다.",
           reason: "분석이 어렵습니다.",
+          metric: trainingMetric
+        };
+      }
+      if (!window3.macroPatternAllowed && Number(window3.simpleSummaryDays || 0) > 0) {
+        return {
+          conclusion: "최근 3일은 간단 기록이 많습니다.",
+          reason: "탄단지 반복 원인은 아직 보기 어렵습니다.",
           metric: trainingMetric
         };
       }
@@ -11930,6 +12069,15 @@ Notes:
         return {
           conclusion: "7일 반복 패턴 분석이 어렵습니다.",
           reason: "기록 가능한 날이 부족합니다.",
+          metric: trainingMetric
+        };
+      }
+      if (!window7.macroPatternAllowed) {
+        return {
+          conclusion: "7일 반복 패턴 분석이 어렵습니다.",
+          reason: Number(window7.simpleSummaryDays || 0) > 0
+            ? "상세 기록이 부족해 탄단지 반복 원인은 아직 보기 어렵습니다."
+            : "상세 식사 기록이 부족합니다.",
           metric: trainingMetric
         };
       }
@@ -11981,6 +12129,13 @@ Notes:
           metric: goalMetric
         };
       }
+      if (Number(window14.macroAnalysisDays || 0) < 7) {
+        return {
+          conclusion: "14일 목표 진행 진단이 어렵습니다.",
+          reason: "상세 기록이 부족해 식단 원인을 나누기 어렵습니다.",
+          metric: goalMetric
+        };
+      }
       if (goal === "diet") {
         if (change <= -0.3) return { conclusion: "다이어트는 목표대로 진행되고 있습니다.", reason: "현재 식단을 유지하세요.", metric: goalMetric };
         return { conclusion: "체중 변화가 목표보다 느립니다.", reason: "칼로리는 아직 바꾸지 말고 28일 기록에서 결정하세요.", metric: goalMetric };
@@ -12002,6 +12157,13 @@ Notes:
       if (!window28 || window28.usableDietDays < 18 || window28.weightDays < 12 || change === null) {
         return {
           conclusion: "장기 판단에 필요한 기록이 부족합니다.",
+          reason: "칼로리는 아직 바꾸지 마세요.",
+          metric: goalMetric
+        };
+      }
+      if (Number(window28.macroAnalysisDays || 0) < 12) {
+        return {
+          conclusion: "장기 판단에 필요한 상세 기록이 부족합니다.",
           reason: "칼로리는 아직 바꾸지 마세요.",
           metric: goalMetric
         };
@@ -12066,7 +12228,14 @@ Notes:
     }
 
     function getRecentFlowOverviewChips(window){
-      const chips = [`식사 기록 ${Number(window?.mealRecordDays || 0)}일`];
+      const chips = [];
+      const detailedDays = Number(window?.detailedDietDays || 0);
+      const simpleDays = Number(window?.simpleDietDays || 0);
+      const weightOnlyDays = Number(window?.weightOnlyDays || 0);
+      if (detailedDays > 0) chips.push(`상세 기록 ${detailedDays}일`);
+      if (simpleDays > 0) chips.push(`간단 기록 ${simpleDays}일`);
+      if (weightOnlyDays > 0) chips.push(`체중만 ${weightOnlyDays}일`);
+      if (!chips.length) chips.push("식단 기록 0일");
       if (Number(window?.otherKcalHeavyDays || 0) > 0) chips.push(`기타 칼로리 ${Number(window.otherKcalHeavyDays)}일`);
       if (Number(window?.alcoholDays || 0) > 0) chips.push(`술 기록 ${Number(window.alcoholDays)}일`);
       return chips.slice(0, 3);
@@ -15292,6 +15461,33 @@ Notes:
           recordsState.items = normalizeRecordsCollection([{ date: today, weight: 75 }]);
         }));
 
+        results.push(runNamedTest("weekly recent flow separates detailed and simple record chips", () => {
+          const today = getTodayDateString();
+          const dates = Array.from({ length: 7 }, (_, index) => shiftDateString(today, -(6 - index)));
+          const detailedRecord = (date, index) => ({
+            date,
+            recordMode: "detailed",
+            weight: 75 + index * 0.1,
+            adherencePercent: 90 - index,
+            adherenceSource: "auto",
+            adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+            goalSnapshot: makeWeeklyFlowSnapshot(),
+            meals: [makeWeeklyFlowMeal(date, `d${index}a`), makeWeeklyFlowMeal(date, `d${index}b`)]
+          });
+          const text = setWeeklyFlowRecords([
+            detailedRecord(dates[0], 0),
+            detailedRecord(dates[1], 1),
+            detailedRecord(dates[2], 2),
+            detailedRecord(dates[3], 3),
+            { date: dates[4], recordMode: "simple", adherence: "high", adherenceSource: "manual" },
+            { date: dates[5], recordMode: "simple", adherence: "medium", adherenceSource: "manual" },
+            { date: dates[6], recordMode: "weight_only", weight: 75.6 }
+          ]);
+          assertIncludesAll(text, ["상세 기록 4일", "간단 기록 2일", "체중만 1일"], "recent flow should separate record resolution chips");
+          assertExcludesAll(text, ["최근 식단 점수", "자동 점수", "recordMode", "goalSnapshot", "permission", "confidence"], "recent flow resolution chips should stay user-facing");
+          recordsState.items = normalizeRecordsCollection([{ date: today, weight: 75 }]);
+        }));
+
         results.push(runNamedTest("weekly recent flow goal display uses goal day counts", () => {
           state.goal = "lean_bulk";
           const today = getTodayDateString();
@@ -15697,6 +15893,60 @@ Notes:
           assertTest(window3.mealRecordDays === 2, "two days should have meals");
           assertTest(window3.partialDietDays === 1, "one single low-energy day should be partial");
           assertTest(window3.usableDietDays === 1, "only the two meal day should be usable");
+        }));
+
+        results.push(runNamedTest("recent context separates detailed simple and weight only days", () => {
+          const records = [
+            { date: "2026-04-22", recordMode: "detailed", goalSnapshot: makeSnapshot(), adherencePercent: 90, adherenceSource: "auto", meals: [makeMeal("d1a"), makeMeal("d1b")] },
+            { date: "2026-04-23", recordMode: "detailed", goalSnapshot: makeSnapshot(), adherencePercent: 88, adherenceSource: "auto", meals: [makeMeal("d2a"), makeMeal("d2b")] },
+            { date: "2026-04-24", recordMode: "detailed", goalSnapshot: makeSnapshot(), adherencePercent: 86, adherenceSource: "auto", meals: [makeMeal("d3a"), makeMeal("d3b")] },
+            { date: "2026-04-25", recordMode: "detailed", goalSnapshot: makeSnapshot(), adherencePercent: 84, adherenceSource: "auto", meals: [makeMeal("d4a"), makeMeal("d4b")] },
+            { date: "2026-04-26", recordMode: "simple", adherence: "high", adherenceSource: "manual" },
+            { date: "2026-04-27", recordMode: "simple", adherence: "medium", adherenceSource: "manual" },
+            { date: "2026-04-28", recordMode: "weight_only", weight: 75 }
+          ];
+          const window7 = buildContext(records).windows[7];
+          assertTest(window7.detailedDietDays === 4, "detailed days should be counted separately");
+          assertTest(window7.simpleDietDays === 2, "simple days should be counted separately");
+          assertTest(window7.weightOnlyDays === 1 && window7.weightOnlyRecordDays === 1, "weight_only days should be counted separately");
+          assertTest(window7.usableDietDays === 6, "usable diet days can include detailed and simple records");
+          assertTest(window7.macroAnalysisDays === 4, "macro analysis days should count detailed component-eligible records only");
+          assertTest(window7.simpleSummaryDays === 2 && window7.simpleManualScoreDays === 2, "simple summary days should count direct evaluations");
+          assertTest(window7.detailedAutoScoreDays === 4, "detailed auto score days should count detailed score records");
+          assertTest(window7.detailedGoalSnapshotDays === 4, "detailed snapshot days should count detailed snapshots");
+          assertClose(window7.detailedCoverage, 4 / 6, 0.0001, "detailed coverage should use usable diet days");
+          assertClose(window7.simpleCoverage, 2 / 6, 0.0001, "simple coverage should use usable diet days");
+          assertTest(window7.macroPatternAllowed === true, "four detailed days should allow seven-day macro pattern");
+          assertTest(window7.simpleSummaryAllowed === true, "simple summary should be available when simple days exist");
+          assertTest(window7.dietCauseAllowed === true, "diet cause should be allowed when detailed coverage is sufficient");
+        }));
+
+        results.push(runNamedTest("recent context simple days do not create macro component counts", () => {
+          const simpleSnapshot = makeSnapshot({ protein: 200, carbs: 300, fat: 40, routine: "PUSH", weightDuration: 45 });
+          const context = buildContext([
+            { date: "2026-04-26", recordMode: "simple", adherence: "low", goalSnapshot: simpleSnapshot },
+            { date: "2026-04-27", recordMode: "simple", adherence: "medium", goalSnapshot: simpleSnapshot },
+            { date: "2026-04-28", recordMode: "simple", adherence: "high", goalSnapshot: simpleSnapshot }
+          ]);
+          const window3 = context.windows[3];
+          assertTest(window3.simpleDietDays === 3, "simple days should be counted");
+          assertTest(window3.macroAnalysisDays === 0, "simple days should not be macro analysis days");
+          assertTest(window3.proteinLowDays === 0 && window3.carbLowTrainingDays === 0 && window3.fatHighDays === 0, "simple days should not create macro frequency counts");
+          assertTest(window3.macroPatternAllowed === false, "simple-only window should not allow macro pattern");
+          assertTest(window3.simpleSummaryAllowed === true, "simple-only window can still summarize low-resolution flow");
+        }));
+
+        results.push(runNamedTest("recent context weight only days stay out of diet analysis", () => {
+          const context = buildContext([
+            { date: "2026-04-26", recordMode: "weight_only", weight: 74.8 },
+            { date: "2026-04-27", recordMode: "weight_only", weight: 75.0 },
+            { date: "2026-04-28", recordMode: "weight_only", weight: 75.1 }
+          ]);
+          const window3 = context.windows[3];
+          assertTest(window3.weightOnlyDays === 3, "weight_only days should be counted");
+          assertTest(window3.usableDietDays === 0, "weight_only should not count as usable diet day");
+          assertTest(window3.macroAnalysisDays === 0, "weight_only should not count as macro analysis");
+          assertTest(window3.macroPatternAllowed === false && window3.dietCauseAllowed === false, "weight_only should not allow diet cause judgment");
         }));
 
         results.push(runNamedTest("recent seven low usable diet days cannot be high confidence", () => {
@@ -16296,6 +16546,17 @@ Notes:
           const level = config.level || "medium";
           const usableDietDays = Number.isFinite(config.usableDietDays) ? config.usableDietDays : 5;
           const goalSnapshotCoverage = Number.isFinite(config.goalSnapshotCoverage) ? config.goalSnapshotCoverage : 1;
+          const detailedDietDays = Number.isFinite(config.detailedDietDays) ? config.detailedDietDays : usableDietDays;
+          const simpleDietDays = Number.isFinite(config.simpleDietDays) ? config.simpleDietDays : 0;
+          const weightOnlyDays = Number.isFinite(config.weightOnlyDays) ? config.weightOnlyDays : 0;
+          const macroAnalysisDays = Number.isFinite(config.macroAnalysisDays) ? config.macroAnalysisDays : detailedDietDays;
+          const simpleSummaryDays = Number.isFinite(config.simpleSummaryDays) ? config.simpleSummaryDays : simpleDietDays;
+          const macroPatternAllowed = Object.prototype.hasOwnProperty.call(config, "macroPatternAllowed")
+            ? config.macroPatternAllowed === true
+            : macroAnalysisDays >= 4;
+          const dietCauseAllowed = Object.prototype.hasOwnProperty.call(config, "dietCauseAllowed")
+            ? config.dietCauseAllowed === true
+            : macroPatternAllowed && detailedDietDays >= Math.max(1, Math.ceil(usableDietDays * 0.5));
           const window7 = {
             windowDays: 7,
             startDate: "2026-04-22",
@@ -16305,7 +16566,24 @@ Notes:
             mealRecordDays: usableDietDays,
             usableDietDays,
             weightDays: Number.isFinite(config.weightDays) ? config.weightDays : usableDietDays,
-            goalSnapshotDays: Math.round(usableDietDays * goalSnapshotCoverage),
+            detailedDietDays,
+            simpleDietDays,
+            weightOnlyDays,
+            weightOnlyRecordDays: weightOnlyDays,
+            mixedDietDays: Number.isFinite(config.mixedDietDays) ? config.mixedDietDays : 0,
+            detailedAutoScoreDays: Number.isFinite(config.detailedAutoScoreDays) ? config.detailedAutoScoreDays : detailedDietDays,
+            simpleManualScoreDays: Number.isFinite(config.simpleManualScoreDays) ? config.simpleManualScoreDays : simpleDietDays,
+            detailedGoalSnapshotDays: Math.round(detailedDietDays * goalSnapshotCoverage),
+            simpleGoalContextDays: simpleSummaryDays,
+            macroAnalysisDays,
+            simpleSummaryDays,
+            detailedCoverage: usableDietDays > 0 ? detailedDietDays / usableDietDays : 0,
+            simpleCoverage: usableDietDays > 0 ? simpleDietDays / usableDietDays : 0,
+            dietResolution: simpleDietDays > 0 && detailedDietDays > 0 ? "mixed" : detailedDietDays > 0 ? "detailed" : simpleDietDays > 0 ? "simple" : "none",
+            macroPatternAllowed,
+            simpleSummaryAllowed: simpleSummaryDays > 0,
+            dietCauseAllowed,
+            goalSnapshotDays: Math.round(detailedDietDays * goalSnapshotCoverage),
             goalSnapshotCoverage,
             snapshotMissingDays: [],
             goalTypes: config.goalTypes || ["lean_bulk"],
@@ -16498,6 +16776,48 @@ Notes:
             actualWeightTrainingDays: 3
           }));
           assertIncludesAll(withTraining.text, ["실제 웨이트 기록일", "운동 전후"], "actual training carb wording");
+        }));
+
+        results.push(runNamedTest("daily coach simple-only recent flow blocks macro cause", () => {
+          const result = buildCoachWithContext(createMockRecentContext({
+            level: "medium",
+            usableDietDays: 5,
+            detailedDietDays: 0,
+            simpleDietDays: 5,
+            macroAnalysisDays: 0,
+            simpleSummaryDays: 5,
+            goalSnapshotCoverage: 0,
+            proteinLowDays: 3,
+            carbLowTrainingDays: 3,
+            actualWeightTrainingDays: 3,
+            macroPatternAllowed: false,
+            dietCauseAllowed: false
+          }));
+          assertTest(result.output.items[0]?.contextGuardType === "simple_summary", "simple-only context should lead with simple summary guard");
+          assertIncludesAll(result.text, ["간단 기록이 많", "상세 기록"], "simple-only context should ask for detailed records");
+          assertExcludesAll(result.text, ["단백질 부족이 반복", "운동일 탄수화물이 자주 비었습니다", "탄수화물 부족이 반복"], "simple-only context should not state macro repeated causes");
+        }));
+
+        results.push(runNamedTest("daily coach weight-only recent flow blocks diet cause", () => {
+          const result = buildCoachWithContext(createMockRecentContext({
+            level: "medium",
+            usableDietDays: 0,
+            detailedDietDays: 0,
+            simpleDietDays: 0,
+            weightOnlyDays: 5,
+            weightDays: 5,
+            macroAnalysisDays: 0,
+            simpleSummaryDays: 0,
+            goalSnapshotCoverage: 0,
+            proteinLowDays: 3,
+            carbLowTrainingDays: 3,
+            actualWeightTrainingDays: 3,
+            macroPatternAllowed: false,
+            dietCauseAllowed: false
+          }));
+          assertTest(result.output.items[0]?.contextGuardType === "weight_only", "weight-only context should lead with weight-only guard");
+          assertIncludesAll(result.text, ["체중 기록은 쌓이고", "식단 기록이 부족", "식단 원인을 단정하지 않습니다"], "weight-only context should avoid diet cause judgment");
+          assertExcludesAll(result.text, ["단백질 부족이 반복", "운동일 탄수화물이 자주 비었습니다", "탄수화물 부족이 반복"], "weight-only context should not state macro repeated causes");
         }));
 
         results.push(runNamedTest("daily coach D1 guard wording stays action first", () => {
