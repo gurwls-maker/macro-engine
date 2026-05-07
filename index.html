@@ -1,15 +1,15 @@
 <!--
-Version: 6.5-A2-7
-Stage: 6.5-A2-7 최근 흐름 기록 해상도 문구 및 회귀 QA
-Date: 2026-05-07
+Version: 6.5-UX1
+Stage: 6.5-UX1 공통 카드형 UI 시스템 및 Today 화면 리디자인
+Date: 2026-05-08
 Notes:
-- 최근 흐름 UI에서 detailed / simple / weight_only 기록 해상도 문구 QA
-- simple 기록을 자동 점수 평균처럼 말하지 않도록 문구/테스트 정리
-- weight_only 기록을 식단 원인 판단에 쓰지 않도록 문구/테스트 정리
-- Today Coach simple-only / weight-only macro 원인 단정 차단 회귀 QA
-- InBody permission + recentContext 기록 해상도 연결 회귀 QA
-- 자동 점수 토글 제거 기준 유지
-- recentContext window / Coach decision matrix / InBody gate / 점수 산식 변경 없음
+- Stitch 시안의 카드형 UI 톤을 참고해 공통 카드 / 배지 / 점수 카드 스타일 정리
+- OS 이모지 대신 CSS 기반 한글 배지 / 아이콘 배지 기준 적용
+- Today Coach 최상단 카드 시각 강화
+- 오늘 식단 점수 카드 시각 구조 정리
+- 권장 탄단지 / 오늘 섭취 현황 카드 중복감 완화
+- 외부 CDN / 외부 폰트 / 외부 아이콘 / 외부 이미지 추가 없음
+- 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -17,7 +17,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-A2-7</title>
+  <title>탄단지 다이어리 v6.5-UX1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -32,7 +32,12 @@ Notes:
       --blue:#4a74d1;
       --gold:#b88c31;
       --shadow:0 18px 40px rgba(28,36,48,.08);
+      --shadow-soft:0 16px 34px rgba(28,36,48,.075);
+      --shadow-card:0 20px 46px rgba(23,50,77,.10);
+      --shadow-float:0 28px 70px rgba(23,50,77,.14);
       --radius:20px;
+      --radius-lg:24px;
+      --radius-xl:28px;
       --panel-pad:18px;
       --field-pad:12px;
       --card-gap:16px;
@@ -47,6 +52,8 @@ Notes:
       --accent-soft:rgba(16,141,134,.12);
       --accent-line:rgba(16,141,134,.18);
       --accent-strong:#108d86;
+      --card-sheen:linear-gradient(145deg, rgba(255,255,255,.82) 0%, rgba(255,250,243,.94) 52%, rgba(247,239,229,.94) 100%);
+      --coach-grad:linear-gradient(135deg, #17324d 0%, #214462 62%, #108d86 140%);
     }
     body.mode-general{
       --bg:#f5eee5;
@@ -164,12 +171,129 @@ Notes:
       opacity:1;
     }
     .card,.panel,.kpi,.warn,.notice{
-      background:rgba(255,250,243,.94);
+      background:var(--card-sheen);
       border:1px solid color-mix(in srgb, var(--line) 88%, white 12%);
-      border-radius:var(--radius);
-      box-shadow:var(--shadow);
+      border-radius:var(--radius-lg);
+      box-shadow:var(--shadow-soft);
       backdrop-filter:blur(6px);
       transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease, opacity .18s ease;
+    }
+    .ux-card{
+      border-radius:var(--radius-lg);
+      background:var(--card-sheen);
+      border-color:color-mix(in srgb, var(--line) 76%, white 24%);
+      box-shadow:var(--shadow-card);
+      overflow:hidden;
+    }
+    .card-eyebrow{
+      margin:0 0 7px;
+      font-size:11px;
+      line-height:1.25;
+      font-weight:900;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:var(--muted);
+    }
+    .card-title-row{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width:0;
+    }
+    .ui-icon-badge,
+    .macro-badge,
+    .record-mode-badge{
+      display:inline-grid;
+      place-items:center;
+      flex:0 0 auto;
+      min-width:32px;
+      height:32px;
+      padding:0 9px;
+      border-radius:999px;
+      border:1px solid color-mix(in srgb, var(--line) 72%, white 28%);
+      background:rgba(255,255,255,.72);
+      color:var(--deep);
+      font-size:11px;
+      line-height:1;
+      font-weight:900;
+      letter-spacing:0;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.7);
+    }
+    .macro-badge{
+      min-width:28px;
+      height:28px;
+      padding:0 8px;
+      font-size:11px;
+    }
+    .badge-coach{
+      background:rgba(255,255,255,.14);
+      border-color:rgba(255,255,255,.20);
+      color:#fff;
+    }
+    .badge-cal,
+    .macro-badge.kcal{
+      background:rgba(184,140,49,.14);
+      border-color:rgba(184,140,49,.26);
+      color:var(--gold);
+    }
+    .badge-carb,
+    .macro-badge.carbs{
+      background:rgba(221,122,47,.14);
+      border-color:rgba(221,122,47,.28);
+      color:var(--orange);
+    }
+    .badge-protein,
+    .macro-badge.protein{
+      background:rgba(16,141,134,.14);
+      border-color:rgba(16,141,134,.28);
+      color:var(--teal);
+    }
+    .badge-fat,
+    .macro-badge.fat{
+      background:rgba(203,83,83,.13);
+      border-color:rgba(203,83,83,.26);
+      color:var(--red);
+    }
+    .badge-muted{
+      background:rgba(105,116,135,.12);
+      border-color:rgba(105,116,135,.22);
+      color:var(--muted);
+    }
+    .ux-progress{
+      position:relative;
+      width:100%;
+      height:8px;
+      margin-top:12px;
+      border-radius:999px;
+      overflow:hidden;
+      background:color-mix(in srgb, var(--line) 52%, white 48%);
+    }
+    .ux-progress > span{
+      display:block;
+      width:var(--progress, 0%);
+      max-width:100%;
+      height:100%;
+      border-radius:inherit;
+      background:var(--progress-color, var(--accent-strong));
+    }
+    .score-ring{
+      position:relative;
+      width:126px;
+      height:126px;
+      border-radius:50%;
+      display:grid;
+      place-items:center;
+      background:conic-gradient(var(--score-color, var(--accent-strong)) var(--score, 0%), color-mix(in srgb, var(--line) 56%, white 44%) 0);
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.64);
+    }
+    .score-ring-inner{
+      width:96px;
+      height:96px;
+      border-radius:50%;
+      display:grid;
+      place-items:center;
+      background:rgba(255,252,247,.96);
+      box-shadow:0 10px 20px rgba(23,50,77,.08);
     }
     .hero-main{
       padding:24px;
@@ -1264,12 +1388,14 @@ Notes:
       order:1;
     }
     #kpiPanel{
-      padding:18px 18px 16px;
-      box-shadow:0 18px 38px rgba(28,36,48,.08);
+      padding:20px;
+      box-shadow:var(--shadow-card);
+      background:linear-gradient(145deg, rgba(255,253,249,.98) 0%, rgba(250,244,236,.96) 100%);
     }
     #kpiPanel h2{
       margin:0;
-      font-size:19px;
+      font-size:20px;
+      letter-spacing:-.03em;
     }
     .kpi-panel-head{
       display:flex;
@@ -1337,9 +1463,12 @@ Notes:
       margin-top:6px;
     }
     #kpiPanel .kpi{
-      padding:16px 16px 14px;
+      padding:16px 16px 15px;
       min-height:126px;
       justify-content:center;
+      background:rgba(255,255,255,.62);
+      border-color:color-mix(in srgb, var(--line) 72%, white 28%);
+      box-shadow:0 12px 26px rgba(23,50,77,.055);
     }
     #kpiPanel .kpi.target,
     #kpiPanel .kpi.protein,
@@ -1359,8 +1488,12 @@ Notes:
       letter-spacing:-.04em;
     }
     #kpiPanel .kpi .label{
-      font-size:10px;
-      letter-spacing:.12em;
+      display:flex;
+      align-items:center;
+      gap:7px;
+      font-size:12px;
+      letter-spacing:0;
+      text-transform:none;
     }
     #kpiPanel .kpi .sub{
       margin-top:4px;
@@ -1838,7 +1971,9 @@ Notes:
     }
     .today-primary-stack > .panel,
     .today-primary-stack .today-balance-card{
-      background:var(--panel-soft);
+      background:var(--card-sheen);
+      border-color:color-mix(in srgb, var(--line) 76%, white 24%);
+      box-shadow:var(--shadow-card);
     }
     .today-secondary-stack > .panel,
     .today-secondary-stack > #infoHost > *,
@@ -1860,66 +1995,102 @@ Notes:
       height:100%;
     }
     .coach-panel{
-      padding:18px;
-      background:linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 88%, white 12%) 0%, color-mix(in srgb, var(--surface-tint) 84%, white 16%) 100%);
-      border-color:color-mix(in srgb, var(--accent-strong) 24%, var(--line) 76%);
+      position:relative;
+      padding:24px;
+      color:#fff;
+      background:var(--coach-grad);
+      border-color:rgba(255,255,255,.16);
+      border-radius:var(--radius-xl);
+      box-shadow:var(--shadow-float);
+      overflow:hidden;
+    }
+    .coach-panel::after{
+      content:"";
+      position:absolute;
+      inset:auto -42px -58px auto;
+      width:220px;
+      height:220px;
+      border-radius:50%;
+      background:radial-gradient(circle, rgba(221,122,47,.35), rgba(221,122,47,.06) 55%, transparent 72%);
+      pointer-events:none;
+    }
+    .coach-panel > *{
+      position:relative;
+      z-index:1;
     }
     .coach-panel .eyebrow{
-      font-size:12px;
+      display:flex;
+      align-items:center;
+      gap:9px;
+      font-size:11px;
       font-weight:900;
-      letter-spacing:.14em;
-      text-transform:uppercase;
-      color:var(--accent-strong);
+      letter-spacing:.08em;
+      text-transform:none;
+      color:rgba(255,255,255,.74);
       margin-bottom:8px;
     }
     .coach-panel h3{
       margin:0;
-      font-size:22px;
-      line-height:1.28;
-      letter-spacing:-.03em;
+      font-size:clamp(22px,2.4vw,30px);
+      line-height:1.12;
+      letter-spacing:-.04em;
+      color:#fff;
     }
     .coach-panel .coach-summary{
-      margin-top:10px;
-      color:var(--muted);
-      font-size:13px;
-      line-height:1.65;
+      max-width:74ch;
+      margin-top:12px;
+      margin-bottom:2px;
+      color:#fff;
+      font-size:clamp(17px,1.5vw,22px);
+      line-height:1.55;
+      font-weight:900;
     }
     .coach-grid{
       margin-top:16px;
       display:grid;
-      grid-template-columns:repeat(3,minmax(0,1fr));
+      grid-template-columns:repeat(2,minmax(0,1fr));
       gap:12px;
     }
     .coach-block{
-      padding:14px;
-      border-radius:16px;
-      border:1px solid color-mix(in srgb, var(--line) 84%, white 16%);
-      background:rgba(255,255,255,.58);
+      padding:16px;
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,.16);
+      background:rgba(255,255,255,.10);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.10);
+      backdrop-filter:blur(6px);
     }
     .coach-block .k{
       font-size:11px;
       font-weight:900;
-      letter-spacing:.12em;
-      text-transform:uppercase;
-      color:var(--muted);
+      letter-spacing:.06em;
+      text-transform:none;
+      color:rgba(255,255,255,.70);
       margin-bottom:8px;
     }
     .coach-block .v{
       font-size:13px;
       line-height:1.65;
-      color:var(--ink);
+      color:rgba(255,255,255,.86);
     }
     .coach-reason{
       margin-top:4px;
+      color:rgba(255,255,255,.72) !important;
     }
     .coach-action{
       margin-top:2px;
+      font-weight:900;
+      color:#fff !important;
     }
     .coach-inbody-hint{
-      margin-top:10px;
-      color:var(--accent-strong);
+      margin-top:12px;
+      padding:12px 14px;
+      border:1px solid rgba(255,255,255,.18);
+      border-radius:16px;
+      background:rgba(255,255,255,.10);
+      color:rgba(255,255,255,.86);
       font-size:13px;
       line-height:1.6;
+      font-weight:800;
     }
     .coach-bullets{
       margin:0;
@@ -2684,16 +2855,19 @@ Notes:
     }
     .meal-summary-card{
       padding:12px 14px;
-      border:1px solid var(--line);
-      border-radius:16px;
-      background:var(--surface-soft);
-      box-shadow:var(--shadow);
+      border:1px solid color-mix(in srgb, var(--line) 76%, white 24%);
+      border-radius:18px;
+      background:rgba(255,255,255,.62);
+      box-shadow:0 12px 26px rgba(23,50,77,.055);
       min-width:0;
     }
     .meal-summary-card .label{
+      display:flex;
+      align-items:center;
+      gap:7px;
       font-size:11px;
-      letter-spacing:.08em;
-      text-transform:uppercase;
+      letter-spacing:0;
+      text-transform:none;
       color:var(--muted);
       font-weight:900;
       margin-bottom:6px;
@@ -2777,6 +2951,7 @@ Notes:
     .today-balance-card{
       position:relative;
       overflow:hidden;
+      padding:20px;
     }
     .today-balance-card::after{
       content:"";
@@ -2785,11 +2960,12 @@ Notes:
       width:96px;
       height:96px;
       border-radius:50%;
-      background:radial-gradient(circle, rgba(16,141,134,.10), transparent 70%);
+      background:radial-gradient(circle, rgba(16,141,134,.12), transparent 70%);
       pointer-events:none;
     }
     .today-balance-card h2{
       margin-bottom:4px;
+      letter-spacing:-.03em;
     }
     .today-balance-card .mini-note{
       margin-top:4px;
@@ -2836,28 +3012,39 @@ Notes:
       align-items:stretch;
     }
     .adherence-score-card{
-      padding:18px 20px;
-      border:1px solid var(--line);
-      border-radius:18px;
-      background:var(--surface-soft);
+      padding:20px;
+      border:1px solid color-mix(in srgb, var(--line) 72%, white 28%);
+      border-radius:22px;
+      background:rgba(255,255,255,.66);
       display:flex;
       flex-direction:column;
-      justify-content:space-between;
-      gap:10px;
+      align-items:flex-start;
+      justify-content:center;
+      gap:12px;
       min-height:180px;
+      box-shadow:0 14px 30px rgba(23,50,77,.06);
     }
     .adherence-score-card .eyebrow{
+      display:flex;
+      align-items:center;
+      gap:8px;
       font-size:11px;
-      letter-spacing:.12em;
-      text-transform:uppercase;
+      letter-spacing:.06em;
+      text-transform:none;
       color:var(--muted);
       font-weight:900;
     }
     .adherence-score-card .big{
-      font-size:48px;
+      font-size:38px;
       line-height:1;
       font-weight:900;
       color:var(--deep);
+      letter-spacing:-.04em;
+    }
+    .adherence-score-card .big .unit{
+      font-size:17px;
+      letter-spacing:0;
+      color:var(--muted);
     }
     .adherence-score-card.pending .big{
       font-size:28px;
@@ -2900,10 +3087,11 @@ Notes:
       color:var(--muted);
     }
     .adherence-detail-card{
-      padding:18px 20px;
-      border:1px solid var(--line);
-      border-radius:18px;
-      background:var(--surface-soft);
+      padding:20px;
+      border:1px solid color-mix(in srgb, var(--line) 72%, white 28%);
+      border-radius:22px;
+      background:rgba(255,255,255,.62);
+      box-shadow:0 14px 30px rgba(23,50,77,.05);
     }
     .adherence-detail-card h4{
       margin:0 0 10px;
@@ -2926,15 +3114,18 @@ Notes:
       margin-top:14px;
     }
     .adherence-component{
-      padding:10px 12px;
-      border:1px solid var(--line);
-      border-radius:14px;
-      background:var(--surface-tint);
+      padding:12px;
+      border:1px solid color-mix(in srgb, var(--line) 76%, white 24%);
+      border-radius:16px;
+      background:rgba(255,252,247,.74);
     }
     .adherence-component .label{
+      display:flex;
+      align-items:center;
+      gap:7px;
       font-size:11px;
-      letter-spacing:.08em;
-      text-transform:uppercase;
+      letter-spacing:0;
+      text-transform:none;
       color:var(--muted);
       font-weight:900;
       margin-bottom:5px;
@@ -3463,7 +3654,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-A2-7</span>
+               <span class="app-version">v6.5-UX1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -3544,7 +3735,7 @@ Notes:
     <div class="today-topbar">
       <div id="todayGoalHost" class="today-goal-host"></div>
       <div class="today-top-actions">
-        <button class="ghost-btn" id="todaySettingsBtn" type="button" aria-expanded="false" aria-controls="quickSettingsPanel">⚙ 빠른 설정</button>
+        <button class="ghost-btn" id="todaySettingsBtn" type="button" aria-expanded="false" aria-controls="quickSettingsPanel">빠른 설정</button>
         <div class="quick-settings-popover hidden" id="quickSettingsPanel" aria-hidden="true">
           <div class="quick-settings-head">
             <strong>빠른 설정</strong>
@@ -3569,7 +3760,10 @@ Notes:
             <h3>결과</h3>
             <div class="kpi-panel-head">
               <div class="kpi-panel-title">
-                <h2>오늘의 권장 탄단지</h2>
+                <div class="card-title-row">
+                  <span class="ui-icon-badge badge-cal">목표</span>
+                  <h2>오늘 권장 탄단지</h2>
+                </div>
               </div>
               <div class="kpi-header-option mode-general-only">
                 <label class="inline-check compact">
@@ -3585,24 +3779,24 @@ Notes:
             <div class="kpi-grid">
               <div class="kpi target">
                 <div class="big" id="targetCal">0</div>
-                <div class="label">목표 칼로리</div>
+                <div class="label"><span class="macro-badge kcal">칼</span>목표 칼로리</div>
                 <div class="sub">오늘 목표 kcal</div>
                 <div class="maintenance-kcal" id="maintenanceCal">오늘 소비 기준 —</div>
                 <div class="maintenance-kcal-note">활동·운동 입력까지 반영</div>
               </div>
               <div class="kpi protein">
                 <div class="big" id="protein">0</div>
-                <div class="label">단백질</div>
+                <div class="label"><span class="macro-badge protein">단</span>단백질</div>
                 <div class="sub" id="proteinPct">0%</div>
               </div>
               <div class="kpi carb">
                 <div class="big" id="carbs">0</div>
-                <div class="label">탄수화물</div>
+                <div class="label"><span class="macro-badge carbs">탄</span>탄수화물</div>
                 <div class="sub" id="carbPct">0%</div>
               </div>
               <div class="kpi fat">
                 <div class="big" id="fat">0</div>
-                <div class="label">지방</div>
+                <div class="label"><span class="macro-badge fat">지</span>지방</div>
                 <div class="sub" id="fatPct">0%</div>
               </div>
             </div>
@@ -3610,14 +3804,14 @@ Notes:
 
           <div class="today-balance-grid">
             <div class="panel today-balance-card" id="todayConsumedPanel">
-              <h3>오늘 기준</h3>
-              <h2>오늘 누적 섭취</h2>
+              <h3>오늘 섭취 현황</h3>
+              <h2>누적 섭취</h2>
               <div class="meal-summary-grid" id="todayConsumedRows"></div>
               <div id="todayConsumedNote"></div>
             </div>
             <div class="panel today-balance-card" id="todayRemainingPanel">
-              <h3>목표 비교</h3>
-              <h2>목표 대비 남은 양</h2>
+              <h3>목표 대비</h3>
+              <h2>남은 양과 초과</h2>
               <div class="meal-summary-grid" id="todayRemainingRows"></div>
               <div id="todayRemainingNote"></div>
             </div>
@@ -3626,8 +3820,8 @@ Notes:
           <div class="panel adherence-panel" id="todayAdherencePanel">
             <div class="section-head">
               <div>
-                <h3>식단 평가</h3>
-                <h2>오늘 식단 달성률</h2>
+                <h3>오늘 식단 점수</h3>
+                <h2>점수와 근거</h2>
               </div>
             </div>
             <div id="todayAdherenceContent"></div>
@@ -9397,6 +9591,33 @@ Notes:
       return { amount: String(round(value, 1)), unit: "g" };
     }
 
+    function getMacroBadgeMeta(key){
+      return {
+        kcal: { text: "칼", className: "kcal", color: "var(--gold)" },
+        protein: { text: "단", className: "protein", color: "var(--teal)" },
+        carbs: { text: "탄", className: "carbs", color: "var(--orange)" },
+        fat: { text: "지", className: "fat", color: "var(--red)" },
+        alcohol: { text: "술", className: "muted", color: "var(--muted)" },
+        otherKcal: { text: "기타", className: "muted", color: "var(--muted)" }
+      }[key] || { text: "항목", className: "muted", color: "var(--accent-strong)" };
+    }
+
+    function renderMacroBadge(key){
+      const meta = getMacroBadgeMeta(key);
+      return `<span class="macro-badge ${meta.className}">${meta.text}</span>`;
+    }
+
+    function getMacroProgressPercent(consumedValue, targetValue){
+      if (!Number.isFinite(consumedValue) || !Number.isFinite(targetValue) || targetValue <= 0) return 0;
+      return clamp((consumedValue / targetValue) * 100, 0, 100);
+    }
+
+    function renderMacroProgress(consumedValue, targetValue, key){
+      const meta = getMacroBadgeMeta(key);
+      const progress = round(getMacroProgressPercent(consumedValue, targetValue), 1);
+      return `<div class="ux-progress" aria-hidden="true"><span style="--progress:${progress}%;--progress-color:${meta.color}"></span></div>`;
+    }
+
     function formatMacroBalanceText(value, unit){
       if (!Number.isFinite(value)) return "계산 불가";
       const absValue = unit === "kcal" ? Math.round(Math.abs(value)) : round(Math.abs(value), 1);
@@ -9627,6 +9848,132 @@ Notes:
       if (direction === "mixed") return "부족과 초과가 함께 있어 항목별 감점이 나뉘었습니다.";
       if (direction === "under") return "부족 항목이 오늘 점수에서 깎였습니다.";
       return "오늘 저장된 식사 총합이 목표 범위와 얼마나 가까운지 점수에 반영했습니다.";
+    }
+
+    function getTodayScoreIssueFlags(adherenceResult, coach = null){
+      const consumed = adherenceResult?.detail?.consumed || {};
+      const target = adherenceResult?.detail?.target || {};
+      const componentScores = adherenceResult?.detail?.componentScores || {};
+      const coachItems = getCoachItems(coach);
+      const alcoholImpact = analyzeAlcoholImpact(consumed);
+      const scoringKcal = Number.isFinite(consumed.scoringKcal)
+        ? consumed.scoringKcal
+        : (Number.isFinite(consumed.totalKcal) ? consumed.totalKcal : consumed.kcal);
+      const isOver = (key, value = consumed[key]) =>
+        Number.isFinite(target[key]) &&
+        Number.isFinite(value) &&
+        isMeaningfulTodayOver(target[key], value, key);
+      const ratio = (key, value = consumed[key]) =>
+        Number.isFinite(target[key]) && target[key] > 0 && Number.isFinite(value)
+          ? value / target[key]
+          : null;
+      const proteinRatio = Number.isFinite(adherenceResult?.proteinRatio)
+        ? adherenceResult.proteinRatio
+        : ratio("protein");
+      const alcoholTone = alcoholImpact?.coachTone || alcoholImpact?.severity || "none";
+      const highKcal = isOver("kcal", scoringKcal) || ratio("kcal", scoringKcal) >= 1.10;
+      const highCarbs = isOver("carbs") || ratio("carbs") >= 1.10;
+      const highFat = isOver("fat") || ratio("fat") >= 1.10;
+      const proteinLow = adherenceResult.capApplied === true ||
+        (Number.isFinite(proteinRatio) && proteinRatio < 0.80) ||
+        Number(componentScores.protein) < 0.6;
+      return {
+        alcohol: isDailyCoachAlcoholModeratePlusTone(alcoholTone),
+        alcoholTone,
+        otherKcal: Number(consumed.otherKcal || 0) >= 300 || coachItems.some(item => item?.key === "otherKcal"),
+        proteinLow,
+        highKcal,
+        highCarbs,
+        highFat,
+        mixedHigh: highCarbs && highFat,
+        highTotalWithCarbs: highKcal && highCarbs,
+        highTotalWithFat: highKcal && highFat
+      };
+    }
+
+    function getTodayScoreCardCopy(adherenceResult, coach = null){
+      if (!adherenceResult?.isAvailable) return "상세 기록에 식사를 저장하면 점수를 계산합니다.";
+      if (adherenceResult.status === "pending" || adherenceResult.status === "pending_over") {
+        return adherenceResult.status === "pending_over"
+          ? "이미 넘은 항목은 점수에서 불리합니다."
+          : "아직 하루 전체 점수는 보류합니다.";
+      }
+      const flags = getTodayScoreIssueFlags(adherenceResult, coach);
+      const issueCount = [flags.alcohol, flags.otherKcal, flags.proteinLow, flags.highCarbs, flags.highFat, flags.highKcal].filter(Boolean).length;
+      if (flags.proteinLow && flags.alcohol) {
+        return "술 영향도 있지만 단백질 부족이 먼저입니다.";
+      }
+      if (flags.proteinLow && flags.otherKcal) {
+        return "기록 품질보다 단백질 부족이 먼저입니다.";
+      }
+      if (flags.proteinLow && (flags.highFat || flags.highCarbs || flags.highKcal)) {
+        return "단백질은 부족하고 높은 항목도 있습니다.";
+      }
+      if (flags.proteinLow) {
+        return "점수보다 단백질 부족이 먼저입니다.";
+      }
+      if (flags.alcohol && flags.highFat) {
+        return "점수는 괜찮아도 술과 고지방이 겹쳤습니다.";
+      }
+      if (flags.alcohol && flags.otherKcal) {
+        return "술과 기타 칼로리가 점수 해석을 흔듭니다.";
+      }
+      if (flags.alcohol && (flags.highCarbs || flags.highKcal)) {
+        return "점수는 괜찮지만 술과 초과 항목이 있습니다.";
+      }
+      if (flags.alcohol) {
+        return "점수는 괜찮지만 술 영향이 있습니다.";
+      }
+      if (flags.otherKcal && (flags.highFat || flags.highCarbs || flags.highKcal)) {
+        return "기타 칼로리와 높은 항목이 함께 있습니다.";
+      }
+      if (flags.otherKcal) {
+        return "먹은 양보다 기록 품질을 먼저 정리하세요.";
+      }
+      if (flags.highCarbs && flags.highFat) {
+        return "탄수화물과 지방이 같이 높습니다.";
+      }
+      if (flags.highTotalWithFat) {
+        return "총량과 지방이 높아 점수에서 불리합니다.";
+      }
+      if (flags.highTotalWithCarbs) {
+        return "총량과 탄수화물이 높아 점수에서 불리합니다.";
+      }
+      if (flags.highFat) {
+        return "지방이 높아 오늘 점수에서 불리합니다.";
+      }
+      if (flags.highCarbs) {
+        return "탄수화물이 높아 오늘 점수에서 불리합니다.";
+      }
+      if (flags.highKcal) {
+        return "총섭취량이 높아 오늘 점수에서 불리합니다.";
+      }
+      const percent = Number(adherenceResult.percent);
+      const direction = adherenceResult?.direction || "balanced";
+      if (percent >= 90) {
+        if (issueCount > 0) return "점수는 높지만 확인할 항목이 있습니다.";
+        if (direction === "mixed") return "점수는 높지만 부족과 초과가 섞였습니다.";
+        if (direction === "over") return "점수는 높지만 초과 항목이 있습니다.";
+        return "오늘 식단이 훌륭합니다!";
+      }
+      if (percent >= 80) {
+        if (direction === "mixed") return "오늘 식단은 좋지만 부족과 초과가 섞였습니다.";
+        if (direction === "over") return "오늘 식단은 좋지만 초과 항목이 있습니다.";
+        if (direction === "under") return "오늘 식단은 좋지만 부족 항목이 있습니다.";
+        return "오늘 식단이 좋습니다.";
+      }
+      if (percent >= 70) {
+        if (direction === "mixed") return "오늘 식단은 평범하지만 부족과 초과가 섞였습니다.";
+        if (direction === "over") return "오늘 식단은 평범하지만 초과 항목이 있습니다.";
+        if (direction === "under") return "오늘 식단은 평범하지만 부족 항목이 있습니다.";
+        return "오늘 식단은 평범합니다.";
+      }
+      if (percent >= 50) {
+        if (direction === "over") return "오늘 식단은 보완이 필요합니다. 초과 항목이 큽니다.";
+        if (direction === "under") return "오늘 식단은 보완이 필요합니다. 부족 항목이 큽니다.";
+        return "오늘 식단은 보완이 필요합니다.";
+      }
+      return "오늘 식단은 좋지 않습니다.";
     }
 
     function buildMacroReason(key, balance, componentScore, proteinRatio, proteinCap, capApplied = false){
@@ -11030,8 +11377,8 @@ Notes:
 
       host.innerHTML = `
         <div class="panel coach-panel">
-          <div class="eyebrow">Daily Coach</div>
-          <h3>오늘 실행 코치</h3>
+          <div class="eyebrow"><span class="ui-icon-badge badge-coach">코치</span>오늘 코치</div>
+          <h3>오늘 먼저 할 일</h3>
           <div class="coach-summary" data-coach-summary></div>
           <div class="coach-grid" data-coach-grid></div>
         </div>
@@ -11141,22 +11488,23 @@ Notes:
     function renderTodayConsumptionPanel(balance){
       const rows = document.getElementById("todayConsumedRows");
       rows.innerHTML = [
-        ["탄수화물", formatMacroValueParts(balance.consumed.carbs, "g"), "오늘 누적", "carbs"],
-        ["단백질", formatMacroValueParts(balance.consumed.protein, "g"), "오늘 누적", "protein"],
-        ["지방", formatMacroValueParts(balance.consumed.fat, "g"), "오늘 누적", "fat"],
-        ["kcal", formatMacroValueParts(balance.consumed.kcal, "kcal"), balance.todayDate, "kcal"]
-      ].map(([label, valueParts, sub, key]) => `
+        ["탄수화물", formatMacroValueParts(balance.consumed.carbs, "g"), "오늘 누적", "carbs", balance.consumed.carbs, balance.target.carbs],
+        ["단백질", formatMacroValueParts(balance.consumed.protein, "g"), "오늘 누적", "protein", balance.consumed.protein, balance.target.protein],
+        ["지방", formatMacroValueParts(balance.consumed.fat, "g"), "오늘 누적", "fat", balance.consumed.fat, balance.target.fat],
+        ["kcal", formatMacroValueParts(balance.consumed.kcal, "kcal"), balance.todayDate, "kcal", balance.consumed.kcal, balance.target.kcal]
+      ].map(([label, valueParts, sub, key, consumedValue, targetValue]) => `
         <div class="meal-summary-card" data-total-kind="${key}">
-          <div class="label">${label}</div>
+          <div class="label">${renderMacroBadge(key)}${label}</div>
           <div class="value macro-value"><span class="macro-value-amount">${valueParts.amount}</span><span class="macro-value-unit">${valueParts.unit}</span></div>
+          ${renderMacroProgress(consumedValue, targetValue, key)}
           <div class="sub">${sub}</div>
         </div>
       `).join("");
 
       const noteHost = document.getElementById("todayConsumedNote");
       noteHost.innerHTML = balance.hasMeals
-        ? `<div class="mini-note">오늘 날짜(${balance.todayDate}) 기준으로 저장된 식사 ${balance.mealCount}건을 합산해 보여줍니다.</div>`
-        : `<div class="mini-note">아직 오늘 식사 기록이 없습니다. 데이터 기록 탭에 저장하면 오늘 누적 섭취가 바로 반영됩니다.</div>`;
+        ? `<div class="mini-note">오늘 저장된 식사 ${balance.mealCount}건을 합산했습니다.</div>`
+        : `<div class="mini-note">아직 오늘 식사 기록이 없습니다. 데이터 기록 탭에 저장하면 섭취 현황이 반영됩니다.</div>`;
     }
 
     function renderTodayRemainingPanel(balance){
@@ -11175,11 +11523,12 @@ Notes:
       const rows = document.getElementById("todayRemainingRows");
       rows.innerHTML = displayRows.map(({ label, value, key, display }) => `
         <div class="meal-summary-card" data-total-kind="${key}">
-          <div class="label">${label}</div>
+          <div class="label">${renderMacroBadge(key)}${label}</div>
           <div class="value macro-value">${(() => {
             const parts = formatMacroValueParts(Math.abs(value), key === "kcal" ? "kcal" : "g");
             return `<span class="macro-value-amount">${parts.amount}</span><span class="macro-value-unit">${parts.unit}</span>`;
           })()}</div>
+          ${renderMacroProgress(balance.consumed[key], balance.target[key], key)}
           <div class="sub">
             <span class="today-balance-pill ${Number.isFinite(value) ? (display.isExceeded ? "exceeded" : "remaining") : "unavailable"}">${display.text}</span>
           </div>
@@ -11188,15 +11537,15 @@ Notes:
 
       const noteHost = document.getElementById("todayRemainingNote");
       noteHost.innerHTML = balance.isGoalAvailable
-        ? `<div class="mini-note">남은 양은 오늘 목표에서 오늘 누적 섭취를 뺀 값입니다. 음수면 초과 상태로 표시됩니다.</div>`
+        ? `<div class="mini-note">막대는 목표 대비 오늘 섭취 비율입니다. 남은 값이 음수면 초과로 표시됩니다.</div>`
         : `<div class="warn warn"><h4>오늘 목표 확인</h4><ul><li>오늘 목표가 계산되어야 남은 양을 표시할 수 있습니다. 체중, 키, 나이 같은 기본 입력을 먼저 확인해 주세요.</li></ul></div>`;
     }
 
     const ADHERENCE_MACRO_CARD_CONFIG = [
-      { key: "carb", componentKey: "carbs", reasonKey: "carbs", label: "탄수화물" },
-      { key: "protein", componentKey: "protein", reasonKey: "protein", label: "단백질" },
-      { key: "fat", componentKey: "fat", reasonKey: "fat", label: "지방" },
-      { key: "calorie", componentKey: "kcal", reasonKey: "kcal", label: "총칼로리" }
+      { key: "carb", componentKey: "carbs", reasonKey: "carbs", label: "탄수화물", badgeKey: "carbs" },
+      { key: "protein", componentKey: "protein", reasonKey: "protein", label: "단백질", badgeKey: "protein" },
+      { key: "fat", componentKey: "fat", reasonKey: "fat", label: "지방", badgeKey: "fat" },
+      { key: "calorie", componentKey: "kcal", reasonKey: "kcal", label: "총칼로리", badgeKey: "kcal" }
     ];
 
     const ADHERENCE_EXTRA_LABELS = {
@@ -11454,7 +11803,7 @@ Notes:
         const actionText = fallback.action;
         return `
           <div class="adherence-component" data-coach-key="${config.key}">
-            <div class="label">${config.label}</div>
+            <div class="label">${renderMacroBadge(config.badgeKey)}${config.label}</div>
             <div class="value">${scoreText}</div>
             <div class="component-state">${escapeHtml(stateText)}</div>
             <div class="component-action">${escapeHtml(actionText)}</div>
@@ -11605,20 +11954,20 @@ Notes:
         host.innerHTML = `
           <div class="adherence-hero">
             <div class="adherence-score-card pending">
-              <div class="eyebrow">Today Score</div>
+              <div class="eyebrow"><span class="ui-icon-badge badge-cal">점수</span>오늘 식단 점수</div>
               <div class="big">기록 진행 중</div>
               <div><span class="adherence-badge muted">${escapeHtml(pendingBadgeText)}</span></div>
-              <div class="copy">${escapeHtml(pendingCopyText)}</div>
+              <div class="copy">${escapeHtml(getTodayScoreCardCopy(adherenceResult, coach) || pendingCopyText)}</div>
               ${progressText}
             </div>
             <div class="adherence-detail-card">
               <h4>간단 해석</h4>
               <ul class="adherence-detail-list">
                 <li>${escapeHtml(pendingActionText)}</li>
-                <li>${escapeHtml(adherenceResult.summaryText || getAdherenceSummaryText(adherenceResult))}</li>
-                <li>${escapeHtml(pendingTotalText)}</li>
+              <li>${escapeHtml(adherenceResult.summaryText || getAdherenceSummaryText(adherenceResult))}</li>
+              <li>${escapeHtml(pendingTotalText)}</li>
               </ul>
-              <div class="mini-note">오늘 누적 섭취와 목표 대비 남은 양은 위 영역에서 따로 확인합니다.</div>
+              <div class="mini-note">오늘 섭취 현황과 남은 양은 위 영역에서 따로 확인합니다.</div>
               ${mealHintNote}
               ${extraChecksHtml}
             </div>
@@ -11629,11 +11978,15 @@ Notes:
 
       host.innerHTML = `
         <div class="adherence-hero">
-          <div class="adherence-score-card">
-            <div class="eyebrow">Today Score</div>
-            <div class="big">${adherenceResult.percent}%</div>
+          <div class="adherence-score-card" style="--score-color:${getAdherenceTone(adherenceResult.percent) === "bad" ? "var(--red)" : (getAdherenceTone(adherenceResult.percent) === "warn" ? "var(--orange)" : "var(--teal)")};">
+            <div class="eyebrow"><span class="ui-icon-badge badge-cal">점수</span>오늘 식단 점수</div>
+            <div class="score-ring" style="--score:${clamp(adherenceResult.percent, 0, 100)}%">
+              <div class="score-ring-inner">
+                <div class="big">${adherenceResult.percent}<span class="unit">점</span></div>
+              </div>
+            </div>
             <div><span class="adherence-badge ${adherenceResult.tone}">${adherenceResult.label}</span></div>
-            <div class="copy">${escapeHtml(adherenceResult.summaryText || "오늘은 단백질과 총 섭취량이 점수에 가장 크게 반영되었습니다.")}</div>
+            <div class="copy">${escapeHtml(getTodayScoreCardCopy(adherenceResult, coach))}</div>
           </div>
           <div class="adherence-detail-card">
             <h4>간단 해석</h4>
@@ -13227,7 +13580,7 @@ Notes:
       document.getElementById("tabInbody").textContent = "InBody";
       document.getElementById("tabSettings").textContent = "기본 설정";
       document.getElementById("todayModeMini").textContent = `${getModeRuntimeConfig().label} 모드`;
-      document.getElementById("todaySettingsBtn").textContent = "⚙ 빠른 설정";
+      document.getElementById("todaySettingsBtn").textContent = "빠른 설정";
       syncGeneralModeDefaults();
       syncWorkAdjBounds();
       updateModeUI();
@@ -14801,6 +15154,42 @@ Notes:
             assertTest(actualType === type, `${type} should classify correctly`);
             assertTest(getTodayInterpretationText(actualType) === text, `${type} should use fixed display copy`);
           });
+        }));
+
+        results.push(runNamedTest("today score card copy names issue combinations before praise", () => {
+          const makeScore = overrides => ({
+            isAvailable: true,
+            status: "available",
+            percent: overrides.percent ?? 92,
+            direction: overrides.direction || "balanced",
+            capApplied: !!overrides.capApplied,
+            proteinRatio: Number.isFinite(overrides.proteinRatio) ? overrides.proteinRatio : 1,
+            detail: {
+              target: { kcal: 2000, protein: 150, carbs: 250, fat: 70 },
+              consumed: {
+                scoringKcal: overrides.scoringKcal ?? 2000,
+                totalKcal: overrides.scoringKcal ?? 2000,
+                kcal: overrides.kcal ?? (overrides.scoringKcal ?? 2000),
+                protein: overrides.protein ?? 150,
+                carbs: overrides.carbs ?? 250,
+                fat: overrides.fat ?? 70,
+                alcoholKcal: overrides.alcoholKcal ?? 0,
+                otherKcal: overrides.otherKcal ?? 0
+              },
+              componentScores: {
+                kcal: overrides.kcalScore ?? 0.95,
+                protein: overrides.proteinScore ?? 0.95,
+                carbs: overrides.carbScore ?? 0.95,
+                fat: overrides.fatScore ?? 0.95
+              }
+            }
+          });
+          assertIncludesAll(getTodayScoreCardCopy(makeScore({})), ["오늘 식단이 훌륭합니다"], "clean high score can praise");
+          assertIncludesAll(getTodayScoreCardCopy(makeScore({ alcoholKcal: 300, fat: 88, scoringKcal: 2140 })), ["술", "고지방"], "alcohol plus high fat should not praise");
+          assertIncludesAll(getTodayScoreCardCopy(makeScore({ otherKcal: 500, carbs: 285, scoringKcal: 2300 })), ["기타 칼로리", "높은 항목"], "other kcal plus high item should mention both");
+          assertIncludesAll(getTodayScoreCardCopy(makeScore({ protein: 70, proteinRatio: 0.46, proteinScore: 0.35, alcoholKcal: 250 })), ["단백질 부족", "먼저"], "protein shortage should outrank alcohol");
+          assertIncludesAll(getTodayScoreCardCopy(makeScore({ carbs: 290, fat: 86, scoringKcal: 2100 })), ["탄수화물", "지방", "높"], "high carbs and fat should be named together");
+          assertIncludesAll(getTodayScoreCardCopy(makeScore({ carbs: 290, scoringKcal: 2300 })), ["총량", "탄수화물"], "total plus carb overshoot should be named together");
         }));
 
         results.push(runNamedTest("macro display deadzone softens tiny overshoot", () => {
@@ -18800,6 +19189,10 @@ Notes:
       "permission",
       "macroPatternAllowed",
       "dietCauseAllowed",
+      "KPI",
+      "Today Coach",
+      "Dashboard",
+      "Analytics",
       "식단 점수 자동 계산",
       "자동 점수 토글",
       "자동 평가 OFF",
