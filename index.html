@@ -1,11 +1,11 @@
 <!--
-Version: 6.5-A1.1
-Stage: 6.5-A1.1 InBody 저장 후 Today Coach 갱신 hotfix
+Version: 6.5-A1.2
+Stage: 6.5-A1.2 legacy copy test debt 정리
 Date: 2026-05-07
 Notes:
-- InBody 저장 후 Today Coach 즉시 갱신 hotfix
-- InBody 분석 gate / 근거 출처 문구 / InBody 탭 중립 관찰 유지
-- 점수 산식 / 저장 schema / import-export schema / Coach decision matrix / recentContext engine / fat low 행동 문구 변경 없음
+- v6.4-D4부터 남아 있던 legacy copy test debt 정리
+- 낡은 exact 문구 기대값을 의미 기반 테스트로 전환 또는 삭제
+- 앱 런타임 로직 / 점수 산식 / 저장 schema / import-export / Coach decision matrix / recentContext engine / InBody gate 기준 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -13,7 +13,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-A1.1</title>
+  <title>탄단지 다이어리 v6.5-A1.2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3459,7 +3459,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-A1.1</span>
+               <span class="app-version">v6.5-A1.2</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -13953,7 +13953,7 @@ Notes:
           assertTest(Object.values(balance.exceeded).every(value => value === false), "tiny over within deadzone should not set exceeded flags");
           assertTest(score.status === "pending", "single meal near target should stay pending instead of pending_over");
           assertTest(score.label === "평가 보류", "single meal near target should keep pending label");
-          assertTest(score.summaryText.includes("목표 범위에 가깝습니다"), "near-target pending should say it is close to target range");
+          assertIncludesAll(score.summaryText, ["한 끼 기준", "목표 범위", "가깝"], "near-target pending should explain limited record and near-target state");
           assertTest(!score.summaryText.includes("하루 식단을 한 번에 입력한 경우"), "single near-full-day entry should not put the meal hint in summaryText");
           assertTest(score.mealConcentrationHint === "", "single near-full-day entry should not expose meal concentration hint");
           assertNoStrongNearTargetCopy(`${score.label} ${score.summaryText} ${Object.values(score.reasons).join(" ")}`, "single meal near target pending copy");
@@ -14045,7 +14045,7 @@ Notes:
           const score = getTodayAdherenceScore(target);
           assertTest(score.status === "pending_over", "meaningful one-meal overshoot should remain pending_over");
           assertTest(score.label === "조절 필요", "meaningful one-meal overshoot should keep adjustment label");
-          assertTest(score.summaryText.includes("목표를 의미 있게 넘은"), "meaningful overshoot should still explain the over-target state");
+          assertIncludesAll(score.summaryText, ["이미 목표를 넘은", "점수에서 불리"], "meaningful overshoot should explain the over-target score impact");
         }));
 
         results.push(runNamedTest("macro component zero intake stays zero", () => {
@@ -15707,7 +15707,8 @@ Notes:
             usableDietDays: 5,
             proteinLowDays: 3
           }));
-          assertIncludesAll(result.text, ["단백질", "먼저 채우"], "protein repeated low action");
+          assertIncludesAll(result.text, ["단백질 부족이 반복", "오늘 첫 보완 항목", "단백질"], "protein repeated low should keep protein as the first repair action");
+          assertExcludesAll(result.text, ["참고할 수 있습니다", "가능하면", "해보세요"], "protein repeated low should avoid weak copy");
         }));
 
         results.push(runNamedTest("daily coach carb training low requires actual training days", () => {
@@ -16463,7 +16464,8 @@ Notes:
           const result = getDecisionCoach("lean_bulk", { protein: 0.65 }, { mealCount: 2 });
           assertTest(result.signals.dataQualitySignal.reasonCode === "data_quality_partial_meals", "mealCount 2 should be partial meals");
           assertTest(result.first?.key === "protein", `mealCount 2 should allow macro decision first, got ${result.first?.key}`);
-          assertTest(result.output.confidence.includes("현재 입력 기준") || result.output.confidence.includes("현재 기록 기준"), "mealCount 2 should keep confidence guidance");
+          assertIncludesAll(result.output.confidence, ["아직 입력이 적습니다", "다음 식사", "단백질"], "mealCount 2 should keep limited-record guidance with next action");
+          assertExcludesAll(result.output.confidence, ["confidence", "signal", "severity"], "mealCount 2 confidence should stay user-facing");
         }));
 
         results.push(runNamedTest("daily coach v6.2-A-1.5 diet calorie low protein low combo", () => {
@@ -16639,7 +16641,7 @@ Notes:
           assertExcludesAll(leanQuality, ["소스", "튀김", "간식은 중단"], "lean bulk component card should not repeat coach action");
 
           const bulkLow = renderCards("bulk", { kcal: 0.82, carbs: 0.65 });
-          assertIncludesAll(bulkLow, ["총칼로리", "부족", "점수에서"], "bulk low calorie evidence cards");
+          assertIncludesAll(bulkLow, ["총칼로리", "점수", "깎"], "bulk low calorie evidence cards");
           assertExcludesAll(bulkLow, ["소화 쉬운 탄수화물", "추가하세요", "채우세요"], "bulk component card should not repeat coach action");
 
           const proteinLow = renderCards("bulk", { protein: 0.65 });
@@ -16668,7 +16670,8 @@ Notes:
           }, result.output);
           const proteinCard = wrapper.querySelector('[data-coach-key="protein"]')?.textContent || "";
           const fatCard = wrapper.querySelector('[data-coach-key="fat"]')?.textContent || "";
-          assertIncludesAll(proteinCard, ["단백질", "점수"], "protein card should explain protein score evidence");
+          assertIncludesAll(proteinCard, ["단백질", "감점 근거"], "protein card should explain protein score evidence");
+          assertIncludesAny(proteinCard, ["점수", "점"], "protein card should keep score evidence visible");
           assertExcludesAll(proteinCard, ["단백질부터", "보완하세요"], "protein card should not repeat protein action");
           assertIncludesAll(fatCard, ["지방", "점수"], "fat card should explain fat score evidence");
           assertExcludesAll(fatCard, ["안주", "멈추세요", "추가하지"], "fat card should not repeat fat/alcohol action");
@@ -17024,8 +17027,10 @@ Notes:
 
         results.push(runNamedTest("adherence macro cards use role-specific today alcohol wording before previous recovery", () => {
           const rendered = getRenderedAdherenceMacroCardsForScenario({ previousAlcoholKcal: 800, todayAlcoholKcal: 400 });
-          assertTest(rendered.cards.calorie.state === "오늘 술 영향이 반영됐습니다.", "today alcohol calorie state");
-          assertTest(rendered.cards.calorie.action === "남은 식사는 여기서 마무리하세요. 추가 술이나 야식, 기름진 안주는 멈추세요.", "today alcohol calorie action");
+          assertTest(rendered.scenario.output.items[0]?.key === "alcohol", "today alcohol should lead over previous recovery");
+          assertTest(!rendered.scenario.output.items.some(item => item.key === "recovery"), "today alcohol should suppress previous recovery coach item");
+          assertIncludesAll(rendered.scenario.text, ["술 섭취량", "술", "야식", "기름진"], "today alcohol coach copy should keep stop-drinking action");
+          assertIncludesAll(`${rendered.cards.calorie.state} ${rendered.cards.calorie.action}`, ["총칼로리", "점"], "today alcohol calorie card should stay score evidence");
           assertTest(!rendered.cards.protein.state.includes("술") && !rendered.cards.protein.action.includes("안주"), "today alcohol should not overwrite protein card without protein low");
           assertTest(!rendered.cards.carb.state.includes("술") && !rendered.cards.carb.action.includes("술"), "today alcohol should not overwrite carb card");
           assertTest(!rendered.cards.fat.state.includes("안주") && !rendered.cards.fat.action.includes("안주"), "today alcohol should not overwrite fat card without fat high");
@@ -17036,7 +17041,8 @@ Notes:
 
         results.push(runNamedTest("adherence macro cards use today alcohol before previous over-intake", () => {
           const rendered = getRenderedAdherenceMacroCardsForScenario({ previousKcalRatio: 1.25, previousAlcoholKcal: 0, todayAlcoholKcal: 400 });
-          assertTest(rendered.cards.calorie.state === "오늘 술 영향이 반영됐습니다.", "today alcohol should override previous over-intake calorie state");
+          assertTest(rendered.scenario.output.items[0]?.key === "alcohol", "today alcohol should lead before previous over-intake");
+          assertIncludesAll(rendered.scenario.text, ["술 섭취량", "오늘은 술", "회복"], "today alcohol should keep the main stop/recovery action");
           assertTest(!rendered.cards.protein.state.includes("술") && !rendered.cards.protein.action.includes("안주"), "today alcohol should not overwrite protein card without protein low");
           assertTest(rendered.cards.calorie.state !== "어제 섭취가 목표보다 높았습니다.", "previous over-intake should be hidden when today alcohol exists");
         }));
@@ -17049,9 +17055,9 @@ Notes:
             const rendered = getRenderedAdherenceMacroCardsForScenario(config);
             const proteinItem = rendered.scenario.output.items.find(item => item.key === "protein");
             assertTest(!!proteinItem, `${config.label} protein low coach item should exist`);
+            assertIncludesAll(`${proteinItem.state} ${proteinItem.reason} ${proteinItem.action}`, ["단백질", "보완"], `${config.label} protein coach action should stay active`);
             const proteinCardText = `${rendered.cards.protein.state} ${rendered.cards.protein.action}`;
-            assertIncludesAll(proteinCardText, ["단백질"], `${config.label} protein card should keep protein-low action`);
-            assertTest(proteinCardText.includes("보완") || proteinCardText.includes("보강"), `${config.label} protein card should show protein repair action`);
+            assertIncludesAll(proteinCardText, ["단백질", "감점 근거"], `${config.label} protein card should keep protein evidence`);
             assertTest(rendered.cards.protein.state !== "단백질은 오늘 꼭 챙기세요.", `${config.label} protein card should not use strong recovery override`);
             assertTest(rendered.cards.protein.state !== "단백질은 평소처럼 유지하세요.", `${config.label} protein card should not use over-intake override`);
           });
