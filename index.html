@@ -1,11 +1,14 @@
 <!--
-Version: 6.5-A2-2
-Stage: 6.5-A2-2 recordMode dietResolution read-only helper tests
+Version: 6.5-A2-3
+Stage: 6.5-A2-3 Records 기록 방식 UI 분리
 Date: 2026-05-07
 Notes:
-- recordMode / dietResolution read-only helper 및 테스트 추가
-- 간단 기록 / 상세 기록 / 체중만 기록 해상도 판별 기준 고정
-- 앱 런타임 로직 / UI / 저장 schema / import-export / Coach decision matrix / recentContext engine / InBody gate 기준 변경 없음
+- Records 탭에서 체중만 / 간단 / 상세 기록 방식 분리
+- recordMode 명시 저장
+- simple과 detailed 상호 배타 저장 흐름 추가
+- 식사 상세 입력은 detailed 기록에서만 허용
+- 자동 평가 OFF는 자동 점수 계산 OFF로 문구 정리
+- recentContext / Coach decision matrix / InBody gate 기준 / 점수 산식 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -13,7 +16,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-A2-2</title>
+  <title>탄단지 다이어리 v6.5-A2-3</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3459,7 +3462,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-A2-2</span>
+               <span class="app-version">v6.5-A2-3</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -3557,7 +3560,7 @@ Notes:
           <div class="quick-settings-row">
             <label class="inline-check compact">
               <input id="quickAutoDietAnalysis" type="checkbox">
-              <span>식단 자동 평가</span>
+              <span>식단 점수 자동 계산</span>
             </label>
           </div>
         </div>
@@ -3634,8 +3637,8 @@ Notes:
               <div class="check-card head-check" id="settingsAutoDietBlock">
                 <input id="autoDietAnalysis" type="checkbox">
                 <div class="check-copy">
-                  <div class="check-title">식단 자동 평가 사용</div>
-                  <div class="check-desc">켜면 오늘 먹은 내용으로 자동 평가합니다. 끄면 직접 상/중/하로 기록합니다.</div>
+                  <div class="check-title">식단 점수 자동 계산</div>
+                  <div class="check-desc">켜면 상세 식사 기록으로 점수를 계산합니다. 꺼도 상세 기록은 탄단지 분석 기준으로 남습니다.</div>
                 </div>
               </div>
             </div>
@@ -3936,7 +3939,7 @@ Notes:
         <section class="panel records-input-panel">
           <h3>기록</h3>
           <h2>체중 기록 저장</h2>
-          <div class="mini-note">이 탭은 날짜별 체중과 식사를 입력하고, 저장 결과를 확인하는 용도로만 구성했습니다.</div>
+          <div class="mini-note">이 탭은 날짜별 체중과 식사를 입력하고, 기록 방식에 맞게 저장 결과를 확인하는 용도로만 구성했습니다.</div>
           <div id="recordQualitySummaryHost"></div>
           <div class="section-group records-entry-group">
             <div class="section-group-head">
@@ -3947,7 +3950,7 @@ Notes:
           <div id="recordFeedbackHost"></div>
           <div id="todayRecordWeightMismatchHost"></div>
           <div class="record-grid">
-            <div class="field" id="recordAdherenceField">
+            <div class="field">
               <label>날짜</label>
               <input id="recordDate" type="date">
             </div>
@@ -3955,14 +3958,19 @@ Notes:
               <label>아침 공복 체중 (kg)</label>
               <input id="recordWeight" type="number" min="30" max="200" step="0.01">
             </div>
-            <div class="field">
-              <label>식단 평가</label>
+            <div class="field record-mode-field">
+              <label>기록 방식</label>
+              <div class="chips record-mode-chips" id="recordModeChips"></div>
+              <div class="field-note" id="recordModeHint">체중만 기록하면 식단 분석은 하지 않습니다.</div>
+            </div>
+            <div class="field" id="recordAdherenceField">
+              <label>간단 식단 평가</label>
               <select id="recordAdherence">
                 <option value="high">상</option>
                 <option value="medium" selected>중</option>
                 <option value="low">하</option>
               </select>
-              <div class="field-note hidden" id="recordAdherenceAutoNote">자동 평가 사용 중이라 여기서는 직접 선택할 수 없습니다. 설정에서 자동 평가를 끄면 직접 기록할 수 있습니다.</div>
+              <div class="field-note hidden" id="recordAdherenceAutoNote">간단 기록에서만 직접 평가를 남깁니다.</div>
             </div>
             <div class="field">
               <label>메모 (선택)</label>
@@ -4180,11 +4188,11 @@ Notes:
         </section>
         <section class="panel settings-block">
           <h3>고급</h3>
-          <h2>식단 자동 평가</h2>
-          <div class="mini-note">자동 평가 사용 여부만 여기서 관리합니다. 저장된 기록과 기존 직접 평가는 그대로 유지됩니다.</div>
+          <h2>식단 점수 자동 계산</h2>
+          <div class="mini-note">켜면 상세 식사 기록을 바탕으로 점수를 계산합니다. 꺼도 상세 기록은 탄단지 분석 기준으로 남습니다.</div>
           <div class="settings-group">
             <div class="section-group-head">
-              <h4>자동 평가 설정</h4>
+              <h4>자동 점수 설정</h4>
               <p>Today의 빠른 설정과 같은 옵션입니다. 여기서는 자세히 조절할 수 있습니다.</p>
             </div>
             <div class="settings-host" id="settingsAdvancedHost"></div>
@@ -4497,7 +4505,7 @@ Notes:
     const ids = [
       "weight","height","age","bodyFat","bodyFatMass","skeletal","gender","activityLevel","workType","workAdj","homeInbody","expertLbmAlpha","weeklyTrainingDays","generalAdvancedSettings","generalLowDigestCarbs","autoDietAnalysis",
       "routinePlan","intensityOverride","weightDuration","cardioType","cardioDuration","cardioSpeed","cardioIncline",
-      "recordDate","recordWeight","recordAdherence","recordNote","importJsonFile",
+      "recordDate","recordWeight","recordModeChips","recordModeHint","recordAdherence","recordNote","importJsonFile",
       "mealLabel","mealCarbs","mealProtein","mealFat","mealAlcoholKcal","mealOtherKcal","mealMemo"
     ].reduce((acc, id) => {
       acc[id] = document.getElementById(id);
@@ -4520,6 +4528,14 @@ Notes:
     let suppressTodayRecordAutoSync = false;
     const ADHERENCE_SCORING_VERSION = "v6.1_alcohol_penalty_v2";
     const RECENT_CONTEXT_WINDOWS = [1, 3, 7, 14, 28];
+    const RECORD_MODES = ["weight_only", "simple", "detailed"];
+    const RECORD_MODE_LABELS = {
+      weight_only: "체중만 기록",
+      simple: "간단 기록",
+      detailed: "상세 기록",
+      mixed: "기록 방식 확인",
+      none: "기록 없음"
+    };
     const RECENT_CONTEXT_CONFIDENCE_ORDER = {
       blocked: 0,
       low: 1,
@@ -6092,22 +6108,50 @@ Notes:
       const autoValue = Number.isFinite(record?.adherencePercent) && record?.adherenceSource === "auto"
         ? clamp(record.adherencePercent, 0, 100)
         : null;
-      const hasSnapshot = !!record?.goalSnapshot;
+      const modeInfo = inferRecordMode(record);
+      const modeLabel = getRecordModeLabel(modeInfo.recordMode);
 
-      if (Number.isFinite(autoValue)) {
+      if (modeInfo.recordMode === "weight_only") {
         return `
           <div class="adherence-cell">
-            <div class="adherence-primary"><span class="adherence-percent">${autoValue}%</span><span class="adherence-tag auto">자동</span></div>
-            <div class="adherence-secondary">목표 기준 자동 평가</div>
+            <div class="adherence-primary"><span class="adherence-tag manual">${modeLabel}</span></div>
+            <div class="adherence-secondary">식단 평가 없음</div>
           </div>
         `;
       }
 
-      if (manualValue) {
+      if (modeInfo.recordMode === "mixed") {
         return `
           <div class="adherence-cell">
-            <div class="adherence-primary"><span class="adherence-tag manual">직접</span><span>${manualValue}</span></div>
-            <div class="adherence-secondary">${hasSnapshot ? "직접 입력" : "목표 없음"}</div>
+            <div class="adherence-primary"><span class="adherence-tag manual">${modeLabel}</span></div>
+            <div class="adherence-secondary">한 날짜에 기록 방식이 섞였습니다</div>
+          </div>
+        `;
+      }
+
+      if (Number.isFinite(autoValue)) {
+        return `
+          <div class="adherence-cell">
+            <div class="adherence-primary"><span class="adherence-percent">${autoValue}%</span><span class="adherence-tag auto">자동 점수</span></div>
+            <div class="adherence-secondary">상세 기록 기준</div>
+          </div>
+        `;
+      }
+
+      if (modeInfo.recordMode === "simple" && manualValue) {
+        return `
+          <div class="adherence-cell">
+            <div class="adherence-primary"><span class="adherence-tag manual">간단 평가</span><span>${manualValue}</span></div>
+            <div class="adherence-secondary">탄단지 세부 분석 제외</div>
+          </div>
+        `;
+      }
+
+      if (modeInfo.recordMode === "detailed") {
+        return `
+          <div class="adherence-cell">
+            <div class="adherence-primary"><span class="adherence-tag auto">상세 기록</span></div>
+            <div class="adherence-secondary">자동 점수 없음</div>
           </div>
         `;
       }
@@ -6118,6 +6162,7 @@ Notes:
     function formatRecordFeedbackMessage(message, record){
       const text = String(message || "");
       if (!text.includes("식사를 저장했습니다.")) return text;
+      if (!ids.autoDietAnalysis.checked) return `${text} 자동 점수는 만들지 않고, 상세 식사 기록으로 저장했습니다.`;
       if (record?.goalSnapshot) return `${text} 식사 변경에 따라 식단 달성률이 자동으로 다시 계산되었습니다.`;
       return `${text} 목표가 없어 자동 평가가 적용되지 않았습니다. 먼저 목표와 기본 정보를 확인해 주세요.`;
     }
@@ -6135,6 +6180,10 @@ Notes:
 
     function normalizeAdherenceSource(raw){
       return ["manual","auto"].includes(raw) ? raw : "manual";
+    }
+
+    function normalizeRecordMode(raw){
+      return RECORD_MODES.includes(raw) ? raw : null;
     }
 
     function normalizeAdherenceScoringVersion(raw){
@@ -6210,8 +6259,10 @@ Notes:
     }
 
     function normalizeRecord(raw){
+      const meals = normalizeMeals(raw?.meals);
       return {
         date: normalizeDateString(raw?.date),
+        recordMode: normalizeRecordMode(raw?.recordMode),
         weight: normalizeWeightValue(raw?.weight),
         adherence: ["high","medium","low"].includes(raw?.adherence) ? raw.adherence : "medium",
         adherencePercent: normalizeAdherencePercent(raw?.adherencePercent),
@@ -6221,13 +6272,14 @@ Notes:
         adherenceLockedAt: normalizeIsoDatetime(raw?.adherenceLockedAt),
         snapshotSource: normalizeSnapshotSource(raw?.snapshotSource),
         note: String(raw?.note || "").trim(),
-        meals: normalizeMeals(raw?.meals)
+        meals
       };
     }
 
     function isRecordMeaningful(record){
       return !!(record.date && (
         Number.isFinite(record.weight) ||
+        !!record.recordMode ||
         record.note ||
         record.meals.length ||
         record.adherence !== "medium" ||
@@ -6271,12 +6323,15 @@ Notes:
       const adherence = ["high", "medium", "low"].includes(raw.adherence) ? raw.adherence : null;
       if (!adherence || source === "auto") return false;
       if (adherence === "high" || adherence === "low") return true;
+      const explicitMode = normalizeRecordMode(raw.recordMode);
+      if (explicitMode && explicitMode !== "simple") return false;
+      if (hasDetailedDietSignal(raw) && normalizeRecordMode(raw.recordMode) !== "simple") return false;
 
       const hasWeight = Number.isFinite(normalizeWeightValue(raw.weight));
       const hasOnlyDefaultMediumShape = hasWeight &&
-        !Object.prototype.hasOwnProperty.call(raw, "adherencePercent") &&
+        !Number.isFinite(normalizeAdherencePercent(raw.adherencePercent)) &&
         !String(raw.note || "").trim() &&
-        !Object.prototype.hasOwnProperty.call(raw, "adherenceLockedAt");
+        !normalizeIsoDatetime(raw.adherenceLockedAt);
       return !hasOnlyDefaultMediumShape;
     }
 
@@ -6287,15 +6342,33 @@ Notes:
         !hasSimpleDietSignal(raw);
     }
 
+    function getExplicitRecordMode(record){
+      return normalizeRecordMode(record?.recordMode);
+    }
+
     function inferRecordMode(record){
       const raw = record && typeof record === "object" ? record : {};
+      const explicitMode = getExplicitRecordMode(raw);
       const hasDetailedDiet = hasDetailedDietSignal(raw);
       const hasSimpleDiet = hasSimpleDietSignal(raw);
       const hasWeightOnly = hasWeightOnlySignal(raw);
-      const hasDietRecord = hasDetailedDiet || hasSimpleDiet;
+      const explicitDietMode = explicitMode === "simple" || explicitMode === "detailed";
+      const hasDietRecord = hasDetailedDiet || hasSimpleDiet || explicitDietMode;
       let recordMode = "none";
       let reason = "no_signal";
-      if (hasDetailedDiet && hasSimpleDiet) {
+      if (explicitMode === "detailed" && hasSimpleDiet) {
+        recordMode = "mixed";
+        reason = "explicit_detailed_with_simple_signal";
+      } else if (explicitMode === "simple" && hasDetailedDiet) {
+        recordMode = "mixed";
+        reason = "explicit_simple_with_detailed_signal";
+      } else if (explicitMode === "weight_only" && (hasDetailedDiet || hasSimpleDiet)) {
+        recordMode = "mixed";
+        reason = "explicit_weight_only_with_diet_signal";
+      } else if (explicitMode) {
+        recordMode = explicitMode;
+        reason = "explicit_record_mode";
+      } else if (hasDetailedDiet && hasSimpleDiet) {
         recordMode = "mixed";
         reason = "mixed_detailed_simple_signals";
       } else if (hasDetailedDiet) {
@@ -6312,10 +6385,10 @@ Notes:
         recordMode,
         hasDetailedDiet,
         hasSimpleDiet,
-        hasWeightOnly,
+        hasWeightOnly: recordMode === "weight_only" || hasWeightOnly,
         hasDietRecord,
-        hasMacroAnalysisPermission: recordMode === "detailed",
-        hasCoachActionPermission: recordMode === "detailed",
+        hasMacroAnalysisPermission: recordMode === "detailed" && hasDetailedDiet,
+        hasCoachActionPermission: recordMode === "detailed" && hasDetailedDiet,
         futureGoalSnapshotCandidate: recordMode === "detailed",
         reason
       };
@@ -6334,7 +6407,7 @@ Notes:
 
     function summarizeDietResolution(records = []){
       const inferences = (Array.isArray(records) ? records : []).map(inferRecordMode);
-      const detailedDietDays = inferences.filter(item => item.recordMode === "detailed").length;
+      const detailedDietDays = inferences.filter(item => item.recordMode === "detailed" && item.hasDetailedDiet).length;
       const simpleDietDays = inferences.filter(item => item.recordMode === "simple").length;
       const weightOnlyDays = inferences.filter(item => item.recordMode === "weight_only").length;
       const mixedDietDays = inferences.filter(item => item.recordMode === "mixed").length;
@@ -6678,6 +6751,7 @@ Notes:
       const existing = getRecordByDate(normalizedDate) || normalizeRecord({ date: normalizedDate, meals: [] });
       const next = normalizeRecord({
         date: normalizedDate,
+        recordMode: Object.prototype.hasOwnProperty.call(rawRecord, "recordMode") ? rawRecord.recordMode : existing.recordMode,
         weight: Object.prototype.hasOwnProperty.call(rawRecord, "weight") ? rawRecord.weight : existing.weight,
         adherence: Object.prototype.hasOwnProperty.call(rawRecord, "adherence") ? rawRecord.adherence : existing.adherence,
         adherencePercent: Object.prototype.hasOwnProperty.call(rawRecord, "adherencePercent") ? rawRecord.adherencePercent : existing.adherencePercent,
@@ -6697,6 +6771,78 @@ Notes:
 
     function setRecordFeedback(tone, message){
       recordsState.feedback = message ? { tone, message } : null;
+    }
+
+    function getEditableRecordMode(record){
+      const inferred = inferRecordMode(record);
+      if (RECORD_MODES.includes(inferred.recordMode)) return inferred.recordMode;
+      if (inferred.recordMode === "mixed") {
+        return hasDetailedDietSignal(record) ? "detailed" : "simple";
+      }
+      return "weight_only";
+    }
+
+    function getSelectedRecordMode(){
+      return getEditableRecordMode(getRecordByDate(getSelectedRecordDate()));
+    }
+
+    function getRecordModeHint(mode){
+      if (mode === "simple") return "상·중·하 간단 평가만 남깁니다. 탄단지 반복 판단은 상세 기록이 필요합니다.";
+      if (mode === "detailed") return "식사별 탄수화물·단백질·지방을 저장합니다. 자동 점수는 설정에 따라 계산합니다.";
+      return "체중과 메모만 저장합니다. 식단 원인은 이 기록만으로 판단하지 않습니다.";
+    }
+
+    function getRecordModeLabel(mode){
+      return RECORD_MODE_LABELS[mode] || RECORD_MODE_LABELS.weight_only;
+    }
+
+    function clearDietEvidenceForMode(mode, existing = null){
+      const update = {
+        adherencePercent: null,
+        adherenceScoringVersion: null,
+        adherenceLockedAt: null,
+        goalSnapshot: null,
+        snapshotSource: null
+      };
+      if (mode === "simple") {
+        update.meals = [];
+        update.adherence = ["high","medium","low"].includes(existing?.adherence) ? existing.adherence : "medium";
+        update.adherenceSource = "manual";
+      } else if (mode === "weight_only") {
+        update.meals = [];
+        update.adherence = "medium";
+        update.adherenceSource = "manual";
+      } else if (mode === "detailed") {
+        update.adherence = "medium";
+        update.adherenceSource = existing?.adherenceSource === "auto" ? "auto" : "manual";
+      }
+      return update;
+    }
+
+    function setRecordModeForSelectedDate(mode){
+      const nextMode = normalizeRecordMode(mode) || "weight_only";
+      const date = getSelectedRecordDate();
+      const existing = getRecordByDate(date);
+      const currentMode = getEditableRecordMode(existing);
+      if (currentMode === nextMode && existing?.recordMode === nextMode) return { changed: false, mode: nextMode };
+
+      const hasMeals = Array.isArray(existing?.meals) && existing.meals.length > 0;
+      if (hasMeals && currentMode === "detailed" && nextMode !== "detailed") {
+        const confirmed = window.confirm("상세 식사 기록을 삭제하고 기록 방식을 바꿀까요?");
+        if (!confirmed) {
+          setRecordFeedback("warn", "기록 방식 전환을 취소했습니다.");
+          return { changed: false, cancelled: true, mode: currentMode };
+        }
+      }
+
+      const nextRecord = upsertRecord({
+        date,
+        recordMode: nextMode,
+        ...clearDietEvidenceForMode(nextMode, existing)
+      });
+      setRecordFeedback("ok", `${getRecordModeLabel(nextMode)}으로 전환했습니다.`);
+      syncRecordInputsForDate(date);
+      return { changed: true, mode: nextMode, record: nextRecord };
     }
 
     function setTodayInputFeedback(tone, messages){
@@ -6740,20 +6886,51 @@ Notes:
     function syncRecordInputsForDate(date){
       const selectedDate = normalizeDateString(date) || getTodayDateString();
       const record = getRecordByDate(selectedDate);
+      const recordMode = getEditableRecordMode(record);
       ids.recordDate.value = selectedDate;
       ids.recordWeight.value = Number.isFinite(record?.weight)
         ? record.weight.toFixed(2)
         : (selectedDate === getTodayDateString() ? String(state.weight) : "");
       ids.recordAdherence.value = record?.adherence || "medium";
       ids.recordNote.value = record?.note || "";
+      ids.recordModeHint.textContent = getRecordModeHint(recordMode);
       resetMealInputsForDate(selectedDate);
     }
 
+    function renderRecordModeChips(){
+      const mode = getSelectedRecordMode();
+      drawChips(
+        "recordModeChips",
+        [
+          { value: "weight_only", label: "체중만 기록" },
+          { value: "simple", label: "간단 기록" },
+          { value: "detailed", label: "상세 기록" }
+        ],
+        mode,
+        value => setRecordModeForSelectedDate(value)
+      );
+      Array.from(document.querySelectorAll("#recordModeChips .chip")).forEach(button => {
+        button.dataset.recordMode = button.textContent === "간단 기록"
+          ? "simple"
+          : button.textContent === "상세 기록"
+            ? "detailed"
+            : "weight_only";
+      });
+      ids.recordModeHint.textContent = getRecordModeHint(mode);
+    }
+
     function renderRecordAdherenceInputState(){
-      const autoOn = !!ids.autoDietAnalysis.checked;
-      ids.recordAdherence.disabled = autoOn;
-      document.getElementById("recordAdherenceField").classList.toggle("disabled-field", autoOn);
-      document.getElementById("recordAdherenceAutoNote").classList.toggle("hidden", !autoOn);
+      const mode = getSelectedRecordMode();
+      const isSimple = mode === "simple";
+      const isDetailed = mode === "detailed";
+      ids.recordAdherence.disabled = !isSimple;
+      document.getElementById("recordAdherenceField").classList.toggle("hidden", !isSimple);
+      document.getElementById("recordAdherenceAutoNote").classList.toggle("hidden", !isSimple);
+      document.querySelector(".records-meal-group")?.classList.toggle("hidden", !isDetailed);
+      ["mealCarbs","mealProtein","mealFat","mealAlcoholKcal","mealOtherKcal","mealMemo"].forEach(id => {
+        ids[id].disabled = !isDetailed;
+      });
+      document.getElementById("saveMealBtn").disabled = !isDetailed;
     }
 
     function getMealTotalsForDate(date){
@@ -9607,6 +9784,8 @@ Notes:
       const hasGoalSnapshot = !!record?.goalSnapshot;
       const snapshotSource = record?.snapshotSource || null;
       const scoringVersion = record?.adherenceScoringVersion || null;
+      const modeInfo = inferRecordMode(record);
+      const explicitMode = getExplicitRecordMode(record);
       const isMealOnlyRecord = !!record && !hasGoalSnapshot && record.meals.length > 0 && !Number.isFinite(record.weight) && !record.note && record.adherence === "medium" && !Number.isFinite(record.adherencePercent);
       const isMeaningfulRecord = !!record && !isMealOnlyRecord && (
         Number.isFinite(record.weight) ||
@@ -9618,6 +9797,12 @@ Notes:
       if (!record) return { percent: null, source: null, hasGoalSnapshot, snapshotSource, scoringVersion, isMeaningfulRecord, isMealOnlyRecord };
       if (Number.isFinite(record.adherencePercent) && record.adherenceSource === "auto") {
         return { percent: clamp(record.adherencePercent, 0, 100), source: "auto", hasGoalSnapshot, snapshotSource, scoringVersion, isMeaningfulRecord, isMealOnlyRecord };
+      }
+      if (explicitMode === "weight_only" || explicitMode === "detailed") {
+        return { percent: null, source: null, hasGoalSnapshot, snapshotSource, scoringVersion, isMeaningfulRecord, isMealOnlyRecord };
+      }
+      if (modeInfo.recordMode !== "simple" && explicitMode) {
+        return { percent: null, source: null, hasGoalSnapshot, snapshotSource, scoringVersion, isMeaningfulRecord, isMealOnlyRecord };
       }
       const manualPercent = getManualAdherencePercent(record.adherence);
       return Number.isFinite(manualPercent)
@@ -9809,6 +9994,9 @@ Notes:
       const normalizedDate = normalizeDateString(date);
       if (!normalizedDate) return { record: null, score: null, snapshotCreated: false };
       const existing = ensureRecordByDate(normalizedDate);
+      if (inferRecordMode(existing).recordMode !== "detailed") {
+        return { record: existing, score: null, snapshotCreated: false, skipped: "record_mode_not_detailed" };
+      }
       const hasExistingSnapshot = !!existing?.goalSnapshot;
       const preferredSource = hasExistingSnapshot
         ? existing.snapshotSource
@@ -9847,6 +10035,7 @@ Notes:
       const today = getTodayDateString();
       const existing = getRecordByDate(today);
       if (!existing) return { synced: false, reason: "no_today_record" };
+      if (inferRecordMode(existing).recordMode !== "detailed") return { synced: false, reason: "record_mode_not_detailed" };
       if (!ids.autoDietAnalysis.checked) return { synced: false, reason: "auto_off" };
       if (!currentResult?.isCalculable) return { synced: false, reason: "not_calculable" };
       const weightMismatch = getTodayRecordWeightMismatch();
@@ -9974,13 +10163,15 @@ Notes:
         return { saved: false, reason: "invalid_weight" };
       }
       const existing = getRecordByDate(today);
+      const nextRecordMode = existing?.recordMode || (hasDetailedDietSignal(existing) ? "detailed" : "weight_only");
       let record = upsertRecord({
         date: today,
+        recordMode: nextRecordMode,
         weight,
         adherence: existing?.adherence || "medium",
         adherenceSource: ids.autoDietAnalysis.checked ? existing?.adherenceSource : "manual"
       });
-      if (ids.autoDietAnalysis.checked) {
+      if (ids.autoDietAnalysis.checked && nextRecordMode === "detailed") {
         const autoResult = persistAutoAdherenceForDate(today, calculate(), {
           snapshotSource: existing?.goalSnapshot ? existing.snapshotSource : "saved_at_entry",
           allowSnapshotCreation: true
@@ -10101,6 +10292,12 @@ Notes:
 
     function saveMealEntry(){
       const date = getSelectedRecordDate();
+      const recordMode = getSelectedRecordMode();
+      if (recordMode !== "detailed") {
+        setRecordFeedback("warn", "상세 기록으로 전환하세요.");
+        render();
+        return { saved: false, reason: "record_mode_not_detailed" };
+      }
       const baseMealLabel = isMealLabelOption(ids.mealLabel.value) ? ids.mealLabel.value : getSuggestedMealLabel(date);
       const mealLabel = getNextMealLabelForDate(date, baseMealLabel);
       const carbsRaw = String(ids.mealCarbs.value || "").trim();
@@ -10112,14 +10309,14 @@ Notes:
       if (!date) {
         setRecordFeedback("bad", "기록 날짜를 먼저 선택해 주세요.");
         render();
-        return;
+        return { saved: false, reason: "missing_date" };
       }
       const hasMealContent = [carbsRaw, proteinRaw, fatRaw, alcoholKcalRaw, otherKcalRaw]
         .some(value => normalizeMacroValue(value) > 0) || memoRaw.length > 0;
       if (!hasMealContent) {
         setRecordFeedback("warn", "저장할 식사 내용이 없습니다. 탄단지, 알코올 kcal, 기타 칼로리 또는 메모를 입력해 주세요.");
         render();
-        return;
+        return { saved: false, reason: "empty_meal" };
       }
       const meal = normalizeMeal({
         mealLabel,
@@ -10133,7 +10330,7 @@ Notes:
       }, ensureRecordByDate(date)?.meals.length || 0);
       const record = ensureRecordByDate(date);
       const nextMeals = [...record.meals, meal];
-      upsertRecord({ date, meals: nextMeals });
+      upsertRecord({ date, recordMode: "detailed", meals: nextMeals });
       persistAutoAdherenceForDate(date, calculate(), {
         snapshotSource: record?.goalSnapshot ? record.snapshotSource : "saved_at_entry",
         forceLateSnapshot: false
@@ -10142,33 +10339,44 @@ Notes:
       setRecordFeedback(softLimitMessage ? "warn" : "ok", softLimitMessage || `${meal.mealLabel} 식사를 저장했습니다.`);
       syncRecordInputsForDate(date);
       render();
+      return { saved: true, meal, record: getRecordByDate(date) };
     }
 
     function saveRecord(){
       const date = getSelectedRecordDate();
       const weightRaw = String(ids.recordWeight.value || "").trim();
       const existing = getRecordByDate(date);
+      const recordMode = getSelectedRecordMode();
       const record = normalizeRecord({
         date,
+        recordMode,
         weight: weightRaw,
-        adherence: ids.autoDietAnalysis.checked ? (existing?.adherence || "medium") : ids.recordAdherence.value,
-        adherenceSource: ids.autoDietAnalysis.checked ? existing?.adherenceSource : "manual",
+        adherence: recordMode === "simple" ? ids.recordAdherence.value : (existing?.adherence || "medium"),
+        adherenceSource: recordMode === "simple" ? "manual" : existing?.adherenceSource,
         note: ids.recordNote.value.trim()
       });
-      if (!record.date || !weightRaw || !Number.isFinite(record.weight)) {
-        setRecordFeedback("bad", "날짜와 체중을 먼저 입력해 주세요.");
+      const hasWeightInput = weightRaw !== "";
+      if (!record.date) {
+        setRecordFeedback("bad", "날짜를 먼저 선택해 주세요.");
+        render();
+        return;
+      }
+      if ((hasWeightInput && !Number.isFinite(record.weight)) || (recordMode === "weight_only" && !Number.isFinite(record.weight))) {
+        setRecordFeedback("bad", recordMode === "weight_only" ? "체중만 기록하려면 체중을 입력해 주세요." : "체중 입력값을 확인해 주세요.");
         render();
         return;
       }
       upsertRecord({
         date,
-        weight: weightRaw,
-        adherence: ids.autoDietAnalysis.checked ? (existing?.adherence || "medium") : ids.recordAdherence.value,
-        adherenceSource: ids.autoDietAnalysis.checked ? existing?.adherenceSource : "manual",
+        recordMode,
+        ...(recordMode !== "detailed" ? clearDietEvidenceForMode(recordMode, existing) : {}),
+        weight: hasWeightInput ? weightRaw : existing?.weight,
+        adherence: recordMode === "simple" ? ids.recordAdherence.value : (existing?.adherence || "medium"),
+        adherenceSource: recordMode === "simple" ? "manual" : existing?.adherenceSource,
         note: ids.recordNote.value.trim()
       });
-      setRecordFeedback("ok", `${record.date} 체중 기록을 저장했습니다.`);
-      if (ids.autoDietAnalysis.checked) {
+      setRecordFeedback("ok", `${record.date} ${getRecordModeLabel(recordMode)}을 저장했습니다.`);
+      if (ids.autoDietAnalysis.checked && recordMode === "detailed") {
         persistAutoAdherenceForDate(date, calculate(), {
           snapshotSource: existing?.goalSnapshot ? existing.snapshotSource : "saved_at_entry",
           allowSnapshotCreation: true
@@ -10201,7 +10409,7 @@ Notes:
 
     function exportRecordsJson(){
       const payload = {
-        version: 2,
+        version: 3,
         exportedAt: new Date().toISOString(),
         records: getSortedRecords(),
         inbodyRecords: Array.isArray(state.inbodyRecords) ? [...state.inbodyRecords] : []
@@ -10505,6 +10713,8 @@ Notes:
         btn.type = "button";
         btn.className = `chip${item.value === current ? " active" : ""}`;
         btn.textContent = item.label;
+        btn.dataset.value = item.value;
+        if (hostId === "recordModeChips") btn.dataset.recordMode = item.value;
         btn.addEventListener("click", () => {
           onChange(item.value);
           render();
@@ -11274,10 +11484,10 @@ Notes:
       if (!ids.autoDietAnalysis.checked) {
         host.innerHTML = `
           <div class="notice">
-            <h4>직접 기록 유지 중</h4>
+            <h4>자동 점수 꺼짐</h4>
             <ul>
-              <li>직접 평가로 저장되는 상태입니다. 탄·단·지 세부 감점은 자동 계산보다 약하게 봅니다.</li>
-              <li>자동 분석을 켜면 오늘 먹은 총합을 기준으로 식단 달성률 근거를 나눠 계산합니다.</li>
+              <li>자동 점수는 만들지 않습니다.</li>
+              <li>상세 식사 기록은 탄단지 분석 기준으로 계속 남습니다.</li>
             </ul>
           </div>
         `;
@@ -11515,11 +11725,30 @@ Notes:
       const autoDietOn = !!ids.autoDietAnalysis.checked;
       const otherKcalIsHigh = totals.otherKcal >= 250 || (totals.totalKcal > 0 && totals.otherKcal / totals.totalKcal >= 0.25);
       const hasAnyRecord = !!record;
+      const modeInfo = inferRecordMode(record);
+      const recordMode = getEditableRecordMode(record);
+      const manualValue = ["high","medium","low"].includes(record?.adherence) ? adherenceLabel(record.adherence) : null;
 
       let status = "empty";
       let title = "선택 날짜 기록이 없습니다.";
       let copy = "기록이 아직 부족합니다. 주요 식사부터 기록해 주세요.";
-      if (hasAnyRecord && mealCount === 0) {
+      if (hasAnyRecord && modeInfo.recordMode === "mixed") {
+        status = "partial";
+        title = "기록 방식이 섞인 날입니다.";
+        copy = "간단 평가와 상세 식사 기록을 같은 날의 핵심 근거로 함께 쓰지 않습니다.";
+      } else if (hasAnyRecord && recordMode === "weight_only") {
+        status = "low";
+        title = "체중만 기록된 날입니다.";
+        copy = "식단 분석은 하지 않습니다.";
+      } else if (hasAnyRecord && recordMode === "simple") {
+        status = "partial";
+        title = "간단 기록입니다.";
+        copy = "탄단지 반복 판단은 상세 기록이 필요합니다.";
+      } else if (hasAnyRecord && recordMode === "detailed" && mealCount === 0) {
+        status = "partial";
+        title = "상세 기록입니다.";
+        copy = "식사를 저장하면 식사별 탄단지 분석에 사용할 수 있습니다.";
+      } else if (hasAnyRecord && mealCount === 0) {
         status = "low";
         title = "기록이 아직 부족합니다.";
         copy = "주요 식사부터 기록해 주세요.";
@@ -11537,11 +11766,16 @@ Notes:
 
       const extra = hasGoalSnapshot
         ? "기록 당시 목표 기준이 함께 저장되어 있습니다."
-        : "기록 당시 목표 기준이 없어 세부 비교는 제한됩니다.";
+        : recordMode === "simple"
+          ? "바쁜 날 기록 흐름을 이어가는 용도입니다."
+          : recordMode === "weight_only"
+            ? "식단 원인을 보려면 상세 기록으로 전환하세요."
+            : "기록 당시 목표 기준이 없어 세부 비교는 제한됩니다.";
       const chips = [
+        getRecordModeLabel(modeInfo.recordMode === "mixed" ? "mixed" : recordMode),
         mealCount === 0 ? "식사 0끼" : (mealCount === 1 ? "식사 1끼" : `식사 ${mealCount}끼`),
         hasWeight ? "체중 있음" : "체중 없음",
-        hasAutoAdherence ? "자동 평가 있음" : (autoDietOn ? "자동 평가 대기" : "직접 평가"),
+        hasAutoAdherence ? "자동 점수 있음" : (recordMode === "simple" && manualValue ? `간단 평가 ${manualValue}` : (autoDietOn && recordMode === "detailed" ? "자동 점수 대기" : "자동 점수 없음")),
         snapshotGoalLabel ? `목표: ${snapshotGoalLabel}` : "목표 기록 없음"
       ];
       if (totals.otherKcal > 0) chips.push(`기타 ${Math.round(totals.otherKcal).toLocaleString()} kcal`);
@@ -11573,6 +11807,7 @@ Notes:
       const recentAvg = averageWeight(recent7);
       const prevAvg = averageWeight(previous7);
       const trend = recent7.length && previous7.length ? round(recentAvg - prevAvg, 2) : 0;
+      renderRecordModeChips();
       renderRecordAdherenceInputState();
       renderRecordQualitySummary();
 
@@ -11593,7 +11828,7 @@ Notes:
       } else {
         table.innerHTML = `
           <div class="table-row table-head">
-          <div>날짜</div><div>체중</div><div>식단 평가</div><div>삭제</div>
+          <div>날짜</div><div>체중</div><div>기록 방식</div><div>삭제</div>
           </div>
           ${sorted.map(item => {
             const note = String(item.note || "").trim();
@@ -13223,13 +13458,15 @@ Notes:
           const normalized = normalizeRecord({ date: "2026-04-22", weight: 75, adherence: "medium", note: "" });
           assertTest(Array.isArray(normalized.meals) && normalized.meals.length === 0, "legacy record should get meals []");
           assertTest(normalized.weight === 75, "weight should survive normalization");
+          assertTest(normalized.recordMode === null, "legacy record without explicit mode should stay inferable");
         }));
         results.push(runNamedTest("import compatibility", () => {
           const legacyImported = parseImportedRecordsPayload({ records: [{ date: "2026-04-22", weight: 75, adherence: "medium", note: "" }] });
           const modernImported = parseImportedRecordsPayload({
-            version: 2,
+            version: 3,
             records: [{
               date: "2026-04-22",
+              recordMode: "detailed",
               weight: 75,
               adherence: "medium",
               note: "",
@@ -13240,6 +13477,7 @@ Notes:
           assertTest(legacyImported[0].meals.length === 0, "legacy import should add empty meals array");
           assertTest(modernImported.length === 1, "modern import should produce one record");
           assertTest(modernImported[0].meals.length === 1, "modern import should preserve meals");
+          assertTest(modernImported[0].recordMode === "detailed", "modern import should preserve recordMode");
           assertTest(modernImported[0].meals[0].alcoholKcal === 0, "modern import should default missing alcohol kcal to zero");
           assertTest(modernImported[0].meals[0].otherKcal === 0, "modern import should default missing other kcal to zero");
         }));
@@ -13255,9 +13493,14 @@ Notes:
     function runMealRecordTests(){
       return withRecordTestSandbox(() => {
         const results = [];
+        const markDetailedDate = date => {
+          ids.recordDate.value = date;
+          upsertRecord({ date, recordMode: "detailed" });
+        };
         results.push(runNamedTest("same-date merge", () => {
           recordsState.items = normalizeRecordsCollection([{ date: "2026-04-22", weight: 75, adherence: "medium", note: "" }]);
           ids.recordDate.value = "2026-04-22";
+          markDetailedDate("2026-04-22");
           ids.mealLabel.value = "아침";
           ids.mealCarbs.value = "50";
           ids.mealProtein.value = "30";
@@ -13271,6 +13514,7 @@ Notes:
         results.push(runNamedTest("meal accumulation", () => {
           recordsState.items = [];
           ids.recordDate.value = "2026-04-22";
+          markDetailedDate("2026-04-22");
           ["아침", "점심", "저녁"].forEach((label, index) => {
             ids.mealLabel.value = label;
             ids.mealCarbs.value = String(40 + index * 10);
@@ -13288,6 +13532,7 @@ Notes:
         results.push(runNamedTest("meal label button numbering", () => {
           recordsState.items = [];
           ids.recordDate.value = "2026-04-22";
+          markDetailedDate("2026-04-22");
           ["간식", "간식", "점심", "점심", "술", "술"].forEach((label, index) => {
             ids.mealLabel.value = label;
             ids.mealCarbs.value = label === "술" ? "" : String(10 + index);
@@ -13302,6 +13547,7 @@ Notes:
           assertTest(record.meals.map(meal => meal.mealLabel).join(",") === "간식,간식2,점심,점심2,술,술2", "same-day duplicate meal labels should receive visible numbers");
 
           ids.recordDate.value = "2026-04-23";
+          markDetailedDate("2026-04-23");
           ids.mealLabel.value = "간식";
           ids.mealCarbs.value = "10";
           ids.mealProtein.value = "";
@@ -13414,6 +13660,7 @@ Notes:
         results.push(runNamedTest("meal save preserves non-macro kcal", () => {
           recordsState.items = [];
           ids.recordDate.value = "2026-04-22";
+          markDetailedDate("2026-04-22");
           ids.mealLabel.value = "non-macro meal";
           ids.mealCarbs.value = "50";
           ids.mealProtein.value = "30";
@@ -13439,6 +13686,7 @@ Notes:
         results.push(runNamedTest("alcohol-only meal save", () => {
           recordsState.items = [];
           ids.recordDate.value = "2026-04-22";
+          markDetailedDate("2026-04-22");
           ids.mealLabel.value = "alcohol only";
           ids.mealCarbs.value = "";
           ids.mealProtein.value = "";
@@ -13456,6 +13704,7 @@ Notes:
         results.push(runNamedTest("other-kcal-only meal save", () => {
           recordsState.items = [];
           ids.recordDate.value = "2026-04-22";
+          markDetailedDate("2026-04-22");
           ids.mealLabel.value = "other only";
           ids.mealCarbs.value = "";
           ids.mealProtein.value = "";
@@ -13473,6 +13722,7 @@ Notes:
         results.push(runNamedTest("empty meal does not save", () => {
           recordsState.items = [];
           ids.recordDate.value = "2026-04-22";
+          markDetailedDate("2026-04-22");
           ids.mealLabel.value = "empty";
           ids.mealCarbs.value = "";
           ids.mealProtein.value = "";
@@ -13487,6 +13737,7 @@ Notes:
         results.push(runNamedTest("memo-only meal save", () => {
           recordsState.items = [];
           ids.recordDate.value = "2026-04-22";
+          markDetailedDate("2026-04-22");
           ids.mealLabel.value = "memo only";
           ids.mealCarbs.value = "0";
           ids.mealProtein.value = "0";
@@ -13568,7 +13819,7 @@ Notes:
           const scenarios = [
             {
               records: [{ date, weight: 75, adherence: "medium", note: "", meals: [] }],
-              includes: ["기록이 아직 부족합니다", "식사 0끼", "체중 있음"]
+              includes: ["체중만 기록된 날", "식단 분석은 하지 않습니다", "식사 0끼", "체중 있음"]
             },
             {
               records: [{ date, meals: [{ id: "m1", mealLabel: "아침", carbs: 30, protein: 20, fat: 8, memo: "", createdAt: `${date}T08:00:00.000Z` }] }],
@@ -13579,7 +13830,7 @@ Notes:
                 { id: "m1", mealLabel: "아침", carbs: 30, protein: 20, fat: 8, memo: "", createdAt: `${date}T08:00:00.000Z` },
                 { id: "m2", mealLabel: "점심", carbs: 40, protein: 25, fat: 10, memo: "", createdAt: `${date}T12:00:00.000Z` }
               ] }],
-              includes: ["점수 근거를 확인할 수 있습니다", "식사 2끼", "자동 평가 있음", "목표: 린매스업"]
+              includes: ["점수 근거를 확인할 수 있습니다", "식사 2끼", "자동 점수 있음", "목표: 린매스업"]
             }
           ];
           scenarios.forEach(scenario => {
@@ -13706,6 +13957,7 @@ Notes:
           }));
           recordsState.items = normalizeRecordsCollection([{ date: "2026-04-22", meals }]);
           ids.recordDate.value = "2026-04-22";
+          markDetailedDate("2026-04-22");
           ids.mealLabel.value = "추가 식사";
           ids.mealCarbs.value = "20";
           ids.mealProtein.value = "20";
@@ -14590,6 +14842,7 @@ Notes:
           recordsState.feedback = null;
           ids.recordDate.value = todayRecordDate;
           syncRecordInputsForDate(todayRecordDate);
+          setRecordModeForSelectedDate("detailed");
           ids.recordWeight.value = "75";
           ids.recordAdherence.value = "medium";
           saveRecord();
@@ -14630,6 +14883,7 @@ Notes:
           recordsState.items = [];
           ids.recordDate.value = today;
           syncRecordInputsForDate(today);
+          setRecordModeForSelectedDate("simple");
           ids.recordWeight.value = "75";
           ids.recordAdherence.value = "high";
           saveRecord();
@@ -14648,6 +14902,7 @@ Notes:
           recordsState.items = normalizeRecordsCollection([{ date: pastDate, weight: 75, adherence: "medium", note: "" }]);
           ids.recordDate.value = pastDate;
           syncRecordInputsForDate(pastDate);
+          setRecordModeForSelectedDate("detailed");
           ids.mealLabel.value = "late meal";
           ids.mealCarbs.value = "45";
           ids.mealProtein.value = "30";
@@ -14672,7 +14927,8 @@ Notes:
           const target = calculate();
           recordsState.items = normalizeRecordsCollection([{
             date: pastDate,
-            adherence: "high",
+            recordMode: "detailed",
+            adherence: "medium",
             goalSnapshot: buildGoalSnapshotFromCurrentState(target, "saved_at_entry"),
             snapshotSource: "saved_at_entry",
             meals: [
@@ -14879,7 +15135,7 @@ Notes:
           ids.autoDietAnalysis.checked = false;
           renderTodayAdherencePanel({ isAvailable: false });
           const text = document.getElementById("todayAdherenceContent").textContent || "";
-          assertTest(text.includes("직접 평가") && text.includes("탄·단·지 세부 감점"), "manual guidance should render when auto analysis is off");
+          assertIncludesAll(text, ["자동 점수는 만들지 않습니다", "상세 식사 기록", "탄단지 분석 기준"], "auto score off guidance should render");
         }));
 
         results.push(runNamedTest("adherence toggle on renders score", () => {
@@ -14971,26 +15227,32 @@ Notes:
           assertExcludesAll(text, ["기타 칼로리가 탄단지 판단을 가립니다", "추가 술과 안주는 멈추세요"], "extra evidence should not repeat coach actions or banned other kcal copy");
         }));
 
-        results.push(runNamedTest("adherence D2 direct evaluation uses easy copy", () => {
+        results.push(runNamedTest("adherence D2 auto score off uses clear copy", () => {
           ids.autoDietAnalysis.checked = false;
           renderTodayAdherencePanel({ isAvailable: false });
           const text = document.getElementById("todayAdherenceContent").textContent || "";
-          assertIncludesAll(text, ["직접 평가", "탄·단·지 세부 감점", "자동 계산보다 약하게 봅니다"], "direct evaluation copy");
-          assertExcludesAll(text, ["manual", "manual adherence"], "direct evaluation should not expose internal manual wording");
+          assertIncludesAll(text, ["자동 점수 꺼짐", "자동 점수는 만들지 않습니다", "상세 식사 기록"], "auto score off copy");
+          assertExcludesAll(text, ["manual", "manual adherence", "끄면 직접 상/중/하"], "auto score off should not expose old direct-evaluation framing");
         }));
 
-        results.push(runNamedTest("records manual adherence input disables when auto is on", () => {
+        results.push(runNamedTest("records simple mode keeps manual adherence input enabled", () => {
           ids.autoDietAnalysis.checked = true;
+          recordsState.items = [];
+          ids.recordDate.value = today;
+          setRecordModeForSelectedDate("simple");
           renderRecordsPanel();
-          assertTest(ids.recordAdherence.disabled === true, "records adherence select should be disabled when auto analysis is on");
-          assertTest(!document.getElementById("recordAdherenceAutoNote").classList.contains("hidden"), "records auto note should be visible when auto analysis is on");
+          assertTest(ids.recordAdherence.disabled === false, "simple record should enable direct evaluation");
+          assertTest(!document.getElementById("recordAdherenceField").classList.contains("hidden"), "simple record should show direct evaluation");
         }));
 
-        results.push(runNamedTest("records manual adherence input enables when auto is off", () => {
+        results.push(runNamedTest("records detailed mode hides manual adherence input", () => {
           ids.autoDietAnalysis.checked = false;
+          recordsState.items = [];
+          ids.recordDate.value = today;
+          setRecordModeForSelectedDate("detailed");
           renderRecordsPanel();
-          assertTest(ids.recordAdherence.disabled === false, "records adherence select should be enabled when auto analysis is off");
-          assertTest(document.getElementById("recordAdherenceAutoNote").classList.contains("hidden"), "records auto note should hide when auto analysis is off");
+          assertTest(ids.recordAdherence.disabled === true, "detailed record should disable direct evaluation");
+          assertTest(document.getElementById("recordAdherenceField").classList.contains("hidden"), "detailed record should hide direct evaluation");
         }));
 
         return results;
@@ -15665,6 +15927,23 @@ Notes:
           assertTest(summary.analysisPermission === "none", "empty record should not allow diet analysis");
         }));
 
+        results.push(runNamedTest("record mode explicit values are respected", () => {
+          const weightOnly = inferRecordMode({ date: "2026-04-28", recordMode: "weight_only" });
+          const simple = inferRecordMode({ date: "2026-04-28", recordMode: "simple", adherence: "medium" });
+          const detailed = inferRecordMode({ date: "2026-04-28", recordMode: "detailed" });
+          assertTest(weightOnly.recordMode === "weight_only", "explicit weight_only should be respected");
+          assertTest(simple.recordMode === "simple", "explicit simple should be respected");
+          assertTest(detailed.recordMode === "detailed", "explicit detailed mode should be respected");
+          assertTest(detailed.hasMacroAnalysisPermission === false, "empty detailed mode should not become macro permission before meals");
+        }));
+
+        results.push(runNamedTest("record mode invalid explicit value falls back to signals", () => {
+          const invalidWeight = inferRecordMode({ date: "2026-04-28", recordMode: "legacy_unknown", weight: 75 });
+          const invalidMeal = inferRecordMode({ date: "2026-04-28", recordMode: "legacy_unknown", meals: [makeMeal()] });
+          assertTest(invalidWeight.recordMode === "weight_only", "invalid mode with weight should fall back safely");
+          assertTest(invalidMeal.recordMode === "detailed", "invalid mode with meals should fall back to detailed signal");
+        }));
+
         results.push(runNamedTest("record mode weight only has no diet permission", () => {
           const mode = inferRecordMode({ date: "2026-04-28", weight: 75 });
           assertTest(mode.recordMode === "weight_only", "weight-only record should be weight_only");
@@ -15720,6 +15999,15 @@ Notes:
           const mode = inferRecordMode({ date: "2026-04-28", adherence: "high", adherenceSource: "manual", meals: [makeMeal()] });
           assertTest(mode.recordMode === "mixed", "manual and meal signals on the same date should be mixed");
           assertTest(mode.hasDetailedDiet === true && mode.hasSimpleDiet === true, "mixed should expose both signals");
+        }));
+
+        results.push(runNamedTest("record mode explicit conflicts become mixed", () => {
+          const simpleWithMeal = inferRecordMode({ date: "2026-04-28", recordMode: "simple", meals: [makeMeal()] });
+          const detailedWithManual = inferRecordMode({ date: "2026-04-28", recordMode: "detailed", adherence: "high" });
+          const weightWithManual = inferRecordMode({ date: "2026-04-28", recordMode: "weight_only", adherence: "low" });
+          assertTest(simpleWithMeal.recordMode === "mixed", "simple mode with meals should be mixed");
+          assertTest(detailedWithManual.recordMode === "mixed", "detailed mode with manual-only signal should be mixed");
+          assertTest(weightWithManual.recordMode === "mixed", "weight_only mode with diet signal should be mixed");
         }));
 
         results.push(runNamedTest("record mode mixed does not auto promote to coach action", () => {
@@ -15837,6 +16125,248 @@ Notes:
           const summary = summarizeDietResolution([{ date: "2026-04-28", adherence: "high" }]);
           assertTest(mode.hasCoachActionPermission === false, "simple record should not have coach action permission");
           assertTest(summary.analysisPermission === "simple_summary", "simple-only summary should remain simple summary even with external evidence");
+        }));
+
+        return results;
+      });
+    }
+
+    function runRecordModeUiTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const makeMeal = (id = "m1") => ({
+          id,
+          mealLabel: "아침",
+          carbs: 40,
+          protein: 25,
+          fat: 10,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "",
+          createdAt: `${today}T08:00:00.000Z`
+        });
+        const fillMealInputs = () => {
+          ids.mealLabel.value = "아침";
+          ids.mealCarbs.value = "40";
+          ids.mealProtein.value = "25";
+          ids.mealFat.value = "10";
+          ids.mealAlcoholKcal.value = "";
+          ids.mealOtherKcal.value = "";
+          ids.mealMemo.value = "";
+        };
+        const withConfirm = (value, callback) => {
+          const originalConfirm = window.confirm;
+          window.confirm = () => value;
+          try {
+            return callback();
+          } finally {
+            window.confirm = originalConfirm;
+          }
+        };
+
+        results.push(runNamedTest("recordMode UI default new date is weight_only", () => {
+          const date = "2026-05-10";
+          recordsState.items = [];
+          ids.recordDate.value = date;
+          syncRecordInputsForDate(date);
+          renderRecordsPanel();
+          const activeText = document.querySelector("#recordModeChips .chip.active")?.textContent || "";
+          assertTest(activeText === "체중만 기록", "new date should default to weight_only");
+          assertTest(document.querySelector(".records-meal-group").classList.contains("hidden"), "weight_only should hide meal input");
+          assertTest(document.getElementById("recordAdherenceField").classList.contains("hidden"), "weight_only should hide simple evaluation");
+        }));
+
+        results.push(runNamedTest("recordMode weight_only save stores explicit mode without diet score", () => {
+          const date = "2026-05-11";
+          recordsState.items = [];
+          ids.recordDate.value = date;
+          syncRecordInputsForDate(date);
+          renderRecordsPanel();
+          ids.recordWeight.value = "75";
+          saveRecord();
+          const record = getRecordByDate(date);
+          const entry = getStoredAdherenceEntry(record);
+          assertTest(record.recordMode === "weight_only", "weight_only save should store recordMode");
+          assertTest(inferRecordMode(record).recordMode === "weight_only", "weight_only save should infer weight_only");
+          assertTest(entry.percent === null, "weight_only should not expose manual default as diet score");
+        }));
+
+        results.push(runNamedTest("recordMode simple save stores manual evaluation only", () => {
+          const date = "2026-05-12";
+          recordsState.items = [];
+          ids.recordDate.value = date;
+          syncRecordInputsForDate(date);
+          setRecordModeForSelectedDate("simple");
+          ids.recordWeight.value = "";
+          ids.recordAdherence.value = "high";
+          saveRecord();
+          const record = getRecordByDate(date);
+          assertTest(record.recordMode === "simple", "simple save should store simple mode");
+          assertTest(record.adherence === "high" && record.adherenceSource === "manual", "simple save should keep manual high");
+          assertTest(record.meals.length === 0, "simple save should not create meals");
+          assertTest(inferRecordMode(record).hasMacroAnalysisPermission === false, "simple should not allow macro analysis");
+        }));
+
+        results.push(runNamedTest("recordMode detailed enables meal input and hides simple evaluation", () => {
+          const date = "2026-05-13";
+          recordsState.items = [];
+          ids.recordDate.value = date;
+          syncRecordInputsForDate(date);
+          setRecordModeForSelectedDate("detailed");
+          renderRecordsPanel();
+          assertTest(!document.querySelector(".records-meal-group").classList.contains("hidden"), "detailed should show meal input");
+          assertTest(document.getElementById("recordAdherenceField").classList.contains("hidden"), "detailed should hide simple evaluation");
+          assertTest(ids.mealCarbs.disabled === false && document.getElementById("saveMealBtn").disabled === false, "detailed should enable meal controls");
+        }));
+
+        results.push(runNamedTest("recordMode simple blocks meal save", () => {
+          const date = "2026-05-14";
+          recordsState.items = [];
+          ids.recordDate.value = date;
+          syncRecordInputsForDate(date);
+          setRecordModeForSelectedDate("simple");
+          fillMealInputs();
+          const saved = saveMealEntry();
+          assertTest(saved?.saved === false && saved.reason === "record_mode_not_detailed", "simple mode should block meal save");
+          assertTest((getRecordByDate(date)?.meals.length || 0) === 0, "simple mode should not save meals");
+          assertTest((recordsState.feedback?.message || "").includes("상세 기록으로 전환하세요"), "simple block should explain required mode");
+        }));
+
+        results.push(runNamedTest("recordMode weight_only blocks meal save", () => {
+          const date = "2026-05-15";
+          recordsState.items = [];
+          ids.recordDate.value = date;
+          syncRecordInputsForDate(date);
+          renderRecordsPanel();
+          fillMealInputs();
+          const saved = saveMealEntry();
+          assertTest(saved?.saved === false && saved.reason === "record_mode_not_detailed", "weight_only mode should block meal save");
+          assertTest((getRecordByDate(date)?.meals.length || 0) === 0, "weight_only should not save meals");
+        }));
+
+        results.push(runNamedTest("recordMode simple to detailed clears simple evidence", () => {
+          const date = "2026-05-16";
+          recordsState.items = [];
+          ids.recordDate.value = date;
+          syncRecordInputsForDate(date);
+          setRecordModeForSelectedDate("simple");
+          ids.recordAdherence.value = "low";
+          saveRecord();
+          setRecordModeForSelectedDate("detailed");
+          const record = getRecordByDate(date);
+          const mode = inferRecordMode(record);
+          assertTest(record.recordMode === "detailed", "simple to detailed should store detailed mode");
+          assertTest(record.adherence === "medium", "simple evidence should be cleared to neutral value");
+          assertTest(mode.recordMode === "detailed" && mode.hasSimpleDiet === false, "detailed mode should not keep simple as core evidence");
+        }));
+
+        results.push(runNamedTest("recordMode detailed to simple with meals requires confirmation", () => {
+          const date = "2026-05-17";
+          recordsState.items = normalizeRecordsCollection([{ date, recordMode: "detailed", meals: [makeMeal()] }]);
+          ids.recordDate.value = date;
+          syncRecordInputsForDate(date);
+          const cancelled = withConfirm(false, () => setRecordModeForSelectedDate("simple"));
+          assertTest(cancelled.cancelled === true, "conversion should cancel when user declines");
+          assertTest(getRecordByDate(date).recordMode === "detailed", "cancelled conversion should keep detailed mode");
+          assertTest(getRecordByDate(date).meals.length === 1, "cancelled conversion should keep meals");
+          const changed = withConfirm(true, () => setRecordModeForSelectedDate("simple"));
+          assertTest(changed.changed === true, "confirmed conversion should change mode");
+          assertTest(getRecordByDate(date).recordMode === "simple", "confirmed conversion should store simple");
+          assertTest(getRecordByDate(date).meals.length === 0, "confirmed conversion should delete meals");
+        }));
+
+        results.push(runNamedTest("recordMode detailed to weight_only with meals requires confirmation", () => {
+          const date = "2026-05-18";
+          recordsState.items = normalizeRecordsCollection([{ date, recordMode: "detailed", weight: 75, meals: [makeMeal()] }]);
+          ids.recordDate.value = date;
+          syncRecordInputsForDate(date);
+          const changed = withConfirm(true, () => setRecordModeForSelectedDate("weight_only"));
+          const record = getRecordByDate(date);
+          assertTest(changed.changed === true, "confirmed conversion should change mode");
+          assertTest(record.recordMode === "weight_only", "detailed to weight_only should store weight_only");
+          assertTest(record.meals.length === 0, "detailed to weight_only should delete meals");
+          assertTest(getStoredAdherenceEntry(record).percent === null, "weight_only conversion should clear diet score");
+        }));
+
+        results.push(runNamedTest("recordMode record list shows readable labels", () => {
+          recordsState.items = normalizeRecordsCollection([
+            { date: "2026-05-19", recordMode: "weight_only", weight: 75 },
+            { date: "2026-05-18", recordMode: "simple", adherence: "high" },
+            { date: "2026-05-17", recordMode: "detailed", meals: [makeMeal()] }
+          ]);
+          ids.recordDate.value = "2026-05-19";
+          syncRecordInputsForDate("2026-05-19");
+          renderRecordsPanel();
+          const text = document.getElementById("recordsTable").textContent || "";
+          assertIncludesAll(text, ["체중만 기록", "간단 평가", "상세 기록"], "record list should show mode labels");
+          assertExcludesAll(text, ["recordMode", "dietResolution", "permission"], "record list should not expose internal mode terms");
+        }));
+
+        results.push(runNamedTest("recordMode quality summary reflects each mode", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-20", recordMode: "weight_only", weight: 75 }]);
+          ids.recordDate.value = "2026-05-20";
+          syncRecordInputsForDate("2026-05-20");
+          renderRecordsPanel();
+          assertIncludesAll(document.getElementById("recordQualitySummaryHost").textContent || "", ["체중만 기록된 날", "식단 분석은 하지 않습니다"], "weight_only quality copy");
+
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-21", recordMode: "simple", adherence: "medium" }]);
+          ids.recordDate.value = "2026-05-21";
+          syncRecordInputsForDate("2026-05-21");
+          renderRecordsPanel();
+          assertIncludesAll(document.getElementById("recordQualitySummaryHost").textContent || "", ["간단 기록", "탄단지 반복 판단은 상세 기록이 필요합니다"], "simple quality copy");
+
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-22", recordMode: "detailed", meals: [makeMeal()] }]);
+          ids.recordDate.value = "2026-05-22";
+          syncRecordInputsForDate("2026-05-22");
+          renderRecordsPanel();
+          assertIncludesAll(document.getElementById("recordQualitySummaryHost").textContent || "", ["상세 기록", "식사 1끼"], "detailed quality copy");
+        }));
+
+        results.push(runNamedTest("recordMode auto score toggle copy avoids old direct-evaluation framing", () => {
+          render();
+          const toggleText = document.getElementById("settingsAutoDietBlock").textContent || "";
+          assertIncludesAll(toggleText, ["식단 점수 자동 계산", "꺼도 상세 기록은 탄단지 분석 기준으로 남습니다"], "auto score toggle copy should explain score-only meaning");
+          assertExcludesAll(toggleText, ["끄면 직접 상/중/하로 기록합니다", "자동 평가를 끄면 직접"], "auto score toggle should not claim auto-off means manual mode");
+        }));
+
+        results.push(runNamedTest("recordMode export import preserves explicit mode", () => {
+          const imported = parseImportedRecordsPayload({
+            version: 3,
+            records: [
+              { date: "2026-05-23", recordMode: "simple", adherence: "low" },
+              { date: "2026-05-24", recordMode: "detailed", meals: [makeMeal()] }
+            ]
+          });
+          assertTest(imported[0].recordMode === "detailed" && imported[1].recordMode === "simple", "imported sorted records should preserve recordMode");
+        }));
+
+        results.push(runNamedTest("recordMode detailed auto off remains detailed without auto score", () => {
+          const date = "2026-05-25";
+          ids.autoDietAnalysis.checked = false;
+          recordsState.items = [];
+          ids.recordDate.value = date;
+          syncRecordInputsForDate(date);
+          setRecordModeForSelectedDate("detailed");
+          fillMealInputs();
+          saveMealEntry();
+          const record = getRecordByDate(date);
+          assertTest(record.recordMode === "detailed", "auto-off meal save should stay detailed");
+          assertTest(record.adherencePercent === null, "auto-off detailed save should not create auto score");
+          assertTest(inferRecordMode(record).hasMacroAnalysisPermission === true, "auto-off detailed meal still has macro analysis candidate");
+        }));
+
+        results.push(runNamedTest("recordMode detailed with meals stays detailed without goalSnapshot", () => {
+          const mode = inferRecordMode({ date: "2026-05-26", recordMode: "detailed", meals: [makeMeal()] });
+          assertTest(mode.recordMode === "detailed", "detailed meals should be detailed without goalSnapshot");
+          assertTest(mode.futureGoalSnapshotCandidate === true, "detailed meals should remain future goalSnapshot target");
+        }));
+
+        results.push(runNamedTest("recordMode simple and weight_only keep diet permissions limited", () => {
+          const simpleSummary = summarizeDietResolution([{ date: "2026-05-27", recordMode: "simple", adherence: "high" }]);
+          const weightSummary = summarizeDietResolution([{ date: "2026-05-28", recordMode: "weight_only", weight: 75 }]);
+          assertTest(simpleSummary.analysisPermission === "simple_summary", "simple should stop at simple summary");
+          assertTest(weightSummary.dietDays === 0 && weightSummary.analysisPermission === "none", "weight_only should not count as diet day");
         }));
 
         return results;
@@ -18628,6 +19158,7 @@ Notes:
     window.runWeeklyAdherenceTests = runWeeklyAdherenceTests;
     window.runRecentContextTests = runRecentContextTests;
     window.runRecordModeResolutionTests = runRecordModeResolutionTests;
+    window.runRecordModeUiTests = runRecordModeUiTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
     window.runGoalAwareCopyRegressionTests = runGoalAwareCopyRegressionTests;
     window.runCoachAdherenceCopySeparationTests = runCoachAdherenceCopySeparationTests;
@@ -18647,6 +19178,7 @@ Notes:
     window.inferRecordMode = inferRecordMode;
     window.summarizeDietResolution = summarizeDietResolution;
     window.getDietAnalysisPermission = getDietAnalysisPermission;
+    window.setRecordModeForSelectedDate = setRecordModeForSelectedDate;
     window.buildRecentContext = buildRecentContext;
     window.buildInbodyTrendContext = buildInbodyTrendContext;
 
