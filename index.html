@@ -1,10 +1,12 @@
 <!--
-Version: 6.4-D4
-Stage: 6.4-D4 사용자 체감 문구 polish 및 마감 QA
+Version: 6.5-A1
+Stage: 6.5-A1 InBody 분석 gate 및 근거 출처 문구 정리
 Date: 2026-05-07
 Notes:
-- 사용자 체감 문구 polish 및 마감 QA
-- 점수 산식 / 저장 schema / import/export schema / Coach decision matrix / recentContext engine / fat low 행동 문구 변경 없음
+- InBody 분석 gate 및 근거 출처 문구 정리
+- InBody 탭 중립 관찰 유지
+- Today Coach InBody hint는 기록 수 / 측정 간격 / suspicious 여부에 따라 제한
+- 점수 산식 / 저장 schema / import-export schema / Coach decision matrix / recentContext engine / fat low 행동 문구 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -12,7 +14,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.4-D4</title>
+  <title>탄단지 다이어리 v6.5-A1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3458,7 +3460,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.4-D4</span>
+               <span class="app-version">v6.5-A1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -8951,7 +8953,7 @@ Notes:
       const decisionContext = buildDailyCoachDecisionContext(signals);
       const selectedDecisions = selectDailyCoachDecisions(signals);
       const inbodySignal = getInbodyCoachSignal();
-      const inbodyHint = getDailyCoachInbodyText(inbodySignal, goalType);
+      const inbodyHint = getDailyCoachInbodyText(inbodySignal, goalType, decisionContext);
       const output = {
         items: selectedDecisions.map(decision => ({
           key: decision.key,
@@ -10791,7 +10793,7 @@ Notes:
       training: "운동 참고",
       contextGuard: "최근 기록",
       dataQuality: "기록 확인",
-      inbody: "InBody 참고"
+      inbody: "인바디 분석"
     };
 
     function getCoachItems(coach){
@@ -11130,8 +11132,8 @@ Notes:
         extraItems.push({
           key: "inbody",
           label: ADHERENCE_EXTRA_LABELS.inbody,
-          state: "InBody는 오늘 점수의 보조 근거입니다.",
-          action: "체성분 기록은 식단 점수의 보조 설명으로만 봅니다."
+          state: "인바디 분석 결과는 체중 기록과 분리해서 표시합니다.",
+          action: "오늘 식단 점수는 저장된 식사 총합과 항목별 감점으로 계산합니다."
         });
       }
       if (!extraItems.length) return "";
@@ -11919,29 +11921,175 @@ Notes:
       bodyFatPercent: 0.3
     };
 
+    const INBODY_TREND_GATE = {
+      shortIntervalDays: 7,
+      highSpanDays: 28,
+      highLatestPairDays: 14,
+      recentWindowDays: 28,
+      extremeDeltas: {
+        weight: 8,
+        skeletalMuscle: 4,
+        bodyFat: 6,
+        bodyFatPercent: 8
+      }
+    };
+
+    function getInbodyDaysBetween(dateA, dateB){
+      const first = normalizeDateString(dateA);
+      const second = normalizeDateString(dateB);
+      if (!first || !second) return null;
+      const [yearA, monthA, dayA] = first.split("-").map(Number);
+      const [yearB, monthB, dayB] = second.split("-").map(Number);
+      const msA = Date.UTC(yearA, monthA - 1, dayA);
+      const msB = Date.UTC(yearB, monthB - 1, dayB);
+      const diff = Math.round(Math.abs(msB - msA) / 86400000);
+      return Number.isFinite(diff) ? diff : null;
+    }
+
+    function getComparableInbodyRecords(records = state.inbodyRecords){
+      return (Array.isArray(records) ? records : [])
+        .filter(item => item && normalizeDateString(item.date))
+        .map(item => ({
+          date: normalizeDateString(item.date),
+          weight: Number(item.weight),
+          skeletalMuscle: Number(item.skeletalMuscle),
+          bodyFat: Number(item.bodyFat),
+          bodyFatPercent: Number(item.bodyFatPercent),
+          warning: typeof item.warning === "string" ? item.warning : "",
+          isSuspicious: item.isSuspicious === true
+        }))
+        .filter(item =>
+          Number.isFinite(item.weight) &&
+          Number.isFinite(item.skeletalMuscle) &&
+          Number.isFinite(item.bodyFat) &&
+          Number.isFinite(item.bodyFatPercent)
+        )
+        .sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    function isInbodyDeltaTooLarge(delta){
+      if (!delta) return false;
+      const limits = INBODY_TREND_GATE.extremeDeltas;
+      return (
+        Math.abs(delta.weightDiff || 0) > limits.weight ||
+        Math.abs(delta.muscleDiff || 0) > limits.skeletalMuscle ||
+        Math.abs(delta.fatDiff || 0) > limits.bodyFat ||
+        Math.abs(delta.bodyFatPercentDiff || 0) > limits.bodyFatPercent
+      );
+    }
+
+    function classifyInbodyTrendPattern(delta){
+      if (!delta) return null;
+      const weight = getInbodyDirection(delta.weightDiff, INBODY_TREND_DEADZONE.weight);
+      const muscle = getInbodyDirection(delta.muscleDiff, INBODY_TREND_DEADZONE.skeletalMuscle);
+      const fat = getInbodyDirection(delta.fatDiff, INBODY_TREND_DEADZONE.bodyFat);
+      const bodyFatPercent = getInbodyDirection(delta.bodyFatPercentDiff, INBODY_TREND_DEADZONE.bodyFatPercent);
+      const fatUp = fat === "up" || bodyFatPercent === "up";
+      const fatDown = fat === "down" || bodyFatPercent === "down";
+      const muscleDown = muscle === "down";
+      const muscleUp = muscle === "up";
+      const muscleStable = muscle === "flat" || muscle === "up";
+      const allFlat = [weight, muscle, fat, bodyFatPercent].every(direction => direction === "flat" || direction === "unknown");
+      if (allFlat) return "no_meaningful_change";
+      if (weight === "down" && muscleDown) return "weight_down_muscle_down";
+      if (fatDown && muscleStable) return "fat_down_muscle_stable";
+      if (weight === "up" && muscleUp && !fatUp) return "weight_up_muscle_up";
+      if (fatUp && !muscleUp) return "fat_gain_dominant";
+      if (weight === "up" && !muscleUp) return "muscle_change_weak";
+      if (weight === "up" && muscleUp) return "weight_up_muscle_up";
+      return "unclear";
+    }
+
+    function buildInbodyTrendContext(records = state.inbodyRecords, options = {}){
+      const sorted = getComparableInbodyRecords(records);
+      const recordCount = sorted.length;
+      const firstRecord = recordCount ? sorted[0] : null;
+      const latestRecord = recordCount ? sorted[recordCount - 1] : null;
+      const previousRecord = recordCount >= 2 ? sorted[recordCount - 2] : null;
+      const delta = latestRecord && previousRecord ? {
+        weightDiff: latestRecord.weight - previousRecord.weight,
+        muscleDiff: latestRecord.skeletalMuscle - previousRecord.skeletalMuscle,
+        fatDiff: latestRecord.bodyFat - previousRecord.bodyFat,
+        bodyFatPercentDiff: latestRecord.bodyFatPercent - previousRecord.bodyFatPercent
+      } : null;
+      const deltas = delta ? {
+        weightDelta: delta.weightDiff,
+        skeletalDelta: delta.muscleDiff,
+        bodyFatDelta: delta.fatDiff,
+        bodyFatPercentDelta: delta.bodyFatPercentDiff
+      } : null;
+      const daysBetweenLatestPair = latestRecord && previousRecord
+        ? getInbodyDaysBetween(previousRecord.date, latestRecord.date)
+        : null;
+      const spanDays = latestRecord && firstRecord ? getInbodyDaysBetween(firstRecord.date, latestRecord.date) : null;
+      const hasComparablePair = !!delta;
+      const hasSuspiciousRecord = !!(latestRecord?.isSuspicious || previousRecord?.isSuspicious);
+      const hasConditionWarning = !!(latestRecord?.warning || previousRecord?.warning);
+      const hasExtremeDelta = isInbodyDeltaTooLarge(delta);
+      const asOfDate = normalizeDateString(options.asOfDate) || latestRecord?.date || getTodayDateString();
+      const recentComparableRecords = latestRecord
+        ? sorted.filter(record => {
+          const days = getInbodyDaysBetween(record.date, asOfDate);
+          return Number.isFinite(days) && days <= INBODY_TREND_GATE.recentWindowDays;
+        })
+        : [];
+      let trendConfidence = "blocked";
+      let reasonCode = "no_records";
+      if (recordCount === 1) {
+        trendConfidence = "low";
+        reasonCode = "single_record";
+      } else if (hasComparablePair) {
+        if (hasSuspiciousRecord || hasExtremeDelta) {
+          trendConfidence = "low";
+          reasonCode = "suspicious";
+        } else if (hasConditionWarning) {
+          trendConfidence = "low";
+          reasonCode = "condition_unknown";
+        } else if (!Number.isFinite(daysBetweenLatestPair) || daysBetweenLatestPair < INBODY_TREND_GATE.shortIntervalDays) {
+          trendConfidence = "low";
+          reasonCode = "short_interval";
+        } else if (
+          Number.isFinite(spanDays) &&
+          spanDays >= INBODY_TREND_GATE.highSpanDays &&
+          daysBetweenLatestPair >= INBODY_TREND_GATE.highLatestPairDays
+        ) {
+          trendConfidence = "high";
+          reasonCode = "long_enough";
+        } else {
+          trendConfidence = "medium";
+          reasonCode = "comparable_pair";
+        }
+      }
+      const trendPattern = classifyInbodyTrendPattern(delta);
+      const actionPermission = trendConfidence === "high"
+        ? "action_allowed"
+        : (trendConfidence === "medium" ? "reason_only" : "none");
+      return {
+        recordCount,
+        firstRecord,
+        latestRecord,
+        previousRecord,
+        spanDays,
+        daysBetweenLatestPair,
+        hasSuspiciousRecord,
+        hasConditionWarning,
+        hasComparablePair,
+        hasExtremeDelta,
+        trendConfidence,
+        reasonCode,
+        trendPattern,
+        delta,
+        deltas,
+        recentComparableRecordCount: recentComparableRecords.length,
+        sourceLabel: "인바디 분석 결과",
+        actionPermission
+      };
+    }
+
     function getInbodyDirection(diff, threshold){
       if (!Number.isFinite(diff)) return "unknown";
       if (Math.abs(diff) < threshold) return "flat";
       return diff > 0 ? "up" : "down";
-    }
-
-    function analyzeInbodyTrend(delta){
-      if (!delta) return null;
-      const trend = {
-        delta,
-        weight: getInbodyDirection(delta.weightDiff, INBODY_TREND_DEADZONE.weight),
-        muscle: getInbodyDirection(delta.muscleDiff, INBODY_TREND_DEADZONE.skeletalMuscle),
-        fat: getInbodyDirection(delta.fatDiff, INBODY_TREND_DEADZONE.bodyFat),
-        bodyFatPercent: getInbodyDirection(delta.bodyFatPercentDiff, INBODY_TREND_DEADZONE.bodyFatPercent)
-      };
-      trend.isMinimal = ["weight","muscle","fat","bodyFatPercent"].every(key => trend[key] === "flat" || trend[key] === "unknown");
-      if (trend.muscle === "up" && trend.fat === "down") trend.kind = "positive_recomp";
-      else if (trend.weight === "up" && trend.muscle === "up" && trend.fat !== "up") trend.kind = "muscle_gain";
-      else if (trend.weight === "up" && trend.fat === "up") trend.kind = "fat_gain";
-      else if (trend.weight === "down" && trend.muscle === "down") trend.kind = "weight_muscle_loss";
-      else if (trend.muscle === "down") trend.kind = "muscle_loss";
-      else trend.kind = trend.isMinimal ? "minimal" : "mixed";
-      return trend;
     }
 
     function saveInbodyRecord(){
@@ -12081,114 +12229,183 @@ Notes:
     }
 
     function getInbodyDelta(){
-      normalizeInbodyRecords();
-      if (state.inbodyRecords.length < 2) return null;
-      const sorted = [...state.inbodyRecords].sort((a, b) => a.date.localeCompare(b.date));
-      const last = sorted[sorted.length - 1];
-      const prev = sorted[sorted.length - 2];
-      return {
-        weightDiff: last.weight - prev.weight,
-        muscleDiff: last.skeletalMuscle - prev.skeletalMuscle,
-        fatDiff: last.bodyFat - prev.bodyFat,
-        bodyFatPercentDiff: last.bodyFatPercent - prev.bodyFatPercent
-      };
+      return buildInbodyTrendContext().delta;
     }
 
     function getInbodyCoachSignal(){
-      const delta = getInbodyDelta();
-      const trend = analyzeInbodyTrend(delta);
+      const trendContext = buildInbodyTrendContext();
+      const delta = trendContext.delta;
+      const trendPattern = trendContext.trendPattern;
       const metrics = {
         weightDelta: Number.isFinite(delta?.weightDiff) ? delta.weightDiff : null,
         muscleDelta: Number.isFinite(delta?.muscleDiff) ? delta.muscleDiff : null,
         fatMassDelta: Number.isFinite(delta?.fatDiff) ? delta.fatDiff : null,
         bodyFatPctDelta: Number.isFinite(delta?.bodyFatPercentDiff) ? delta.bodyFatPercentDiff : null
       };
-      if (!trend) {
+      if (!trendPattern || !["medium", "high"].includes(trendContext.trendConfidence)) {
         return {
           available: false,
-          kind: "insufficient_data",
+          kind: trendContext.reasonCode === "no_records" ? "insufficient_data" : "insufficient_trend_confidence",
+          reasonCode: trendContext.reasonCode,
+          trendConfidence: trendContext.trendConfidence,
+          trendPattern,
+          actionPermission: trendContext.actionPermission,
           severity: 0,
           trend: null,
           delta,
-          metrics
+          metrics,
+          trendContext,
+          sourceLabel: trendContext.sourceLabel
         };
       }
       const severityByKind = {
-        positive_recomp: 1,
-        muscle_gain: 1,
-        fat_gain: 2,
-        weight_muscle_loss: 3,
-        muscle_loss: 2,
-        minimal: 0,
-        mixed: 1
+        fat_down_muscle_stable: 1,
+        weight_up_muscle_up: 1,
+        fat_gain_dominant: 2,
+        muscle_change_weak: 2,
+        weight_down_muscle_down: 3,
+        no_meaningful_change: 0,
+        unclear: 1
       };
       return {
         available: true,
-        kind: trend.kind,
-        severity: severityByKind[trend.kind] ?? 0,
-        trend,
+        kind: trendPattern,
+        reasonCode: trendContext.reasonCode,
+        trendConfidence: trendContext.trendConfidence,
+        trendPattern,
+        actionPermission: trendContext.actionPermission,
+        severity: severityByKind[trendPattern] ?? 0,
+        trend: null,
         delta,
-        metrics
+        metrics,
+        trendContext,
+        sourceLabel: trendContext.sourceLabel
       };
     }
 
-    function getDailyCoachInbodyText(inbodySignal, goalType = "lean_bulk"){
-      if (!inbodySignal?.available) return null;
+    function hasDailyCoachSignalConcern(decisionContext, keys){
+      const signalsByKey = decisionContext?.signalsByKey || {};
+      return keys.some(key => {
+        const signal = signalsByKey[key];
+        return signal && signal.status !== "ok" && Number(signal.severity || 0) > 0;
+      });
+    }
+
+    function isDailyCoachContextBlockingInbodyAction(decisionContext){
+      const dataQuality = decisionContext?.signalsByKey?.dataQuality;
+      return dataQuality && dataQuality.status !== "ok";
+    }
+
+    function shouldAllowDailyCoachInbodyAction(inbodySignal, goalType, decisionContext = null){
+      if (inbodySignal?.actionPermission !== "action_allowed") return false;
+      if (!decisionContext) return true;
+      if (isDailyCoachContextBlockingInbodyAction(decisionContext)) return false;
+      const pattern = inbodySignal.trendPattern || inbodySignal.kind;
       const goal = getDailyCoachGoalType(goalType);
-      const texts = {
-        positive_recomp: {
-          diet: "InBody 참고: 체지방은 줄고 근육량은 잘 유지되는 흐름입니다. 지금 식단 흐름을 크게 흔들기보다 유지하는 쪽이 좋습니다.",
-          lean_bulk: "InBody 참고: 근육량 흐름은 좋고 체지방 증가도 크지 않은 편입니다. 현재 린매스업 방향은 안정적으로 보입니다.",
-          bulk: "InBody 참고: 체중 증가 흐름 속에서 근육량 반응이 좋은 편입니다. 지금처럼 탄단지 균형을 유지해도 괜찮습니다."
+      if (pattern === "fat_gain_dominant") return hasDailyCoachSignalConcern(decisionContext, ["alcohol", "otherKcal", "fat", "calorie"]);
+      if (pattern === "weight_down_muscle_down" || pattern === "muscle_change_weak") {
+        return hasDailyCoachSignalConcern(decisionContext, ["protein", "calorie", "carb"]);
+      }
+      if (pattern === "no_meaningful_change") {
+        return goal === "diet"
+          ? hasDailyCoachSignalConcern(decisionContext, ["alcohol", "otherKcal", "fat", "calorie"])
+          : hasDailyCoachSignalConcern(decisionContext, ["protein", "calorie", "carb"]);
+      }
+      if (pattern === "fat_down_muscle_stable" || pattern === "weight_up_muscle_up") {
+        return !hasDailyCoachSignalConcern(decisionContext, ["alcohol", "otherKcal", "protein", "calorie", "carb", "fat"]);
+      }
+      return false;
+    }
+
+    function getDailyCoachInbodyText(inbodySignal, goalType = "lean_bulk", decisionContext = null){
+      if (!inbodySignal?.available) return null;
+      if (!["medium", "high"].includes(inbodySignal.trendConfidence)) return null;
+      const goal = getDailyCoachGoalType(goalType);
+      const source = inbodySignal.sourceLabel || "인바디 분석 결과";
+      const trendPattern = inbodySignal.trendPattern || inbodySignal.kind;
+      const mediumTexts = {
+        fat_down_muscle_stable: `${source}, 체지방은 줄고 골격근량은 유지되는 쪽입니다. 최근 식단 기록도 안정적이면 지금 흐름을 더 믿을 수 있습니다.`,
+        weight_up_muscle_up: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 최근 식단 기록도 안정적이면 증량 흐름을 더 믿을 수 있습니다.`,
+        fat_gain_dominant: `${source}, 체지방 쪽 변화가 더 큽니다. 최근 술·기타 칼로리 기록도 반복되면 식사 질 문제로 볼 수 있습니다.`,
+        muscle_change_weak: `${source}, 골격근량 변화가 약합니다. 최근 단백질 부족이 함께 보이면 단백질을 먼저 지키는 근거로 봅니다.`,
+        weight_down_muscle_down: `${source}, 체중은 줄었지만 골격근량도 같이 줄어드는 쪽입니다. 최근 단백질 부족이 함께 보이면 단백질을 먼저 지키는 근거로 봅니다.`,
+        no_meaningful_change: `${source}, 큰 변화는 아직 보이지 않습니다. 오늘 판단은 식단 기록을 우선합니다.`,
+        unclear: `${source}, 변화 방향이 아직 섞여 있습니다. 오늘 판단은 최근 식단 기록을 우선합니다.`
+      };
+      const highTexts = {
+        fat_down_muscle_stable: {
+          diet: `${source}, 체지방은 줄고 골격근량은 유지되는 쪽입니다. 현재 식단을 유지하세요.`,
+          lean_bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 현재 식사량을 유지하세요.`,
+          bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 현재 식사량을 유지하세요.`
         },
-        muscle_gain: {
-          diet: "InBody 참고: 다이어트 중 근육량이 유지되거나 늘어난 흐름은 긍정적입니다. 칼로리를 더 줄이기보다 현재 식단 균형을 유지해 보세요.",
-          lean_bulk: "InBody 참고: 린매스업 기준으로 근육량 반응이 좋은 편입니다. 체지방 증가가 크지 않다면 현재 방향을 유지해도 좋습니다.",
-          bulk: "InBody 참고: 벌크업 기준으로 근육량 증가 흐름은 긍정적입니다. 지방 증가 속도만 과하지 않게 확인하면 됩니다."
+        weight_up_muscle_up: {
+          diet: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 오늘은 식단 기록 기준으로 술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          lean_bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 현재 식사량을 유지하세요.`,
+          bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 현재 식사량을 유지하세요.`
         },
-        fat_gain: {
-          diet: "InBody 참고: 다이어트 기준으로는 체지방 증가 흐름이 아쉽습니다. 최근 칼로리 초과나 지방 섭취가 반복됐는지 확인해 보세요.",
-          lean_bulk: "InBody 참고: 린매스업 기준으로는 체중 증가 대비 체지방 증가가 빠를 수 있습니다. 당분간 칼로리 초과량을 키우기보다 탄단지 균형을 점검해 보세요.",
-          bulk: "InBody 참고: 벌크업 중 체지방 증가는 어느 정도 생길 수 있지만, 증가 속도가 빠르면 효율이 떨어질 수 있습니다. 기름진 음식과 칼로리 초과량을 조금 점검해 보세요."
+        fat_gain_dominant: {
+          diet: `${source}, 체지방 쪽 증가가 더 큽니다. 술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          lean_bulk: `${source}, 체중은 늘었지만 체지방 쪽 증가가 더 큽니다. 칼로리를 더 올리지 말고 술·기름진 음식부터 정리하세요.`,
+          bulk: `${source}, 체지방만 빠르게 오르는 쪽입니다. 술·안주·튀김으로 더 채우지 마세요.`
         },
-        weight_muscle_loss: {
-          diet: "InBody 참고: 체중은 줄었지만 근육량도 함께 줄어든 흐름입니다. 다이어트 중에는 단백질과 웨이트 유지가 중요합니다.",
-          lean_bulk: "InBody 참고: 린매스업 기준으로 체중이나 근육량 흐름이 약해 보입니다. 칼로리와 단백질이 부족하지 않은지 확인해 보세요.",
-          bulk: "InBody 참고: 벌크업 기준으로 근육량 반응이 약합니다. 운동 강도, 단백질, 총섭취량을 함께 확인해 보세요."
+        muscle_change_weak: {
+          diet: `${source}, 골격근량 변화가 약합니다. 칼로리를 더 줄이지 말고 단백질부터 지키세요.`,
+          lean_bulk: `${source}, 골격근량 변화가 약합니다. 회복 재료가 부족하지 않게 단백질과 탄수화물을 먼저 채우세요.`,
+          bulk: `${source}, 체중 증가에 비해 골격근량 변화가 약합니다. 단백질부터 고정하고 탄수화물은 식사로 채우세요.`
         },
-        muscle_loss: {
-          diet: "InBody 참고: 다이어트 중 근육량 감소 신호가 있습니다. 단백질과 웨이트 유지가 우선입니다.",
-          lean_bulk: "InBody 참고: 린매스업 중 근육량이 줄어드는 흐름은 좋지 않습니다. 단백질과 훈련 회복을 먼저 점검해 보세요.",
-          bulk: "InBody 참고: 벌크업 중 근육량 감소는 우선 점검이 필요합니다. 섭취량, 단백질, 훈련 지속성을 확인해 보세요."
+        weight_down_muscle_down: {
+          diet: `${source}, 체중은 줄었지만 골격근량도 같이 줄어드는 쪽입니다. 칼로리를 더 줄이지 말고 단백질부터 지키세요.`,
+          lean_bulk: `${source}, 체중과 골격근량이 같이 줄어드는 쪽입니다. 회복 재료가 부족하지 않게 단백질과 탄수화물을 먼저 채우세요.`,
+          bulk: `${source}, 벌크업인데 골격근량이 줄어드는 쪽입니다. 단백질부터 고정하고 탄수화물은 식사로 채우세요.`
         },
-        minimal: {
-          diet: "InBody 참고: 최근 인바디 변화는 크지 않습니다. 하루 기록보다 2~4주 흐름으로 보는 편이 좋습니다.",
-          lean_bulk: "InBody 참고: 최근 인바디 변화는 크지 않습니다. 하루 기록보다 2~4주 흐름으로 보는 편이 좋습니다.",
-          bulk: "InBody 참고: 최근 인바디 변화는 크지 않습니다. 하루 기록보다 2~4주 흐름으로 보는 편이 좋습니다."
+        no_meaningful_change: {
+          diet: `${source}, 체지방 변화가 거의 없습니다. 술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          lean_bulk: `${source}, 골격근량 변화가 약합니다. 회복 재료가 부족하지 않게 단백질과 탄수화물을 먼저 채우세요.`,
+          bulk: `${source}, 골격근량 변화가 약합니다. 단백질부터 고정하고 탄수화물은 식사로 채우세요.`
         },
-        mixed: {
-          diet: "InBody 참고: 인바디 변화가 한 방향으로 뚜렷하지 않습니다. 체중만 보지 말고 체지방과 근육량 흐름을 같이 보세요.",
-          lean_bulk: "InBody 참고: 린매스업 흐름이 아직 뚜렷하지 않습니다. 체중 증가가 근육량 증가로 이어지는지 조금 더 지켜보세요.",
-          bulk: "InBody 참고: 벌크업 흐름이 아직 뚜렷하지 않습니다. 체중 증가 대비 근육량 반응을 몇 차례 더 확인해 보세요."
+        unclear: {
+          diet: `${source}, 변화 방향이 섞여 있습니다. 오늘은 술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          lean_bulk: `${source}, 변화 방향이 섞여 있습니다. 칼로리를 더 올리지 말고 단백질과 탄수화물부터 식사로 채우세요.`,
+          bulk: `${source}, 변화 방향이 섞여 있습니다. 술·안주·튀김으로 더 채우지 마세요.`
         }
       };
-      return texts[inbodySignal.kind]?.[goal] || null;
+      if (inbodySignal.actionPermission === "reason_only" || !shouldAllowDailyCoachInbodyAction(inbodySignal, goal, decisionContext)) {
+        return mediumTexts[trendPattern] || null;
+      }
+      return highTexts[trendPattern]?.[goal] || null;
     }
 
     function getInbodyCoachHint(goalType = state.goal){
       return getDailyCoachInbodyText(getInbodyCoachSignal(), goalType);
     }
 
-    function getInbodyInsight(delta){
-      const trend = analyzeInbodyTrend(delta);
-      if (!trend) return "데이터가 부족합니다";
-      if (trend.kind === "minimal") return "최근 변화는 크지 않습니다";
-      if (trend.kind === "positive_recomp") return "체성분 개선 흐름입니다";
-      if (trend.kind === "muscle_gain") return "체중 증가가 근육량 증가와 함께 나타나는 흐름입니다";
-      if (trend.kind === "fat_gain") return "체중과 체지방이 함께 증가하는 경향입니다";
-      if (trend.kind === "weight_muscle_loss") return "체중 감소와 함께 근육량도 줄어 회복과 섭취 부족을 확인할 필요가 있습니다";
-      if (trend.kind === "muscle_loss") return "근육량 감소가 보여 단백질 섭취와 회복을 우선해 주세요";
-      return "변화 방향이 섞여 있어 다음 측정까지 함께 확인하는 것이 좋습니다";
+    function getInbodyInsight(trendContext = buildInbodyTrendContext()){
+      const context = trendContext?.trendConfidence ? trendContext : buildInbodyTrendContext();
+      if (context.reasonCode === "no_records") {
+        return "아직 InBody 기록이 없습니다.";
+      }
+      if (context.reasonCode === "single_record") {
+        return "인바디 기록이 1회뿐이라 경향을 판단하기 어렵습니다. 인바디는 수분과 측정 조건 영향을 많이 받습니다. 다음 측정은 같은 시간대와 비슷한 식사 상태에서 기록하세요.";
+      }
+      if (context.reasonCode === "short_interval") {
+        return "인바디 변화는 아직 판단하지 않습니다. 측정 간격이 짧아 수분 변화가 크게 섞일 수 있습니다. 2~4주 간격으로 같은 조건에서 한 번 더 기록하세요.";
+      }
+      if (context.reasonCode === "suspicious") {
+        return "이번 인바디 변화가 너무 큽니다. 수분 상태나 측정 조건 영향일 수 있습니다. 값을 다시 확인하고 다음 측정 조건을 맞춰 기록하세요.";
+      }
+      if (context.reasonCode === "condition_unknown") {
+        return "인바디 경향을 판단하기 어렵습니다. 운동 직후, 식사 직후, 수분 상태 차이가 크면 결과가 흔들릴 수 있습니다. 다음 측정은 같은 조건에서 남기세요.";
+      }
+      const trendPattern = context.trendPattern;
+      const source = context.sourceLabel || "인바디 분석 결과";
+      if (!trendPattern) return "인바디 경향을 판단하기 어렵습니다. 운동 직후, 식사 직후, 수분 상태 차이가 크면 결과가 흔들릴 수 있습니다. 다음 측정은 같은 조건에서 남기세요.";
+      if (trendPattern === "no_meaningful_change") return `${source}, 큰 변화는 아직 보이지 않습니다.`;
+      if (trendPattern === "fat_down_muscle_stable") return `${source}, 체지방은 줄고 골격근량은 유지되는 쪽입니다.`;
+      if (trendPattern === "weight_up_muscle_up") return `${source}, 체중과 골격근량이 같이 오르는 흐름입니다.`;
+      if (trendPattern === "fat_gain_dominant") return `${source}, 체지방 쪽 변화가 더 큽니다.`;
+      if (trendPattern === "muscle_change_weak") return `${source}, 골격근량 변화가 약합니다.`;
+      if (trendPattern === "weight_down_muscle_down") return `${source}, 체중은 줄었지만 골격근량도 같이 줄어드는 쪽입니다.`;
+      return `${source}, 변화 방향이 아직 섞여 있습니다.`;
     }
 
     function loadInbodyRecord(index){
@@ -12326,7 +12543,8 @@ Notes:
       if (dateInput && !dateInput.value) dateInput.value = getTodayDateString();
       updateInbodyDerivedHints();
       const latest = getLatestInbodyForDisplay();
-      const delta = getInbodyDelta();
+      const trendContext = buildInbodyTrendContext();
+      const delta = trendContext.delta;
       const latestBodyFatPercent = getDisplayBodyFatPercent(latest);
       document.getElementById("inbodyLatestWeight").textContent = latest ? formatKg2(latest.weight) : "-";
       document.getElementById("inbodyLatestMuscle").textContent = latest ? formatKg2(latest.skeletalMuscle) : "-";
@@ -12339,7 +12557,7 @@ Notes:
         <div class="row"><div class="key">체중 변화</div><div class="value">${delta ? formatSignedKg2(delta.weightDiff) : "-"}</div></div>
         <div class="row"><div class="key">근육 변화</div><div class="value">${delta ? formatSignedKg2(delta.muscleDiff) : "-"}</div></div>
         <div class="row"><div class="key">지방 변화</div><div class="value">${delta ? formatSignedKg2(delta.fatDiff) : "-"}</div></div>
-        <div class="row"><div class="key">해석</div><div class="value">${escapeHtml(getInbodyInsight(delta))}</div></div>
+        <div class="row"><div class="key">해석</div><div class="value">${escapeHtml(getInbodyInsight(trendContext))}</div></div>
       `;
       renderInbodyRecordList();
       updateInbodyWarning();
@@ -16508,23 +16726,31 @@ Notes:
           assertExcludesAll(samples, ["흑자 품질", "벌크 칼로리", "나쁜 칼로리", "signal", "severity", "penalty", "score cap", "decisionType", "회복데이", "폭식", "치팅"], "Coach/card user-facing copy should avoid internal or old labels");
         }));
 
-        function setInbodyTestRecords(lastOverrides = {}){
+        function setInbodyTestRecords(lastOverrides = {}, options = {}){
           state.inbodyRecords = [
-            { date: "2026-04-01", weight: 75, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16, warning: "", isSuspicious: false },
             {
-              date: "2026-04-15",
+              date: options.firstDate || "2026-04-01",
+              weight: Number.isFinite(options.firstWeight) ? options.firstWeight : 75,
+              skeletalMuscle: Number.isFinite(options.firstSkeletalMuscle) ? options.firstSkeletalMuscle : 35,
+              bodyFat: Number.isFinite(options.firstBodyFat) ? options.firstBodyFat : 12,
+              bodyFatPercent: Number.isFinite(options.firstBodyFatPercent) ? options.firstBodyFatPercent : 16,
+              warning: "",
+              isSuspicious: options.firstSuspicious === true
+            },
+            {
+              date: options.lastDate || "2026-04-15",
               weight: Number.isFinite(lastOverrides.weight) ? lastOverrides.weight : 75,
               skeletalMuscle: Number.isFinite(lastOverrides.skeletalMuscle) ? lastOverrides.skeletalMuscle : 35,
               bodyFat: Number.isFinite(lastOverrides.bodyFat) ? lastOverrides.bodyFat : 12,
               bodyFatPercent: Number.isFinite(lastOverrides.bodyFatPercent) ? lastOverrides.bodyFatPercent : 16,
               warning: "",
-              isSuspicious: false
+              isSuspicious: lastOverrides.isSuspicious === true || options.lastSuspicious === true
             }
           ];
         }
 
-        function getInbodyTextFor(goal, lastOverrides){
-          setInbodyTestRecords(lastOverrides);
+        function getInbodyTextFor(goal, lastOverrides, options = {}){
+          setInbodyTestRecords(lastOverrides, options);
           const inbodySignal = getInbodyCoachSignal();
           return {
             inbodySignal,
@@ -16537,48 +16763,68 @@ Notes:
           const insufficient = getInbodyCoachSignal();
           assertTest(insufficient.available === false, "insufficient InBody records should be unavailable");
           assertTest(insufficient.kind === "insufficient_data", "insufficient InBody records should use insufficient_data kind");
+          assertTest(insufficient.trendConfidence === "blocked", "empty InBody records should be blocked");
+          assertTest(insufficient.reasonCode === "no_records", "empty InBody records should explain no_records");
           assertTest(insufficient.severity === 0, "insufficient InBody records should have severity 0");
           assertTest(!insufficient.text && !insufficient.message && !insufficient.hint, "InBody signal should not carry user-facing copy");
 
           setInbodyTestRecords({ weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 });
           const fatGain = getInbodyCoachSignal();
           assertTest(fatGain.available === true, "fat gain signal should be available");
-          assertTest(fatGain.kind === "fat_gain", `expected fat_gain signal, got ${fatGain.kind}`);
+          assertTest(fatGain.trendPattern === "fat_gain_dominant", `expected fat_gain_dominant signal, got ${fatGain.trendPattern}`);
+          assertTest(fatGain.trendConfidence === "medium", "14 day pair should be medium confidence");
+          assertTest(fatGain.actionPermission === "reason_only", "medium InBody signal should be reason only");
+          assertTest(fatGain.sourceLabel === "인바디 분석 결과", "signal should expose InBody source label");
           assertTest(fatGain.severity === 2, "fat gain signal should carry severity 2");
           assertClose(fatGain.metrics.weightDelta, 1, 0.0001, "signal should expose weight delta");
           assertClose(fatGain.metrics.fatMassDelta, 0.8, 0.0001, "signal should expose fat mass delta");
         }));
 
-        results.push(runNamedTest("daily coach inbody text is goal-aware", () => {
+        results.push(runNamedTest("daily coach inbody text respects confidence gate", () => {
           const fatDiet = getInbodyTextFor("diet", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 });
           const fatLean = getInbodyTextFor("lean_bulk", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 });
           const fatBulk = getInbodyTextFor("bulk", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 });
-          assertTest(fatDiet.inbodySignal.kind === "fat_gain", "fat gain fixture should produce fat_gain");
-          assertTest(fatDiet.text !== fatLean.text && fatLean.text !== fatBulk.text && fatDiet.text !== fatBulk.text, "fat_gain InBody text should differ by goal");
-          assertIncludesAll(fatDiet.text, ["다이어트", "체지방 증가"], "diet fat_gain InBody text");
-          assertIncludesAll(fatLean.text, ["린매스업", "체중 증가 대비 체지방 증가"], "lean fat_gain InBody text");
-          assertIncludesAll(fatBulk.text, ["벌크업", "증가 속도"], "bulk fat_gain InBody text");
-          assertExcludesAll(`${fatDiet.text} ${fatLean.text} ${fatBulk.text}`, ["signal","profile","threshold","severity","macro","surplus"], "InBody user-facing text");
+          assertTest(fatDiet.inbodySignal.trendPattern === "fat_gain_dominant", "fat gain fixture should produce fat_gain_dominant");
+          assertTest(fatDiet.inbodySignal.trendConfidence === "medium", "14 day pair should stay medium");
+          assertTest(fatDiet.text === fatLean.text && fatLean.text === fatBulk.text, "medium InBody text should not become goal-specific action");
+          assertIncludesAll(fatDiet.text, ["인바디 분석 결과", "체지방 쪽 변화"], "medium fat_gain InBody text");
+          assertExcludesAll(`${fatDiet.text} ${fatLean.text} ${fatBulk.text}`, ["다이어트", "린매스업", "벌크업", "InBody 참고", "보조 참고", "반영하지 않았습니다", "signal","profile","threshold","severity","macro","surplus"], "medium InBody user-facing text");
 
-          const lossDiet = getInbodyTextFor("diet", { weight: 74.8, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 });
-          const lossLean = getInbodyTextFor("lean_bulk", { weight: 74.8, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 });
-          const lossBulk = getInbodyTextFor("bulk", { weight: 74.8, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 });
-          assertTest(lossDiet.inbodySignal.kind === "muscle_loss", `expected muscle_loss signal, got ${lossDiet.inbodySignal.kind}`);
-          assertTest(lossDiet.text !== lossLean.text && lossLean.text !== lossBulk.text, "muscle_loss InBody text should differ by goal");
-          assertIncludesAll(lossDiet.text, ["다이어트", "근육량 감소"], "diet muscle_loss InBody text");
-          assertIncludesAll(lossBulk.text, ["벌크업", "근육량 감소"], "bulk muscle_loss InBody text");
+          const lossDiet = getInbodyTextFor("diet", { weight: 74.4, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 }, { lastDate: "2026-05-01" });
+          const lossLean = getInbodyTextFor("lean_bulk", { weight: 74.4, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 }, { lastDate: "2026-05-01" });
+          const lossBulk = getInbodyTextFor("bulk", { weight: 74.4, skeletalMuscle: 34.4, bodyFat: 12, bodyFatPercent: 16 }, { lastDate: "2026-05-01" });
+          assertTest(lossDiet.inbodySignal.trendPattern === "weight_down_muscle_down", `expected weight_down_muscle_down signal, got ${lossDiet.inbodySignal.trendPattern}`);
+          assertTest(lossDiet.inbodySignal.trendConfidence === "high", "30 day pair should allow high confidence");
+          assertTest(lossDiet.text !== lossLean.text && lossLean.text !== lossBulk.text, "high InBody text can differ by goal");
+          assertIncludesAll(lossDiet.text, ["인바디 분석 결과", "골격근량", "단백질부터"], "diet high muscle_loss InBody text");
+          assertIncludesAll(lossBulk.text, ["인바디 분석 결과", "단백질부터", "탄수화물"], "bulk high muscle_loss InBody text");
 
           const unknownGoalText = getDailyCoachInbodyText(fatLean.inbodySignal, "unknown_goal");
           assertTest(unknownGoalText === fatLean.text, "unknown InBody goal should fall back to lean_bulk wording");
         }));
 
-        results.push(runNamedTest("daily coach output uses inbody signal translation", () => {
-          setInbodyTestRecords({ weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 });
+        results.push(runNamedTest("daily coach output gates InBody hint by confidence", () => {
+          setInbodyTestRecords({ weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 }, { lastDate: "2026-04-04" });
+          const shortOutput = generateDailyCoachOutput(getGoalSignals("lean_bulk", {}));
+          assertTest(shortOutput.inbodySignal?.available === false, "short interval InBody signal should be blocked from Coach hint");
+          assertTest(shortOutput.inbodySignal?.reasonCode === "short_interval", "short interval should expose reason code");
+          assertTest(!shortOutput.inbodyHint, "short interval should not show always-on Coach hint");
+
+          setInbodyTestRecords({ weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8, isSuspicious: true });
+          const suspiciousOutput = generateDailyCoachOutput(getGoalSignals("lean_bulk", {}));
+          assertTest(suspiciousOutput.inbodySignal?.available === false, "suspicious InBody signal should be blocked from Coach hint");
+          assertTest(suspiciousOutput.inbodySignal?.reasonCode === "suspicious", "suspicious pair should expose reason code");
+          assertTest(!suspiciousOutput.inbodyHint, "suspicious pair should not show strong Coach hint");
+
+          setInbodyTestRecords({ weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 }, { lastDate: "2026-05-01" });
           const signals = getGoalSignals("lean_bulk", {});
           const output = generateDailyCoachOutput(signals);
-          assertTest(output.inbodySignal?.kind === "fat_gain", "coach output should expose the neutral InBody signal");
-          assertTest(output.inbodyHint?.includes("린매스업"), "coach output should translate InBody signal through the goal context");
-          assertTest(output.inbodyHint?.includes("탄단지 균형"), "coach output should provide Coach-level interpretation");
+          assertTest(output.inbodySignal?.trendPattern === "fat_gain_dominant", "coach output should expose the shared InBody trend pattern");
+          assertTest(output.inbodySignal?.trendConfidence === "high", "long enough pair should allow high confidence");
+          assertTest(output.inbodyHint?.includes("인바디 분석 결과"), "coach output should label InBody source");
+          assertTest(!output.inbodyHint?.includes("술·안주·튀김"), "record shortage should keep high InBody as reason text");
+          assertExcludesAll(output.inbodyHint, ["InBody 참고", "보조 참고", "인바디도 참고", "반영하지 않았습니다"], "coach InBody hint should avoid evasive copy");
+          state.inbodyRecords = [];
         }));
 
         results.push(runNamedTest("daily coach alcohol wording changes by amount", () => {
@@ -17203,7 +17449,12 @@ Notes:
       "탄단지 판단을 가립니다",
       "현재 기록 기준으로 볼 수 있습니다",
       "현재 입력 기준으로 볼 수 있습니다",
-      "Today 코치에서 확인하세요"
+      "Today 코치에서 확인하세요",
+      "InBody 참고",
+      "보조 참고입니다",
+      "인바디도 참고됩니다",
+      "체성분 변화도 보조로 확인됩니다",
+      "반영하지 않았습니다"
     ];
 
     function runGoalAwareCopyRegressionTests(){
@@ -17611,6 +17862,238 @@ Notes:
       });
     }
 
+    function runInbodyTrendContextTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const record = (date, overrides = {}) => ({
+          date,
+          weight: Number.isFinite(overrides.weight) ? overrides.weight : 75,
+          skeletalMuscle: Number.isFinite(overrides.skeletalMuscle) ? overrides.skeletalMuscle : 35,
+          bodyFat: Number.isFinite(overrides.bodyFat) ? overrides.bodyFat : 12,
+          bodyFatPercent: Number.isFinite(overrides.bodyFatPercent) ? overrides.bodyFatPercent : 16,
+          warning: "",
+          isSuspicious: overrides.isSuspicious === true
+        });
+
+        results.push(runNamedTest("A1 InBody trend context gates record count", () => {
+          const empty = buildInbodyTrendContext([]);
+          assertTest(empty.trendConfidence === "blocked", "no InBody records should be blocked");
+          assertTest(empty.reasonCode === "no_records", "no InBody records should use no_records reason");
+
+          const single = buildInbodyTrendContext([record("2026-04-01")]);
+          assertTest(single.trendConfidence === "low", "single InBody record should be low confidence");
+          assertTest(single.reasonCode === "single_record", "single InBody record should explain single_record");
+        }));
+
+        results.push(runNamedTest("A1 InBody trend context gates interval and suspicious data", () => {
+          const short = buildInbodyTrendContext([
+            record("2026-04-01"),
+            record("2026-04-05", { weight: 75.5, skeletalMuscle: 35.1, bodyFat: 12.2, bodyFatPercent: 16.2 })
+          ]);
+          assertTest(short.trendConfidence === "low", "pair under seven days should be low confidence");
+          assertTest(short.reasonCode === "short_interval", "short interval pair should explain short_interval");
+
+          const suspicious = buildInbodyTrendContext([
+            record("2026-04-01"),
+            record("2026-04-15", { weight: 82, skeletalMuscle: 45, bodyFat: 30, bodyFatPercent: 36, isSuspicious: true })
+          ]);
+          assertTest(suspicious.trendConfidence === "low", "suspicious pair should be low confidence");
+          assertTest(suspicious.reasonCode === "suspicious", "suspicious pair should explain suspicious");
+
+          const conditionUnknown = buildInbodyTrendContext([
+            record("2026-04-01"),
+            { ...record("2026-04-15", { weight: 75.4, skeletalMuscle: 35.1, bodyFat: 12.1, bodyFatPercent: 16.1 }), warning: "입력값이 계산값과 차이가 있습니다." }
+          ]);
+          assertTest(conditionUnknown.trendConfidence === "low", "condition warning pair should be low confidence");
+          assertTest(conditionUnknown.reasonCode === "condition_unknown", "condition warning pair should explain condition_unknown");
+        }));
+
+        results.push(runNamedTest("A1 InBody trend context separates medium and high confidence", () => {
+          const medium = buildInbodyTrendContext([
+            record("2026-04-01"),
+            record("2026-04-15", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 })
+          ]);
+          assertTest(medium.trendConfidence === "medium", "7-27 day clean pair should be medium confidence");
+          assertTest(medium.reasonCode === "comparable_pair", "medium pair should explain comparable_pair");
+
+          const highInterval = buildInbodyTrendContext([
+            record("2026-04-01"),
+            record("2026-05-01", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 })
+          ]);
+          assertTest(highInterval.trendConfidence === "high", "28+ day clean pair should be high confidence");
+          assertTest(highInterval.reasonCode === "long_enough", "high pair should explain long_enough");
+
+          const highRecent = buildInbodyTrendContext([
+            record("2026-04-03"),
+            record("2026-04-17", { weight: 75.5, skeletalMuscle: 35.2, bodyFat: 12.1, bodyFatPercent: 16.1 }),
+            record("2026-05-01", { weight: 76, skeletalMuscle: 35.4, bodyFat: 12.2, bodyFatPercent: 16.1 })
+          ]);
+          assertTest(highRecent.trendConfidence === "high", "28+ day span with recent clean pair should be high confidence");
+          assertTest(highRecent.recentComparableRecordCount === 3, "recent comparable record count should be exposed");
+        }));
+
+        results.push(runNamedTest("A1 InBody trend context classifies trend patterns", () => {
+          const contextFor = (last, first = {}) => buildInbodyTrendContext([
+            record("2026-04-01", first),
+            record("2026-05-01", last)
+          ]);
+          assertTest(contextFor({ weight: 74.6, skeletalMuscle: 35.0, bodyFat: 11.2, bodyFatPercent: 15.0 }).trendPattern === "fat_down_muscle_stable", "fat loss with stable muscle should be fat_down_muscle_stable");
+          assertTest(contextFor({ weight: 76.0, skeletalMuscle: 35.4, bodyFat: 12.1, bodyFatPercent: 15.9 }).trendPattern === "weight_up_muscle_up", "weight and muscle gain should be weight_up_muscle_up");
+          assertTest(contextFor({ weight: 76.0, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 }).trendPattern === "fat_gain_dominant", "fat gain with weak muscle should be fat_gain_dominant");
+          assertTest(contextFor({ weight: 76.0, skeletalMuscle: 35.1, bodyFat: 12.1, bodyFatPercent: 15.9 }).trendPattern === "muscle_change_weak", "weight gain with flat fat and weak muscle should be muscle_change_weak");
+          assertTest(contextFor({ weight: 74.4, skeletalMuscle: 34.5, bodyFat: 12.0, bodyFatPercent: 16.0 }).trendPattern === "weight_down_muscle_down", "weight and muscle loss should be weight_down_muscle_down");
+          assertTest(contextFor({ weight: 75.1, skeletalMuscle: 35.1, bodyFat: 12.1, bodyFatPercent: 16.1 }).trendPattern === "no_meaningful_change", "flat deltas should be no_meaningful_change");
+        }));
+
+        return results;
+      });
+    }
+
+    function runInbodyCopySourceSeparationTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const record = (date, overrides = {}) => ({
+          date,
+          weight: Number.isFinite(overrides.weight) ? overrides.weight : 75,
+          skeletalMuscle: Number.isFinite(overrides.skeletalMuscle) ? overrides.skeletalMuscle : 35,
+          bodyFat: Number.isFinite(overrides.bodyFat) ? overrides.bodyFat : 12,
+          bodyFatPercent: Number.isFinite(overrides.bodyFatPercent) ? overrides.bodyFatPercent : 16,
+          warning: "",
+          isSuspicious: overrides.isSuspicious === true
+        });
+
+        results.push(runNamedTest("A1 InBody tab low confidence copy explains measurement action", () => {
+          const singleText = getInbodyInsight(buildInbodyTrendContext([record("2026-04-01")]));
+          assertIncludesAll(singleText, ["인바디 기록이 1회뿐", "다음 측정", "같은 시간대"], "single InBody copy should explain why and next measurement");
+          assertExcludesAll(singleText, ["반영하지 않았습니다", "보조 참고", "인바디도 참고", "체성분 변화도 보조"], "single InBody copy should avoid evasive wording");
+
+          const shortText = getInbodyInsight(buildInbodyTrendContext([
+            record("2026-04-01"),
+            record("2026-04-04", { weight: 75.5, skeletalMuscle: 35.2, bodyFat: 12.2, bodyFatPercent: 16.2 })
+          ]));
+          assertIncludesAll(shortText, ["측정 간격이 짧아", "2~4주 간격", "같은 조건"], "short interval copy should explain interval gate");
+
+          const suspiciousText = getInbodyInsight(buildInbodyTrendContext([
+            record("2026-04-01"),
+            record("2026-04-15", { weight: 84, skeletalMuscle: 45, bodyFat: 30, bodyFatPercent: 35, isSuspicious: true })
+          ]));
+          assertIncludesAll(suspiciousText, ["이번 인바디 변화가 너무 큽니다", "수분 상태나 측정 조건 영향", "값을 다시 확인"], "suspicious copy should explain measurement risk");
+
+          const conditionText = getInbodyInsight(buildInbodyTrendContext([
+            record("2026-04-01"),
+            { ...record("2026-04-15", { weight: 75.4, skeletalMuscle: 35.1, bodyFat: 12.1, bodyFatPercent: 16.1 }), warning: "입력값이 계산값과 차이가 있습니다." }
+          ]));
+          assertIncludesAll(conditionText, ["인바디 경향을 판단하기 어렵습니다", "운동 직후", "같은 조건"], "condition_unknown copy should explain unstable measurement condition");
+        }));
+
+        results.push(runNamedTest("A1 InBody tab remains neutral observation", () => {
+          const insight = getInbodyInsight(buildInbodyTrendContext([
+            record("2026-04-01"),
+            record("2026-05-01", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 })
+          ]));
+          assertIncludesAll(insight, ["인바디 분석 결과", "체지방 쪽 변화"], "InBody insight should label source and trend");
+          assertExcludesAll(insight, ["다이어트", "린매스업", "벌크업", "줄이세요", "지키세요", "채우세요", "정리하세요", "단백질부터"], "InBody tab should not contain goal action copy");
+        }));
+
+        results.push(runNamedTest("A1 InBody source of truth is shared by tab and Coach", () => {
+          state.inbodyRecords = [
+            record("2026-04-01"),
+            record("2026-05-01", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 })
+          ];
+          const context = buildInbodyTrendContext(state.inbodyRecords);
+          const insight = getInbodyInsight(context);
+          const signal = getInbodyCoachSignal();
+          const coachText = getDailyCoachInbodyText(signal, "bulk");
+          assertTest(context.trendPattern === "fat_gain_dominant", "fixture should classify as fat_gain_dominant");
+          assertTest(signal.trendPattern === context.trendPattern, "Coach signal should reuse trendPattern from context");
+          assertTest(signal.trend === null, "Coach signal should not expose legacy independent trend interpretation");
+          assertIncludesAll(insight, ["인바디 분석 결과", "체지방 쪽 변화"], "InBody tab should render context trend pattern");
+          assertIncludesAll(coachText, ["인바디 분석 결과", "술·안주·튀김"], "Today Coach should translate the same trend pattern");
+        }));
+
+        results.push(runNamedTest("A1 Coach InBody copy labels source and avoids vague reference", () => {
+          state.inbodyRecords = [
+            record("2026-04-01"),
+            record("2026-05-01", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 })
+          ];
+          const text = getInbodyCoachHint("bulk");
+          assertIncludesAll(text, ["인바디 분석 결과"], "Coach InBody hint should label source");
+          assertExcludesAll(text, ["InBody 참고", "보조 참고", "인바디도 참고", "체성분 변화도 보조", "반영하지 않았습니다", "체중이 줄고 있습니다", "체성분 흐름이 보입니다"], "Coach InBody hint should avoid vague source copy");
+        }));
+
+        return results;
+      });
+    }
+
+    function runDailyCoachInbodyGateTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const record = (date, overrides = {}) => ({
+          date,
+          weight: Number.isFinite(overrides.weight) ? overrides.weight : 75,
+          skeletalMuscle: Number.isFinite(overrides.skeletalMuscle) ? overrides.skeletalMuscle : 35,
+          bodyFat: Number.isFinite(overrides.bodyFat) ? overrides.bodyFat : 12,
+          bodyFatPercent: Number.isFinite(overrides.bodyFatPercent) ? overrides.bodyFatPercent : 16,
+          warning: "",
+          isSuspicious: overrides.isSuspicious === true
+        });
+        const coachForGoal = (goal = "lean_bulk") => {
+          setValidTodayBalanceTestInputs();
+          state.goal = goal;
+          const target = calculate();
+          const signals = getDailyCoachSignals({ currentResult: target, state: { ...target.s, goal } });
+          return generateDailyCoachOutput(signals);
+        };
+
+        results.push(runNamedTest("A1 Daily Coach hides blocked and low InBody hint", () => {
+          state.inbodyRecords = [];
+          const blocked = coachForGoal("lean_bulk");
+          assertTest(blocked.inbodySignal?.trendConfidence === "blocked", "empty InBody should be blocked");
+          assertTest(!blocked.inbodyHint, "empty InBody should not show Coach hint");
+
+          state.inbodyRecords = [record("2026-04-01")];
+          const single = coachForGoal("lean_bulk");
+          assertTest(single.inbodySignal?.trendConfidence === "low", "single InBody should be low confidence");
+          assertTest(!single.inbodyHint, "single InBody should not show Coach hint");
+
+          state.inbodyRecords = [
+            record("2026-04-01"),
+            record("2026-04-04", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 })
+          ];
+          const short = coachForGoal("lean_bulk");
+          assertTest(short.inbodySignal?.reasonCode === "short_interval", "short interval should be gated");
+          assertTest(!short.inbodyHint, "short interval should not show Coach hint");
+        }));
+
+        results.push(runNamedTest("A1 Daily Coach uses medium as reason and high as action-capable hint", () => {
+          state.inbodyRecords = [
+            record("2026-04-01"),
+            record("2026-04-15", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 })
+          ];
+          const medium = coachForGoal("diet");
+          assertTest(medium.inbodySignal?.trendConfidence === "medium", "clean 14 day pair should be medium");
+          assertIncludesAll(medium.inbodyHint, ["인바디 분석 결과", "체지방 쪽 변화"], "medium hint should state source and trend");
+          assertExcludesAll(medium.inbodyHint, ["다이어트", "줄이세요", "정리하세요", "채우지 마세요"], "medium hint should not become goal-specific action");
+
+          state.inbodyRecords = [
+            record("2026-04-01"),
+            record("2026-05-01", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 })
+          ];
+          const high = coachForGoal("bulk");
+          assertTest(high.inbodySignal?.trendConfidence === "high", "clean 28+ day pair should be high");
+          assertIncludesAll(high.inbodyHint, ["인바디 분석 결과", "체지방 쪽 변화"], "high hint should keep source when record gate blocks action");
+          assertExcludesAll(high.inbodyHint, ["술·안주·튀김"], "record shortage should block strong InBody action");
+          const alignedActionText = getDailyCoachInbodyText(high.inbodySignal, "bulk", {
+            signalsByKey: { fat: { key: "fat", status: "high", severity: 2 } }
+          });
+          assertIncludesAll(alignedActionText, ["인바디 분석 결과", "술·안주·튀김"], "aligned high hint can carry goal action with source");
+          assertExcludesAll(high.inbodyHint, ["InBody 참고", "보조 참고", "인바디도 참고", "반영하지 않았습니다"], "high hint should avoid forbidden InBody wording");
+        }));
+
+        return results;
+      });
+    }
+
     function runWeeklyTrainingDayAutoTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -17727,9 +18210,13 @@ Notes:
     window.runMacroCalibrationTests = runMacroCalibrationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
+    window.runInbodyTrendContextTests = runInbodyTrendContextTests;
+    window.runInbodyCopySourceSeparationTests = runInbodyCopySourceSeparationTests;
+    window.runDailyCoachInbodyGateTests = runDailyCoachInbodyGateTests;
     window.runWeeklyTrainingDayAutoTests = runWeeklyTrainingDayAutoTests;
     window.RECENT_CONTEXT_WINDOWS = RECENT_CONTEXT_WINDOWS;
     window.buildRecentContext = buildRecentContext;
+    window.buildInbodyTrendContext = buildInbodyTrendContext;
 
     function initialize(){
       loadState();
