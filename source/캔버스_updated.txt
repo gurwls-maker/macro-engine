@@ -1,0 +1,1272 @@
+# 탄단지 다이어리 HTML 앱 통합 개발 캔버스
+v6.3-B0 Rolling Coach 구조 감사 반영본
+
+작성일: 2026-05-05
+현재 기준본: 업로드된 최신 index.html
+현재 앱 기준: Version 6.3-A / Stage 6.3-A 모드 구조 흡수
+문서 상태: v6.3-B0 Rolling Coach 구조 감사 반영 통합 캔버스
+
+────────────────────────────────────────
+0. 문서 목적
+────────────────────────────────────────
+
+이 문서는 탄단지 다이어리 HTML 앱의 최신 개발 기준 문서다.
+
+기존 캔버스_updated.txt는 v6.2.1 기준의 전체 개발 캔버스 역할을 했지만, 현재 프로젝트는 v6.3-A를 닫힌 baseline으로 완료했고, v6.3-A 이후 새 최상위 제품 성격이 확정되었다.
+
+따라서 이 문서는 기존 캔버스를 단순 보완하는 문서가 아니라, v6.3-A 이후 기준으로 전체 개발 흐름을 재정렬한 통합 캔버스다.
+
+이 문서는 구현 프롬프트가 아니다.
+이 문서는 앞으로 Codex 프롬프트, GPT 설계 검토, 코드 리뷰, 문구 QA, 로드맵 판단의 기준으로 사용한다.
+
+혹여나 버전이 다르다면, 작업 이후 캔버스 개정 이전 이므로 index.html을 최신으로 두고 캔버스_updated.txt는 제품 원칙/로드맵 기준으로 읽어야 한다.
+
+────────────────────────────────────────
+1. Source of Truth 우선순위
+────────────────────────────────────────
+
+앞으로 기준이 충돌하면 아래 순서를 따른다.
+
+1. 사용자가 만들고 싶은 앱의 성격
+2. 시간순으로 확정된 설계 의도
+3. 최신 기준 문서
+4. 최신 index.html
+5. 최신 테스트 결과
+6. Codex 구현 결과
+7. 과거 캔버스 / 과거 로드맵 / 과거 메모
+
+중요 원칙:
+
+- 현재 소스가 최종 기준이 아니다.
+- Codex 결과가 최종 기준이 아니다.
+- 테스트 통과는 필요조건이지 충분조건이 아니다.
+- 계획이 이상하면 계획을 수정한다.
+- 실제 이유 없이 “최소 변경” 관성으로 계획을 약하게 만들지 않는다.
+- 사용자가 원하는 앱의 성격이 바뀌었거나 더 명확해졌다면, 과거 캔버스와 기존 구현도 그 기준으로 재해석한다.
+
+────────────────────────────────────────
+2. 상태 태그
+────────────────────────────────────────
+
+[확정]
+현재 기준으로 유지해야 하는 결정.
+
+[후속]
+필요하지만 지금 단계의 구현 범위는 아닌 항목.
+
+[보류]
+필요성은 있으나 설계가 더 필요하거나 지금 구현하면 위험한 항목.
+
+[폐기]
+과거에는 검토했지만 현재 기준에서는 더 이상 사용하지 않는 전제.
+
+[Archive]
+과거 작업 기록으로만 남기는 항목.
+
+────────────────────────────────────────
+3. 현재 baseline
+────────────────────────────────────────
+
+3-1. 현재 앱 기준
+
+[확정]
+현재 앱 기준: v6.3-A
+Stage: 6.3-A 모드 구조 흡수 (Mode preset → runtime config)
+기준 파일: 업로드된 최신 index.html
+
+v6.3-A는 브라우저 QA, 커밋, push, tag push까지 완료된 닫힌 baseline으로 본다.
+
+3-2. v6.3-A 완료 의미
+
+v6.3-A의 핵심은 general / athlete / expert를 삭제하지 않고 사용자-facing preset으로 유지하면서, 내부 판단 축을 아래처럼 분해한 것이다.
+
+- inputDepth
+- calculationProfile
+- bodyCompReliability
+- explanationDepth
+- uiDensity
+
+v6.3-A에서 도입된 핵심 구조:
+
+- MODE_RUNTIME_PRESETS
+- getModeRuntimeConfig()
+- getEffectiveModeConfig() compatibility wrapper
+- calcBMR()의 bmrModel 기준 전환
+- getWorkAdjBounds()의 inputDepth 기준 전환
+
+v6.3-A에서 변경하지 않은 축:
+
+- 점수 산식
+- alcohol penalty / cap
+- Coach decision matrix
+- 지방 profile
+- 저장 schema
+- Weekly 구조
+- InBody goal-aware 확장
+
+3-3. 현재 테스트 기준
+
+[확정]
+runModeRuntimeConfigTests() PASS 8 / 8
+runDailyCoachTestCases() PASS 76 / 76
+runAdherenceScoringTests() PASS 43 / 43
+runWeeklyTrainingDayAutoTests() PASS 6 / 6
+
+3-4. 점수 산식 버전
+
+[확정]
+ADHERENCE_SCORING_VERSION = "v6.1_alcohol_penalty_v2"
+
+v6.3-A와 v6.3-B0에서는 이 값을 변경하지 않는다.
+
+────────────────────────────────────────
+4. 최상위 제품 성격
+────────────────────────────────────────
+
+4-1. 최상위 정의
+
+[확정]
+이 앱은 최근 값을 보여주는 앱이 아니다.
+최근 흐름을 믿을 수 있는지 판단한 뒤,
+오늘 행동으로 번역하는 기록 기반 영양 코치 앱이다.
+
+이 문장이 v6.3-A 이후 최상위 제품 정의다.
+
+기존 앱이 답하던 질문:
+
+- 오늘 목표 칼로리는 몇 kcal인가?
+- 오늘 탄수화물, 단백질, 지방은 몇 g인가?
+- 오늘 얼마나 먹었고 얼마나 남았는가?
+
+최종 앱이 답해야 하는 질문:
+
+- 오늘 남은 식사에서 무엇을 해야 하는가?
+- 최근 흐름에서 반복되는 문제는 무엇인가?
+- 이 흐름을 믿을 만큼 기록이 충분한가?
+- 이 산출값은 강한 조언에 쓸 만큼 신뢰할 수 있는가?
+- 목표별로 이 상태를 어떻게 해석해야 하는가?
+- 사용자는 지금 무엇을 먹고, 무엇을 멈추고, 무엇을 보완해야 하는가?
+
+4-2. 최상위 확정 원칙
+
+[확정]
+모든 조언은 오늘 행동으로 끝나야 한다.
+
+[확정]
+최근 흐름은 평균보다 반복 빈도, 연속성, 기록 신뢰도가 중요하다.
+
+[확정]
+산출값은 직접 기록값 / 계산값 / 모델 추정값 / 추세 추론값 / 코치 해석값으로 등급을 나눈다.
+같은 무게로 쓰지 않는다.
+
+[확정]
+confidence가 낮으면 코치는 단정하지 않는다.
+기록 보완을 먼저 말한다.
+
+[확정]
+기본 rolling window는 1일 / 3일 / 7일 / 14일 / 28일이다.
+5일은 기본 window에서 제외하고, 평일 패턴 같은 보조 분석 후보로만 둔다.
+
+4-3. 기존 v6.2.x 해석
+
+[확정]
+v6.2까지의 기존 구현은 이 최상위 제품 성격을 충분히 반영하지 않은 과도기 구조다.
+
+v6.2.x는 Goal-aware Coach Decision Matrix, alcoholKcal 의미 정합성, card/copy 정책을 만든 중요한 기반이다.
+다만 아직 “최근 흐름을 읽는 기록 기반 코치 앱”이라는 최상위 성격은 충분히 반영되어 있지 않다.
+
+따라서 이후 작업은 기존 v6.2 구조를 폐기하는 것이 아니라, v6.2의 goal-aware Coach 구조 위에 rolling context와 confidence를 얹는 방향으로 진행한다.
+
+────────────────────────────────────────
+5. 사용자 여정
+────────────────────────────────────────
+
+5-1. 목표 사용자 흐름
+
+1. 사용자가 오늘 식사와 운동, 체중을 기록한다.
+2. 앱은 기록 품질을 먼저 판단한다.
+3. 앱은 오늘 목표와 오늘 섭취 상태를 계산한다.
+4. 앱은 최근 1/3/7/14/28일 흐름을 읽는다.
+5. 앱은 기록 신뢰도와 산출식 신뢰도를 확인한다.
+6. 앱은 목표별로 의미를 해석한다.
+7. 앱은 오늘 가장 중요한 행동 1개를 먼저 말한다.
+8. 필요하면 보조 행동 1~2개를 말한다.
+9. confidence가 낮으면 식단 판단보다 기록 보완을 먼저 말한다.
+10. 사용자는 다음 식사에서 무엇을 먹고 멈출지 결정한다.
+
+5-2. 코치의 기본 출력 순서
+
+1. 지금 가장 중요한 행동
+2. 왜 그런지 짧은 이유
+3. 최근 흐름 근거 또는 confidence 상태
+4. 보조 행동
+5. 필요하면 자세히 보기에서 기간별 수치 제공
+
+────────────────────────────────────────
+6. 탭 구조 재정의
+────────────────────────────────────────
+
+6-1. 현재 탭 구조
+
+현재 앱 탭은 아래와 같다.
+
+- 오늘 계산
+- 데이터 기록
+- 주간 분석
+- InBody
+- 기본 설정
+
+이 구조는 기능 중심이다.
+최종 앱 성격은 코치 흐름 중심이므로, 탭의 책임을 재정의해야 한다.
+
+6-2. 목표 탭 구조
+
+[확정 후보]
+오늘 코치 / 기록 / 최근 흐름 / 체성분 / 설정
+
+현재 탭 → 목표 탭 → 새 책임
+
+오늘 계산 → 오늘 코치
+계산 결과 표시가 아니라 오늘 행동 결정
+
+데이터 기록 → 기록
+저장소가 아니라 코치 판단 신뢰도를 만드는 곳
+
+주간 분석 → 최근 흐름
+주간 평균이 아니라 반복 패턴과 추세 해석
+
+InBody → 체성분
+체성분 흐름을 중립적으로 관찰
+
+기본 설정 → 설정
+목표, 입력 깊이, 체성분 반영, 설명 깊이 관리
+
+6-3. 탭 변경 순서
+
+[확정]
+탭명부터 먼저 바꾸지 않는다.
+recentContext와 confidence 설계가 먼저다.
+
+탭명만 먼저 바꾸면 껍데기만 바뀔 위험이 있다.
+먼저 각 탭의 책임과 출력 구조를 확정한 뒤, UI/문구 개편에서 탭명을 반영한다.
+
+6-4. 탭별 최종 책임
+
+오늘 코치
+
+핵심 질문:
+오늘 남은 식사에서 뭘 해야 하지?
+
+우선순위:
+1. 오늘 가장 중요한 행동 1개
+2. 이유 1줄
+3. 최근 흐름 근거 + confidence
+4. 보조 행동 1~2개
+5. 오늘 목표 / 섭취 / 남은 양
+6. 자세히 보기
+7. 입력 영역
+
+기록
+
+핵심 질문:
+코치가 믿고 판단할 수 있게 기록했나?
+
+우선순위:
+1. 오늘 기록 완성도
+2. 식사 입력
+3. 체중 기록
+4. 기록 품질 안내
+5. 저장된 식사 / 기록 목록
+
+최근 흐름
+
+핵심 질문:
+최근 흐름에서 반복되는 문제는 무엇인가?
+
+우선순위:
+1. 최근 흐름 한 줄 결론
+2. 최근 3일 단기 흔들림
+3. 최근 7일 반복 패턴
+4. 최근 14일 목표 진행 추세
+5. 최근 28일 장기 후보
+6. 기록 신뢰도
+7. 세부 수치
+
+체성분
+
+핵심 질문:
+체중과 체성분 흐름이 식단 목표와 맞물리는가?
+
+원칙:
+체성분 탭은 중립 관찰 탭이다.
+목표별 행동 조언은 오늘 코치에서만 한다.
+
+설정
+
+핵심 질문:
+내 목표와 입력 깊이가 맞게 설정되어 있는가?
+
+우선순위:
+1. 목표
+2. 입력 깊이 preset
+3. 체성분 반영 정도
+4. 설명 깊이
+5. 자동 평가
+6. 백업/복원
+
+────────────────────────────────────────
+7. 기본 rolling window
+────────────────────────────────────────
+
+7-1. 확정 window
+
+[확정]
+기본 rolling window는 1일 / 3일 / 7일 / 14일 / 28일이다.
+
+1일:
+오늘 행동.
+지금 뭘 해야 하나?
+오늘 단백질, 술, 초과, 남은 식사 판단.
+
+3일:
+단기 흔들림.
+최근 며칠 흔들렸나?
+술, 회복, 연속 부족/초과 판단.
+
+7일:
+반복 패턴.
+이번 주 반복되는 문제가 있나?
+단백질 반복 부족, 지방 high/low 반복, 술 빈도, 기록 품질 판단.
+
+14일:
+진행 추세.
+목표 방향으로 가고 있나?
+체중 추세, 목표 진행 속도, targetCal 보정 후보 판단.
+
+28일:
+장기 후보.
+설정/체성분/장기 패턴을 다시 볼 필요가 있나?
+체성분 흐름, 유지칼로리 보정 후보, 장기 식단 패턴 판단.
+
+7-2. 5일 window
+
+[보류]
+5일 window는 기본 rolling window에서 제외한다.
+
+사유:
+- 3일과 7일 사이에서 역할이 겹친다.
+- 코치 문구가 중복될 가능성이 크다.
+- 생리학적으로 5일만의 독립 의미가 약하다.
+- 반복 식단 패턴은 7일이 더 자연스럽다.
+- 단기 회복/술/연속성은 3일이 더 자연스럽다.
+
+후속 후보:
+- 평일 식단 패턴
+- 주중/주말 분리 분석
+- 월~금 루틴 분석
+
+7-3. Window별 금지 판단
+
+[확정]
+1일 fat low만 보고 지방 보완을 강하게 말하지 않는다.
+
+[확정]
+3일 체중 변화로 감량 실패나 벌크 실패를 말하지 않는다.
+
+[확정]
+7일 InBody 변화로 근육 증가/감소를 단정하지 않는다.
+
+[확정]
+14일/28일 흐름은 자동 보정이 아니라 보정 후보로만 말한다.
+
+────────────────────────────────────────
+8. Goal change 처리 원칙
+────────────────────────────────────────
+
+8-1. 목표 변경 감지
+
+[확정]
+최근 window 안에서 목표 변경이 감지되면, 최근 흐름 결론보다 목표 변경 감지를 먼저 띄운다.
+
+예:
+최근 기록 안에서 목표가 바뀌었습니다.
+과거 기록은 당시 목표 기준으로 보고, 오늘 행동은 현재 목표 기준으로 안내합니다.
+
+8-2. 이후 처리
+
+목표가 바뀐 window는 아래 원칙을 따른다.
+
+1. 과거 기록 해석은 해당 날짜의 goalSnapshot 기준으로 한다.
+2. 오늘 행동 조언은 현재 목표 기준으로 번역한다.
+3. window 안에서 목표가 섞여 있으면 pattern confidence를 낮춘다.
+4. 같은 목표로 충분한 기록이 쌓이기 전까지 장기 추세 문구를 약하게 한다.
+5. 목표 변경 직후에는 “최근 흐름 판단”보다 “현재 목표에 맞춘 오늘 행동”을 우선한다.
+
+8-3. 금지
+
+[확정]
+과거 다이어트 기록을 오늘 린매스업 기준으로 무조건 재평가하지 않는다.
+
+[확정]
+과거 벌크업 기록을 오늘 다이어트 기준으로 실패처럼 말하지 않는다.
+
+────────────────────────────────────────
+9. 데이터 적합성 감사
+────────────────────────────────────────
+
+9-1. 데이터 사용 원칙
+
+[확정]
+값이 있다는 것과 코치 판단에 쓸 수 있다는 것은 다르다.
+
+각 데이터는 아래 질문으로 평가한다.
+
+- 이 값은 직접 기록값인가, 계산값인가, 추정값인가?
+- 누락될 수 있는가?
+- 왜곡될 수 있는가?
+- 최근 window로 집계해도 의미가 유지되는가?
+- 목표별 해석이 달라지는가?
+- 강한 행동 조언에 쓸 수 있는가?
+- confidence가 낮을 때 어떤 문구로 낮춰야 하는가?
+
+9-2. 핵심 데이터별 사용 기준
+
+protein g:
+사용 가능성 높음.
+평균보다 부족 빈도 중요.
+1일/7일 중심.
+
+carbs g:
+조건부.
+운동일/휴식일 의미가 다름.
+웨이트 기록 있는 날 기준.
+
+fat g:
+조건부.
+하루 low 과해석 위험.
+high는 즉시, low는 반복 조건.
+
+alcoholKcal:
+사용 가능성 높음.
+술자리 전체 kcal 아님.
+양과 빈도 분리.
+
+otherKcal:
+사용 가능성 높음.
+실패가 아니라 기록 품질 문제.
+macro confidence 낮춤.
+
+mealCount:
+사용 가능성 높음.
+실제 1끼인지 기록 누락인지 불명.
+confidence 조절.
+
+adherence score:
+조심해서 사용.
+평균 점수가 행동과 안 맞을 수 있음.
+component 빈도 우선.
+
+weight:
+조건부.
+수분/염분/술 영향.
+14일 이상 중심.
+
+InBody:
+제한적.
+단일 측정 오차 큼.
+28일 흐름 + 중립 관찰.
+
+goalSnapshot:
+필수.
+없으면 과거 비교 왜곡.
+snapshot coverage 필요.
+
+────────────────────────────────────────
+10. 산출값 등급
+────────────────────────────────────────
+
+[확정]
+산출값은 같은 무게로 쓰지 않는다.
+
+A. 직접 기록값
+사용자가 직접 넣은 원자료.
+예: 식사 탄단지, alcoholKcal, 체중.
+코치 사용 권한: 비교적 직접 사용 가능.
+
+B. 단순 계산값
+직접 기록 기반의 합산/차감.
+예: macroKcal, totalKcal, 남은 양.
+코치 사용 권한: 사용 가능.
+
+C. 모델 추정값
+공식/계수/보정이 섞인 추정.
+예: BMR, totalBurn, targetCal, macro target.
+코치 사용 권한: 보수적으로 사용.
+
+D. 추세 추론값
+여러 기록을 묶어 얻는 흐름.
+예: 14일 체중 추세, 28일 체성분 흐름.
+코치 사용 권한: confidence 필요.
+
+E. 코치 해석값
+패턴을 행동 언어로 번역.
+예: 반복 부족, 회복 부담, 보정 후보.
+코치 사용 권한: 조건 충족 시만 강하게 사용.
+
+────────────────────────────────────────
+11. 산출식 신뢰도 감사표
+────────────────────────────────────────
+
+11-1. targetCal / totalBurn
+
+등급: C
+역할: 오늘 목표 칼로리와 소비 칼로리 추정
+
+사용 가능 window:
+1일: 오늘 행동 기준
+7일: 평균 섭취 비교
+14일: 체중 반응과 비교해 보정 후보
+28일: 보정 후보 강화
+
+강한 조언 가능:
+- 오늘 목표 초과/부족에 따른 행동 안내
+
+금지:
+- 3일 기록만 보고 유지칼로리 오류 단정
+- 하루 초과로 목표 실패 단정
+- 7일 체중 변화만으로 자동 칼로리 수정
+
+후속:
+- targetCalibrationCandidate
+- 자동 보정은 후속
+
+11-2. protein target
+
+등급: B~C
+역할: 목표별 단백질 g 산출
+
+사용 가능 window:
+1일: 오늘 단백질 보완
+3일: 연속 부족
+7일: 반복 부족
+14/28일: 장기 습관 패턴
+
+강한 조언 가능:
+- 오늘 severe low
+- 최근 7일 usableDietDay >= 4 and proteinLowDays >= 3
+
+금지:
+- 평균만 보고 안정적이라고 말하기
+
+필요 산출:
+- proteinAvgRatio
+- proteinLowDays7
+- proteinSevereLowDays7
+- proteinLowStreak3
+- proteinActionAllowed
+
+문구 방향:
+단백질이 자주 빠집니다. 다음 식사에 단백질부터 넣으세요.
+
+11-3. carbs target
+
+등급: C
+역할: 단백질/지방 배정 후 남은 칼로리 기반 탄수화물 목표
+
+사용 가능 window:
+1일: 운동 전후 보완
+3일: 웨이트일 연속 부족
+7일: 웨이트일 탄수 패턴
+14/28일: 목표 반응 참고 또는 보정 후보
+
+강한 조언 가능:
+- 최근 7일 실제 웨이트 기록일 >= 2
+- carbLowTrainingDays >= 2
+
+웨이트일 판정:
+
+[확정]
+웨이트 날 판정은 사용자가 기록한 실제 웨이트만 기준으로 한다.
+
+즉, 계획상 주당 웨이트일수나 현재 목표 설정만으로 과거 웨이트일을 추정하지 않는다.
+기록된 웨이트가 없으면 training-day carb 판단 confidence를 낮춘다.
+
+금지:
+- 다이어트 휴식일 carb low를 강하게 보완 지시
+- 전체 탄수 평균만 보고 운동 수행 문제 단정
+
+필요 산출:
+- carbLowTrainingDays7
+- carbLowRestDays7
+- trainingDayCarbCoverage
+- carbTimingAdviceEligible
+
+문구 방향:
+운동한 날에 탄수화물이 자주 부족합니다. 운동 전후 식사에 넣으세요.
+
+11-4. fat target
+
+등급: C
+역할: 목표별 지방 g 산출
+
+현재 문제:
+fatPct / fatFloor / okMin / cap의 의미가 섞일 수 있다.
+
+사용 가능 window:
+1일: high 제한
+3일: high 반복
+7일: low/high 반복
+14일: 장기 low 확인
+28일: profile 재검토
+
+강한 조언 가능:
+
+fat high:
+- 오늘 high 또는 최근 7일 fatHighDays >= 3
+
+fat low:
+- 최근 7일 usableDietDay >= 4
+- fatLowDays >= 3~4
+- otherKcalShare 낮음
+
+금지:
+- 하루 fat low만 보고 g 보완 강하게 말하기
+- 현재 fat okMin/fatFloor를 생리학적 하한처럼 부르기
+
+후속:
+v6.3-C에서 아래 4개로 분리한다.
+- fatPhysioFloor
+- fatActionFloor
+- fatTargetRange
+- fatPracticalCeiling
+
+문구 방향:
+지방이 며칠째 낮습니다. 오늘은 달걀이나 견과류로 조금 보완하세요.
+
+단, 이 문구는 fat profile 재설계와 recentContext 연결 후에만 허용한다.
+
+11-5. alcohol burden
+
+등급: A~B
+역할: 순수 에탄올 kcal 기반 술 영향 판단
+
+사용 가능 window:
+1일: 오늘 술 중단
+3일: 회복 부담
+7일: 술 빈도
+14일: 습관 후보
+
+강한 조언 가능:
+- 오늘 alcohol high 이상
+- 최근 7일 alcoholDays >= 2~3
+
+금지:
+- alcoholKcal을 술자리 전체 kcal로 해석
+
+필요 산출:
+- todayAlcoholLevel
+- alcoholDays3
+- alcoholDays7
+- alcoholKcal3
+- alcoholKcal7
+- consecutiveAlcoholDays
+- previousDayAlcohol
+- alcoholWithHighFatDays
+
+문구 방향:
+술 영향이 큽니다. 술은 여기서 멈추세요.
+
+최근 흐름 포함:
+이번 주 술 빈도가 높습니다. 오늘 술은 여기서 멈추세요.
+
+11-6. adherence score
+
+등급: C~E
+역할: 하루 식단 달성률 평가
+
+사용 가능 window:
+1일: 참고
+7일: 보조
+14/28일: component 기반 참고
+
+강한 조언 가능:
+점수 단독으로는 강한 조언 불가.
+component frequency가 동반되어야 한다.
+
+금지:
+- 최근 평균 점수만 보고 코치 판단
+- 평균 점수만 사용자-facing 핵심으로 표시
+
+원칙:
+rolling coach 초기에는 평균 점수보다 component 빈도를 우선한다.
+
+좋은 방향:
+최근 7일 중 단백질 부족 4일, 술 기록 2일, 고지방 3일입니다.
+
+수정해야 할 방향:
+최근 7일 평균 점수 78점입니다.
+
+이 문장은 보조 세부 정보로는 가능하지만, 코치 판단의 중심 문구로 쓰지 않는다.
+
+11-7. weight trend
+
+등급: D
+역할: 체중 추세 추론
+
+사용 가능 window:
+1일: 표시만
+3일: 판단 금지
+7일: 약한 참고
+14일: 목표 진행 판단
+28일: 보정 후보
+
+강한 조언 가능:
+- 최근 14일 체중 기록 >= 8일
+- 변동성이 과도하지 않음
+- goalSnapshot coverage 충분
+
+금지:
+- 1~3일 체중으로 감량/증량 성공·실패 단정
+- 술/염분/수분 영향이 큰 상황에서 체중 변화 과해석
+
+문구 방향:
+최근 14일 체중 흐름은 목표와 대체로 맞습니다.
+
+또는:
+체중 흐름은 아직 판단하기 이릅니다. 공복 체중을 더 쌓아 주세요.
+
+11-8. InBody / body composition
+
+등급: D~E
+역할: 체성분 추세 추론 + 목표별 해석 보조
+
+사용 가능 window:
+1일: 기록만
+3일: 판단 금지
+7일: 판단 금지
+14일: 약한 참고
+28일: 추세 참고
+
+강한 조언 가능:
+- 최근 28일 내 비교 가능한 기록 >= 2
+- 측정 조건이 비교 가능
+- suspicious flag 없음
+
+금지:
+- InBody 1회로 근육 증가/감소 단정
+- 체성분 탭에서 목표별 행동 조언을 강하게 하기
+
+체성분 탭 문구 방향:
+최근 변화는 크지 않습니다. 2~4주 흐름으로 보는 편이 좋습니다.
+
+오늘 코치 문구 방향:
+린매스업 중 체중은 오르지만 단백질이 자주 부족합니다. 단백질부터 고정하세요.
+
+11-9. goalSnapshot comparison
+
+등급: A~B
+역할: 과거 기록의 당시 목표 기준 보존
+
+사용 가능 window:
+모든 window의 historical interpretation 기준
+
+강한 조언 가능:
+- goalSnapshotCoverage 충분
+
+금지:
+- 과거 기록을 오늘 목표 기준으로 무조건 재평가
+
+필요 산출:
+- goalSnapshotCoverage3
+- goalSnapshotCoverage7
+- goalSnapshotCoverage14
+- goalSnapshotCoverage28
+- goalChangeDetected
+- snapshotMissingDays
+- snapshotConfidence
+
+문구 방향:
+과거 기록은 당시 목표 기준으로 해석했습니다.
+오늘 행동 조언은 현재 목표 기준으로 안내합니다.
+
+────────────────────────────────────────
+12. bodyCompReliability vs bodyCompTrendConfidence
+────────────────────────────────────────
+
+12-1. bodyCompReliability
+
+bodyCompReliability = 체성분 값을 오늘 계산식에 얼마나 반영할지에 대한 신뢰도
+
+역할:
+- v6.3-A runtime config 축
+- BMR / LBM / 계산 반영 비율에 가까움
+- general / athlete / expert preset, homeInbody, expertLbmAlpha와 연결
+
+12-2. bodyCompTrendConfidence
+
+bodyCompTrendConfidence = 최근 체성분 기록 흐름을 코치 판단 근거로 믿어도 되는지에 대한 신뢰도
+
+역할:
+- rolling context / recent flow 축
+- InBody 기록 수, 측정 간격, 측정 조건 일관성, suspicious flag와 연결
+- 체성분 탭의 중립 해석과 오늘 코치의 보조 근거에 사용
+
+12-3. 관계
+
+[확정]
+bodyCompReliability와 bodyCompTrendConfidence는 직접 합치지 않는다.
+
+구분:
+
+bodyCompReliability:
+체성분 값을 계산에 얼마나 반영할지.
+사용 위치: macro calculation / runtime config.
+
+bodyCompTrendConfidence:
+체성분 흐름을 해석해도 되는지.
+사용 위치: recentContext / 체성분 탭 / Coach 보조 근거.
+
+후속:
+두 값은 contextFit에서 약하게 연결할 수 있다.
+하지만 하나를 다른 하나의 대체값으로 쓰지 않는다.
+
+────────────────────────────────────────
+13. coachConfidence 합성 구조
+────────────────────────────────────────
+
+13-1. 구성 요소
+
+recordConfidence:
+기록 자체가 판단에 충분한가.
+
+formulaConfidence:
+산출식이 그 판단에 적합한가.
+
+windowFit:
+선택한 기간이 그 판단에 맞는가.
+
+contextFit:
+goalSnapshot, 실제 웨이트 기록, otherKcal, alcohol, volatility 같은 맥락이 맞는가.
+
+13-2. 합성 원칙
+
+[확정]
+coachConfidence = min(recordConfidence, formulaConfidence, windowFit, contextFit)
+
+하나라도 낮으면 강한 조언을 하지 않는다.
+
+13-3. Confidence별 문구 강도
+
+High:
+강한 행동 조언 가능.
+단정적 행동 문구.
+
+Medium:
+현재 기록 기준 조언 가능.
+“현재 기록 기준으로” 삽입.
+
+Low:
+흐름 판단 이르다.
+기록 보완 우선.
+
+Blocked:
+판단 금지.
+기록 입력 요청.
+
+예시:
+
+High:
+단백질이 자주 빠집니다. 다음 식사에 먼저 넣으세요.
+
+Medium:
+현재 기록 기준으로 단백질이 자주 부족합니다. 다음 식사에 먼저 넣으세요.
+
+Low:
+최근 흐름 판단은 아직 이릅니다. 오늘 먹은 주요 식사부터 기록해 주세요.
+
+13-4. 오늘 코치에서 confidence 노출
+
+[확정]
+오늘 코치에는 최근 흐름 근거와 confidence 상태를 항상 노출한다.
+
+단, 사용자-facing 화면에는 confidence라는 단어를 그대로 노출하지 않는다.
+
+기본 화면에서는 아래처럼 쉬운 표현으로 번역한다.
+
+- 최근 기록 기준
+- 기록이 아직 부족합니다
+- 최근 흐름 판단은 아직 이릅니다
+- 현재 기록 기준으로
+
+개발 문서와 테스트에서는 coachConfidence 용어를 사용한다.
+
+노출 내용은 confidence에 따라 달라진다.
+
+High / Medium:
+최근 흐름 근거를 행동 문구와 함께 보여준다.
+
+Low / Blocked:
+최근 흐름 근거 대신 기록 보완 안내를 보여준다.
+
+예:
+
+최근 7일 중 4일 단백질이 부족했습니다.
+
+또는:
+
+최근 흐름 판단은 아직 이릅니다. 주요 식사부터 기록해 주세요.
+
+────────────────────────────────────────
+14. 강한 조언 허가 조건
+────────────────────────────────────────
+
+protein low 반복:
+recent7 usableDietDay >= 4, proteinLowDays >= 3
+
+carb low 웨이트일:
+recent7 실제 웨이트 기록일 >= 2, carbLowTrainingDays >= 2
+
+fat low:
+recent7 usableDietDay >= 4, fatLowDays >= 3~4, otherKcalShare 낮음
+
+fat high:
+오늘 high 또는 recent7 fatHighDays >= 3
+
+alcohol high:
+오늘 high 이상이면 즉시 허가
+
+alcohol frequency:
+recent7 alcoholDays >= 2~3
+
+weight trend:
+recent14 weightLoggedDays >= 8
+
+InBody trend:
+recent28 내 비교 가능한 기록 >= 2, suspicious flag 없음
+
+target recalibration:
+14일 이상 체중/섭취 흐름 + 충분한 기록
+
+record quality warning:
+mealLoggedDays 부족, singleMealDays 많음, otherKcalHeavyDays 존재
+
+────────────────────────────────────────
+15. 문구 기준 연결
+────────────────────────────────────────
+
+15-1. 최상위 문구 기준
+
+[확정]
+좋게 들리는 문장이 아니라,
+지금 바로 어떻게 먹을지 말해주는 문장이어야 한다.
+
+15-2. Rolling Coach 문구 변환 규칙
+
+리포트형:
+최근 7일 단백질 평균이 낮습니다.
+코치형:
+단백질이 자주 빠집니다. 다음 식사에 먼저 넣으세요.
+
+리포트형:
+최근 지방 섭취가 낮았습니다.
+코치형:
+지방이 며칠째 낮습니다. 오늘은 조금 보완하세요.
+
+리포트형:
+최근 술 섭취 빈도가 높습니다.
+코치형:
+이번 주 술 빈도가 높습니다. 오늘 술은 여기서 멈추세요.
+
+리포트형:
+기록이 부족합니다.
+코치형:
+최근 흐름 판단은 아직 이릅니다. 주요 식사부터 기록해 주세요.
+
+15-3. 금지 표현
+
+- signal
+- severity
+- penalty
+- decision
+- score cap
+- recovery day
+- 회복데이
+- 흑자 품질
+- 벌크 칼로리
+- 흐름을 복구하세요
+- 가능하면
+- 해보는 것도 좋습니다
+- confidence
+
+단, confidence는 개발 문서와 테스트에서는 사용 가능하다.
+사용자-facing 기본 화면에서는 쉬운 한국어로 번역한다.
+
+────────────────────────────────────────
+16. 구현 로드맵
+────────────────────────────────────────
+
+16-1. v6.3-A
+
+[완료]
+모드 런타임 구조 분해
+
+완료 내용:
+- general / athlete / expert 사용자-facing preset 유지
+- MODE_RUNTIME_PRESETS 도입
+- getModeRuntimeConfig() 도입
+- inputDepth / calculationProfile / bodyCompReliability / explanationDepth / uiDensity 분리
+- 점수 산식 / alcohol penalty / Coach decision matrix / 지방 profile / 저장 schema 유지
+
+16-2. v6.3-B0
+
+[현재]
+Rolling Coach 구조 감사 및 통합 캔버스 확정
+
+목표:
+- 최상위 제품 성격 확정
+- rolling window 확정
+- 산출값 등급 확정
+- 산출식 신뢰도 감사표 확정
+- coachConfidence 합성 구조 확정
+- 탭 책임 재정의
+- 판단 허가 조건 확정
+- 테스트 기준 초안 확정
+
+구현 없음.
+
+16-3. v6.3-B1
+
+[후속]
+캔버스 기준 UI / 정보 구조 정렬
+
+이 단계는 캔버스를 다시 쓰는 단계가 아니라,
+확정된 캔버스 기준을 화면 구조에 반영하기 위한 준비 단계다.
+
+범위:
+- 오늘 탭 coach-first 구조 준비
+- 기록 탭 recordQuality summary 슬롯 준비
+- 최근 흐름 탭 뼈대 준비
+- confidence 노출 위치 설계
+- 탭명 변경은 필요 시 이 단계 후반 또는 v6.4-C로 이동
+
+주의:
+recentContext engine은 아직 구현하지 않는다.
+
+16-4. v6.3-C
+
+[후속]
+지방 profile 재설계
+
+범위:
+- fatPhysioFloor
+- fatActionFloor
+- fatTargetRange
+- fatPracticalCeiling
+
+주의:
+fat low g 안내는 rolling context와 fatActionFloor가 연결된 뒤에만 허용한다.
+
+16-5. v6.4-A
+
+[후속]
+recentContext engine 구현
+
+범위:
+- 1/3/7/14/28 window 집계
+- usableDays 계산
+- goalSnapshotCoverage 계산
+- 실제 웨이트 기록일 판정
+- otherKcalHeavyDays 계산
+- recordConfidence primitive 생성
+- windowFit / contextFit primitive 생성
+
+16-6. v6.4-B
+
+[후속]
+Daily Coach에 recentContext 주입
+
+범위:
+- 오늘 signal + recentContext 결합
+- 강한 조언 허가 조건 연결
+- coachConfidence label 연결
+- 문구 downgrade 연결
+- card override와 decision priority 보강
+
+16-7. v6.4-C
+
+[후속]
+최근 흐름 탭 / Weekly 재해석 / 화면 구조 개편
+
+범위:
+- 주간 분석 → 최근 흐름 구조 전환
+- Today Coach 상단 우선순위 개편
+- 기록 탭 품질 요약 강화
+- 체성분 탭 중립 해석 강화
+- 통합 회귀 테스트 고정
+
+────────────────────────────────────────
+17. 테스트 기준
+────────────────────────────────────────
+
+17-1. P0
+
+1. 식사 0끼: macro low/under 판단 차단, 기록 보완 문구 출력
+2. 식사 1끼 + alcohol high: alcohol stop은 허용, low kcal/protein 단정은 차단
+3. 식사 2끼: hard block 금지, “현재 기록 기준” 문구로 downgrade
+4. 오늘 severe protein low + 최근 7일 안정: 오늘 protein 행동 우선
+5. 오늘 fat low + 최근 7일 안정: 강한 fat low 행동 금지
+6. 최근 7일 protein 반복 부족: action escalate
+7. recent7 usableDietDay < 4: 반복 패턴 판단 보류
+8. goal change within 7/14 days: 목표 변경 감지 먼저 표시
+9. goal change 이후: 과거는 snapshot 기준, 오늘은 today goal 기준
+10. snapshot coverage 낮음: historical comparison 강도 down
+11. otherKcal heavy day 존재: macro 해석보다 기록 품질 안내 우선
+12. weight 7일은 있으나 14일 부족: 진행 추세 단정 금지
+13. InBody 1회 기록: trend 단정 금지
+14. InBody 2회라도 suspicious flag 존재: 강한 번역 금지
+15. alcoholDays7 높음 + 오늘 alcohol high: 오늘 술 중단 우선
+16. carb low on diet rest day: 강한 탄수 보완 금지
+17. carb low on actual weight training days lean/bulk: 운동 전후 보완 허용
+18. bodyCompReliability와 bodyCompTrendConfidence 혼동 방지
+19. Weekly recent7 helper가 recentContext engine을 대체하지 않도록 분리
+
+17-2. P1
+
+1. manual adherence day는 상태 결론에 약하게만 반영
+2. component frequency 강한 근거는 auto/snapshot 기반 day 우선
+3. scoringVersion legacy day가 섞여도 component summary는 안전하게 fallback
+4. Today Coach에 최근 기록 상태가 항상 보이는지 확인
+5. Records quality summary와 coachConfidence label이 충돌하지 않는지 확인
+6. 5일 window가 기본 UI와 기본 판단에 노출되지 않는지 확인
+
+17-3. P2
+
+1. Low confidence copy가 회피형/GPT체 없이 동작하는지 확인
+2. 목표별 문구 차이가 유지되는지 확인
+3. 내부 용어(signal, penalty, decision, confidence 등)가 사용자 화면에 노출되지 않는지 확인
+4. 탭명 변경이 껍데기 변경으로 끝나지 않는지 확인
+
+────────────────────────────────────────
+18. 당장 하지 않을 것
+────────────────────────────────────────
+
+[보류]
+아래 항목은 v6.3-B0에서 구현하지 않는다.
+
+- index.html 기능 수정
+- 점수 산식 변경
+- ADHERENCE_SCORING_VERSION 변경
+- alcohol penalty/cap 변경
+- 저장 schema 변경
+- Weekly 대수술
+- InBody goal-aware 강행 구현
+- goalSnapshot 구조 변경
+- import/export 변경
+- recentContext engine 구현
+- fat low g 안내 구현
+- 탭명만 먼저 변경
+- 5일 window 기본 노출
+
+────────────────────────────────────────
+19. 후속 후보
+────────────────────────────────────────
+
+[후속]
+아래 항목은 현재 로드맵의 직접 구현 대상은 아니지만, v6.4 이후 다시 검토한다.
+
+- 주종 / 도수 / 용량 계산기
+- alcohol score cap / penalty 재검토
+- InBody 장기 추세 고도화
+- Weekly → Recent Flow 완성 후 goal-aware weekly coach 재검토
+- 주중/주말 패턴 분석
+- 유지칼로리 보정 제안
+- import/export schema 정리
+- 사용자-facing 도움말 / 설명 깊이 고도화
+
+[확정]
+v6.4 이후 장기 버전이 v6.5가 될지 v7이 될지는 아직 확정하지 않는다.
+Rolling Coach, 지방 profile, recentContext, Daily Coach 주입, 최근 흐름 탭이 안정화된 뒤 결정한다.
+
+────────────────────────────────────────
+20. Codex / GPT 작업 원칙
+────────────────────────────────────────
+
+20-1. 현재 단계
+
+[확정]
+v6.3-B0는 설계/감사/기준문서 단계다.
+Codex 구현 프롬프트를 바로 만들지 않는다.
+
+20-2. Codex 인텔리전스
+
+기본값은 중간이다.
+단, 아래 작업은 설계 판단과 여러 로직이 얽히므로 높음을 권장한다.
+
+- recentContext engine 구현
+- Coach decision matrix와 rolling context 연결
+- coachConfidence 연결
+- fat profile 재설계
+- goalSnapshot fallback 구현
+- Weekly → Recent Flow 재해석
+- 문구/테스트 대규모 변경
+
+20-3. Codex 결과 검토 기준
+
+작업 후 아래 순서로 본다.
+
+1. 원래 계획과 맞는가
+2. 최상위 제품 성격과 맞는가
+3. 최근 값을 나열하지 않고 오늘 행동으로 번역하는가
+4. recordConfidence / formulaConfidence / windowFit / contextFit이 분리됐는가
+5. 목표별 판단 구조가 실제로 유지되는가
+6. 범위를 넘지 않았는가
+7. 문구가 앱 기준에 맞는가
+8. 테스트가 낡은 문구나 약한 구조를 고정하지 않는가
+
+────────────────────────────────────────
+21. Archive
+────────────────────────────────────────
+
+21-1. v5.9.4
+
+[Archive]
+v5.9.4는 과거 닫힌 안정화 baseline이다.
+
+21-2. v6.2.1
+
+[Archive / 완료 이력]
+v6.2.1은 alcoholKcal 의미와 Coach/card 정합성을 닫은 patch baseline이다.
+
+v6.2.1의 내용은 폐기하지 않는다.
+다만 현재 개발 기준 baseline은 v6.3-A로 올린다.
+
+21-3. 과거 v6.1-D4 / D5 로드맵
+
+[Archive]
+과거 술 점수/회복/Coach 독립 패널 중심 로드맵은 현재 진행 기준이 아니다.
+
+21-4. pasted.txt
+
+[보조]
+과거 코칭 문구 메모다.
+최신 사용자-facing 문구 기준은 앱-문구-기준.txt를 따른다.
+
+────────────────────────────────────────
+22. 최종 한 줄 기준
+────────────────────────────────────────
+
+이 기능은 최근 흐름을 믿을 수 있는지 판단한 뒤,
+오늘 행동으로 번역하는 데 도움이 되는가?
+
+도움이 되지 않는다면, 단순 수치 추가나 평균 표시 기능은 우선순위가 낮다.
+
+최종 구조는 아래 순서를 따른다.
+
+1. 기록한다.
+2. 기록을 믿을 수 있는지 본다.
+3. 산출값의 등급과 산출식 신뢰도를 본다.
+4. window가 그 판단에 맞는지 본다.
+5. 목표와 운동 맥락이 맞는지 본다.
+6. 최근 흐름을 해석한다.
+7. 오늘 행동으로 번역한다.
+8. confidence가 낮으면 기록 보완을 먼저 말한다.
