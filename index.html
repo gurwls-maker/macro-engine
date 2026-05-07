@@ -1,11 +1,10 @@
 <!--
-Version: 6.5-A1
-Stage: 6.5-A1 InBody 분석 gate 및 근거 출처 문구 정리
+Version: 6.5-A1.1
+Stage: 6.5-A1.1 InBody 저장 후 Today Coach 갱신 hotfix
 Date: 2026-05-07
 Notes:
-- InBody 분석 gate 및 근거 출처 문구 정리
-- InBody 탭 중립 관찰 유지
-- Today Coach InBody hint는 기록 수 / 측정 간격 / suspicious 여부에 따라 제한
+- InBody 저장 후 Today Coach 즉시 갱신 hotfix
+- InBody 분석 gate / 근거 출처 문구 / InBody 탭 중립 관찰 유지
 - 점수 산식 / 저장 schema / import-export schema / Coach decision matrix / recentContext engine / fat low 행동 문구 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
@@ -14,7 +13,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-A1</title>
+  <title>탄단지 다이어리 v6.5-A1.1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3460,7 +3459,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-A1</span>
+               <span class="app-version">v6.5-A1.1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -12196,7 +12195,7 @@ Notes:
       state.inbodyRecords.sort((a, b) => a.date.localeCompare(b.date));
       saveState();
       saveInbodyRecords();
-      renderInbodyPanel();
+      render();
       if (feedback) feedback.innerHTML = `<div class="notice"><h4>InBody 저장</h4><ul><li>${escapeHtml(date)} 측정값을 저장했습니다.</li></ul></div>`;
     }
 
@@ -18094,6 +18093,100 @@ Notes:
       });
     }
 
+    function runInbodyCoachRefreshTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const record = (date, overrides = {}) => ({
+          date,
+          weight: Number.isFinite(overrides.weight) ? overrides.weight : 75,
+          skeletalMuscle: Number.isFinite(overrides.skeletalMuscle) ? overrides.skeletalMuscle : 35,
+          bodyFat: Number.isFinite(overrides.bodyFat) ? overrides.bodyFat : 12,
+          bodyFatPercent: Number.isFinite(overrides.bodyFatPercent) ? overrides.bodyFatPercent : 16,
+          warning: "",
+          isSuspicious: overrides.isSuspicious === true
+        });
+        const savedInbodyStorage = localStorage.getItem(storageKey("inbodyRecords"));
+        const restoreInbodyStorage = () => {
+          if (savedInbodyStorage === null) localStorage.removeItem(storageKey("inbodyRecords"));
+          else localStorage.setItem(storageKey("inbodyRecords"), savedInbodyStorage);
+        };
+        const fillInbodyForm = item => {
+          document.getElementById("inbodyDate").value = item.date;
+          document.getElementById("inbodyWeight").value = String(item.weight);
+          document.getElementById("inbodySkeletalMuscle").value = String(item.skeletalMuscle);
+          document.getElementById("inbodyBodyFat").value = String(item.bodyFat);
+          document.getElementById("inbodyBodyFatPercent").value = String(item.bodyFatPercent);
+        };
+        const todayHintText = () => document.querySelector("#todayPanel .coach-inbody-hint")?.textContent || "";
+        const inbodyInsightText = () => document.getElementById("inbodySummaryRows")?.textContent || "";
+
+        results.push(runNamedTest("A1.1 InBody save refreshes Today Coach without reload", () => {
+          try {
+            state.inbodyRecords = [record("2026-04-01")];
+            uiState.activeTab = "inbody";
+            render();
+            setActiveTab("today");
+            assertTest(!todayHintText(), "single InBody record should not have a pre-existing Coach hint");
+
+            setActiveTab("inbody");
+            fillInbodyForm(record("2026-04-15", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 }));
+            saveInbodyRecord();
+            const context = buildInbodyTrendContext(state.inbodyRecords);
+            assertTest(context.trendPattern === "fat_gain_dominant", "saved InBody pair should classify as fat_gain_dominant");
+            assertIncludesAll(inbodyInsightText(), ["인바디 분석 결과", "체지방 쪽 변화"], "InBody tab should render the saved trend");
+
+            setActiveTab("today");
+            assertIncludesAll(todayHintText(), ["인바디 분석 결과", "체지방 쪽 변화"], "Today Coach should refresh InBody hint after save without reload");
+          } finally {
+            restoreInbodyStorage();
+          }
+        }));
+
+        results.push(runNamedTest("A1.1 Today input InBody save refreshes Coach hint", () => {
+          try {
+            const today = getTodayDateString();
+            const previousDate = shiftDateString(today, -14);
+            recordsState.items = [];
+            state.inbodyRecords = [record(previousDate)];
+            setValidTodayBalanceTestInputs();
+            uiState.activeTab = "today";
+            render();
+            assertTest(!todayHintText(), "single previous InBody record should not show a Coach hint");
+
+            ids.weight.value = "76";
+            ids.skeletal.value = "35.1";
+            ids.bodyFatMass.value = "12.8";
+            ids.bodyFat.value = "16.8";
+            const saved = saveTodayInputWithInbody();
+            assertTest(saved.savedRecord === true && saved.savedInbody === true, "Today input should save InBody record");
+            const context = buildInbodyTrendContext(state.inbodyRecords);
+            assertTest(context.trendPattern === "fat_gain_dominant", "Today input InBody save should update trend pattern");
+            assertIncludesAll(todayHintText(), ["인바디 분석 결과", "체지방 쪽 변화"], "Today Coach should refresh after Today input InBody save");
+          } finally {
+            restoreInbodyStorage();
+          }
+        }));
+
+        results.push(runNamedTest("A1.1 InBody save refresh keeps low-confidence gate", () => {
+          try {
+            state.inbodyRecords = [record("2026-04-01")];
+            uiState.activeTab = "inbody";
+            render();
+            fillInbodyForm(record("2026-04-04", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 }));
+            saveInbodyRecord();
+            const context = buildInbodyTrendContext(state.inbodyRecords);
+            assertTest(context.reasonCode === "short_interval", "short interval save should stay gated");
+            setActiveTab("today");
+            assertTest(!todayHintText(), "short interval save should not create a strong Coach hint");
+          } finally {
+            restoreInbodyStorage();
+          }
+        }));
+
+        return results;
+      });
+    }
+
     function runWeeklyTrainingDayAutoTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -18213,6 +18306,7 @@ Notes:
     window.runInbodyTrendContextTests = runInbodyTrendContextTests;
     window.runInbodyCopySourceSeparationTests = runInbodyCopySourceSeparationTests;
     window.runDailyCoachInbodyGateTests = runDailyCoachInbodyGateTests;
+    window.runInbodyCoachRefreshTests = runInbodyCoachRefreshTests;
     window.runWeeklyTrainingDayAutoTests = runWeeklyTrainingDayAutoTests;
     window.RECENT_CONTEXT_WINDOWS = RECENT_CONTEXT_WINDOWS;
     window.buildRecentContext = buildRecentContext;
