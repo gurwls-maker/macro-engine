@@ -1,14 +1,15 @@
 <!--
-Version: 6.5-A2-3
-Stage: 6.5-A2-3 Records 기록 방식 UI 분리
+Version: 6.5-A2-4
+Stage: 6.5-A2-4 자동 점수 토글 제거 및 기록 방식 기준 정리
 Date: 2026-05-07
 Notes:
-- Records 탭에서 체중만 / 간단 / 상세 기록 방식 분리
-- recordMode 명시 저장
-- simple과 detailed 상호 배타 저장 흐름 추가
-- 식사 상세 입력은 detailed 기록에서만 허용
-- 자동 평가 OFF는 자동 점수 계산 OFF로 문구 정리
-- recentContext / Coach decision matrix / InBody gate 기준 / 점수 산식 변경 없음
+- 식단 점수 자동 계산 토글 제거
+- recordMode 기준으로 식단 기록 / 점수 계산 / 분석 권한 일원화
+- detailed 기록은 항상 자동 식단 점수 계산 및 goalSnapshot 저장
+- simple 기록은 상/중/하 직접 평가만 사용
+- weight_only 기록은 식단 판단 없음
+- autoDietAnalysis 사용자-facing UI 및 동작 의존 제거
+- recentContext / Coach decision matrix / InBody gate / 점수 산식 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -16,7 +17,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-A2-3</title>
+  <title>탄단지 다이어리 v6.5-A2-4</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3462,7 +3463,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-A2-3</span>
+               <span class="app-version">v6.5-A2-4</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -3557,12 +3558,6 @@ Notes:
               <button class="mode-btn" id="quickModeExpert" type="button">전문가용</button>
             </div>
           </div>
-          <div class="quick-settings-row">
-            <label class="inline-check compact">
-              <input id="quickAutoDietAnalysis" type="checkbox">
-              <span>식단 점수 자동 계산</span>
-            </label>
-          </div>
         </div>
       </div>
     </div>
@@ -3633,13 +3628,6 @@ Notes:
               <div>
                 <h3>식단 평가</h3>
                 <h2>오늘 식단 달성률</h2>
-              </div>
-              <div class="check-card head-check" id="settingsAutoDietBlock">
-                <input id="autoDietAnalysis" type="checkbox">
-                <div class="check-copy">
-                  <div class="check-title">식단 점수 자동 계산</div>
-                  <div class="check-desc">켜면 상세 식사 기록으로 점수를 계산합니다. 꺼도 상세 기록은 탄단지 분석 기준으로 남습니다.</div>
-                </div>
               </div>
             </div>
             <div id="todayAdherenceContent"></div>
@@ -4188,15 +4176,8 @@ Notes:
         </section>
         <section class="panel settings-block">
           <h3>고급</h3>
-          <h2>식단 점수 자동 계산</h2>
-          <div class="mini-note">켜면 상세 식사 기록을 바탕으로 점수를 계산합니다. 꺼도 상세 기록은 탄단지 분석 기준으로 남습니다.</div>
-          <div class="settings-group">
-            <div class="section-group-head">
-              <h4>자동 점수 설정</h4>
-              <p>Today의 빠른 설정과 같은 옵션입니다. 여기서는 자세히 조절할 수 있습니다.</p>
-            </div>
-            <div class="settings-host" id="settingsAdvancedHost"></div>
-          </div>
+          <h2>전문가 설정</h2>
+          <div class="mini-note">전문가용 모드에서 쓰는 세부 계산 입력을 조정합니다.</div>
           <div class="settings-group mode-expert-only">
             <div class="section-group-head">
               <h4>제지방량 반영 비율</h4>
@@ -4485,7 +4466,6 @@ Notes:
       weeklyTrainingDaysManual: false,
       generalAdvancedSettings: false,
       generalLowDigestCarbs: false,
-      autoDietAnalysis: false,
       routinePlan: "ppl_ul",
       routine: "PUSH",
       intensityOverride: 0.80,
@@ -4503,7 +4483,7 @@ Notes:
 
     // 2) state + storage helpers
     const ids = [
-      "weight","height","age","bodyFat","bodyFatMass","skeletal","gender","activityLevel","workType","workAdj","homeInbody","expertLbmAlpha","weeklyTrainingDays","generalAdvancedSettings","generalLowDigestCarbs","autoDietAnalysis",
+      "weight","height","age","bodyFat","bodyFatMass","skeletal","gender","activityLevel","workType","workAdj","homeInbody","expertLbmAlpha","weeklyTrainingDays","generalAdvancedSettings","generalLowDigestCarbs",
       "routinePlan","intensityOverride","weightDuration","cardioType","cardioDuration","cardioSpeed","cardioIncline",
       "recordDate","recordWeight","recordModeChips","recordModeHint","recordAdherence","recordNote","importJsonFile",
       "mealLabel","mealCarbs","mealProtein","mealFat","mealAlcoholKcal","mealOtherKcal","mealMemo"
@@ -4565,7 +4545,6 @@ Notes:
         weeklyTrainingDaysManual: !!state.weeklyTrainingDaysManual,
         generalAdvancedSettings: !!ids.generalAdvancedSettings.checked,
         generalLowDigestCarbs: !!ids.generalLowDigestCarbs.checked,
-        autoDietAnalysis: !!ids.autoDietAnalysis.checked,
         routinePlan: state.routinePlan,
         routine: state.routine,
         intensityOverride: Number(ids.intensityOverride.value),
@@ -4623,7 +4602,6 @@ Notes:
       loaded.weeklyTrainingDaysManual = readStoredValue("weeklyTrainingDaysManual") === "true";
       loaded.generalAdvancedSettings = readStoredValue("generalAdvancedSettings") === "true";
       loaded.generalLowDigestCarbs = readStoredValue("generalLowDigestCarbs") === "true";
-      loaded.autoDietAnalysis = readStoredValue("autoDietAnalysis") === "true";
 
       const routinePlan = readStoredValue("routinePlan");
       if (isAllowedOption(routinePlan, Object.keys(ROUTINE_SCHEMES))) loaded.routinePlan = routinePlan;
@@ -4702,7 +4680,6 @@ Notes:
       ids.weeklyTrainingDays.readOnly = !state.weeklyTrainingDaysManual;
       ids.generalAdvancedSettings.checked = state.generalAdvancedSettings;
       ids.generalLowDigestCarbs.checked = state.generalLowDigestCarbs;
-      ids.autoDietAnalysis.checked = state.autoDietAnalysis;
       ids.routinePlan.value = state.routinePlan;
       ids.intensityOverride.value = Number(state.intensityOverride).toFixed(2);
       ids.weightDuration.value = state.weightDuration;
@@ -6043,10 +6020,8 @@ Notes:
     function syncSettingsLayout(){
       const modeGoalBlock = document.getElementById("settingsModeGoalBlock");
       const modeDescBlock = document.getElementById("settingsModeDescriptionBlock");
-      const autoDietBlock = document.getElementById("settingsAutoDietBlock");
       const modeGoalHost = document.getElementById("settingsModeGoalHost");
       const modeDescHost = document.getElementById("settingsModeDescriptionHost");
-      const advancedHost = document.getElementById("settingsAdvancedHost");
       const globalGoalHost = document.getElementById("globalGoalHost");
       const globalActionHost = document.getElementById("globalActionHost");
       const todayInputPanel = document.getElementById("todayInputPanel");
@@ -6063,7 +6038,6 @@ Notes:
       if (goalActions && globalActionHost && goalActions.parentElement !== globalActionHost) globalActionHost.appendChild(goalActions);
       if (todayTopActions && globalActionHost && todayTopActions.parentElement !== globalActionHost) globalActionHost.appendChild(todayTopActions);
       if (modeDescBlock && modeDescHost && modeDescBlock.parentElement !== modeDescHost) modeDescHost.appendChild(modeDescBlock);
-      if (autoDietBlock && advancedHost && autoDietBlock.parentElement !== advancedHost) advancedHost.appendChild(autoDietBlock);
       if (todayInputPanel) todayInputPanel.classList.remove("hidden");
       if (routineChips && todayRoutineChipsHost && routineChips.parentElement !== todayRoutineChipsHost) {
         todayRoutineChipsHost.appendChild(routineChips);
@@ -6092,12 +6066,7 @@ Notes:
       render();
     }
 
-    function syncQuickSettingsUI(){
-      const autoInput = document.getElementById("quickAutoDietAnalysis");
-      if (!autoInput) return;
-
-      autoInput.checked = !!ids.autoDietAnalysis.checked;
-    }
+    function syncQuickSettingsUI(){}
 
     function adherenceLabel(value){
       return { high: "상", medium: "중", low: "하" }[value] || "중";
@@ -6132,7 +6101,7 @@ Notes:
       if (Number.isFinite(autoValue)) {
         return `
           <div class="adherence-cell">
-            <div class="adherence-primary"><span class="adherence-percent">${autoValue}%</span><span class="adherence-tag auto">자동 점수</span></div>
+            <div class="adherence-primary"><span class="adherence-percent">${autoValue}%</span><span class="adherence-tag auto">식단 점수</span></div>
             <div class="adherence-secondary">상세 기록 기준</div>
           </div>
         `;
@@ -6151,7 +6120,7 @@ Notes:
         return `
           <div class="adherence-cell">
             <div class="adherence-primary"><span class="adherence-tag auto">상세 기록</span></div>
-            <div class="adherence-secondary">자동 점수 없음</div>
+            <div class="adherence-secondary">식사를 저장하면 점수를 계산합니다</div>
           </div>
         `;
       }
@@ -6162,9 +6131,8 @@ Notes:
     function formatRecordFeedbackMessage(message, record){
       const text = String(message || "");
       if (!text.includes("식사를 저장했습니다.")) return text;
-      if (!ids.autoDietAnalysis.checked) return `${text} 자동 점수는 만들지 않고, 상세 식사 기록으로 저장했습니다.`;
       if (record?.goalSnapshot) return `${text} 식사 변경에 따라 식단 달성률이 자동으로 다시 계산되었습니다.`;
-      return `${text} 목표가 없어 자동 평가가 적용되지 않았습니다. 먼저 목표와 기본 정보를 확인해 주세요.`;
+      return `${text} 목표가 없어 식단 점수를 계산하지 못했습니다. 먼저 목표와 기본 정보를 확인해 주세요.`;
     }
 
     function adherenceScore(value){
@@ -6788,7 +6756,7 @@ Notes:
 
     function getRecordModeHint(mode){
       if (mode === "simple") return "상·중·하 간단 평가만 남깁니다. 탄단지 반복 판단은 상세 기록이 필요합니다.";
-      if (mode === "detailed") return "식사별 탄수화물·단백질·지방을 저장합니다. 자동 점수는 설정에 따라 계산합니다.";
+      if (mode === "detailed") return "식사별 탄수화물·단백질·지방을 저장합니다. 기록한 식사를 기준으로 점수를 계산합니다.";
       return "체중과 메모만 저장합니다. 식단 원인은 이 기록만으로 판단하지 않습니다.";
     }
 
@@ -6814,7 +6782,7 @@ Notes:
         update.adherenceSource = "manual";
       } else if (mode === "detailed") {
         update.adherence = "medium";
-        update.adherenceSource = existing?.adherenceSource === "auto" ? "auto" : "manual";
+        update.adherenceSource = "manual";
       }
       return update;
     }
@@ -9441,7 +9409,7 @@ Notes:
     }
 
     function getAdherenceLabel(percent){
-      if (!Number.isFinite(percent)) return "자동 평가 불가";
+      if (!Number.isFinite(percent)) return "점수 계산 불가";
       if (percent >= 90) return "매우 우수";
       if (percent >= 80) return "우수";
       if (percent >= 70) return "보통";
@@ -9516,7 +9484,7 @@ Notes:
     }
 
     function getAdherenceDisplayLabel(percent, direction){
-      if (!Number.isFinite(percent)) return "자동 평가 불가";
+      if (!Number.isFinite(percent)) return "점수 계산 불가";
       if (percent < 70) {
         if (direction === "over") return "과다 섭취";
         if (direction === "mixed") return "재조정 필요";
@@ -9563,12 +9531,12 @@ Notes:
       if (!balance.isGoalAvailable) {
         return {
           percent: null,
-          label: "자동 평가 불가",
+          label: "점수 계산 불가",
           source: "auto",
           isAvailable: false,
           status: "goal_unavailable",
           reasons: {
-            protein: "오늘 목표가 계산되어야 자동 평가를 진행할 수 있습니다.",
+            protein: "오늘 목표가 계산되어야 식단 점수를 계산할 수 있습니다.",
             kcal: "기본 입력을 먼저 확인해 주세요.",
             carbs: "계산 가능한 목표가 필요합니다.",
             fat: "계산 가능한 목표가 필요합니다."
@@ -10001,14 +9969,14 @@ Notes:
       const preferredSource = hasExistingSnapshot
         ? existing.snapshotSource
         : (options.snapshotSource || "saved_at_entry");
-      const snapshot = existing?.goalSnapshot || (options.allowSnapshotCreation ? buildGoalSnapshotFromCurrentState(currentResult, preferredSource) : null);
+      const snapshot = existing?.goalSnapshot || buildGoalSnapshotFromCurrentState(currentResult, preferredSource);
       const baseUpdate = {
         date: normalizedDate,
         goalSnapshot: snapshot,
         snapshotSource: snapshot ? (existing?.snapshotSource || preferredSource) : existing?.snapshotSource
       };
 
-      if (!ids.autoDietAnalysis.checked || !snapshot) {
+      if (!snapshot) {
         const record = upsertRecord({
           ...baseUpdate,
           adherencePercent: null,
@@ -10036,7 +10004,6 @@ Notes:
       const existing = getRecordByDate(today);
       if (!existing) return { synced: false, reason: "no_today_record" };
       if (inferRecordMode(existing).recordMode !== "detailed") return { synced: false, reason: "record_mode_not_detailed" };
-      if (!ids.autoDietAnalysis.checked) return { synced: false, reason: "auto_off" };
       if (!currentResult?.isCalculable) return { synced: false, reason: "not_calculable" };
       const weightMismatch = getTodayRecordWeightMismatch();
       if (weightMismatch.hasMismatch) return { synced: false, reason: "weight_mismatch", weightMismatch };
@@ -10067,7 +10034,7 @@ Notes:
       const today = mismatch.today;
       let record = upsertRecord({ date: today, weight: mismatch.inputWeight });
       const currentResult = calculate();
-      if (ids.autoDietAnalysis.checked && currentResult?.isCalculable) {
+      if (inferRecordMode(record).recordMode === "detailed" && currentResult?.isCalculable) {
         const snapshot = buildGoalSnapshotFromCurrentState(currentResult, "today_auto_sync");
         if (snapshot) {
           const score = getDailyAdherenceScore(today, currentResult, { goalSnapshot: snapshot });
@@ -10169,12 +10136,11 @@ Notes:
         recordMode: nextRecordMode,
         weight,
         adherence: existing?.adherence || "medium",
-        adherenceSource: ids.autoDietAnalysis.checked ? existing?.adherenceSource : "manual"
+        adherenceSource: nextRecordMode === "detailed" ? existing?.adherenceSource : "manual"
       });
-      if (ids.autoDietAnalysis.checked && nextRecordMode === "detailed") {
+      if (nextRecordMode === "detailed") {
         const autoResult = persistAutoAdherenceForDate(today, calculate(), {
-          snapshotSource: existing?.goalSnapshot ? existing.snapshotSource : "saved_at_entry",
-          allowSnapshotCreation: true
+          snapshotSource: existing?.goalSnapshot ? existing.snapshotSource : "saved_at_entry"
         });
         record = autoResult.record || getRecordByDate(today) || record;
       }
@@ -10332,8 +10298,7 @@ Notes:
       const nextMeals = [...record.meals, meal];
       upsertRecord({ date, recordMode: "detailed", meals: nextMeals });
       persistAutoAdherenceForDate(date, calculate(), {
-        snapshotSource: record?.goalSnapshot ? record.snapshotSource : "saved_at_entry",
-        forceLateSnapshot: false
+        snapshotSource: record?.goalSnapshot ? record.snapshotSource : "saved_at_entry"
       });
       const softLimitMessage = getMealSoftLimitMessage(nextMeals.length);
       setRecordFeedback(softLimitMessage ? "warn" : "ok", softLimitMessage || `${meal.mealLabel} 식사를 저장했습니다.`);
@@ -10351,7 +10316,7 @@ Notes:
         date,
         recordMode,
         weight: weightRaw,
-        adherence: recordMode === "simple" ? ids.recordAdherence.value : (existing?.adherence || "medium"),
+        adherence: recordMode === "simple" ? ids.recordAdherence.value : "medium",
         adherenceSource: recordMode === "simple" ? "manual" : existing?.adherenceSource,
         note: ids.recordNote.value.trim()
       });
@@ -10371,15 +10336,14 @@ Notes:
         recordMode,
         ...(recordMode !== "detailed" ? clearDietEvidenceForMode(recordMode, existing) : {}),
         weight: hasWeightInput ? weightRaw : existing?.weight,
-        adherence: recordMode === "simple" ? ids.recordAdherence.value : (existing?.adherence || "medium"),
+        adherence: recordMode === "simple" ? ids.recordAdherence.value : "medium",
         adherenceSource: recordMode === "simple" ? "manual" : existing?.adherenceSource,
         note: ids.recordNote.value.trim()
       });
       setRecordFeedback("ok", `${record.date} ${getRecordModeLabel(recordMode)}을 저장했습니다.`);
-      if (ids.autoDietAnalysis.checked && recordMode === "detailed") {
+      if (recordMode === "detailed") {
         persistAutoAdherenceForDate(date, calculate(), {
-          snapshotSource: existing?.goalSnapshot ? existing.snapshotSource : "saved_at_entry",
-          allowSnapshotCreation: true
+          snapshotSource: existing?.goalSnapshot ? existing.snapshotSource : "saved_at_entry"
         });
       }
       syncRecordInputsForDate(record.date);
@@ -10400,8 +10364,7 @@ Notes:
       upsertRecord({ date, meals: nextMeals });
       setRecordFeedback("ok", "선택한 식사 기록을 삭제했습니다.");
       persistAutoAdherenceForDate(date, calculate(), {
-        snapshotSource: record.snapshotSource || "saved_at_entry",
-        forceLateSnapshot: false
+        snapshotSource: record.snapshotSource || "saved_at_entry"
       });
       if (getSelectedRecordDate() === normalizeDateString(date)) resetMealInputsForDate(date);
       render();
@@ -10629,8 +10592,8 @@ Notes:
       const qualityText = mealOnlyDays > 0
         ? `참고용 ${mealOnlyDays}일 포함`
         : (sourceCounts.auto || 0) >= Math.max(1, Math.ceil(validDays / 2))
-          ? "자동 평가 중심"
-          : "직접 평가 중심";
+          ? "상세 점수 중심"
+          : "간단 평가 중심";
       const info = [];
       const caution = [];
       const danger = [];
@@ -10641,8 +10604,8 @@ Notes:
       const summaryRows = [
         ["최근 7일 식단 달성률", Number.isFinite(weeklyAdherenceAvg) ? `${Math.round(weeklyAdherenceAvg)}%` : "-"],
         ["분석 가능한 기록 일수", `${validDays}일`],
-        ["분석 근거", `자동 평가 ${sourceCounts.auto || 0}일 / 직접 평가 ${sourceCounts.manual || 0}일`],
-        ["자동 평가가 적용되지 않은 날", `${snapshotlessDays}일`],
+        ["분석 근거", `상세 점수 ${sourceCounts.auto || 0}일 / 간단 평가 ${sourceCounts.manual || 0}일`],
+        ["상세 점수 없는 날", `${snapshotlessDays}일`],
         ["기록 품질", `${qualityText} · 의미 기록 ${meaningfulDays}일`],
         ["최근 7일 평균 체중", Number.isFinite(recentAvg) ? `${round(recentAvg, 2)} kg` : "-"],
         ["직전 7일 평균 체중", Number.isFinite(previousAvg) ? `${round(previousAvg, 2)} kg` : "-"],
@@ -10653,7 +10616,7 @@ Notes:
       if (validDays < 4) {
         summaryRows.push(["권장 행동", "최근 7일 안에 기록 가능한 날을 더 쌓아 주세요"]);
         headline = "최근 7일 데이터가 부족해 주간 분석을 보류합니다.";
-        caption = "미기록은 낮은 점수로 처리하지 않습니다. 자동 평가 또는 직접 평가 기록이 4일 이상 쌓여야 비교 해석을 시작합니다.";
+        caption = "미기록은 낮은 점수로 처리하지 않습니다. 상세 점수 또는 간단 평가 기록이 4일 이상 쌓여야 비교 해석을 시작합니다.";
         actionText = `분석 보류 (${Math.max(0, 4 - validDays)}일 부족)`;
         actionTone = "bad";
         danger.push("최근 7일 안에 식단 달성률을 확인할 수 있는 날짜가 4일 미만입니다.");
@@ -11481,27 +11444,19 @@ Notes:
     function renderTodayAdherencePanel(adherenceResult, options = {}){
       const host = document.getElementById("todayAdherenceContent");
       const coach = options.coach || null;
-      if (!ids.autoDietAnalysis.checked) {
-        host.innerHTML = `
-          <div class="notice">
-            <h4>자동 점수 꺼짐</h4>
-            <ul>
-              <li>자동 점수는 만들지 않습니다.</li>
-              <li>상세 식사 기록은 탄단지 분석 기준으로 계속 남습니다.</li>
-            </ul>
-          </div>
-        `;
-        return;
-      }
 
       if (!adherenceResult.isAvailable) {
-        const title = adherenceResult.status === "no_meals" ? "오늘 식사 기록 대기 중" : "자동 평가 불가";
+        const title = adherenceResult.status === "no_meals" ? "오늘 식사 기록 대기 중" : "점수 계산 불가";
+        const reasons = adherenceResult.reasons || {
+          protein: "상세 기록에 식사를 저장하면 점수를 계산합니다.",
+          kcal: "식사를 입력하려면 상세 기록으로 전환하세요."
+        };
         host.innerHTML = `
           <div class="warn warn">
             <h4>${title}</h4>
             <ul>
-              <li>${adherenceResult.reasons.protein}</li>
-              <li>${adherenceResult.reasons.kcal}</li>
+              <li>${reasons.protein}</li>
+              <li>${reasons.kcal}</li>
             </ul>
           </div>
         `;
@@ -11722,7 +11677,6 @@ Notes:
       const snapshotGoalKey = getGoalKeyFromSnapshot(record?.goalSnapshot);
       const snapshotGoalLabel = snapshotGoalKey && GOALS[snapshotGoalKey] ? GOALS[snapshotGoalKey].label : "";
       const hasAutoAdherence = Number.isFinite(record?.adherencePercent) && record?.adherenceSource === "auto";
-      const autoDietOn = !!ids.autoDietAnalysis.checked;
       const otherKcalIsHigh = totals.otherKcal >= 250 || (totals.totalKcal > 0 && totals.otherKcal / totals.totalKcal >= 0.25);
       const hasAnyRecord = !!record;
       const modeInfo = inferRecordMode(record);
@@ -11775,7 +11729,7 @@ Notes:
         getRecordModeLabel(modeInfo.recordMode === "mixed" ? "mixed" : recordMode),
         mealCount === 0 ? "식사 0끼" : (mealCount === 1 ? "식사 1끼" : `식사 ${mealCount}끼`),
         hasWeight ? "체중 있음" : "체중 없음",
-        hasAutoAdherence ? "자동 점수 있음" : (recordMode === "simple" && manualValue ? `간단 평가 ${manualValue}` : (autoDietOn && recordMode === "detailed" ? "자동 점수 대기" : "자동 점수 없음")),
+        hasAutoAdherence ? "식단 점수 있음" : (recordMode === "simple" && manualValue ? `간단 평가 ${manualValue}` : (recordMode === "detailed" ? "식사 점수 대기" : "식단 평가 없음")),
         snapshotGoalLabel ? `목표: ${snapshotGoalLabel}` : "목표 기록 없음"
       ];
       if (totals.otherKcal > 0) chips.push(`기타 ${Math.round(totals.otherKcal).toLocaleString()} kcal`);
@@ -13062,10 +13016,6 @@ Notes:
         render();
         if (state.weeklyTrainingDaysManual) ids.weeklyTrainingDays.focus();
       });
-      ids.autoDietAnalysis.addEventListener("change", () => {
-        state.autoDietAnalysis = !!ids.autoDietAnalysis.checked;
-        render();
-      });
       document.querySelector(".philosophy-banner")?.addEventListener("toggle", syncPhilosophyBannerUI);
       ids.intensityOverride.addEventListener("input", () => {
         state.intensityOverride = Number(ids.intensityOverride.value);
@@ -13124,11 +13074,6 @@ Notes:
         setQuickSettingsOpen(panel?.classList.contains("hidden"));
       });
       document.getElementById("quickSettingsClose").addEventListener("click", () => setQuickSettingsOpen(false));
-      document.getElementById("quickAutoDietAnalysis").addEventListener("change", () => {
-        ids.autoDietAnalysis.checked = document.getElementById("quickAutoDietAnalysis").checked;
-        state.autoDietAnalysis = !!ids.autoDietAnalysis.checked;
-        render();
-      });
       document.getElementById("quickModeGeneral").addEventListener("click", () => setMode("general"));
       document.getElementById("quickModeAthlete").addEventListener("click", () => setMode("athlete"));
       document.getElementById("quickModeExpert").addEventListener("click", () => setMode("expert"));
@@ -13218,7 +13163,6 @@ Notes:
         weeklyTrainingDaysManual: state.weeklyTrainingDaysManual,
         generalAdvancedSettings: ids.generalAdvancedSettings.checked,
         generalLowDigestCarbs: ids.generalLowDigestCarbs.checked,
-        autoDietAnalysis: ids.autoDietAnalysis.checked,
         routinePlan: ids.routinePlan.value,
         intensityOverride: ids.intensityOverride.value,
         weightDuration: ids.weightDuration.value,
@@ -13262,7 +13206,6 @@ Notes:
         state.weeklyTrainingDaysManual = snapshot.weeklyTrainingDaysManual;
         ids.generalAdvancedSettings.checked = snapshot.generalAdvancedSettings;
         ids.generalLowDigestCarbs.checked = snapshot.generalLowDigestCarbs;
-        ids.autoDietAnalysis.checked = snapshot.autoDietAnalysis;
         ids.routinePlan.value = snapshot.routinePlan;
         ids.intensityOverride.value = snapshot.intensityOverride;
         ids.weightDuration.value = snapshot.weightDuration;
@@ -13325,6 +13268,12 @@ Notes:
       if (found.length) throw new Error(`${message}: found ${found.join(", ")}`);
     }
 
+    function getRenderedBodyText(){
+      const clone = document.body.cloneNode(true);
+      clone.querySelectorAll("script, style").forEach(node => node.remove());
+      return clone.textContent || "";
+    }
+
     function setValidTodayBalanceTestInputs(){
       ids.weight.value = "75";
       ids.height.value = "175";
@@ -13339,7 +13288,6 @@ Notes:
       ids.homeInbody.checked = false;
       ids.weeklyTrainingDays.value = "4";
       ids.generalAdvancedSettings.checked = false;
-      ids.autoDietAnalysis.checked = false;
       ids.routinePlan.value = "ppl_ul";
       state.routinePlan = ids.routinePlan.value;
       state.routine = "PUSH";
@@ -13830,7 +13778,7 @@ Notes:
                 { id: "m1", mealLabel: "아침", carbs: 30, protein: 20, fat: 8, memo: "", createdAt: `${date}T08:00:00.000Z` },
                 { id: "m2", mealLabel: "점심", carbs: 40, protein: 25, fat: 10, memo: "", createdAt: `${date}T12:00:00.000Z` }
               ] }],
-              includes: ["점수 근거를 확인할 수 있습니다", "식사 2끼", "자동 점수 있음", "목표: 린매스업"]
+              includes: ["점수 근거를 확인할 수 있습니다", "식사 2끼", "식단 점수 있음", "목표: 린매스업"]
             }
           ];
           scenarios.forEach(scenario => {
@@ -14094,7 +14042,6 @@ Notes:
         const today = getTodayDateString();
         const results = [];
         setValidTodayBalanceTestInputs();
-        ids.autoDietAnalysis.checked = true;
         const leanProfile = getMacroScoreProfile("lean_bulk");
         const componentTestCases = {
           kcal: { target: 2500, options: leanProfile.kcal },
@@ -14302,7 +14249,6 @@ Notes:
 
         results.push(runNamedTest("adherence one meal near target stays pending without over copy", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           const target = calculate();
           recordsState.items = normalizeRecordsCollection([{
             date: today,
@@ -14354,7 +14300,6 @@ Notes:
 
         results.push(runNamedTest("adherence concentrated meal hint avoids empty-record wording", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           const target = calculate();
           recordsState.items = normalizeRecordsCollection([{
             date: today,
@@ -14814,29 +14759,25 @@ Notes:
           assertClose(score.detail.consumed.protein, 45, 0.0001, "date score should aggregate meal protein");
         }));
 
-        results.push(runNamedTest("adherence auto persistence requires existing snapshot", () => {
+        results.push(runNamedTest("detailed persistence creates goal snapshot and attempts score", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           const target = calculate();
           recordsState.items = normalizeRecordsCollection([{
             date: today,
+            recordMode: "detailed",
             adherence: "medium",
             meals: [{ id: "m1", mealLabel: "saved", carbs: target.carbs, protein: target.protein, fat: target.fat, memo: "", createdAt: `${today}T08:00:00.000Z` }]
           }]);
           const persisted = persistAutoAdherenceForDate(today, target);
           const record = getRecordByDate(today);
-          assertTest(record.adherencePercent === null, "record without snapshot should not store auto adherencePercent");
-          assertTest(record.adherenceSource === "manual", "record without snapshot should keep manual source");
-          assertTest(record.adherence === "medium", "manual adherence value should be preserved");
-          assertTest(!record.goalSnapshot, "record without snapshot should not create a goal snapshot");
-          assertTest(record.snapshotSource === null, "record without snapshot should not assign a snapshot source");
-          assertTest(persisted?.snapshotCreated === false, "auto persistence should not create snapshots");
-          assertTest(persisted?.score === null, "record without snapshot should not expose an auto score");
+          assertTest(!!record.goalSnapshot, "detailed persistence should create a goal snapshot");
+          assertTest(record.snapshotSource === "saved_at_entry", "detailed persistence should assign saved_at_entry snapshot source");
+          assertTest(persisted?.snapshotCreated === true, "detailed persistence should report snapshot creation");
+          assertTest(persisted?.score !== null, "detailed persistence should attempt an adherence score");
         }));
 
-        results.push(runNamedTest("auto-on new saved record creates snapshot and autogrades after meal add", () => {
+        results.push(runNamedTest("detailed new saved record creates snapshot and autogrades after meal add", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           const todayRecordDate = today;
           recordsState.items = [];
           recordsState.feedback = null;
@@ -14850,8 +14791,8 @@ Notes:
           const afterRecordSave = getRecordByDate(todayRecordDate);
           assertTest(afterRecordSave?.adherencePercent === null, "new saved record without meals should not start with auto adherencePercent");
           assertTest(afterRecordSave?.adherenceSource === "manual", "new saved record without meals should keep manual source until score is available");
-          assertTest(!!afterRecordSave?.goalSnapshot, "auto-on new saved record should create a goal snapshot");
-          assertTest(["saved_at_entry","today_auto_sync"].includes(afterRecordSave?.snapshotSource), "auto-on new saved record should assign a current-entry snapshot source");
+          assertTest(!!afterRecordSave?.goalSnapshot, "detailed new saved record should create a goal snapshot");
+          assertTest(["saved_at_entry","today_auto_sync"].includes(afterRecordSave?.snapshotSource), "detailed new saved record should assign a current-entry snapshot source");
           ids.mealLabel.value = "QA plain meal 1";
           ids.mealCarbs.value = String(target.carbs * 0.5);
           ids.mealProtein.value = String(target.protein * 0.5);
@@ -14877,9 +14818,8 @@ Notes:
           assertTest(!feedbackText.includes("스냅샷"), "meal add feedback should not include late snapshot guidance");
         }));
 
-        results.push(runNamedTest("auto-off new saved record does not create snapshot", () => {
+        results.push(runNamedTest("simple saved record keeps manual evaluation without snapshot", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = false;
           recordsState.items = [];
           ids.recordDate.value = today;
           syncRecordInputsForDate(today);
@@ -14888,16 +14828,16 @@ Notes:
           ids.recordAdherence.value = "high";
           saveRecord();
           const record = getRecordByDate(today);
-          assertTest(!record?.goalSnapshot, "auto-off new saved record should not create a goal snapshot");
-          assertTest(record?.snapshotSource === null, "auto-off new saved record should not assign snapshot source");
-          assertTest(record?.adherenceScoringVersion === null, "auto-off new saved record should not assign scoring version");
-          assertTest(record?.adherenceSource === "manual", "auto-off new saved record should keep manual source");
-          assertTest(record?.adherence === "high", "auto-off new saved record should keep manual adherence value");
+          assertTest(record?.recordMode === "simple", "simple save should store simple mode");
+          assertTest(!record?.goalSnapshot, "simple save should not create a detailed goal snapshot");
+          assertTest(record?.snapshotSource === null, "simple save should not assign snapshot source");
+          assertTest(record?.adherenceScoringVersion === null, "simple save should not assign scoring version");
+          assertTest(record?.adherenceSource === "manual", "simple save should keep manual source");
+          assertTest(record?.adherence === "high", "simple save should keep manual adherence value");
         }));
 
-        results.push(runNamedTest("past snapshotless record stays manual after meal add", () => {
+        results.push(runNamedTest("past detailed snapshotless record creates snapshot after meal add", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           const pastDate = "2026-04-10";
           recordsState.items = normalizeRecordsCollection([{ date: pastDate, weight: 75, adherence: "medium", note: "" }]);
           ids.recordDate.value = pastDate;
@@ -14913,16 +14853,13 @@ Notes:
           saveMealEntry();
           const record = getRecordByDate(pastDate);
           assertTest(record?.meals.length === 1, "meal should save on a past snapshotless record");
-          assertTest(record?.adherencePercent === null, "past snapshotless record should keep null adherencePercent after meal add");
-          assertTest(record?.adherenceSource === "manual", "past snapshotless record should keep manual source after meal add");
-          assertTest(record?.adherenceScoringVersion === null, "past snapshotless record should not receive scoring version after meal add");
-          assertTest(!record?.goalSnapshot, "past snapshotless record should not create a goal snapshot after meal add");
-          assertTest(record?.snapshotSource === null, "past snapshotless record should not assign snapshot source after meal add");
+          assertTest(!!record?.goalSnapshot, "past detailed meal add should create a goal snapshot");
+          assertTest(record?.snapshotSource === "saved_at_entry", "past detailed meal add should assign snapshot source");
+          assertTest(inferRecordMode(record).recordMode === "detailed", "past detailed meal add should stay detailed");
         }));
 
         results.push(runNamedTest("past adherence remains locked after input changes", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           const pastDate = "2026-04-20";
           const target = calculate();
           recordsState.items = normalizeRecordsCollection([{
@@ -14950,7 +14887,6 @@ Notes:
 
         results.push(runNamedTest("today snapshot syncs after target input changes", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           const target = calculate();
           const snapshot = buildGoalSnapshotFromCurrentState(target, "saved_at_entry");
           recordsState.items = normalizeRecordsCollection([{
@@ -14978,7 +14914,6 @@ Notes:
 
         results.push(runNamedTest("today snapshotless record can sync without creating an empty record", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           const target = calculate();
           recordsState.items = normalizeRecordsCollection([{
             date: today,
@@ -15001,9 +14936,8 @@ Notes:
           assertTest(getRecordByDate(today) === null, "today sync should leave records empty when no today record exists");
         }));
 
-        results.push(runNamedTest("today snapshot sync respects auto off and unchanged signature", () => {
+        results.push(runNamedTest("today snapshot sync respects unchanged signature", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           const target = calculate();
           recordsState.items = normalizeRecordsCollection([{
             date: today,
@@ -15019,18 +14953,10 @@ Notes:
           const afterUnchanged = getRecordByDate(today);
           assertTest(unchanged.synced === false && unchanged.reason === "unchanged", "equivalent today snapshot should not resync");
           assertTest(JSON.stringify(afterUnchanged.goalSnapshot) === JSON.stringify(before.goalSnapshot), "unchanged signature should keep snapshot object stable");
-
-          ids.autoDietAnalysis.checked = false;
-          ids.weight.value = String(Number(ids.weight.value || "75") + 8);
-          const autoOff = syncTodayRecordGoalSnapshot(calculate());
-          const afterAutoOff = getRecordByDate(today);
-          assertTest(autoOff.synced === false && autoOff.reason === "auto_off", "auto-off today record should not sync");
-          assertTest(JSON.stringify(afterAutoOff.goalSnapshot) === JSON.stringify(before.goalSnapshot), "auto-off sync should keep existing snapshot");
         }));
 
         results.push(runNamedTest("today weight mismatch blocks sync until user chooses", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           ids.weight.value = "74";
           const recordTarget = calculate();
           recordsState.items = normalizeRecordsCollection([{
@@ -15075,7 +15001,6 @@ Notes:
 
         results.push(runNamedTest("snapshot date recomputes with same snapshot on meal edits", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           const pastDate = "2026-04-17";
           const target = calculate();
           recordsState.items = normalizeRecordsCollection([{
@@ -15095,8 +15020,7 @@ Notes:
             meals: [...before.meals, { id: "m3", mealLabel: "meal3", carbs: target.carbs * 0.5, protein: target.protein * 0.5, fat: target.fat * 0.5, memo: "", createdAt: `${pastDate}T18:00:00.000Z` }]
           });
           persistAutoAdherenceForDate(pastDate, calculate(), {
-            snapshotSource: before.snapshotSource || "saved_at_entry",
-            forceLateSnapshot: false
+            snapshotSource: before.snapshotSource || "saved_at_entry"
           });
           const after = getRecordByDate(pastDate);
           assertTest(JSON.stringify(after.goalSnapshot) === beforeSnapshot, "meal edits should keep the original snapshot");
@@ -15110,15 +15034,15 @@ Notes:
           assertClose(afterDelete.adherencePercent, before.adherencePercent, 0.0001, "meal delete should recompute adherence against the locked snapshot");
         }));
 
-        results.push(runNamedTest("manual fallback remains when auto analysis is off", () => {
+        results.push(runNamedTest("simple manual fallback remains outside detailed scoring", () => {
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = false;
-          recordsState.items = normalizeRecordsCollection([{ date: today, adherence: "high", meals: [{ id: "m1", mealLabel: "saved", carbs: 40, protein: 30, fat: 10, memo: "", createdAt: `${today}T08:00:00.000Z` }] }]);
+          recordsState.items = normalizeRecordsCollection([{ date: today, recordMode: "simple", adherence: "high" }]);
           persistAutoAdherenceForDate(today, calculate());
           const record = getRecordByDate(today);
-          assertTest(record.adherenceSource === "manual", "auto-off persistence should keep manual source");
-          assertTest(record.adherencePercent === null, "auto-off persistence should not store auto percent");
-          assertTest(record.adherenceScoringVersion === null, "auto-off persistence should not store scoring version");
+          assertTest(record.adherenceSource === "manual", "simple persistence should keep manual source");
+          assertTest(record.adherencePercent === null, "simple persistence should not store auto percent");
+          assertTest(record.adherenceScoringVersion === null, "simple persistence should not store scoring version");
+          assertTest(record.goalSnapshot === null, "simple persistence should not create goal snapshot");
         }));
 
         return results;
@@ -15131,15 +15055,14 @@ Notes:
         const results = [];
         setValidTodayBalanceTestInputs();
 
-        results.push(runNamedTest("adherence toggle off keeps manual UI", () => {
-          ids.autoDietAnalysis.checked = false;
+        results.push(runNamedTest("adherence panel without meals guides detailed recording", () => {
           renderTodayAdherencePanel({ isAvailable: false });
           const text = document.getElementById("todayAdherenceContent").textContent || "";
-          assertIncludesAll(text, ["자동 점수는 만들지 않습니다", "상세 식사 기록", "탄단지 분석 기준"], "auto score off guidance should render");
+          assertIncludesAll(text, ["점수 계산 불가"], "unavailable score guidance should render");
+          assertExcludesAll(text, ["자동 점수 꺼짐", "자동 점수는 만들지 않습니다"], "removed toggle guidance should not render");
         }));
 
-        results.push(runNamedTest("adherence toggle on renders score", () => {
-          ids.autoDietAnalysis.checked = true;
+        results.push(runNamedTest("adherence detailed score renders without toggle", () => {
           const target = calculate();
           recordsState.items = normalizeRecordsCollection([{
             date: today,
@@ -15152,7 +15075,6 @@ Notes:
         }));
 
         results.push(runNamedTest("adherence D2 no meals does not assert macro shortage", () => {
-          ids.autoDietAnalysis.checked = true;
           recordsState.items = normalizeRecordsCollection([]);
           const score = getTodayAdherenceScore(calculate());
           renderTodayAdherencePanel(score);
@@ -15162,7 +15084,6 @@ Notes:
         }));
 
         results.push(runNamedTest("adherence D2 one meal does not judge full day macros", () => {
-          ids.autoDietAnalysis.checked = true;
           const target = calculate();
           recordsState.items = normalizeRecordsCollection([{
             date: today,
@@ -15176,7 +15097,6 @@ Notes:
         }));
 
         results.push(runNamedTest("adherence D2 component cards explain score evidence", () => {
-          ids.autoDietAnalysis.checked = true;
           const target = calculate();
           const score = {
             status: "available",
@@ -15205,7 +15125,6 @@ Notes:
         }));
 
         results.push(runNamedTest("adherence D2 alcohol and other kcal evidence copy", () => {
-          ids.autoDietAnalysis.checked = true;
           const score = {
             status: "available",
             detail: {
@@ -15227,16 +15146,13 @@ Notes:
           assertExcludesAll(text, ["기타 칼로리가 탄단지 판단을 가립니다", "추가 술과 안주는 멈추세요"], "extra evidence should not repeat coach actions or banned other kcal copy");
         }));
 
-        results.push(runNamedTest("adherence D2 auto score off uses clear copy", () => {
-          ids.autoDietAnalysis.checked = false;
+        results.push(runNamedTest("adherence UI does not expose automatic score toggle copy", () => {
           renderTodayAdherencePanel({ isAvailable: false });
           const text = document.getElementById("todayAdherenceContent").textContent || "";
-          assertIncludesAll(text, ["자동 점수 꺼짐", "자동 점수는 만들지 않습니다", "상세 식사 기록"], "auto score off copy");
-          assertExcludesAll(text, ["manual", "manual adherence", "끄면 직접 상/중/하"], "auto score off should not expose old direct-evaluation framing");
+          assertExcludesAll(text, ["자동 점수 꺼짐", "자동 점수는 만들지 않습니다", "끄면 직접 상/중/하"], "auto score toggle copy should not render");
         }));
 
         results.push(runNamedTest("records simple mode keeps manual adherence input enabled", () => {
-          ids.autoDietAnalysis.checked = true;
           recordsState.items = [];
           ids.recordDate.value = today;
           setRecordModeForSelectedDate("simple");
@@ -15246,7 +15162,6 @@ Notes:
         }));
 
         results.push(runNamedTest("records detailed mode hides manual adherence input", () => {
-          ids.autoDietAnalysis.checked = false;
           recordsState.items = [];
           ids.recordDate.value = today;
           setRecordModeForSelectedDate("detailed");
@@ -15626,7 +15541,6 @@ Notes:
           const day1 = "2026-04-22";
           const day2 = "2026-04-21";
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           const target = calculate();
           recordsState.items = normalizeRecordsCollection([
             {
@@ -15735,7 +15649,6 @@ Notes:
       return withRecordTestSandbox(() => {
         const results = [];
         setValidTodayBalanceTestInputs();
-        ids.autoDietAnalysis.checked = true;
         const asOfDate = "2026-04-28";
         const makeMeal = (id, overrides = {}) => ({
           id,
@@ -15978,15 +15891,15 @@ Notes:
           assertTest(mode.hasMacroAnalysisPermission === true, "detailed meal record should allow macro analysis candidate");
         }));
 
-        results.push(runNamedTest("record mode auto off with meals remains detailed", () => {
+        results.push(runNamedTest("legacy meal record remains detailed before score exists", () => {
           const mode = inferRecordMode({
             date: "2026-04-28",
             adherenceSource: "manual",
             adherencePercent: null,
             meals: [makeMeal()]
           });
-          assertTest(mode.recordMode === "detailed", "auto-off meal record should stay detailed");
-          assertTest(mode.futureGoalSnapshotCandidate === true, "auto-off detailed record should remain a future goalSnapshot candidate");
+          assertTest(mode.recordMode === "detailed", "meal record should stay detailed");
+          assertTest(mode.futureGoalSnapshotCandidate === true, "detailed record should remain a future goalSnapshot candidate");
         }));
 
         results.push(runNamedTest("record mode goal snapshot alone does not imply detailed", () => {
@@ -16091,7 +16004,7 @@ Notes:
           assertTest(!Object.prototype.hasOwnProperty.call(summary, "averageAdherencePercent"), "summary should not expose a blended adherence average");
         }));
 
-        results.push(runNamedTest("record mode auto off is not analysis off", () => {
+        results.push(runNamedTest("record mode detailed manual-source meals keep analysis permission", () => {
           const mode = inferRecordMode({
             date: "2026-04-28",
             adherenceSource: "manual",
@@ -16100,20 +16013,20 @@ Notes:
             meals: [makeMeal("m1", { protein: 42 })]
           });
           assertTest(mode.recordMode === "detailed", "manual-source meal record should remain detailed");
-          assertTest(mode.hasMacroAnalysisPermission === true, "auto-off detailed record should allow macro analysis candidate");
+          assertTest(mode.hasMacroAnalysisPermission === true, "detailed meal record should allow macro analysis candidate");
         }));
 
-        results.push(runNamedTest("record mode auto off is not goal snapshot off", () => {
+        results.push(runNamedTest("record mode detailed meals remain goal snapshot candidates", () => {
           const mode = inferRecordMode({
             date: "2026-04-28",
             adherenceSource: "manual",
             meals: [makeMeal("m1")]
           });
-          assertTest(mode.futureGoalSnapshotCandidate === true, "detailed auto-off record should stay a future snapshot candidate");
+          assertTest(mode.futureGoalSnapshotCandidate === true, "detailed record should stay a future snapshot candidate");
           assertTest(mode.reason === "detailed_diet_signal", "future snapshot candidate should come from detailed diet signal");
         }));
 
-        results.push(runNamedTest("record mode detailed auto off future snapshot target is explicit", () => {
+        results.push(runNamedTest("record mode detailed future snapshot target is explicit", () => {
           const detailed = inferRecordMode({ date: "2026-04-28", adherenceSource: "manual", meals: [makeMeal("m1")] });
           const simple = inferRecordMode({ date: "2026-04-28", adherence: "high", adherenceSource: "manual" });
           assertTest(detailed.futureGoalSnapshotCandidate === true, "detailed record should be future snapshot target candidate");
@@ -16135,6 +16048,7 @@ Notes:
       return withRecordTestSandbox(() => {
         const results = [];
         const today = getTodayDateString();
+        setValidTodayBalanceTestInputs();
         const makeMeal = (id = "m1") => ({
           id,
           mealLabel: "아침",
@@ -16323,11 +16237,12 @@ Notes:
           assertIncludesAll(document.getElementById("recordQualitySummaryHost").textContent || "", ["상세 기록", "식사 1끼"], "detailed quality copy");
         }));
 
-        results.push(runNamedTest("recordMode auto score toggle copy avoids old direct-evaluation framing", () => {
+        results.push(runNamedTest("recordMode automatic score toggle UI is removed", () => {
           render();
-          const toggleText = document.getElementById("settingsAutoDietBlock").textContent || "";
-          assertIncludesAll(toggleText, ["식단 점수 자동 계산", "꺼도 상세 기록은 탄단지 분석 기준으로 남습니다"], "auto score toggle copy should explain score-only meaning");
-          assertExcludesAll(toggleText, ["끄면 직접 상/중/하로 기록합니다", "자동 평가를 끄면 직접"], "auto score toggle should not claim auto-off means manual mode");
+          assertTest(!document.getElementById("settingsAutoDietBlock"), "settings auto score toggle block should not exist");
+          assertTest(!document.getElementById("quickAutoDietAnalysis"), "quick settings auto score toggle should not exist");
+          assertTest(!document.getElementById("autoDietAnalysis"), "auto score checkbox should not exist");
+          assertExcludesAll(getRenderedBodyText(), ["식단 점수 자동 계산", "자동 점수 꺼짐", "자동 점수는 만들지 않습니다"], "auto score toggle copy should not render");
         }));
 
         results.push(runNamedTest("recordMode export import preserves explicit mode", () => {
@@ -16341,9 +16256,8 @@ Notes:
           assertTest(imported[0].recordMode === "detailed" && imported[1].recordMode === "simple", "imported sorted records should preserve recordMode");
         }));
 
-        results.push(runNamedTest("recordMode detailed auto off remains detailed without auto score", () => {
+        results.push(runNamedTest("recordMode detailed meal save creates snapshot and attempts score", () => {
           const date = "2026-05-25";
-          ids.autoDietAnalysis.checked = false;
           recordsState.items = [];
           ids.recordDate.value = date;
           syncRecordInputsForDate(date);
@@ -16351,14 +16265,14 @@ Notes:
           fillMealInputs();
           saveMealEntry();
           const record = getRecordByDate(date);
-          assertTest(record.recordMode === "detailed", "auto-off meal save should stay detailed");
-          assertTest(record.adherencePercent === null, "auto-off detailed save should not create auto score");
-          assertTest(inferRecordMode(record).hasMacroAnalysisPermission === true, "auto-off detailed meal still has macro analysis candidate");
+          assertTest(record.recordMode === "detailed", "detailed meal save should stay detailed");
+          assertTest(!!record.goalSnapshot, "detailed meal save should create goal snapshot");
+          assertTest(inferRecordMode(record).hasMacroAnalysisPermission === true, "detailed meal should have macro analysis candidate");
         }));
 
-        results.push(runNamedTest("recordMode detailed with meals stays detailed without goalSnapshot", () => {
+        results.push(runNamedTest("recordMode meal record remains detailed by meal signal", () => {
           const mode = inferRecordMode({ date: "2026-05-26", recordMode: "detailed", meals: [makeMeal()] });
-          assertTest(mode.recordMode === "detailed", "detailed meals should be detailed without goalSnapshot");
+          assertTest(mode.recordMode === "detailed", "meal signal should infer detailed record");
           assertTest(mode.futureGoalSnapshotCandidate === true, "detailed meals should remain future goalSnapshot target");
         }));
 
@@ -16377,7 +16291,6 @@ Notes:
       return withRecordTestSandbox(() => {
         const results = [];
         setValidTodayBalanceTestInputs();
-        ids.autoDietAnalysis.checked = true;
 
         function createMockRecentContext(config = {}){
           const level = config.level || "medium";
@@ -16645,7 +16558,6 @@ Notes:
       ids.weeklyTrainingDays.value = "5";
       ids.generalAdvancedSettings.checked = false;
       ids.generalLowDigestCarbs.checked = false;
-      ids.autoDietAnalysis.checked = false;
       ids.routinePlan.value = "ppl_ul";
       state.routinePlan = ids.routinePlan.value;
       state.routine = "REST";
@@ -16678,7 +16590,6 @@ Notes:
           ids.weeklyTrainingDays.value = "0";
           ids.generalAdvancedSettings.checked = false;
           ids.generalLowDigestCarbs.checked = false;
-          ids.autoDietAnalysis.checked = false;
           ids.routinePlan.value = "ppl_ul";
           state.routinePlan = ids.routinePlan.value;
           state.routine = "PUSH";
@@ -17159,7 +17070,6 @@ Notes:
 
         function setupPreviousDayCoachScenario(config = {}){
           setValidTodayBalanceTestInputs();
-          ids.autoDietAnalysis.checked = true;
           const target = calculate();
           const today = getTodayDateString();
           const previousDate = shiftDateString(today, -1);
@@ -18301,6 +18211,14 @@ Notes:
       "engine",
       "threshold",
       "macro",
+      "autoDietAnalysis",
+      "recordMode",
+      "goalSnapshot",
+      "dietResolution",
+      "permission",
+      "식단 점수 자동 계산",
+      "자동 평가 OFF",
+      "자동 점수 계산 OFF",
       "surplus",
       "deficit",
       "참고할 수 있습니다",
@@ -18370,7 +18288,6 @@ Notes:
         const results = [];
         const today = getTodayDateString();
         setValidTodayBalanceTestInputs();
-        ids.autoDietAnalysis.checked = true;
 
         results.push(runNamedTest("D3 separation: coach action renders before reason", () => {
           render();
@@ -18458,7 +18375,6 @@ Notes:
       return withRecordTestSandbox(() => {
         const results = [];
         setValidTodayBalanceTestInputs();
-        ids.autoDietAnalysis.checked = true;
 
         results.push(runNamedTest("D3 forbidden copy: other kcal guard uses revised wording", () => {
           const guardItem = createRecentContextCoachItem("other_kcal");
@@ -18506,7 +18422,6 @@ Notes:
       return withRecordTestSandbox(() => {
         const results = [];
         setValidTodayBalanceTestInputs();
-        ids.autoDietAnalysis.checked = true;
 
         results.push(runNamedTest("D4 adherence interpretation copy reads as evidence", () => {
           const checks = [
@@ -18584,7 +18499,6 @@ Notes:
       return withRecordTestSandbox(() => {
         const results = [];
         setValidTodayBalanceTestInputs();
-        ids.autoDietAnalysis.checked = true;
 
         results.push(runNamedTest("D4 Today Coach remains action-first above KPI", () => {
           render();
@@ -18647,7 +18561,6 @@ Notes:
             meals: [{ id: "m1", mealLabel: "아침", carbs: 50, protein: 30, fat: 10, alcoholKcal: 0, otherKcal: 0, memo: "", createdAt: `${today}T08:00:00.000Z` }]
           }]);
           ids.weight.value = "75.5";
-          ids.autoDietAnalysis.checked = false;
           const saved = saveTodayInputWeightToRecord({ render: false });
           const record = getRecordByDate(today);
           assertTest(saved.saved === true, "today input save should succeed");
@@ -18660,7 +18573,6 @@ Notes:
           const today = getTodayDateString();
           recordsState.items = [];
           ids.weight.value = "76";
-          ids.autoDietAnalysis.checked = false;
           saveTodayInputWeightToRecord({ render: false });
           const record = getRecordByDate(today);
           assertTest(!!record, "record should be created");
