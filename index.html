@@ -1,15 +1,15 @@
 <!--
-Version: 6.5-A2-6
-Stage: 6.5-A2-6 InBody permission 기록 해상도 연결
+Version: 6.5-A2-7
+Stage: 6.5-A2-7 최근 흐름 기록 해상도 문구 및 회귀 QA
 Date: 2026-05-07
 Notes:
-- Today Coach InBody hint/action permission을 recentContext 기록 해상도 primitive와 연결
-- simple-only 최근 식단에서는 InBody 기반 탄단지 원인 단정 차단
-- weight_only 위주 기록에서는 InBody 기반 식단 원인 단정 차단
-- detailed 기록이 충분할 때만 InBody 분석 결과와 최근 식단 원인/action 연결 허용
-- InBody 탭 중립 관찰 유지
+- 최근 흐름 UI에서 detailed / simple / weight_only 기록 해상도 문구 QA
+- simple 기록을 자동 점수 평균처럼 말하지 않도록 문구/테스트 정리
+- weight_only 기록을 식단 원인 판단에 쓰지 않도록 문구/테스트 정리
+- Today Coach simple-only / weight-only macro 원인 단정 차단 회귀 QA
+- InBody permission + recentContext 기록 해상도 연결 회귀 QA
 - 자동 점수 토글 제거 기준 유지
-- recentContext window / Coach decision matrix / 점수 산식 변경 없음
+- recentContext window / Coach decision matrix / InBody gate / 점수 산식 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -17,7 +17,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-A2-6</title>
+  <title>탄단지 다이어리 v6.5-A2-7</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -3463,7 +3463,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-A2-6</span>
+               <span class="app-version">v6.5-A2-7</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -4077,7 +4077,7 @@ Notes:
           <div class="section-group weekly-report-group">
             <div class="section-group-head">
               <h4>7일 참고 분석</h4>
-              <p>기존 7일 평균 기반 분석은 보조 참고로 확인합니다.</p>
+              <p>기존 7일 평균 기반 분석은 이전 방식 비교로만 확인합니다.</p>
             </div>
             <div class="section-group-body">
           <div class="weekly-hero ok" id="weeklyHero">
@@ -15670,6 +15670,34 @@ Notes:
           recordsState.items = normalizeRecordsCollection([{ date: today, weight: 75 }]);
         }));
 
+        results.push(runNamedTest("weekly recent flow simple-only copy blocks macro cause", () => {
+          const today = getTodayDateString();
+          const records = Array.from({ length: 7 }, (_, index) => ({
+            date: shiftDateString(today, -(6 - index)),
+            recordMode: "simple",
+            adherence: index % 3 === 0 ? "low" : "medium",
+            adherenceSource: "manual",
+            goalSnapshot: makeWeeklyFlowSnapshot({ protein: 200, carbs: 300, fat: 40 })
+          }));
+          const text = setWeeklyFlowRecords(records);
+          assertIncludesAll(text, ["간단 기록 7일", "간단 기록이 많", "탄단지 반복 원인은 아직 보기 어렵습니다"], "simple-only recent flow should explain low-resolution limits");
+          assertExcludesAll(text, ["최근 식단 점수", "단백질 부족이 반복됐습니다", "고지방 기록", "실제 웨이트일 탄수화물이 낮은 날"], "simple-only recent flow should not create macro causes");
+          recordsState.items = normalizeRecordsCollection([{ date: today, weight: 75 }]);
+        }));
+
+        results.push(runNamedTest("weekly recent flow weight-only copy blocks diet cause", () => {
+          const today = getTodayDateString();
+          const records = Array.from({ length: 7 }, (_, index) => ({
+            date: shiftDateString(today, -(6 - index)),
+            recordMode: "weight_only",
+            weight: 75 + index * 0.1
+          }));
+          const text = setWeeklyFlowRecords(records);
+          assertIncludesAll(text, ["체중만 7일", "체중 기록 중심", "식단 원인은 아직 단정하지 않습니다"], "weight-only recent flow should frame records as weight-only");
+          assertExcludesAll(text, ["최근 식단 점수", "단백질 부족이 반복됐습니다", "기타 칼로리가 원인입니다", "식단 때문에"], "weight-only recent flow should not state diet causes");
+          recordsState.items = normalizeRecordsCollection([{ date: today, weight: 75 }]);
+        }));
+
         results.push(runNamedTest("weekly recent flow goal display uses goal day counts", () => {
           state.goal = "lean_bulk";
           const today = getTodayDateString();
@@ -18770,7 +18798,10 @@ Notes:
       "goalSnapshot",
       "dietResolution",
       "permission",
+      "macroPatternAllowed",
+      "dietCauseAllowed",
       "식단 점수 자동 계산",
+      "자동 점수 토글",
       "자동 평가 OFF",
       "자동 점수 계산 OFF",
       "surplus",
@@ -18786,6 +18817,7 @@ Notes:
       "현재 입력 기준으로 볼 수 있습니다",
       "Today 코치에서 확인하세요",
       "InBody 참고",
+      "보조 참고",
       "보조 참고입니다",
       "인바디도 참고됩니다",
       "체성분 변화도 보조로 확인됩니다",
