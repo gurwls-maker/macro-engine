@@ -1,13 +1,16 @@
 <!--
-Version: 6.5-UX2-2
-Stage: 6.5-UX2-2 기본 계산 입력 분리
+Version: 6.5-UX2-3
+Stage: 6.5-UX2-3 Records 기록 보관함 레이아웃
 Date: 2026-05-08
 Notes:
 - 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
-- Today의 긴 기본 계산 입력 영역을 Settings / 계산 기준 설정 흐름으로 분리
-- Today는 결과 / 행동 / 기록 시작점 중심으로 정리
-- 기록 시작 팝업 / 바텀시트는 UX2-1 기준 유지
-- 기본 계산 입력은 체중 / 신체 정보 / 활동 / 운동 / 유산소 설정을 관리
+- Records 탭을 입력 중심에서 날짜별 기록 보관함 레이아웃으로 재구성
+- 탭명을 데이터 기록에서 기록으로 정리
+- 날짜별 요약 카드에 상세 기록 / 간단 기록 / 식단 판단 없음, 식사 수, 점수, 체중, InBody 여부 표시
+- 기존 직접 입력 / 백업 / 불러오기 기능은 보조 영역으로 유지
+- Records 상세 펼침은 UX2-4로 분리
+- InBody ↔ Records 연결은 UX2-5로 분리
+- 최근 흐름 문제 날짜 연결은 UX2-6으로 분리
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -15,7 +18,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-UX2-2</title>
+  <title>탄단지 다이어리 v6.5-UX2-3</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2412,9 +2415,16 @@ Notes:
       align-items:start;
       gap:18px;
     }
+    .records-archive-layout{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:18px;
+      align-items:start;
+    }
     .weekly-layout{
       grid-template-columns:minmax(0,1fr);
     }
+    .records-archive-panel,
     .records-input-panel,
     .records-review-shell,
     .records-review-shell > *,
@@ -2423,28 +2433,33 @@ Notes:
     #recordsPanel .meal-table-row{
       min-width:0;
     }
+    .records-archive-panel,
     .records-input-panel,
     .weekly-analysis-panel,
     .settings-block{
       padding:20px 20px 18px;
       background:var(--panel-soft);
     }
+    .records-archive-panel,
     .records-input-panel,
     .weekly-analysis-panel{
       border-color:color-mix(in srgb, var(--accent-strong) 20%, var(--line) 80%);
     }
+    .records-archive-panel h3,
     .records-input-panel h3,
     .weekly-analysis-panel h3,
     .settings-block h3{
       margin-bottom:6px;
       font-size:11px;
     }
+    .records-archive-panel h2,
     .records-input-panel h2,
     .weekly-analysis-panel h2,
     .settings-block h2{
       margin-bottom:10px;
       font-size:19px;
     }
+    .records-archive-panel > .mini-note,
     .records-input-panel > .mini-note,
     .weekly-analysis-panel > .mini-note,
     .settings-block > .mini-note{
@@ -2456,6 +2471,150 @@ Notes:
       background:rgba(255,255,255,.52);
       border-color:color-mix(in srgb, var(--line) 80%, white 20%);
       box-shadow:none;
+    }
+    .records-archive-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:16px;
+      margin-bottom:16px;
+    }
+    .records-archive-head .mini-note{
+      margin:0;
+    }
+    .records-archive-head-note{
+      flex:0 0 auto;
+      max-width:320px;
+      padding:10px 12px;
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      border-radius:14px;
+      background:rgba(255,255,255,.54);
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.5;
+      word-break:keep-all;
+    }
+    .records-archive-kpis{
+      gap:12px;
+      margin:0 0 16px;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+    }
+    .records-archive-kpis .kpi{
+      min-height:96px;
+      padding:12px 14px;
+      box-shadow:none;
+      background:rgba(255,255,255,.5);
+      border-color:color-mix(in srgb, var(--line) 84%, white 16%);
+    }
+    .records-card-list{
+      display:grid;
+      gap:12px;
+    }
+    #recordsPanel #recordsTable.records-card-list{
+      max-height:min(460px, 52vh);
+      overflow-y:auto;
+      overscroll-behavior:contain;
+      scrollbar-gutter:stable;
+      padding-right:6px;
+      border:0;
+      border-radius:0;
+      background:transparent;
+    }
+    .record-archive-card{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      gap:16px;
+      align-items:center;
+      padding:16px;
+      border:1px solid color-mix(in srgb, var(--line) 84%, white 16%);
+      border-radius:18px;
+      background:rgba(255,252,247,.86);
+      box-shadow:0 10px 24px rgba(28,36,48,.045);
+      cursor:pointer;
+      transition:border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+    }
+    .record-archive-card:hover,
+    .record-archive-card.is-selected{
+      border-color:color-mix(in srgb, var(--accent-strong) 38%, var(--line) 62%);
+      box-shadow:0 14px 30px rgba(28,36,48,.07);
+    }
+    .record-archive-card.is-selected{
+      background:linear-gradient(135deg, rgba(255,252,247,.94), rgba(238,250,247,.76));
+    }
+    .record-archive-main{
+      min-width:0;
+    }
+    .record-archive-date{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:baseline;
+      color:var(--deep);
+      font-weight:900;
+      font-size:17px;
+      line-height:1.35;
+    }
+    .record-archive-weekday{
+      color:var(--muted);
+      font-size:13px;
+      font-weight:800;
+    }
+    .record-archive-chips{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-top:12px;
+    }
+    .record-archive-chip{
+      display:inline-flex;
+      align-items:center;
+      min-height:30px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid color-mix(in srgb, var(--line) 80%, white 20%);
+      background:rgba(255,255,255,.7);
+      color:var(--deep);
+      font-size:12px;
+      font-weight:850;
+      line-height:1;
+      word-break:keep-all;
+      white-space:nowrap;
+    }
+    .record-archive-chip.mode{background:#eef8f6;border-color:#c9e9e4;color:#075d58}
+    .record-archive-chip.simple{background:#fff7e8;border-color:#efd49d;color:#7a5410}
+    .record-archive-chip.weight{background:#f3f4f6;border-color:#d9dde4;color:#445066}
+    .record-archive-chip.score{background:#eef3ff;border-color:#c9d8ff;color:#244f9f}
+    .record-archive-chip.inbody{background:#e9fbf7;border-color:#bdece1;color:#067568}
+    .record-archive-chip.memo{background:#fff0ef;border-color:#f3c8c4;color:#93433f}
+    .record-archive-note{
+      margin-top:10px;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.5;
+      word-break:keep-all;
+      overflow-wrap:anywhere;
+    }
+    .record-archive-actions{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      justify-content:flex-end;
+    }
+    .record-archive-actions .secondary-btn{
+      white-space:nowrap;
+    }
+    .record-archive-empty{
+      padding:22px;
+      border:1px dashed color-mix(in srgb, var(--line) 82%, white 18%);
+      border-radius:18px;
+      background:rgba(255,255,255,.48);
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.65;
+      text-align:center;
+    }
+    .records-edit-panel{
+      scroll-margin-top:18px;
     }
     .records-input-panel .record-grid{
       gap:12px;
@@ -3800,6 +3959,29 @@ Notes:
       #recordsPanel .records-summary-panel .kpi-grid,
       #recordsPanel .meal-summary-grid{grid-template-columns:1fr}
       #recordsPanel .records-summary-panel .kpi:nth-child(3){grid-column:auto}
+      .records-archive-head,
+      .record-archive-card{
+        grid-template-columns:1fr;
+        flex-direction:column;
+        align-items:stretch;
+      }
+      .records-archive-head-note{
+        max-width:none;
+      }
+      .records-archive-kpis{
+        grid-template-columns:1fr;
+      }
+      #recordsPanel #recordsTable.records-card-list{
+        max-height:min(430px, 56vh);
+        padding-right:2px;
+      }
+      .record-archive-actions{
+        justify-content:stretch;
+      }
+      .record-archive-actions .secondary-btn{
+        flex:1 1 auto;
+        width:100%;
+      }
       #inbodyPanel .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
       #inbodyPanel .kpi{grid-column:auto;min-height:118px}
       .section-group,
@@ -3995,7 +4177,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-UX2-2</span>
+               <span class="app-version">v6.5-UX2-3</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -4066,7 +4248,7 @@ Notes:
 
     <div class="tabs">
       <button class="tab-btn active" id="tabToday" type="button">오늘 계산</button>
-      <button class="tab-btn" id="tabRecords" type="button">데이터 기록</button>
+      <button class="tab-btn" id="tabRecords" type="button">기록</button>
       <button class="tab-btn" id="tabWeekly" type="button">최근 흐름</button>
       <button class="tab-btn" id="tabInbody" type="button">InBody</button>
       <button class="tab-btn" id="tabSettings" type="button">기본 설정</button>
@@ -4471,58 +4653,80 @@ Notes:
     </section>
 
     <section class="tab-panel" id="recordsPanel" hidden>
-      <div class="layout records-layout">
-        <section class="panel records-input-panel">
-          <h3>기록</h3>
-          <h2>체중 기록 저장</h2>
-          <div class="mini-note">이 탭은 날짜별 체중과 식사를 입력하고, 기록 방식에 맞게 저장 결과를 확인하는 용도로만 구성했습니다.</div>
+      <div class="records-archive-layout">
+        <section class="panel records-archive-panel">
+          <div class="records-archive-head">
+            <div>
+              <h3>기록</h3>
+              <h2>기록 보관함</h2>
+              <div class="mini-note">날짜별 식사, 체중, 식단 점수, InBody 기록을 확인합니다.</div>
+            </div>
+            <div class="records-archive-head-note">날짜 카드를 누르면 아래 직접 입력 / 수정 영역의 선택 날짜가 바뀝니다.</div>
+          </div>
+          <div class="kpi-grid records-archive-kpis">
+            <div class="kpi">
+              <div class="big" id="recordsCount">0</div>
+              <div class="label">저장된 날짜</div>
+              <div class="sub">기록 보관함</div>
+            </div>
+            <div class="kpi protein">
+              <div class="big" id="recentAvgWeight">0</div>
+              <div class="label">최근 7일 평균</div>
+              <div class="sub">kg</div>
+            </div>
+            <div class="kpi carb">
+              <div class="big" id="recentTrend">0</div>
+              <div class="label">직전 7일 대비</div>
+              <div class="sub">kg</div>
+            </div>
+          </div>
+          <div class="records-card-list" id="recordsTable"></div>
+        </section>
+
+        <section class="panel records-input-panel records-edit-panel" id="recordsEditPanel">
+          <h3>직접 입력 / 수정</h3>
+          <h2>선택 날짜 기록 관리</h2>
+          <div class="mini-note">기록을 직접 수정하거나 백업 파일을 관리할 때 사용합니다.</div>
           <div id="recordQualitySummaryHost"></div>
           <div class="section-group records-entry-group">
             <div class="section-group-head">
-              <h4>기록 입력</h4>
-              <p>체중, 메모, 식단 평가를 날짜별로 기록하는 곳입니다.</p>
+              <h4>기본 기록 수정</h4>
+              <p>선택한 날짜의 체중, 기록 방식, 간단 평가, 메모를 수정합니다.</p>
             </div>
             <div class="section-group-body">
-          <div id="recordFeedbackHost"></div>
-          <div id="todayRecordWeightMismatchHost"></div>
-          <div class="record-grid">
-            <div class="field">
-              <label>날짜</label>
-              <input id="recordDate" type="date">
-            </div>
-            <div class="field">
-              <label>아침 공복 체중 (kg)</label>
-              <input id="recordWeight" type="number" min="30" max="200" step="0.01">
-            </div>
-            <div class="field record-mode-field">
-              <label>기록 방식</label>
-              <div class="chips record-mode-chips" id="recordModeChips"></div>
-              <div class="field-note" id="recordModeHint">체중만 기록하면 식단 분석은 하지 않습니다.</div>
-            </div>
-            <div class="field" id="recordAdherenceField">
-              <label>간단 식단 평가</label>
-              <select id="recordAdherence">
-                <option value="high">상</option>
-                <option value="medium" selected>중</option>
-                <option value="low">하</option>
-              </select>
-              <div class="field-note hidden" id="recordAdherenceAutoNote">간단 기록에서만 직접 평가를 남깁니다.</div>
-            </div>
-            <div class="field">
-              <label>메모 (선택)</label>
-              <input id="recordNote" type="text" maxlength="60" placeholder="수분 정체, 외식, 컨디션 저하 등">
-            </div>
-          </div>
-          <div class="inline-actions">
-            <button class="primary-btn" id="saveRecordBtn" type="button">기록 저장</button>
-            <button class="secondary-btn" id="exportJsonBtn" type="button">기록 내보내기</button>
-            <button class="secondary-btn" id="importJsonBtn" type="button">불러오기</button>
-            <input id="importJsonFile" type="file" accept="application/json" class="hidden">
-          </div>
-          <div class="mini-note">
-            기록은 브라우저에 자동 저장되지만, 장기 기록은 파일로 저장해 두는 편이 안전합니다. 백업 파일은 브라우저 다운로드 설정에 따라 저장됩니다.
-          </div>
-          <div id="backupNudgeHost"></div>
+              <div id="recordFeedbackHost"></div>
+              <div id="todayRecordWeightMismatchHost"></div>
+              <div class="record-grid">
+                <div class="field">
+                  <label>날짜</label>
+                  <input id="recordDate" type="date">
+                </div>
+                <div class="field">
+                  <label>아침 공복 체중 (kg)</label>
+                  <input id="recordWeight" type="number" min="30" max="200" step="0.01">
+                </div>
+                <div class="field record-mode-field">
+                  <label>기록 방식</label>
+                  <div class="chips record-mode-chips" id="recordModeChips"></div>
+                  <div class="field-note" id="recordModeHint">체중만 기록하면 식단 분석은 하지 않습니다.</div>
+                </div>
+                <div class="field" id="recordAdherenceField">
+                  <label>간단 식단 평가</label>
+                  <select id="recordAdherence">
+                    <option value="high">상</option>
+                    <option value="medium" selected>중</option>
+                    <option value="low">하</option>
+                  </select>
+                  <div class="field-note hidden" id="recordAdherenceAutoNote">간단 기록에서만 직접 평가를 남깁니다.</div>
+                </div>
+                <div class="field">
+                  <label>메모 (선택)</label>
+                  <input id="recordNote" type="text" maxlength="60" placeholder="수분 정체, 외식, 컨디션 저하 등">
+                </div>
+              </div>
+              <div class="inline-actions">
+                <button class="primary-btn" id="saveRecordBtn" type="button">기록 저장</button>
+              </div>
             </div>
           </div>
 
@@ -4532,84 +4736,76 @@ Notes:
               <p>같은 날짜에 여러 식사를 누적 저장하고, 선택 날짜 합산과 바로 연결됩니다.</p>
             </div>
             <div class="section-group-body">
-            <h2>식사 기록 저장</h2>
-            <div class="record-grid records-meal-input-grid">
-              <div class="field meal-label-field">
-                <label>식사 구분</label>
-                <input id="mealLabel" type="hidden" value="아침">
-                <div class="chips meal-label-chips" id="mealLabelChips"></div>
+              <h2>식사 기록 저장</h2>
+              <div class="record-grid records-meal-input-grid">
+                <div class="field meal-label-field">
+                  <label>식사 구분</label>
+                  <input id="mealLabel" type="hidden" value="아침">
+                  <div class="chips meal-label-chips" id="mealLabelChips"></div>
+                </div>
+                <div class="field">
+                  <label>탄수화물 (g)</label>
+                  <input id="mealCarbs" type="number" min="0" step="0.1" inputmode="decimal">
+                </div>
+                <div class="field">
+                  <label>단백질 (g)</label>
+                  <input id="mealProtein" type="number" min="0" step="0.1" inputmode="decimal">
+                </div>
+                <div class="field">
+                  <label>지방 (g)</label>
+                  <input id="mealFat" type="number" min="0" step="0.1" inputmode="decimal">
+                </div>
+                <div class="field">
+                  <label>알코올 kcal (에탄올×7)</label>
+                  <input id="mealAlcoholKcal" type="number" min="0" step="1" inputmode="decimal">
+                  <div class="field-note">순수 알코올 g × 7kcal 기준으로 입력하세요. 안주와 음료 당분은 탄단지나 기타 칼로리에 따로 기록합니다.</div>
+                </div>
+                <div class="field">
+                  <label>기타 칼로리 (kcal)</label>
+                  <input id="mealOtherKcal" type="number" min="0" step="1" inputmode="decimal">
+                </div>
+                <div class="field">
+                  <label>메모 (선택)</label>
+                  <input id="mealMemo" type="text" maxlength="80" placeholder="외식, 보충제, 간단 메모 등">
+                </div>
               </div>
-              <div class="field">
-                <label>탄수화물 (g)</label>
-                <input id="mealCarbs" type="number" min="0" step="0.1" inputmode="decimal">
+              <div class="inline-actions">
+                <button class="primary-btn" id="saveMealBtn" type="button">식사 저장</button>
               </div>
-              <div class="field">
-                <label>단백질 (g)</label>
-                <input id="mealProtein" type="number" min="0" step="0.1" inputmode="decimal">
+              <div class="mini-note">
+                선택한 날짜에 식사를 여러 번 저장할 수 있습니다. 저장 후에는 다음 추천 식사명이 자동으로 채워지고, 탄단지 입력칸은 비워집니다.
               </div>
-              <div class="field">
-                <label>지방 (g)</label>
-                <input id="mealFat" type="number" min="0" step="0.1" inputmode="decimal">
-              </div>
-              <div class="field">
-                <label>알코올 kcal (에탄올×7)</label>
-                <input id="mealAlcoholKcal" type="number" min="0" step="1" inputmode="decimal">
-                <div class="field-note">순수 알코올 g × 7kcal 기준으로 입력하세요. 안주와 음료 당분은 탄단지나 기타 칼로리에 따로 기록합니다.</div>
-              </div>
-              <div class="field">
-                <label>기타 칼로리 (kcal)</label>
-                <input id="mealOtherKcal" type="number" min="0" step="1" inputmode="decimal">
-              </div>
-              <div class="field">
-                <label>메모 (선택)</label>
-                <input id="mealMemo" type="text" maxlength="80" placeholder="외식, 보충제, 간단 메모 등">
-              </div>
-            </div>
-            <div class="inline-actions">
-              <button class="primary-btn" id="saveMealBtn" type="button">식사 저장</button>
-            </div>
-            <div class="mini-note">
-              선택한 날짜에 식사를 여러 번 저장할 수 있습니다. 저장 후에는 다음 추천 식사명이 자동으로 채워지고, 탄단지 입력칸은 비워집니다.
-            </div>
             </div>
           </div>
+
           <div class="panel panel-support selected-meals-summary-panel">
-            <h3>&#49440;&#53469; &#45216;&#51676; &#49885;&#49324;</h3>
-            <h2><span id="selectedMealsDateLabel">-</span> &#49885;&#49324; &#54633;&#49328;</h2>
+            <h3>선택 날짜 식사</h3>
+            <h2><span id="selectedMealsDateLabel">-</span> 식사 합산</h2>
             <div class="meal-summary-grid" id="selectedMealTotals"></div>
             <div id="mealSoftWarningHost"></div>
           </div>
-        </section>
-        <section class="records-review-shell">
-          <div class="panel panel-muted records-summary-panel">
-            <h3>최근 기록</h3>
-            <h2>최근 14일 요약</h2>
-            <div class="kpi-grid">
-              <div class="kpi">
-                <div class="big" id="recordsCount">0</div>
-                <div class="label">저장된 기록</div>
-                <div class="sub">entries</div>
-              </div>
-              <div class="kpi protein">
-                <div class="big" id="recentAvgWeight">0</div>
-                <div class="label">최근 7일 평균</div>
-                <div class="sub">kg</div>
-              </div>
-              <div class="kpi carb">
-                <div class="big" id="recentTrend">0</div>
-                <div class="label">직전 7일 대비</div>
-                <div class="sub">kg</div>
-              </div>
-            </div>
-            <div class="mini-note records-summary-note">최근 기록을 확인하는 참고 영역입니다. 지금 설정 기준으로 비교해 보여줍니다.</div>
-          </div>
-          <div class="panel panel-support">
-            <h3>기록 목록</h3>
-            <div class="table-like" id="recordsTable"></div>
-          </div>
+
           <div class="panel panel-support selected-meals-list-panel">
             <h3>선택 날짜 식사</h3>
             <div class="table-like" id="selectedMealsList"></div>
+          </div>
+
+          <div class="section-group records-backup-group">
+            <div class="section-group-head">
+              <h4>백업 / 불러오기</h4>
+              <p>기록 파일을 내보내거나 백업 파일을 불러옵니다.</p>
+            </div>
+            <div class="section-group-body">
+              <div class="inline-actions">
+                <button class="secondary-btn" id="exportJsonBtn" type="button">기록 내보내기</button>
+                <button class="secondary-btn" id="importJsonBtn" type="button">불러오기</button>
+                <input id="importJsonFile" type="file" accept="application/json" class="hidden">
+              </div>
+              <div class="mini-note">
+                기록은 브라우저에 자동 저장되지만, 장기 기록은 파일로 저장해 두는 편이 안전합니다. 백업 파일은 브라우저 다운로드 설정에 따라 저장됩니다.
+              </div>
+              <div id="backupNudgeHost"></div>
+            </div>
           </div>
         </section>
       </div>
@@ -12963,6 +13159,105 @@ Notes:
       `;
     }
 
+    function getRecordArchiveDateParts(date){
+      const normalized = normalizeDateString(date);
+      if (!normalized) return { dateLabel: "-", weekdayLabel: "" };
+      const [year, month, day] = normalized.split("-").map(Number);
+      const parsed = new Date(Date.UTC(year, month - 1, day));
+      const weekdays = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"];
+      return {
+        dateLabel: normalized,
+        weekdayLabel: weekdays[parsed.getUTCDay()] || ""
+      };
+    }
+
+    function getInbodyRecordCountForDate(date){
+      const normalized = normalizeDateString(date);
+      if (!normalized || !Array.isArray(state.inbodyRecords)) return 0;
+      return state.inbodyRecords.filter(item => normalizeDateString(item?.date) === normalized).length;
+    }
+
+    function getRecordArchiveModeChip(record, modeInfo){
+      const mode = modeInfo?.recordMode || inferRecordMode(record).recordMode;
+      if (mode === "detailed") return { label: "상세 기록", type: "mode" };
+      if (mode === "simple") return { label: "간단 기록", type: "simple" };
+      if (mode === "weight_only") return { label: "식단 판단 없음", type: "weight" };
+      if (mode === "mixed") return { label: "기록 확인 필요", type: "memo" };
+      return { label: "기록 없음", type: "weight" };
+    }
+
+    function getRecordArchiveChips(record){
+      const modeInfo = inferRecordMode(record);
+      const meals = Array.isArray(record?.meals) ? record.meals : [];
+      const chips = [getRecordArchiveModeChip(record, modeInfo)];
+      const manualValue = ["high","medium","low"].includes(record?.adherence) ? adherenceLabel(record.adherence) : null;
+      const autoValue = Number.isFinite(record?.adherencePercent) && record?.adherenceSource === "auto"
+        ? clamp(record.adherencePercent, 0, 100)
+        : null;
+      const inbodyCount = getInbodyRecordCountForDate(record?.date);
+      const note = String(record?.note || "").trim();
+
+      if (meals.length) chips.push({ label: `식사 ${meals.length}건`, type: "mode" });
+      if (Number.isFinite(autoValue)) chips.push({ label: `점수 ${autoValue}`, type: "score" });
+      if (modeInfo.recordMode === "simple" && manualValue) chips.push({ label: manualValue, type: "simple" });
+      if (Number.isFinite(record?.weight)) chips.push({ label: "체중 있음", type: "weight" });
+      if (modeInfo.recordMode === "weight_only" && (Number.isFinite(record?.weight) || note)) chips.push({ label: "체중·메모 기록", type: "weight" });
+      if (inbodyCount) chips.push({ label: "InBody 있음", type: "inbody" });
+      if (note) chips.push({ label: "메모 있음", type: "memo" });
+
+      return chips;
+    }
+
+    function renderRecordsArchiveList(records, selectedDate){
+      const host = document.getElementById("recordsTable");
+      if (!host) return;
+      host.classList.add("records-card-list");
+      if (!records.length) {
+        host.innerHTML = `
+          <div class="record-archive-empty">
+            아직 저장된 날짜별 기록이 없습니다. Today의 기록 시작하기에서 오늘 기록을 남기면 이곳에 날짜별로 정리됩니다.
+          </div>
+        `;
+        return;
+      }
+      host.innerHTML = records.map(record => {
+        const { dateLabel, weekdayLabel } = getRecordArchiveDateParts(record.date);
+        const chips = getRecordArchiveChips(record);
+        const note = String(record.note || "").trim();
+        const isSelected = normalizeDateString(record.date) === normalizeDateString(selectedDate);
+        return `
+          <article class="record-archive-card${isSelected ? " is-selected" : ""}" data-record-card-date="${escapeHtml(record.date)}">
+            <div class="record-archive-main">
+              <div class="record-archive-date">
+                <span>${escapeHtml(dateLabel)}</span>
+                <span class="record-archive-weekday">${escapeHtml(weekdayLabel)}</span>
+              </div>
+              <div class="record-archive-chips">
+                ${chips.map(chip => `<span class="record-archive-chip ${escapeHtml(chip.type)}">${escapeHtml(chip.label)}</span>`).join("")}
+              </div>
+              ${note ? `<div class="record-archive-note">메모: ${escapeHtml(note)}</div>` : ""}
+            </div>
+            <div class="record-archive-actions">
+              <button class="secondary-btn" type="button" data-select-record-date="${escapeHtml(record.date)}">자세히 보기</button>
+              <button class="secondary-btn" type="button" data-delete-record="${escapeHtml(record.date)}" aria-label="삭제" title="삭제">×</button>
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function selectRecordArchiveDate(date, options = {}){
+      const normalized = normalizeDateString(date);
+      if (!normalized) return;
+      ids.recordDate.value = normalized;
+      uiState.recordsMealsExpanded = false;
+      syncRecordInputsForDate(normalized);
+      renderRecordsPanel();
+      if (options.scrollToEdit) {
+        document.getElementById("recordsEditPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+
     function renderRecordsPanel(){
       const { sorted, recent7, previous7 } = getRecentWindows();
       const selectedDate = getSelectedRecordDate();
@@ -12984,28 +13279,7 @@ Notes:
         : "";
       renderTodayRecordWeightMismatchNotice();
 
-      const table = document.getElementById("recordsTable");
-      if (!sorted.length) {
-        table.innerHTML = `<div class="table-row"><div>아직 저장된 기록이 없습니다.</div></div>`;
-      } else {
-        table.innerHTML = `
-          <div class="table-row table-head">
-          <div>날짜</div><div>체중</div><div>기록 방식</div><div>삭제</div>
-          </div>
-          ${sorted.map(item => {
-            const note = String(item.note || "").trim();
-            return `
-            <div class="table-row">
-              <div>${item.date}</div>
-              <div>${Number.isFinite(item.weight) ? `${formatKg2(item.weight)} kg` : "-"}</div>
-              <div>${formatRecordAdherenceDisplay(item)}</div>
-              <div><button class="secondary-btn" type="button" data-delete-record="${item.date}" aria-label="삭제" title="삭제">×</button></div>
-              ${note ? `<div class="record-row-note">메모: ${escapeHtml(note)}</div>` : ""}
-            </div>
-          `;
-          }).join("")}
-        `;
-      }
+      renderRecordsArchiveList(sorted, selectedDate);
 
       const lastBackupAt = localStorage.getItem(storageKey("lastBackupAt"));
       const nudgeHost = document.getElementById("backupNudgeHost");
@@ -14304,7 +14578,7 @@ Notes:
       syncSettingsLayout();
       syncPhilosophyBannerUI();
       document.getElementById("tabToday").textContent = "Today (실행)";
-      document.getElementById("tabRecords").textContent = "Records (입력)";
+      document.getElementById("tabRecords").textContent = "기록";
       document.getElementById("tabWeekly").textContent = "최근 흐름";
       document.getElementById("tabInbody").textContent = "InBody";
       document.getElementById("tabSettings").textContent = "기본 설정";
@@ -14576,9 +14850,19 @@ Notes:
       });
 
       document.getElementById("recordsTable").addEventListener("click", event => {
-        const button = event.target.closest("[data-delete-record]");
-        if (!button) return;
-        deleteRecord(button.getAttribute("data-delete-record"));
+        const deleteButton = event.target.closest("[data-delete-record]");
+        if (deleteButton) {
+          deleteRecord(deleteButton.getAttribute("data-delete-record"));
+          return;
+        }
+        const detailButton = event.target.closest("[data-select-record-date]");
+        if (detailButton) {
+          selectRecordArchiveDate(detailButton.getAttribute("data-select-record-date"), { scrollToEdit: true });
+          return;
+        }
+        const card = event.target.closest("[data-record-card-date]");
+        if (!card) return;
+        selectRecordArchiveDate(card.getAttribute("data-record-card-date"));
       });
 
       document.getElementById("todayRecordWeightMismatchHost").addEventListener("click", event => {
@@ -15215,14 +15499,14 @@ Notes:
           assertTest(legacyText.includes("기준 없음"), "snapshotless past selected meal totals should avoid live targets");
           assertTest(!legacyText.includes("NaN") && !legacyText.includes("undefined"), "snapshotless selected meal totals should not expose invalid values");
         }));
-        results.push(runNamedTest("selected meal summary and list live in separate records columns", () => {
+        results.push(runNamedTest("selected meal summary and list stay in records edit area", () => {
           const totalsHost = document.getElementById("selectedMealTotals");
           const warningHost = document.getElementById("mealSoftWarningHost");
           const listHost = document.getElementById("selectedMealsList");
           assertTest(!!totalsHost.closest(".records-input-panel"), "selected meal totals should live in records input panel");
           assertTest(!!warningHost.closest(".records-input-panel"), "meal warning host should live in records input panel");
-          assertTest(!!listHost.closest(".records-review-shell"), "selected meal list should live in records review shell");
-          assertTest(!listHost.closest(".records-input-panel"), "selected meal list should not live in records input panel");
+          assertTest(!!listHost.closest(".records-input-panel"), "selected meal list should live in records edit panel");
+          assertTest(!!listHost.closest(".selected-meals-list-panel"), "selected meal list should keep its support panel");
         }));
 
         results.push(runNamedTest("record quality summary host sits above records entry group", () => {
@@ -15278,9 +15562,10 @@ Notes:
           assertExcludesAll(text, ["실패", "confidence", "signal", "severity", "penalty", "cap", "decision"], "high other kcal record quality wording");
         }));
 
-        results.push(runNamedTest("records and selected meal delete buttons remain visible", () => {
+        results.push(runNamedTest("records archive and selected meal delete buttons remain visible", () => {
           recordsState.items = normalizeRecordsCollection([{
             date: "2026-04-22",
+            recordMode: "detailed",
             weight: 75,
             note: "long memo text that should not push the delete button out of the row",
             meals: [
@@ -15296,17 +15581,20 @@ Notes:
           renderRecordsPanel();
           renderSelectedDateMeals("2026-04-22");
           const recordsText = document.getElementById("recordsTable").textContent || "";
-          const recordHead = document.querySelector("#recordsTable .table-head");
-          const recordNotes = document.querySelectorAll("#recordsTable .record-row-note");
+          const recordCards = document.querySelectorAll("#recordsTable .record-archive-card");
+          const recordNotes = document.querySelectorAll("#recordsTable .record-archive-note");
           const recordDelete = document.querySelector("#recordsTable [data-delete-record]");
+          const detailButton = document.querySelector("#recordsTable [data-select-record-date]");
           const mealHead = document.querySelector("#selectedMealsList .meal-table-head");
           const mealDelete = document.querySelector("#selectedMealsList [data-delete-meal]");
           const plainMealRow = Array.from(document.querySelectorAll("#selectedMealsList .meal-table-row:not(.meal-table-head)"))
             .find(row => row.textContent.includes("plain meal"));
           assertTest(!recordsText.includes("직접 평가"), "records adherence helper should not include redundant manual rating copy");
-          assertTest(recordHead && recordHead.children.length === 4, "records table header should use four columns");
-          assertTest(recordNotes.length === 1 && recordNotes[0].textContent.includes("long memo text"), "records table should render record memo below the row only when present");
-          assertTest(recordDelete && recordDelete.textContent.trim() === "×" && recordDelete.getAttribute("aria-label") === "삭제", "records table delete button should render compact accessible control");
+          assertTest(recordCards.length === 2, "records archive should render date cards");
+          assertTest(recordsText.includes("상세 기록") && recordsText.includes("식사 2건") && recordsText.includes("체중 있음"), "records archive should summarize detailed record chips");
+          assertTest(recordNotes.length === 1 && recordNotes[0].textContent.includes("long memo text"), "records archive card should render record memo only when present");
+          assertTest(detailButton && detailButton.textContent.includes("자세히 보기"), "records archive should keep a detail affordance");
+          assertTest(recordDelete && recordDelete.textContent.trim() === "×" && recordDelete.getAttribute("aria-label") === "삭제", "records archive delete button should render compact accessible control");
           assertTest(mealHead && mealHead.children.length === 6, "selected meal header should use six columns");
           assertTest(plainMealRow && plainMealRow.children.length === 6, "selected meal row without memo should use six main cells");
           assertTest(mealDelete && mealDelete.textContent.trim() === "×" && mealDelete.getAttribute("aria-label") === "삭제", "selected meal delete button should render compact accessible control");
@@ -17819,7 +18107,7 @@ Notes:
           assertTest(getStoredAdherenceEntry(record).percent === null, "weight_only conversion should clear diet score");
         }));
 
-        results.push(runNamedTest("recordMode record list shows readable labels", () => {
+        results.push(runNamedTest("recordMode record archive shows readable labels", () => {
           recordsState.items = normalizeRecordsCollection([
             { date: "2026-05-19", recordMode: "weight_only", weight: 75 },
             { date: "2026-05-18", recordMode: "simple", adherence: "high" },
@@ -17829,7 +18117,7 @@ Notes:
           syncRecordInputsForDate("2026-05-19");
           renderRecordsPanel();
           const text = document.getElementById("recordsTable").textContent || "";
-          assertIncludesAll(text, ["체중만 기록", "간단 평가", "상세 기록"], "record list should show mode labels");
+          assertIncludesAll(text, ["식단 판단 없음", "간단 기록", "상", "상세 기록"], "record archive should show mode labels");
           assertExcludesAll(text, ["recordMode", "dietResolution", "permission"], "record list should not expose internal mode terms");
         }));
 
@@ -17897,6 +18185,142 @@ Notes:
           const weightSummary = summarizeDietResolution([{ date: "2026-05-28", recordMode: "weight_only", weight: 75 }]);
           assertTest(simpleSummary.analysisPermission === "simple_summary", "simple should stop at simple summary");
           assertTest(weightSummary.dietDays === 0 && weightSummary.analysisPermission === "none", "weight_only should not count as diet day");
+        }));
+
+        return results;
+      });
+    }
+
+    function runRecordsArchiveLayoutTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const makeMeal = (id = "m1") => ({
+          id,
+          mealLabel: "아침",
+          carbs: 40,
+          protein: 25,
+          fat: 10,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "",
+          createdAt: "2026-05-08T08:00:00.000Z"
+        });
+        const cardText = date => document.querySelector(`[data-record-card-date="${date}"]`)?.textContent || "";
+
+        results.push(runNamedTest("records archive tab and title use archive wording", () => {
+          render();
+          assertTest(document.getElementById("tabRecords").textContent === "기록", "Records tab should be labeled 기록");
+          const text = document.getElementById("recordsPanel").textContent || "";
+          assertIncludesAll(text, ["기록 보관함", "날짜별 식사, 체중, 식단 점수, InBody 기록을 확인합니다"], "Records screen should use archive heading");
+        }));
+
+        results.push(runNamedTest("records archive renders date cards", () => {
+          recordsState.items = normalizeRecordsCollection([
+            { date: "2026-05-08", recordMode: "detailed", meals: [makeMeal("m1")] },
+            { date: "2026-05-07", recordMode: "simple", adherence: "medium" }
+          ]);
+          renderRecordsPanel();
+          assertTest(document.querySelectorAll("#recordsTable .record-archive-card").length === 2, "Records archive should render date cards");
+          const listStyle = window.getComputedStyle(document.getElementById("recordsTable"));
+          assertTest(listStyle.overflowY === "auto" && listStyle.maxHeight !== "none", "Records archive list should keep its own scroll boundary");
+        }));
+
+        results.push(runNamedTest("records archive detailed card summarizes meals score and weight", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-05-08",
+            recordMode: "detailed",
+            weight: 75.2,
+            adherencePercent: 82,
+            adherenceSource: "auto",
+            meals: [makeMeal("m1"), makeMeal("m2")]
+          }]);
+          ids.recordDate.value = "2026-05-08";
+          renderRecordsPanel();
+          assertIncludesAll(cardText("2026-05-08"), ["2026-05-08", "금요일", "상세 기록", "식사 2건", "점수 82", "체중 있음"], "detailed archive card chips");
+        }));
+
+        results.push(runNamedTest("records archive simple card shows simple evaluation only", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-05-07",
+            recordMode: "simple",
+            adherence: "high",
+            adherenceSource: "manual",
+            weight: 74.8,
+            note: "간단히 남김"
+          }]);
+          ids.recordDate.value = "2026-05-07";
+          renderRecordsPanel();
+          const text = cardText("2026-05-07");
+          assertIncludesAll(text, ["간단 기록", "상", "체중 있음", "메모 있음"], "simple archive card chips");
+          assertExcludesAll(text, ["점수 90", "자동 점수"], "simple archive card should not look like automatic score");
+        }));
+
+        results.push(runNamedTest("records archive weight_only card uses no-diet wording", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-05-06",
+            recordMode: "weight_only",
+            weight: 75,
+            note: "식단은 건너뜀"
+          }]);
+          ids.recordDate.value = "2026-05-06";
+          renderRecordsPanel();
+          assertIncludesAll(cardText("2026-05-06"), ["식단 판단 없음", "체중·메모 기록", "체중 있음", "메모 있음"], "weight_only archive card copy");
+        }));
+
+        results.push(runNamedTest("records archive shows InBody chip for same date", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-05", recordMode: "detailed", meals: [makeMeal("m1")] }]);
+          state.inbodyRecords = [{ date: "2026-05-05", weight: 75, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
+          ids.recordDate.value = "2026-05-05";
+          renderRecordsPanel();
+          assertIncludesAll(cardText("2026-05-05"), ["InBody 있음"], "same-date InBody should show archive chip");
+        }));
+
+        results.push(runNamedTest("records archive detail button selects date", () => {
+          recordsState.items = normalizeRecordsCollection([
+            { date: "2026-05-04", recordMode: "simple", adherence: "low" },
+            { date: "2026-05-03", recordMode: "weight_only", weight: 75 }
+          ]);
+          ids.recordDate.value = "2026-05-03";
+          renderRecordsPanel();
+          document.querySelector('[data-select-record-date="2026-05-04"]').click();
+          assertTest(ids.recordDate.value === "2026-05-04", "detail button should select that date");
+          assertTest(document.querySelector('[data-record-card-date="2026-05-04"]').classList.contains("is-selected"), "selected archive card should be highlighted");
+        }));
+
+        results.push(runNamedTest("records archive keeps direct input backup and meal edit controls", () => {
+          renderRecordsPanel();
+          assertIncludesAll(document.getElementById("recordsEditPanel").textContent || "", ["직접 입력 / 수정", "백업 / 불러오기"], "Records should keep edit and backup sections");
+          assertTest(!!document.getElementById("saveRecordBtn"), "record save button should remain");
+          assertTest(!!document.getElementById("saveMealBtn"), "meal save button should remain");
+          assertTest(!!document.getElementById("exportJsonBtn") && !!document.getElementById("importJsonBtn"), "export/import buttons should remain");
+        }));
+
+        results.push(runNamedTest("records archive user-facing copy avoids internal terms", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-02", recordMode: "detailed", meals: [makeMeal("m1")] }]);
+          renderRecordsPanel();
+          const text = document.getElementById("recordsPanel").textContent || "";
+          assertExcludesAll(text, [
+            "recordMode",
+            "goalSnapshot",
+            "dietResolution",
+            "permission",
+            "confidence",
+            "primitive",
+            "macroPatternAllowed",
+            "autoDietAnalysis",
+            "자동 점수 토글"
+          ], "Records archive should not expose internal terms");
+        }));
+
+        results.push(runNamedTest("records archive preserves UX2.1 and UX2.2 surfaces", () => {
+          render();
+          assertTest(!!document.getElementById("todayRecordStartBtn"), "Today record start button should remain");
+          assertTest(document.getElementById("settingsCalculationInputHost").contains(document.getElementById("todayInputPanel")), "Settings calculation input should remain moved");
+        }));
+
+        results.push(runNamedTest("records archive keeps fixed scoring and windows", () => {
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "records archive should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "records archive should not change recent context windows");
         }));
 
         return results;
@@ -21355,6 +21779,7 @@ Notes:
     window.runRecentContextTests = runRecentContextTests;
     window.runRecordModeResolutionTests = runRecordModeResolutionTests;
     window.runRecordModeUiTests = runRecordModeUiTests;
+    window.runRecordsArchiveLayoutTests = runRecordsArchiveLayoutTests;
     window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runCalculationInputSeparationTests = runCalculationInputSeparationTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
