@@ -1,17 +1,16 @@
 <!--
-Version: 6.5-UX2-5
-Stage: 6.5-UX2-5 InBody ↔ Records 연결
+Version: 6.5-UX2-6
+Stage: 6.5-UX2-6 최근 흐름 문제 날짜 → Records 연결
 Date: 2026-05-08
 Notes:
-- InBody 탭에 Records 기록 보기 연결 추가
-- Records 날짜별 카드/상세에서 InBody 기록 확인 흐름 보강
-- Records에서 InBody 기록하기 버튼으로 InBody 탭 이동
-- InBody 입력 날짜를 Records 선택 날짜와 연결
-- InBody 탭은 입력 / 최신 수치 / 그래프 / 중립 관찰 중심 유지
-- InBody 목표별 행동 조언은 Today Coach 범위로 유지
+- 최근 흐름에서 문제 날짜 보기 / 기록에서 확인 연결 추가
+- 문제 날짜 버튼 클릭 시 Records 탭으로 이동하고 해당 날짜 카드/상세를 표시
+- Records 날짜 카드/상세에 문제 chip 표시 후보 보강
+- detailed 기록만 탄단지 원인 날짜로 연결
+- simple / weight_only는 식단 원인 단정을 피하고 기록 보완 중심으로 연결
+- InBody ↔ Records 연결은 UX2-5 기준 유지
 - Records 상세 인라인 편집 모드는 UX2-4.1 기준 유지
-- 최근 흐름 문제 날짜 연결은 UX2-6으로 분리
-- 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
+- 점수 산식 / Coach decision matrix / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -19,7 +18,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-UX2-5</title>
+  <title>탄단지 다이어리 v6.5-UX2-6</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2595,6 +2594,8 @@ Notes:
     .record-archive-chip.score{background:#eef3ff;border-color:#c9d8ff;color:#244f9f}
     .record-archive-chip.inbody{background:#e9fbf7;border-color:#bdece1;color:#067568}
     .record-archive-chip.memo{background:#fff0ef;border-color:#f3c8c4;color:#93433f}
+    .record-archive-chip.problem{background:#fff4e7;border-color:#efc89e;color:#8a4b16}
+    .record-archive-chip.issue{background:#f5f1ff;border-color:#d8cafa;color:#5b4b94}
     .record-archive-note{
       margin-top:10px;
       color:var(--muted);
@@ -3309,6 +3310,31 @@ Notes:
       color:var(--deep);
       font-size:12px;
       font-weight:800;
+    }
+    .recent-flow-actions,
+    .recent-flow-card-action{
+      display:flex;
+      align-items:center;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-top:12px;
+    }
+    .recent-flow-card-action{
+      margin-top:2px;
+    }
+    .recent-flow-action-note{
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+      font-weight:800;
+      word-break:keep-all;
+    }
+    .recent-flow-card-action .secondary-btn,
+    .recent-flow-actions .secondary-btn{
+      min-height:32px;
+      padding:6px 10px;
+      font-size:12px;
+      white-space:nowrap;
     }
     .recent-flow-window-grid{
       display:grid;
@@ -4425,6 +4451,13 @@ Notes:
       .recent-flow-window-card{
         min-height:auto;
       }
+      .recent-flow-actions .secondary-btn,
+      .recent-flow-card-action .secondary-btn{
+        flex:1 1 140px;
+      }
+      .recent-flow-action-note{
+        flex:1 1 180px;
+      }
       .weekly-interpretation-block{
         margin-top:14px;
         padding-top:10px;
@@ -4593,7 +4626,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-UX2-5</span>
+               <span class="app-version">v6.5-UX2-6</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -7443,12 +7476,11 @@ Notes:
       window.setTimeout(() => element.classList.remove("is-jump-highlight"), 1300);
     }
 
-    function openRecordsForInbodyDate(date = null){
-      const latest = getLatestInbodyForDisplay();
-      const targetDate = normalizeDateString(date) || latest?.date || getSelectedRecordDate();
+    function openRecordsForDate(date, options = {}){
+      const targetDate = normalizeDateString(date) || getSelectedRecordDate();
       if (targetDate) {
         ids.recordDate.value = targetDate;
-        uiState.recordsDetailDate = targetDate;
+        if (options.openDetail !== false) uiState.recordsDetailDate = targetDate;
         uiState.recordsDetailEditMode = false;
         uiState.recordsDetailDraft = null;
         syncRecordInputsForDate(targetDate);
@@ -7460,8 +7492,14 @@ Notes:
       window.requestAnimationFrame(() => {
         const detail = document.querySelector(`[data-record-detail-date="${targetDate}"]`);
         const card = document.querySelector(`[data-record-card-date="${targetDate}"]`);
-        highlightJumpTarget(detail || card || document.getElementById("recordsPanel"));
+        const preferred = options.preferCard ? (card || detail) : (detail || card);
+        highlightJumpTarget(preferred || document.getElementById("recordsPanel"));
       });
+    }
+
+    function openRecordsForInbodyDate(date = null){
+      const latest = getLatestInbodyForDisplay();
+      openRecordsForDate(normalizeDateString(date) || latest?.date || getSelectedRecordDate());
     }
 
     function clearInbodyInputForDate(date){
@@ -13754,6 +13792,80 @@ Notes:
       return { label: "기록 없음", type: "weight" };
     }
 
+    const RECORD_PROBLEM_LABEL_PRIORITY = [
+      "단백질 부족",
+      "탄수 부족",
+      "고지방",
+      "술 영향",
+      "기타 칼로리",
+      "기록 부족",
+      "기록 보완 필요",
+      "목표 변경",
+      "InBody 있음"
+    ];
+
+    function addUniqueRecordProblemChip(chips, label, type = "problem"){
+      if (!label || chips.some(chip => chip.label === label)) return;
+      chips.push({ label, type });
+    }
+
+    function getRecordProblemChips(recordOrSummary, options = {}){
+      const summary = recordOrSummary && Object.prototype.hasOwnProperty.call(recordOrSummary, "componentEligible")
+        ? recordOrSummary
+        : getRecentContextRecordSummary(recordOrSummary);
+      if (!summary?.date) return [];
+      const chips = [];
+      const currentGoal = String(options.currentGoal || state.goal || "").trim();
+
+      if (summary.componentEligible) {
+        if (Number.isFinite(summary.targetProtein) && summary.targetProtein > 0 && summary.protein < summary.targetProtein * 0.90) {
+          addUniqueRecordProblemChip(chips, "단백질 부족");
+        }
+        if (
+          Number.isFinite(summary.targetCarbs) &&
+          summary.targetCarbs > 0 &&
+          summary.carbs < summary.targetCarbs * 0.85 &&
+          summary.isActualWeightTrainingDay
+        ) {
+          addUniqueRecordProblemChip(chips, "탄수 부족");
+        }
+        if (Number.isFinite(summary.targetFat) && summary.targetFat > 0 && summary.fat > summary.targetFat * 1.25) {
+          addUniqueRecordProblemChip(chips, "고지방");
+        }
+      }
+
+      if (summary.hasDetailedDiet && summary.hasMeals) {
+        if (summary.alcoholKcal > 0) addUniqueRecordProblemChip(chips, "술 영향");
+        if (summary.otherKcalHeavy) addUniqueRecordProblemChip(chips, "기타 칼로리");
+      }
+
+      if (summary.recordMode === "simple" && summary.hasSimpleDiet) {
+        addUniqueRecordProblemChip(chips, "기록 보완 필요", "issue");
+      } else if (summary.recordMode === "weight_only" || (summary.recordMode === "detailed" && !summary.hasMeals)) {
+        addUniqueRecordProblemChip(chips, "기록 부족", "issue");
+      } else if (summary.recordMode === "mixed" || (summary.hasDetailedDiet && !summary.componentEligible)) {
+        addUniqueRecordProblemChip(chips, "기록 보완 필요", "issue");
+      }
+
+      if (currentGoal && summary.hasGoalSnapshot && summary.goalType && summary.goalType !== currentGoal) {
+        addUniqueRecordProblemChip(chips, "목표 변경", "issue");
+      }
+
+      if (options.includeInbody === true && getInbodyRecordCountForDate(summary.date)) {
+        addUniqueRecordProblemChip(chips, "InBody 있음", "inbody");
+      }
+
+      return chips.sort((a, b) => {
+        const aRank = RECORD_PROBLEM_LABEL_PRIORITY.indexOf(a.label);
+        const bRank = RECORD_PROBLEM_LABEL_PRIORITY.indexOf(b.label);
+        return (aRank === -1 ? 999 : aRank) - (bRank === -1 ? 999 : bRank) || a.label.localeCompare(b.label);
+      });
+    }
+
+    function getRecentFlowProblemChipsForRecord(recordOrSummary, options = {}){
+      return getRecordProblemChips(recordOrSummary, { ...options, includeInbody: options.includeInbody === true });
+    }
+
     function getRecordArchiveChips(record){
       const modeInfo = inferRecordMode(record);
       const meals = Array.isArray(record?.meals) ? record.meals : [];
@@ -13772,6 +13884,9 @@ Notes:
       if (modeInfo.recordMode === "weight_only" && (Number.isFinite(record?.weight) || note)) chips.push({ label: "체중·메모 기록", type: "weight" });
       if (inbodyCount && modeInfo.recordMode !== "none") chips.push({ label: "InBody 있음", type: "inbody" });
       if (note) chips.push({ label: "메모 있음", type: "memo" });
+      getRecordProblemChips(record, { includeInbody: false }).forEach(chip => {
+        if (!chips.some(item => item.label === chip.label)) chips.push(chip);
+      });
 
       return chips;
     }
@@ -14950,6 +15065,48 @@ Notes:
       return `목표: ${entries.map(([goal, count]) => `${getRecentFlowGoalLabel(goal)} ${count}일`).join(" · ")}`;
     }
 
+    function addRecentFlowProblemDate(grouped, label, date, type = "problem"){
+      const normalized = normalizeDateString(date);
+      if (!label || !normalized) return;
+      if (!grouped.has(label)) grouped.set(label, { label, type, dates: [] });
+      const group = grouped.get(label);
+      if (!group.dates.includes(normalized)) group.dates.push(normalized);
+    }
+
+    function getRecentFlowProblemDateGroups(window, currentResult = calculate()){
+      const records = Array.isArray(window?.records) ? window.records : [];
+      const currentGoal = String(currentResult?.s?.goal || state.goal || "").trim();
+      const grouped = new Map();
+      records.forEach(summary => {
+        getRecentFlowProblemChipsForRecord(summary, { includeInbody: true, currentGoal }).forEach(chip => {
+          addRecentFlowProblemDate(grouped, chip.label, summary.date, chip.type);
+        });
+      });
+      return Array.from(grouped.values())
+        .map(group => ({
+          ...group,
+          dates: group.dates.sort((a, b) => b.localeCompare(a))
+        }))
+        .sort((a, b) => {
+          const aRank = RECORD_PROBLEM_LABEL_PRIORITY.indexOf(a.label);
+          const bRank = RECORD_PROBLEM_LABEL_PRIORITY.indexOf(b.label);
+          return (aRank === -1 ? 999 : aRank) - (bRank === -1 ? 999 : bRank) || b.dates[0].localeCompare(a.dates[0]);
+        });
+    }
+
+    function getRecentFlowProblemDateAction(window, currentResult = calculate()){
+      const groups = getRecentFlowProblemDateGroups(window, currentResult);
+      const dates = Array.from(new Set(groups.flatMap(group => group.dates))).sort((a, b) => b.localeCompare(a));
+      if (!dates.length) return null;
+      const labels = groups.slice(0, 3).map(group => `${group.label} ${group.dates.length}일`);
+      return {
+        date: dates[0],
+        count: dates.length,
+        labels,
+        note: labels.length ? labels.join(" · ") : "이 날짜 기록을 확인해 보세요."
+      };
+    }
+
     function getRecentFlowWeightChange(window){
       const weightRecords = (Array.isArray(window?.records) ? window.records : [])
         .filter(item => item.hasWeight && Number.isFinite(item.weight))
@@ -15262,10 +15419,12 @@ Notes:
       const chips = getRecentFlowOverviewChips(selectedWindow);
       const points = getRecentFlowPointItems(selectedWindow, selectedRangeDays);
       const goalLine = getRecentFlowGoalBreakdown(selectedWindow);
+      const selectedProblemAction = getRecentFlowProblemDateAction(selectedWindow, currentResult);
       const windowCards = RECENT_FLOW_UI_CARD_DAYS.map(days => {
         const window = context.windows?.[days];
         const label = RECENT_FLOW_CARD_LABELS[days] || { title: `${days}일`, role: "기간 분석" };
         const summary = getRecentFlowCardSummary(days, window, currentResult);
+        const problemAction = getRecentFlowProblemDateAction(window, currentResult);
         return `
           <div class="recent-flow-window-card" data-recent-flow-days="${days}">
             <div class="eyebrow">${days}일</div>
@@ -15274,6 +15433,12 @@ Notes:
             <div class="conclusion">${escapeHtml(summary.conclusion)}</div>
             <p class="reason">${escapeHtml(summary.reason)}</p>
             <p class="metric">${escapeHtml(summary.metric)}</p>
+            ${problemAction ? `
+              <div class="recent-flow-card-action">
+                <button class="secondary-btn" type="button" data-open-problem-date="${escapeHtml(problemAction.date)}">문제 날짜 보기</button>
+                <span class="recent-flow-action-note">${escapeHtml(problemAction.date)}</span>
+              </div>
+            ` : ""}
           </div>
         `;
       }).join("");
@@ -15296,6 +15461,12 @@ Notes:
             <div class="preview-chips">
               ${chips.map(chip => `<span class="preview-chip">${escapeHtml(chip)}</span>`).join("")}
             </div>
+            ${selectedProblemAction ? `
+              <div class="recent-flow-actions">
+                <button class="secondary-btn" type="button" data-open-problem-date="${escapeHtml(selectedProblemAction.date)}">문제 날짜 보기</button>
+                <span class="recent-flow-action-note">${escapeHtml(selectedProblemAction.note)}</span>
+              </div>
+            ` : ""}
           </div>
           <div class="recent-flow-window-grid">
             ${windowCards}
@@ -16403,6 +16574,11 @@ Notes:
         saveState();
       });
       document.getElementById("recentFlowPreviewHost").addEventListener("click", event => {
+        const problemButton = event.target.closest("[data-open-problem-date]");
+        if (problemButton) {
+          openRecordsForDate(problemButton.getAttribute("data-open-problem-date"));
+          return;
+        }
         const button = event.target.closest("[data-recent-flow-range]");
         if (!button) return;
         const days = Number(button.getAttribute("data-recent-flow-range"));
@@ -20189,6 +20365,162 @@ Notes:
       });
     }
 
+    function runRecentFlowRecordsLinkTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        setValidTodayBalanceTestInputs();
+        state.goal = "lean_bulk";
+        recentFlowSelectedRangeDays = 7;
+        const today = getTodayDateString();
+        const simpleDate = shiftDateString(today, -1);
+        const weightDate = shiftDateString(today, -2);
+        const oldGoalDate = shiftDateString(today, -3);
+        const makeSnapshot = (overrides = {}) => ({
+          targetCal: 2200,
+          protein: 150,
+          carbs: 260,
+          fat: 60,
+          goal: "lean_bulk",
+          routine: "PUSH",
+          weightDuration: 55,
+          weeklyTrainingDays: 5,
+          ...overrides
+        });
+        const makeMeal = (date, id, overrides = {}) => ({
+          id,
+          mealLabel: "식사",
+          carbs: 35,
+          protein: 12,
+          fat: 48,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "",
+          createdAt: `${date}T08:00:00.000Z`,
+          ...overrides
+        });
+        const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
+        const cardText = date => document.querySelector(`[data-record-card-date="${date}"]`)?.textContent || "";
+        const detailText = date => document.querySelector(`[data-record-detail-date="${date}"]`)?.textContent || "";
+
+        results.push(runNamedTest("UX2-6 recent flow shows problem date button and opens Records detail", () => {
+          recordsState.items = normalizeRecordsCollection([
+            {
+              date: today,
+              recordMode: "detailed",
+              weight: 75.2,
+              adherencePercent: 70,
+              adherenceSource: "auto",
+              adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+              goalSnapshot: makeSnapshot(),
+              meals: [
+                makeMeal(today, "m1", { carbs: 35, protein: 12, fat: 48, alcoholKcal: 180, otherKcal: 0 }),
+                makeMeal(today, "m2", { carbs: 30, protein: 10, fat: 42, otherKcal: 420 })
+              ]
+            },
+            { date: simpleDate, recordMode: "simple", adherence: "low", adherenceSource: "manual", goalSnapshot: makeSnapshot() },
+            { date: weightDate, recordMode: "weight_only", weight: 75.1 }
+          ]);
+          state.inbodyRecords = [{ date: today, weight: 75.2, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
+          renderWeeklyPanel(calculate());
+          const button = document.querySelector("#recentFlowPreviewHost [data-open-problem-date]");
+          assertTest(!!button, "recent flow should render problem date button");
+          assertTest(button.textContent.includes("문제 날짜 보기"), "recent flow button copy should be problem-date oriented");
+          button.click();
+          assertTest(uiState.activeTab === "records", "problem date button should switch to Records");
+          assertTest(ids.recordDate.value === today, "most recent problem date should become selected Records date");
+          assertTest(uiState.recordsDetailDate === today, "problem date detail should open");
+          assertTest(document.querySelector(`[data-record-card-date="${today}"]`)?.classList.contains("is-selected"), "problem date card should be highlighted");
+          assertIncludesAll(detailText(today), ["기록 상세", "단백질 부족", "고지방", "술 영향", "기타 칼로리", "InBody 기록 있음"], "Records detail should show problem chips and InBody metrics");
+        }));
+
+        results.push(runNamedTest("UX2-6 detailed Records card can show macro problem chips", () => {
+          renderRecordsPanel();
+          const text = cardText(today);
+          assertIncludesAll(text, ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리", "InBody 있음"], "detailed card should show supported problem chips");
+          assertExcludesAll(text, ["recordMode", "goalSnapshot", "signal", "schema", "draft", "자동 점수 토글"], "detailed problem chips should stay user-facing");
+        }));
+
+        results.push(runNamedTest("UX2-6 simple Records card avoids macro cause chips", () => {
+          renderRecordsPanel();
+          const text = cardText(simpleDate);
+          assertIncludesAll(text, ["간단 기록", "기록 보완 필요"], "simple card should stay record-completion oriented");
+          assertExcludesAll(text, macroLabels, "simple card should not show macro cause chips");
+        }));
+
+        results.push(runNamedTest("UX2-6 weight-only Records card avoids diet cause chips", () => {
+          renderRecordsPanel();
+          const text = cardText(weightDate);
+          assertIncludesAll(text, ["식단 판단 없음", "기록 부족"], "weight-only card should stay low-resolution oriented");
+          assertExcludesAll(text, macroLabels, "weight-only card should not show diet cause chips");
+        }));
+
+        results.push(runNamedTest("UX2-6 recent flow simple-only link avoids macro causes", () => {
+          recordsState.items = normalizeRecordsCollection(Array.from({ length: 7 }, (_, index) => ({
+            date: shiftDateString(today, -(6 - index)),
+            recordMode: "simple",
+            adherence: index % 2 ? "medium" : "low",
+            adherenceSource: "manual",
+            goalSnapshot: makeSnapshot({ protein: 220, carbs: 340, fat: 40 })
+          })));
+          state.inbodyRecords = [];
+          renderWeeklyPanel(calculate());
+          const text = document.getElementById("recentFlowPreviewHost").textContent || "";
+          assertIncludesAll(text, ["문제 날짜 보기", "기록 보완 필요"], "simple-only recent flow should still link dates for record review");
+          assertExcludesAll(text, macroLabels, "simple-only recent flow should not show macro problem labels");
+        }));
+
+        results.push(runNamedTest("UX2-6 recent flow weight-only link avoids diet causes", () => {
+          recordsState.items = normalizeRecordsCollection(Array.from({ length: 7 }, (_, index) => ({
+            date: shiftDateString(today, -(6 - index)),
+            recordMode: "weight_only",
+            weight: 75 + index * 0.1
+          })));
+          renderWeeklyPanel(calculate());
+          const text = document.getElementById("recentFlowPreviewHost").textContent || "";
+          assertIncludesAll(text, ["문제 날짜 보기", "기록 부족"], "weight-only recent flow should link low-resolution dates");
+          assertExcludesAll(text, macroLabels, "weight-only recent flow should not show diet problem labels");
+        }));
+
+        results.push(runNamedTest("UX2-6 goal change and InBody dates stay linked without internal copy", () => {
+          recordsState.items = normalizeRecordsCollection([
+            {
+              date: oldGoalDate,
+              recordMode: "detailed",
+              adherencePercent: 86,
+              adherenceSource: "auto",
+              adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+              goalSnapshot: makeSnapshot({ goal: "diet" }),
+              meals: [
+                makeMeal(oldGoalDate, "g1", { carbs: 90, protein: 80, fat: 20 }),
+                makeMeal(oldGoalDate, "g2", { carbs: 90, protein: 80, fat: 20 })
+              ]
+            }
+          ]);
+          state.inbodyRecords = [{ date: oldGoalDate, weight: 74.8, skeletalMuscle: 35.2, bodyFat: 11.7, bodyFatPercent: 15.6 }];
+          renderWeeklyPanel(calculate());
+          openRecordsForDate(oldGoalDate);
+          const combined = `${document.getElementById("recentFlowPreviewHost").textContent || ""} ${document.getElementById("recordsPanel").textContent || ""}`;
+          assertIncludesAll(combined, ["목표 변경", "InBody 있음"], "goal-change and InBody dates should stay visible");
+          assertExcludesAll(combined, ["recordMode", "goalSnapshot", "dietResolution", "permission", "confidence", "primitive", "macroPatternAllowed", "dietCauseAllowed", "autoDietAnalysis", "자동 점수 토글", "InBody gate", "signal", "schema", "draft"], "UX2-6 user-facing surfaces should hide internal terms");
+        }));
+
+        results.push(runNamedTest("UX2-6 preserves UX2-5 InBody link and fixed windows", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: today, recordMode: "detailed", goalSnapshot: makeSnapshot(), meals: [makeMeal(today, "i1"), makeMeal(today, "i2")] }]);
+          state.inbodyRecords = [{ date: today, weight: 75.2, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
+          render();
+          setActiveTab("inbody");
+          document.getElementById("viewInbodyRecordsBtn").click();
+          assertTest(uiState.activeTab === "records" && ids.recordDate.value === today, "InBody to Records link should remain");
+          document.querySelector(`[data-open-inbody-input="${today}"]`)?.click();
+          assertTest(uiState.activeTab === "inbody" && document.getElementById("inbodyDate").value === today, "Records to InBody link should remain");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "UX2-6 should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "UX2-6 should not add five day window");
+        }));
+
+        return results;
+      });
+    }
+
     function runRecordsInlineEditTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -23927,6 +24259,7 @@ Notes:
     window.runRecordModeUiTests = runRecordModeUiTests;
     window.runRecordsArchiveLayoutTests = runRecordsArchiveLayoutTests;
     window.runInbodyRecordsLinkTests = runInbodyRecordsLinkTests;
+    window.runRecentFlowRecordsLinkTests = runRecentFlowRecordsLinkTests;
     window.runRecordsInlineEditTests = runRecordsInlineEditTests;
     window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runCalculationInputSeparationTests = runCalculationInputSeparationTests;
@@ -23952,6 +24285,7 @@ Notes:
     window.setRecordModeForSelectedDate = setRecordModeForSelectedDate;
     window.openTodayRecordStartDialog = openTodayRecordStartDialog;
     window.closeTodayRecordStartDialog = closeTodayRecordStartDialog;
+    window.openRecordsForDate = openRecordsForDate;
     window.saveTodayRecordStartDetailed = saveTodayRecordStartDetailed;
     window.saveTodayRecordStartSimple = saveTodayRecordStartSimple;
     window.saveTodayRecordStartSkip = saveTodayRecordStartSkip;
