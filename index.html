@@ -1,15 +1,20 @@
 <!--
-Version: 6.5-UX2-4
-Stage: 6.5-UX2-4 Records 날짜별 상세 보기 및 수정 연결
+Version: 6.5-UX2-4.1
+Stage: 6.5-UX2-4.1 Records 상세 인라인 편집 모드
 Date: 2026-05-08
 Notes:
-- 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
-- Records 날짜별 카드에 상세 보기 / 접기 흐름 추가
-- 상세 보기에서 식사 목록, 탄단지 합계, 식단 점수 / 간단 평가, 당시 목표 / 당시 계산 기준, 체중 / 메모, InBody 여부 표시
-- 수정하기 버튼은 기존 직접 입력 / 수정 영역으로 연결
-- 카드 안 직접 편집은 하지 않고 기존 저장 흐름 재사용
+- Records 상세 보기에서 수정하기 클릭 시 보기 모드가 인라인 편집 모드로 전환
+- 편집 모드는 draft 기반으로 동작하고 저장 전 원본 기록을 바꾸지 않음
+- 체중 / 메모 / 간단 평가 / 기록 방식 / 식사별 탄단지 / 알코올 / 기타 kcal / 메모 수정 지원
+- 식사 추가 / 삭제를 상세 편집 모드에서 처리
+- 식단 점수는 직접 수정하지 않고 detailed 식사 변경 후 기존 산식으로 재계산
+- Records 상세 편집 모드에서 당시 목표 / 계산 기준도 함께 수정 가능
+- 목표 칼로리 / 탄단지 목표는 직접 편집하지 않고 목표·신체정보·활동·운동 기준으로 재계산
+- 저장 시 기록 내용, 식사, 당시 계산 기준을 한 번에 반영
+- detailed 기록은 수정된 식사와 계산 기준으로 식단 점수 재계산
 - InBody ↔ Records 연결은 UX2-5로 분리
 - 최근 흐름 문제 날짜 연결은 UX2-6으로 분리
+- 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -17,7 +22,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-UX2-4</title>
+  <title>탄단지 다이어리 v6.5-UX2-4.1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2646,6 +2651,14 @@ Notes:
       justify-content:flex-end;
       gap:8px;
     }
+    .record-detail-actions > button{
+      min-height:42px;
+      white-space:nowrap;
+    }
+    .record-archive-detail:not(.is-editing) .record-detail-actions > button{
+      min-width:112px;
+      justify-content:center;
+    }
     .record-detail-section{
       padding:14px;
       border:1px solid color-mix(in srgb, var(--line) 84%, white 16%);
@@ -2700,7 +2713,7 @@ Notes:
       border-radius:14px;
       border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
       background:rgba(255,252,247,.78);
-      color:var(--text);
+      color:var(--ink);
       font-size:12px;
       line-height:1.45;
     }
@@ -2720,6 +2733,170 @@ Notes:
       color:var(--muted);
       font-size:12.5px;
       line-height:1.65;
+    }
+    .record-detail-edit-note{
+      margin-top:8px;
+      padding:10px 12px;
+      border-radius:14px;
+      background:#eef8f6;
+      color:#075d58;
+      font-size:12.5px;
+      line-height:1.55;
+      font-weight:800;
+    }
+    .record-detail-edit-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+    }
+    .record-detail-edit-field{
+      min-width:0;
+      padding:12px;
+      border-radius:16px;
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      background:rgba(255,252,247,.8);
+    }
+    .record-detail-edit-field.full{
+      grid-column:1 / -1;
+    }
+    .record-detail-edit-field label,
+    .record-detail-meal-edit label{
+      display:block;
+      margin-bottom:7px;
+      color:var(--deep);
+      font-size:12px;
+      font-weight:900;
+      line-height:1.35;
+    }
+    .record-detail-edit-field input,
+    .record-detail-edit-field textarea,
+    .record-detail-edit-field select,
+    .record-detail-meal-edit input,
+    .record-detail-meal-edit textarea,
+    .record-detail-meal-edit select{
+      width:100%;
+      min-width:0;
+      border:1px solid color-mix(in srgb, var(--line) 76%, white 24%);
+      border-radius:12px;
+      background:#fffdfa;
+      color:var(--ink);
+      font:inherit;
+      font-size:13px;
+      line-height:1.45;
+      padding:10px 11px;
+      outline:none;
+    }
+    .record-detail-edit-field textarea,
+    .record-detail-meal-edit textarea{
+      min-height:72px;
+      resize:vertical;
+    }
+    .record-detail-edit-modes,
+    .record-detail-edit-simple{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+    }
+    .record-detail-edit-chip{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-height:36px;
+      padding:8px 12px;
+      border-radius:999px;
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      background:rgba(255,255,255,.72);
+      color:var(--deep);
+      font-size:12px;
+      font-weight:900;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .record-detail-edit-chip.active{
+      border-color:var(--deep);
+      background:var(--deep);
+      color:#fff;
+    }
+    .record-detail-edit-disabled{
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.55;
+      margin-top:8px;
+    }
+    .record-detail-basis-copy{
+      margin:0 0 12px;
+      font-size:12.5px;
+      line-height:1.55;
+      color:var(--muted);
+    }
+    .record-detail-basis-grid{
+      margin-top:10px;
+    }
+    .record-detail-basis-preview{
+      margin-top:14px;
+      padding:14px;
+      border:1px solid color-mix(in srgb, var(--line) 78%, white 22%);
+      border-radius:16px;
+      background:rgba(246,250,247,.72);
+    }
+    .record-detail-basis-preview-title{
+      margin:0 0 10px;
+      font-size:12px;
+      font-weight:900;
+      color:var(--deep);
+    }
+    .record-detail-edit-field.is-check{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      min-height:64px;
+    }
+    .record-detail-edit-field.is-check label{
+      margin:0;
+    }
+    .record-detail-edit-field.is-check input{
+      width:20px;
+      height:20px;
+      margin:0;
+      accent-color:var(--teal);
+    }
+    .record-detail-meal-edit-list{
+      display:grid;
+      gap:12px;
+    }
+    .record-detail-meal-edit{
+      padding:12px;
+      border-radius:16px;
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      background:rgba(255,252,247,.8);
+    }
+    .record-detail-meal-edit-head{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:center;
+      margin-bottom:10px;
+    }
+    .record-detail-meal-edit-title{
+      color:var(--deep);
+      font-size:13px;
+      font-weight:950;
+    }
+    .record-detail-meal-edit-grid{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:10px;
+    }
+    .record-detail-meal-edit-grid .full{
+      grid-column:1 / -1;
+    }
+    .record-detail-edit-actions-bottom{
+      display:flex;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      gap:8px;
+      margin-top:14px;
     }
     .records-edit-panel{
       scroll-margin-top:18px;
@@ -3882,6 +4059,20 @@ Notes:
     #selectedMealsList .meal-table-head [data-delete-meal]{
       visibility:hidden;
     }
+    #recordsTable .record-archive-detail .record-detail-actions [data-delete-record]{
+      width:auto;
+      height:auto;
+      min-width:112px;
+      min-height:42px;
+      padding:10px 14px;
+      border:1px solid var(--line);
+      background:var(--surface-soft);
+      color:var(--deep);
+      font:inherit;
+      font-weight:900;
+      line-height:normal;
+      border-radius:12px;
+    }
     #selectedMealsList .meal-table-row button{
       white-space:nowrap;
     }
@@ -4100,9 +4291,30 @@ Notes:
       .record-detail-actions .secondary-btn{
         flex:1 1 auto;
       }
+      .record-archive-detail:not(.is-editing) .record-detail-actions > button{
+        flex:1 1 0;
+        min-width:0;
+      }
+      #recordsTable .record-archive-detail:not(.is-editing) .record-detail-actions [data-delete-record]{
+        width:auto;
+        height:auto;
+        min-width:0;
+      }
       .record-detail-grid,
       .record-detail-meal{
         grid-template-columns:1fr;
+      }
+      .record-detail-edit-grid,
+      .record-detail-meal-edit-grid{
+        grid-template-columns:1fr;
+      }
+      .record-detail-edit-field.full,
+      .record-detail-meal-edit-grid .full{
+        grid-column:auto;
+      }
+      .record-detail-edit-actions-bottom .primary-btn,
+      .record-detail-edit-actions-bottom .secondary-btn{
+        width:100%;
       }
       #inbodyPanel .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
       #inbodyPanel .kpi{grid-column:auto;min-height:118px}
@@ -4299,7 +4511,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-UX2-4</span>
+               <span class="app-version">v6.5-UX2-4.1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -5267,6 +5479,26 @@ Notes:
       heavy_field: "하루 노동 강도가 높고 체력 소모가 큽니다. 예: 중량 작업, 건설, 강도 높은 상하차."
     };
 
+    const ACTIVITY_LABELS = {
+      sedentary: "낮음",
+      moderate: "보통",
+      active: "활동 많음",
+      very_active: "매우 활동적"
+    };
+
+    const WORK_TYPE_LABELS = {
+      office: "앉아서 일함",
+      mixed: "혼합",
+      active: "서서 움직임",
+      field: "현장 활동",
+      heavy_field: "고강도 현장"
+    };
+
+    const GENDER_LABELS = {
+      male: "남성",
+      female: "여성"
+    };
+
     const CARDIO_TYPES = {
       treadmill_walk: { label: "트레드밀 워킹", baseMet: 2.9 },
       treadmill_run: { label: "트레드밀 러닝", baseMet: 6.0 },
@@ -5532,7 +5764,9 @@ Notes:
     const uiState = {
       activeTab: "today",
       recordsMealsExpanded: false,
-      recordsDetailDate: null
+      recordsDetailDate: null,
+      recordsDetailEditMode: false,
+      recordsDetailDraft: null
     };
     const recordsState = {
       items: [],
@@ -7210,7 +7444,7 @@ Notes:
     }
 
     function normalizeSnapshotSource(raw){
-      return ["saved_at_entry","generated_on_late_meal_add","legacy_import","today_auto_sync"].includes(raw) ? raw : null;
+      return ["saved_at_entry","generated_on_late_meal_add","legacy_import","today_auto_sync","record_detail_edit"].includes(raw) ? raw : null;
     }
 
     function normalizeIsoDatetime(raw){
@@ -7235,11 +7469,16 @@ Notes:
         mode: isAllowedOption(raw.mode, Object.keys(MODE_CONFIGS)) ? raw.mode : state.mode,
         goal: isAllowedOption(raw.goal, Object.keys(GOALS)) ? raw.goal : state.goal,
         weight: normalizeWeightValue(raw.weight),
+        height: Number.isFinite(Number(raw.height)) ? Number(raw.height) : null,
+        age: Number.isFinite(Number(raw.age)) ? Number(raw.age) : null,
+        gender: isAllowedOption(raw.gender, Object.keys(GENDER_LABELS)) ? raw.gender : ids.gender?.value,
         bodyFat: parseNumberOrDefault(raw.bodyFat, null),
+        bodyFatMass: Number.isFinite(Number(raw.bodyFatMass)) ? Number(raw.bodyFatMass) : null,
         skeletal: parseNumberOrDefault(raw.skeletal, null),
         activityLevel: isAllowedOption(raw.activityLevel, Object.keys(ACTIVITY_COEFF)) ? raw.activityLevel : null,
         workType: isAllowedOption(raw.workType, Object.keys(WORK_TYPE_Y)) ? raw.workType : null,
         weeklyTrainingDays: Number.isFinite(Number(raw.weeklyTrainingDays)) ? clamp(Number(raw.weeklyTrainingDays), 0, 14) : null,
+        routinePlan: isAllowedOption(raw.routinePlan, Object.keys(ROUTINE_SCHEMES)) ? raw.routinePlan : null,
         routine: typeof raw.routine === "string" ? raw.routine : null,
         intensityOverride: Number.isFinite(Number(raw.intensityOverride)) ? Number(raw.intensityOverride) : null,
         weightDuration: Number.isFinite(Number(raw.weightDuration)) ? Number(raw.weightDuration) : null,
@@ -7250,7 +7489,8 @@ Notes:
         workAdj: Number.isFinite(Number(raw.workAdj)) ? Number(raw.workAdj) : null,
         homeInbody: raw.homeInbody === true,
         expertLbmAlpha: Number.isFinite(Number(raw.expertLbmAlpha)) ? clamp(Number(raw.expertLbmAlpha), EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max) : MODE_LBM_ALPHA.expert,
-        generalAdvancedSettings: raw.generalAdvancedSettings === true
+        generalAdvancedSettings: raw.generalAdvancedSettings === true,
+        generalLowDigestCarbs: raw.generalLowDigestCarbs === true
       };
     }
 
@@ -8255,11 +8495,16 @@ Notes:
         mode: state.mode,
         goal: state.goal,
         weight: ids.weight.value,
+        height: ids.height.value,
+        age: ids.age.value,
+        gender: ids.gender.value,
         bodyFat: ids.bodyFat.value,
+        bodyFatMass: ids.bodyFatMass?.value,
         skeletal: ids.skeletal.value,
         activityLevel: ids.activityLevel.value,
         workType: ids.workType.value,
         weeklyTrainingDays: ids.weeklyTrainingDays.value,
+        routinePlan: state.routinePlan,
         routine: state.routine,
         intensityOverride: ids.intensityOverride.value,
         weightDuration: ids.weightDuration.value,
@@ -8271,6 +8516,7 @@ Notes:
         homeInbody: !!ids.homeInbody.checked,
         expertLbmAlpha: clamp(Number(ids.expertLbmAlpha?.value || state.expertLbmAlpha * 100) / 100, EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max),
         generalAdvancedSettings: !!ids.generalAdvancedSettings.checked,
+        generalLowDigestCarbs: !!ids.generalLowDigestCarbs.checked,
         snapshotSource
       });
     }
@@ -8286,11 +8532,16 @@ Notes:
         "mode",
         "goal",
         "weight",
+        "height",
+        "age",
+        "gender",
         "bodyFat",
+        "bodyFatMass",
         "skeletal",
         "activityLevel",
         "workType",
         "weeklyTrainingDays",
+        "routinePlan",
         "routine",
         "intensityOverride",
         "weightDuration",
@@ -8301,7 +8552,8 @@ Notes:
         "workAdj",
         "homeInbody",
         "expertLbmAlpha",
-        "generalAdvancedSettings"
+        "generalAdvancedSettings",
+        "generalLowDigestCarbs"
       ];
       const signature = {};
       signatureKeys.forEach(key => {
@@ -11528,6 +11780,9 @@ Notes:
       if (!currentResult?.isCalculable) return { synced: false, reason: "not_calculable" };
       const weightMismatch = getTodayRecordWeightMismatch();
       if (weightMismatch.hasMismatch) return { synced: false, reason: "weight_mismatch", weightMismatch };
+      if (existing.snapshotSource === "record_detail_edit") {
+        return { synced: false, reason: "record_detail_edit_snapshot" };
+      }
 
       const nextSnapshot = buildGoalSnapshotFromCurrentState(currentResult, "today_auto_sync");
       if (!nextSnapshot) return { synced: false, reason: "snapshot_unavailable" };
@@ -11873,7 +12128,11 @@ Notes:
 
     function deleteRecord(date){
       recordsState.items = normalizeRecordsCollection(recordsState.items.filter(item => normalizeRecord(item).date !== date));
-      if (normalizeDateString(uiState.recordsDetailDate) === normalizeDateString(date)) uiState.recordsDetailDate = null;
+      if (normalizeDateString(uiState.recordsDetailDate) === normalizeDateString(date)) {
+        uiState.recordsDetailDate = null;
+        uiState.recordsDetailEditMode = false;
+        uiState.recordsDetailDraft = null;
+      }
       if (getSelectedRecordDate() === normalizeDateString(date)) syncRecordInputsForDate(date);
       setRecordFeedback("ok", `${date} 기록을 삭제했습니다.`);
       render();
@@ -13397,9 +13656,24 @@ Notes:
         { label: "단백질", value: formatRecordDetailGram(normalized.protein) },
         { label: "지방", value: formatRecordDetailGram(normalized.fat) },
         { label: "계산 모드", value: MODE_CONFIGS[normalized.mode]?.label || "" },
+        { label: "기준 체중", value: Number.isFinite(normalized.weight) ? `${formatKg2(normalized.weight)} kg` : "" },
+        { label: "키", value: Number.isFinite(normalized.height) ? `${round(normalized.height, 1)} cm` : "" },
+        { label: "나이", value: Number.isFinite(normalized.age) ? `${Math.round(normalized.age)}세` : "" },
+        { label: "성별", value: GENDER_LABELS[normalized.gender] || "" },
+        { label: "체지방률", value: Number.isFinite(normalized.bodyFat) ? `${round(normalized.bodyFat, 1)}%` : "" },
+        { label: "체지방량", value: Number.isFinite(normalized.bodyFatMass) ? `${formatKg2(normalized.bodyFatMass)} kg` : "" },
+        { label: "골격근량", value: Number.isFinite(normalized.skeletal) ? `${formatKg2(normalized.skeletal)} kg` : "" },
+        { label: "활동량", value: ACTIVITY_LABELS[normalized.activityLevel] || "" },
+        { label: "업무 유형", value: WORK_TYPE_LABELS[normalized.workType] || "" },
+        { label: "업무 보정", value: Number.isFinite(normalized.workAdj) ? normalized.workAdj.toFixed(2) : "" },
+        { label: "주당 웨이트일수", value: Number.isFinite(normalized.weeklyTrainingDays) ? `${Math.round(normalized.weeklyTrainingDays)}일` : "" },
+        { label: "루틴", value: normalized.routinePlan && ROUTINE_SCHEMES[normalized.routinePlan] ? ROUTINE_SCHEMES[normalized.routinePlan].label : "" },
         { label: "운동", value: routineLabel },
+        { label: "훈련 강도", value: Number.isFinite(normalized.intensityOverride) ? normalized.intensityOverride.toFixed(2) : "" },
         { label: "웨이트", value: Number.isFinite(normalized.weightDuration) ? `${Math.round(normalized.weightDuration)}분` : "" },
-        { label: "유산소", value: cardioLabel && Number.isFinite(normalized.cardioDuration) ? `${cardioLabel} ${Math.round(normalized.cardioDuration)}분` : "" }
+        { label: "유산소", value: cardioLabel && Number.isFinite(normalized.cardioDuration) ? `${cardioLabel} ${Math.round(normalized.cardioDuration)}분` : "" },
+        { label: "유산소 속도", value: Number.isFinite(normalized.cardioSpeed) ? `${round(normalized.cardioSpeed, 1)} km/h` : "" },
+        { label: "유산소 경사도", value: Number.isFinite(normalized.cardioIncline) ? `${round(normalized.cardioIncline, 1)}%` : "" }
       ]);
     }
 
@@ -13462,8 +13736,538 @@ Notes:
       ]);
     }
 
+    function parseRecordDetailNumber(raw, fallback = null){
+      if (raw === null || raw === undefined || String(raw).trim() === "") return fallback;
+      const value = Number(raw);
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    function parseRecordDetailPositiveNumber(raw, fallback = null, hardFallback = fallback){
+      const value = parseRecordDetailNumber(raw, fallback);
+      if (Number.isFinite(value) && value > 0) return value;
+      return Number.isFinite(hardFallback) ? hardFallback : fallback;
+    }
+
+    function getRecordDetailWorkAdjBounds(mode, activityLevel, workType){
+      if (mode === "general") return { min: 0, max: 0 };
+      if (activityLevel === "very_active" && workType === "heavy_field") return { min: -0.10, max: 0.10 };
+      return { min: -0.20, max: 0.20 };
+    }
+
+    function getRecordDetailCurrentCalculationBasis(){
+      const weight = parseRecordDetailPositiveNumber(ids.weight.value, DEFAULT_STATE.weight, DEFAULT_STATE.weight);
+      const bodyFat = parseRecordDetailNumber(ids.bodyFat.value, DEFAULT_STATE.bodyFat);
+      const bodyFatMass = parseRecordDetailNumber(ids.bodyFatMass?.value, Number.isFinite(weight) && Number.isFinite(bodyFat) ? weight * bodyFat / 100 : null);
+      return {
+        mode: isAllowedOption(state.mode, Object.keys(MODE_CONFIGS)) ? state.mode : DEFAULT_STATE.mode,
+        goal: isAllowedOption(state.goal, Object.keys(GOALS)) ? state.goal : DEFAULT_STATE.goal,
+        weight,
+        height: parseRecordDetailPositiveNumber(ids.height.value, DEFAULT_STATE.height, DEFAULT_STATE.height),
+        age: parseRecordDetailPositiveNumber(ids.age.value, DEFAULT_STATE.age, DEFAULT_STATE.age),
+        gender: isAllowedOption(ids.gender.value, Object.keys(GENDER_LABELS)) ? ids.gender.value : DEFAULT_STATE.gender,
+        bodyFat,
+        bodyFatMass,
+        skeletal: parseRecordDetailPositiveNumber(ids.skeletal.value, DEFAULT_STATE.skeletal, DEFAULT_STATE.skeletal),
+        activityLevel: isAllowedOption(ids.activityLevel.value, Object.keys(ACTIVITY_COEFF)) ? ids.activityLevel.value : DEFAULT_STATE.activityLevel,
+        workType: isAllowedOption(ids.workType.value, Object.keys(WORK_TYPE_Y)) ? ids.workType.value : DEFAULT_STATE.workType,
+        workAdj: parseRecordDetailNumber(ids.workAdj.value, DEFAULT_STATE.workAdj),
+        homeInbody: !!ids.homeInbody.checked,
+        expertLbmAlpha: clamp(parseRecordDetailNumber(ids.expertLbmAlpha?.value, DEFAULT_STATE.expertLbmAlpha * 100) / 100, EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max),
+        weeklyTrainingDays: clamp(Math.round(parseRecordDetailNumber(ids.weeklyTrainingDays.value, DEFAULT_STATE.weeklyTrainingDays)), 0, 14),
+        generalAdvancedSettings: !!ids.generalAdvancedSettings.checked,
+        generalLowDigestCarbs: !!ids.generalLowDigestCarbs.checked,
+        routinePlan: isAllowedOption(state.routinePlan, Object.keys(ROUTINE_SCHEMES)) ? state.routinePlan : DEFAULT_STATE.routinePlan,
+        routine: state.routine || DEFAULT_STATE.routine,
+        intensityOverride: parseRecordDetailNumber(ids.intensityOverride.value, DEFAULT_STATE.intensityOverride),
+        weightDuration: parseRecordDetailNumber(ids.weightDuration.value, DEFAULT_STATE.weightDuration),
+        cardioType: isAllowedOption(ids.cardioType.value, Object.keys(CARDIO_TYPES)) ? ids.cardioType.value : DEFAULT_STATE.cardioType,
+        cardioDuration: parseRecordDetailNumber(ids.cardioDuration.value, DEFAULT_STATE.cardioDuration),
+        cardioSpeed: parseRecordDetailNumber(ids.cardioSpeed.value, DEFAULT_STATE.cardioSpeed),
+        cardioIncline: parseRecordDetailNumber(ids.cardioIncline.value, DEFAULT_STATE.cardioIncline)
+      };
+    }
+
+    function getRecordDetailRoutineItemsForBasis(basis){
+      const safeBasis = basis || {};
+      if (safeBasis.mode === "general" && !safeBasis.generalAdvancedSettings) return getGeneralRoutineItems();
+      return ROUTINE_SCHEMES[safeBasis.routinePlan]?.items || ROUTINE_SCHEMES[DEFAULT_STATE.routinePlan].items;
+    }
+
+    function normalizeRecordDetailCalculationBasis(raw = {}, fallback = getRecordDetailCurrentCalculationBasis()){
+      const mode = isAllowedOption(raw.mode, Object.keys(MODE_CONFIGS)) ? raw.mode : fallback.mode;
+      const goal = isAllowedOption(raw.goal, Object.keys(GOALS)) ? raw.goal : fallback.goal;
+      const activityLevel = isAllowedOption(raw.activityLevel, Object.keys(ACTIVITY_COEFF)) ? raw.activityLevel : fallback.activityLevel;
+      const workType = isAllowedOption(raw.workType, Object.keys(WORK_TYPE_Y)) ? raw.workType : fallback.workType;
+      const workAdjBounds = getRecordDetailWorkAdjBounds(mode, activityLevel, workType);
+      const weight = parseRecordDetailPositiveNumber(raw.weight, fallback.weight, DEFAULT_STATE.weight);
+      const height = parseRecordDetailPositiveNumber(raw.height, fallback.height, DEFAULT_STATE.height);
+      const age = parseRecordDetailPositiveNumber(raw.age, fallback.age, DEFAULT_STATE.age);
+      const gender = isAllowedOption(raw.gender, Object.keys(GENDER_LABELS)) ? raw.gender : fallback.gender;
+      let bodyFat = parseRecordDetailNumber(raw.bodyFat, fallback.bodyFat);
+      const bodyFatMassRaw = parseRecordDetailNumber(raw.bodyFatMass, null);
+      if (!Number.isFinite(bodyFat) && Number.isFinite(bodyFatMassRaw) && Number.isFinite(weight) && weight > 0) {
+        bodyFat = bodyFatMassRaw / weight * 100;
+      }
+      const bodyFatMass = Number.isFinite(bodyFatMassRaw)
+        ? bodyFatMassRaw
+        : (Number.isFinite(weight) && Number.isFinite(bodyFat) ? weight * bodyFat / 100 : fallback.bodyFatMass);
+      const generalAdvancedSettings = raw.generalAdvancedSettings === undefined
+        ? !!fallback.generalAdvancedSettings
+        : raw.generalAdvancedSettings === true;
+      const generalLowDigestCarbs = raw.generalLowDigestCarbs === undefined
+        ? !!fallback.generalLowDigestCarbs
+        : raw.generalLowDigestCarbs === true;
+      const homeInbody = raw.homeInbody === undefined
+        ? !!fallback.homeInbody
+        : raw.homeInbody === true;
+      const routinePlan = isAllowedOption(raw.routinePlan, Object.keys(ROUTINE_SCHEMES)) ? raw.routinePlan : fallback.routinePlan;
+      const routineItems = getRecordDetailRoutineItemsForBasis({ mode, routinePlan, generalAdvancedSettings });
+      const routine = routineItems.some(item => item.value === raw.routine)
+        ? raw.routine
+        : (routineItems.some(item => item.value === fallback.routine) ? fallback.routine : routineItems[0]?.value || DEFAULT_STATE.routine);
+      const cardioType = isAllowedOption(raw.cardioType, Object.keys(CARDIO_TYPES)) ? raw.cardioType : fallback.cardioType;
+      return {
+        mode,
+        goal,
+        weight,
+        height,
+        age,
+        gender,
+        bodyFat,
+        bodyFatMass,
+        skeletal: parseRecordDetailPositiveNumber(raw.skeletal, fallback.skeletal, DEFAULT_STATE.skeletal),
+        activityLevel,
+        workType,
+        workAdj: clamp(parseRecordDetailNumber(raw.workAdj, fallback.workAdj), workAdjBounds.min, workAdjBounds.max),
+        homeInbody,
+        expertLbmAlpha: clamp(parseRecordDetailNumber(raw.expertLbmAlpha, fallback.expertLbmAlpha), EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max),
+        weeklyTrainingDays: clamp(Math.round(parseRecordDetailNumber(raw.weeklyTrainingDays, fallback.weeklyTrainingDays)), 0, 14),
+        generalAdvancedSettings,
+        generalLowDigestCarbs,
+        routinePlan,
+        routine,
+        intensityOverride: clamp(parseRecordDetailNumber(raw.intensityOverride, fallback.intensityOverride), 0, 1),
+        weightDuration: Math.max(0, parseRecordDetailNumber(raw.weightDuration, fallback.weightDuration)),
+        cardioType,
+        cardioDuration: Math.max(0, parseRecordDetailNumber(raw.cardioDuration, fallback.cardioDuration)),
+        cardioSpeed: Math.max(0, parseRecordDetailNumber(raw.cardioSpeed, fallback.cardioSpeed)),
+        cardioIncline: Math.max(0, parseRecordDetailNumber(raw.cardioIncline, fallback.cardioIncline))
+      };
+    }
+
+    function getRecordDetailCalculationBasis(draft){
+      const fallback = getRecordDetailCurrentCalculationBasis();
+      const snapshot = normalizeGoalSnapshot(draft?.goalSnapshot);
+      const raw = snapshot ? { ...snapshot } : {};
+      if (!Number.isFinite(raw.weight) && Number.isFinite(draft?.weight)) raw.weight = draft.weight;
+      return normalizeRecordDetailCalculationBasis(raw, fallback);
+    }
+
+    function withRecordDetailTemporaryBasis(basis, callback){
+      const stateSnapshot = JSON.stringify(state);
+      const valueSnapshot = {
+        weight: ids.weight.value,
+        height: ids.height.value,
+        age: ids.age.value,
+        bodyFat: ids.bodyFat.value,
+        bodyFatMass: ids.bodyFatMass?.value,
+        skeletal: ids.skeletal.value,
+        gender: ids.gender.value,
+        activityLevel: ids.activityLevel.value,
+        workType: ids.workType.value,
+        workAdj: ids.workAdj.value,
+        homeInbody: ids.homeInbody.checked,
+        expertLbmAlpha: ids.expertLbmAlpha?.value,
+        weeklyTrainingDays: ids.weeklyTrainingDays.value,
+        generalAdvancedSettings: ids.generalAdvancedSettings.checked,
+        generalLowDigestCarbs: ids.generalLowDigestCarbs.checked,
+        routinePlan: ids.routinePlan.value,
+        intensityOverride: ids.intensityOverride.value,
+        weightDuration: ids.weightDuration.value,
+        cardioType: ids.cardioType.value,
+        cardioDuration: ids.cardioDuration.value,
+        cardioSpeed: ids.cardioSpeed.value,
+        cardioIncline: ids.cardioIncline.value
+      };
+      const safeBasis = normalizeRecordDetailCalculationBasis(basis);
+      try {
+        state.mode = safeBasis.mode;
+        state.goal = safeBasis.goal;
+        state.routinePlan = safeBasis.routinePlan;
+        state.routine = safeBasis.routine;
+        state.intensityOverride = safeBasis.intensityOverride;
+        state.weeklyTrainingDays = safeBasis.weeklyTrainingDays;
+        state.generalAdvancedSettings = safeBasis.generalAdvancedSettings;
+        state.generalLowDigestCarbs = safeBasis.generalLowDigestCarbs;
+        state.expertLbmAlpha = safeBasis.expertLbmAlpha;
+        ids.weight.value = formatInputNumber(safeBasis.weight, 2);
+        ids.height.value = formatInputNumber(safeBasis.height, 1);
+        ids.age.value = formatInputNumber(safeBasis.age, 0);
+        ids.bodyFat.value = formatInputNumber(safeBasis.bodyFat, 1);
+        if (ids.bodyFatMass) ids.bodyFatMass.value = Number.isFinite(safeBasis.bodyFatMass) ? formatInputNumber(safeBasis.bodyFatMass, 2) : "";
+        ids.skeletal.value = formatInputNumber(safeBasis.skeletal, 1);
+        ids.gender.value = safeBasis.gender;
+        ids.activityLevel.value = safeBasis.activityLevel;
+        ids.workType.value = safeBasis.workType;
+        ids.workAdj.value = String(safeBasis.workAdj);
+        ids.homeInbody.checked = !!safeBasis.homeInbody;
+        if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = String(Math.round(safeBasis.expertLbmAlpha * 100));
+        ids.weeklyTrainingDays.value = String(safeBasis.weeklyTrainingDays);
+        ids.generalAdvancedSettings.checked = !!safeBasis.generalAdvancedSettings;
+        ids.generalLowDigestCarbs.checked = !!safeBasis.generalLowDigestCarbs;
+        ids.routinePlan.value = safeBasis.routinePlan;
+        ids.intensityOverride.value = String(safeBasis.intensityOverride);
+        ids.weightDuration.value = String(safeBasis.weightDuration);
+        ids.cardioType.value = safeBasis.cardioType;
+        ids.cardioDuration.value = String(safeBasis.cardioDuration);
+        ids.cardioSpeed.value = String(safeBasis.cardioSpeed);
+        ids.cardioIncline.value = String(safeBasis.cardioIncline);
+        return callback(safeBasis);
+      } finally {
+        Object.assign(state, JSON.parse(stateSnapshot));
+        ids.weight.value = valueSnapshot.weight;
+        ids.height.value = valueSnapshot.height;
+        ids.age.value = valueSnapshot.age;
+        ids.bodyFat.value = valueSnapshot.bodyFat;
+        if (ids.bodyFatMass) ids.bodyFatMass.value = valueSnapshot.bodyFatMass || "";
+        ids.skeletal.value = valueSnapshot.skeletal;
+        ids.gender.value = valueSnapshot.gender;
+        ids.activityLevel.value = valueSnapshot.activityLevel;
+        ids.workType.value = valueSnapshot.workType;
+        ids.workAdj.value = valueSnapshot.workAdj;
+        ids.homeInbody.checked = valueSnapshot.homeInbody;
+        if (ids.expertLbmAlpha && valueSnapshot.expertLbmAlpha !== undefined) ids.expertLbmAlpha.value = valueSnapshot.expertLbmAlpha;
+        ids.weeklyTrainingDays.value = valueSnapshot.weeklyTrainingDays;
+        ids.generalAdvancedSettings.checked = valueSnapshot.generalAdvancedSettings;
+        ids.generalLowDigestCarbs.checked = valueSnapshot.generalLowDigestCarbs;
+        ids.routinePlan.value = valueSnapshot.routinePlan;
+        ids.intensityOverride.value = valueSnapshot.intensityOverride;
+        ids.weightDuration.value = valueSnapshot.weightDuration;
+        ids.cardioType.value = valueSnapshot.cardioType;
+        ids.cardioDuration.value = valueSnapshot.cardioDuration;
+        ids.cardioSpeed.value = valueSnapshot.cardioSpeed;
+        ids.cardioIncline.value = valueSnapshot.cardioIncline;
+      }
+    }
+
+    function calculateRecordDetailGoalPreview(draft){
+      const basis = getRecordDetailCalculationBasis(draft);
+      return withRecordDetailTemporaryBasis(basis, safeBasis => {
+        const result = calculate();
+        const snapshot = result?.isCalculable
+          ? buildGoalSnapshotFromCurrentState(result, draft?.snapshotSource || "saved_at_entry")
+          : null;
+        return { basis: safeBasis, result, snapshot };
+      });
+    }
+
+    function renderRecordDetailOptions(items, selected){
+      return (Array.isArray(items) ? items : []).map(item => `
+        <option value="${escapeHtml(item.value)}"${item.value === selected ? " selected" : ""}>${escapeHtml(item.label)}</option>
+      `).join("");
+    }
+
+    function renderRecordDetailBasisPreview(draft){
+      const preview = calculateRecordDetailGoalPreview(draft);
+      if (!preview.result?.isCalculable || !preview.snapshot) {
+        return `
+          <div class="record-detail-basis-preview-title">다시 계산될 기준</div>
+          <div class="record-detail-empty">체중, 활동량, 운동 설정을 확인하면 당시 목표 탄단지가 다시 계산됩니다.</div>
+        `;
+      }
+      return `
+        <div class="record-detail-basis-preview-title">다시 계산될 기준</div>
+        ${renderRecordDetailMetrics([
+          { label: "목표 칼로리", value: formatRecordDetailKcal(preview.snapshot.targetCal) },
+          { label: "탄수화물", value: formatRecordDetailGram(preview.snapshot.carbs) },
+          { label: "단백질", value: formatRecordDetailGram(preview.snapshot.protein) },
+          { label: "지방", value: formatRecordDetailGram(preview.snapshot.fat) }
+        ])}
+      `;
+    }
+
+    function renderRecordDetailGoalBasisEdit(draft){
+      const basis = getRecordDetailCalculationBasis(draft);
+      const routineItems = getRecordDetailRoutineItemsForBasis(basis);
+      const activityItems = Object.keys(ACTIVITY_COEFF).map(value => ({ value, label: ACTIVITY_LABELS[value] || value }));
+      const workItems = Object.keys(WORK_TYPE_Y).map(value => ({ value, label: WORK_TYPE_LABELS[value] || value }));
+      const goalItems = Object.keys(GOALS).map(value => ({ value, label: GOALS[value].label }));
+      const modeItems = Object.keys(MODE_CONFIGS).map(value => ({ value, label: MODE_CONFIGS[value].label }));
+      const genderItems = Object.keys(GENDER_LABELS).map(value => ({ value, label: GENDER_LABELS[value] }));
+      const routinePlanItems = Object.keys(ROUTINE_SCHEMES).map(value => ({ value, label: ROUTINE_SCHEMES[value].label }));
+      const cardioItems = Object.keys(CARDIO_TYPES).map(value => ({ value, label: CARDIO_TYPES[value].label }));
+      return `
+        <section class="record-detail-section">
+          <h4>당시 목표 / 계산 기준</h4>
+          <p class="record-detail-basis-copy">당시 계산 기준을 함께 수정합니다. 목표와 활동량을 바꾸면 당시 목표 탄단지가 다시 계산됩니다.</p>
+          <div class="record-detail-edit-grid record-detail-basis-grid">
+            <div class="record-detail-edit-field">
+              <label>당시 목표</label>
+              <select data-detail-basis-field="goal">${renderRecordDetailOptions(goalItems, basis.goal)}</select>
+            </div>
+            <div class="record-detail-edit-field">
+              <label>당시 계산 모드</label>
+              <select data-detail-basis-field="mode" data-detail-basis-rerender="true">${renderRecordDetailOptions(modeItems, basis.mode)}</select>
+            </div>
+            <div class="record-detail-edit-field">
+              <label>체중 kg</label>
+              <input type="number" min="0" step="0.1" inputmode="decimal" data-detail-basis-field="weight" value="${escapeHtml(formatInputNumber(basis.weight, 2))}">
+            </div>
+            <div class="record-detail-edit-field">
+              <label>키 cm</label>
+              <input type="number" min="0" step="0.1" inputmode="decimal" data-detail-basis-field="height" value="${escapeHtml(formatInputNumber(basis.height, 1))}">
+            </div>
+            <div class="record-detail-edit-field">
+              <label>나이</label>
+              <input type="number" min="0" step="1" inputmode="numeric" data-detail-basis-field="age" value="${escapeHtml(formatInputNumber(basis.age, 0))}">
+            </div>
+            <div class="record-detail-edit-field">
+              <label>성별</label>
+              <select data-detail-basis-field="gender">${renderRecordDetailOptions(genderItems, basis.gender)}</select>
+            </div>
+            <div class="record-detail-edit-field">
+              <label>체지방률 %</label>
+              <input type="number" min="0" step="0.1" inputmode="decimal" data-detail-basis-field="bodyFat" value="${escapeHtml(formatInputNumber(basis.bodyFat, 1))}">
+            </div>
+            <div class="record-detail-edit-field">
+              <label>체지방량 kg</label>
+              <input type="number" min="0" step="0.1" inputmode="decimal" data-detail-basis-field="bodyFatMass" value="${Number.isFinite(basis.bodyFatMass) ? escapeHtml(formatInputNumber(basis.bodyFatMass, 2)) : ""}">
+            </div>
+            <div class="record-detail-edit-field">
+              <label>골격근량 kg</label>
+              <input type="number" min="0" step="0.1" inputmode="decimal" data-detail-basis-field="skeletal" value="${escapeHtml(formatInputNumber(basis.skeletal, 1))}">
+            </div>
+            <div class="record-detail-edit-field">
+              <label>활동량</label>
+              <select data-detail-basis-field="activityLevel">${renderRecordDetailOptions(activityItems, basis.activityLevel)}</select>
+            </div>
+            <div class="record-detail-edit-field">
+              <label>업무 유형</label>
+              <select data-detail-basis-field="workType">${renderRecordDetailOptions(workItems, basis.workType)}</select>
+            </div>
+            <div class="record-detail-edit-field">
+              <label>업무 보정</label>
+              <input type="number" min="-0.2" max="0.2" step="0.01" inputmode="decimal" data-detail-basis-field="workAdj" value="${escapeHtml(formatInputNumber(basis.workAdj, 2))}">
+            </div>
+            <div class="record-detail-edit-field">
+              <label>주당 웨이트일수</label>
+              <input type="number" min="0" max="14" step="1" inputmode="numeric" data-detail-basis-field="weeklyTrainingDays" value="${escapeHtml(formatInputNumber(basis.weeklyTrainingDays, 0))}">
+            </div>
+            <div class="record-detail-edit-field">
+              <label>루틴</label>
+              <select data-detail-basis-field="routinePlan" data-detail-basis-rerender="true">${renderRecordDetailOptions(routinePlanItems, basis.routinePlan)}</select>
+            </div>
+            <div class="record-detail-edit-field">
+              <label>웨이트 세션</label>
+              <select data-detail-basis-field="routine">${renderRecordDetailOptions(routineItems, basis.routine)}</select>
+            </div>
+            <div class="record-detail-edit-field">
+              <label>웨이트 시간 분</label>
+              <input type="number" min="0" step="5" inputmode="numeric" data-detail-basis-field="weightDuration" value="${escapeHtml(formatInputNumber(basis.weightDuration, 0))}">
+            </div>
+            <div class="record-detail-edit-field">
+              <label>훈련 강도 보정</label>
+              <input type="number" min="0" max="1" step="0.01" inputmode="decimal" data-detail-basis-field="intensityOverride" value="${escapeHtml(formatInputNumber(basis.intensityOverride, 2))}">
+            </div>
+            <div class="record-detail-edit-field">
+              <label>유산소 종류</label>
+              <select data-detail-basis-field="cardioType">${renderRecordDetailOptions(cardioItems, basis.cardioType)}</select>
+            </div>
+            <div class="record-detail-edit-field">
+              <label>유산소 시간 분</label>
+              <input type="number" min="0" step="5" inputmode="numeric" data-detail-basis-field="cardioDuration" value="${escapeHtml(formatInputNumber(basis.cardioDuration, 0))}">
+            </div>
+            <div class="record-detail-edit-field">
+              <label>유산소 속도 km/h</label>
+              <input type="number" min="0" step="0.5" inputmode="decimal" data-detail-basis-field="cardioSpeed" value="${escapeHtml(formatInputNumber(basis.cardioSpeed, 1))}">
+            </div>
+            <div class="record-detail-edit-field">
+              <label>유산소 경사도 %</label>
+              <input type="number" min="0" step="1" inputmode="numeric" data-detail-basis-field="cardioIncline" value="${escapeHtml(formatInputNumber(basis.cardioIncline, 0))}">
+            </div>
+            <div class="record-detail-edit-field is-check">
+              <label>가정용 InBody 기준</label>
+              <input type="checkbox" data-detail-basis-field="homeInbody"${basis.homeInbody ? " checked" : ""}>
+            </div>
+          </div>
+          <div class="record-detail-basis-preview" data-detail-basis-preview>
+            ${renderRecordDetailBasisPreview(draft)}
+          </div>
+        </section>
+      `;
+    }
+
+    function cloneRecordDetailDraft(record){
+      const normalized = normalizeRecord(record || {});
+      return JSON.parse(JSON.stringify(normalized));
+    }
+
+    function getRecordDetailDraft(record){
+      const date = normalizeDateString(record?.date);
+      const draftDate = normalizeDateString(uiState.recordsDetailDraft?.date);
+      if (uiState.recordsDetailEditMode && date && draftDate === date) return cloneRecordDetailDraft(uiState.recordsDetailDraft);
+      return cloneRecordDetailDraft(record);
+    }
+
+    function isRecordDetailEditActive(record){
+      return !!(uiState.recordsDetailEditMode && normalizeDateString(uiState.recordsDetailDraft?.date) === normalizeDateString(record?.date));
+    }
+
+    function setRecordDetailDraft(record){
+      uiState.recordsDetailDraft = cloneRecordDetailDraft(record);
+      return uiState.recordsDetailDraft;
+    }
+
+    function renderRecordDetailMealOptions(selected){
+      return MEAL_LABEL_OPTIONS.map(option => `
+        <option value="${escapeHtml(option)}"${option === selected ? " selected" : ""}>${escapeHtml(option)}</option>
+      `).join("");
+    }
+
+    function renderRecordDetailModeButtons(mode){
+      return `
+        <div class="record-detail-edit-modes" role="group" aria-label="기록 방식">
+          ${RECORD_MODES.map(item => `
+            <button class="record-detail-edit-chip${item === mode ? " active" : ""}" type="button" data-detail-mode="${escapeHtml(item)}">
+              ${escapeHtml(getRecordModeLabel(item))}
+            </button>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function renderRecordDetailSimpleButtons(adherence){
+      return `
+        <div class="record-detail-edit-simple" role="group" aria-label="간단 식단 평가">
+          ${["high","medium","low"].map(item => `
+            <button class="record-detail-edit-chip${item === adherence ? " active" : ""}" type="button" data-detail-adherence="${escapeHtml(item)}">
+              ${escapeHtml(adherenceLabel(item))}
+            </button>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function renderRecordDetailMealEditor(meal, index){
+      const safeMeal = normalizeMeal(meal, index) || {
+        id: createMealId(),
+        mealLabel: getDefaultMealLabelFromCount(index),
+        carbs: 0,
+        protein: 0,
+        fat: 0,
+        alcoholKcal: 0,
+        otherKcal: 0,
+        memo: "",
+        createdAt: new Date().toISOString()
+      };
+      return `
+        <div class="record-detail-meal-edit" data-detail-meal-row="${index}" data-meal-id="${escapeHtml(safeMeal.id)}" data-meal-created-at="${escapeHtml(safeMeal.createdAt)}">
+          <div class="record-detail-meal-edit-head">
+            <div class="record-detail-meal-edit-title">식사 ${index + 1}</div>
+            <button class="secondary-btn" type="button" data-detail-delete-meal="${index}">삭제</button>
+          </div>
+          <div class="record-detail-meal-edit-grid">
+            <div>
+              <label>식사 구분</label>
+              <select data-detail-meal-field="mealLabel">${renderRecordDetailMealOptions(safeMeal.mealLabel)}</select>
+            </div>
+            <div>
+              <label>탄수화물 g</label>
+              <input type="number" min="0" step="1" inputmode="decimal" data-detail-meal-field="carbs" value="${escapeHtml(formatInputNumber(safeMeal.carbs, 1))}">
+            </div>
+            <div>
+              <label>단백질 g</label>
+              <input type="number" min="0" step="1" inputmode="decimal" data-detail-meal-field="protein" value="${escapeHtml(formatInputNumber(safeMeal.protein, 1))}">
+            </div>
+            <div>
+              <label>지방 g</label>
+              <input type="number" min="0" step="1" inputmode="decimal" data-detail-meal-field="fat" value="${escapeHtml(formatInputNumber(safeMeal.fat, 1))}">
+            </div>
+            <div>
+              <label>알코올 kcal</label>
+              <input type="number" min="0" step="1" inputmode="decimal" data-detail-meal-field="alcoholKcal" value="${escapeHtml(formatInputNumber(safeMeal.alcoholKcal, 1))}">
+            </div>
+            <div>
+              <label>기타 칼로리 kcal</label>
+              <input type="number" min="0" step="1" inputmode="decimal" data-detail-meal-field="otherKcal" value="${escapeHtml(formatInputNumber(safeMeal.otherKcal, 1))}">
+            </div>
+            <div class="full">
+              <label>메모</label>
+              <textarea data-detail-meal-field="memo" placeholder="외식, 보충제, 간단 메모 등">${escapeHtml(safeMeal.memo || "")}</textarea>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderRecordDetailEdit(record){
+      const draft = getRecordDetailDraft(record);
+      const mode = getEditableRecordMode(draft);
+      const { dateLabel, weekdayLabel } = getRecordArchiveDateParts(draft.date);
+      const meals = Array.isArray(draft.meals) ? draft.meals : [];
+      return `
+        <div class="record-archive-detail is-editing" data-record-detail-date="${escapeHtml(draft.date)}" data-record-detail-edit="true">
+          <div class="record-detail-head">
+            <div>
+              <div class="record-detail-eyebrow">수정 중</div>
+              <div class="record-detail-title">${escapeHtml(dateLabel)} ${escapeHtml(weekdayLabel)} 기록 상세 수정</div>
+              <div class="record-detail-edit-note">이 값은 저장 전까지 원본에 반영되지 않습니다.</div>
+            </div>
+            <div class="record-detail-actions">
+              <button class="primary-btn" type="button" data-detail-save="${escapeHtml(draft.date)}">저장</button>
+              <button class="secondary-btn" type="button" data-detail-cancel="${escapeHtml(draft.date)}">취소</button>
+            </div>
+          </div>
+          <section class="record-detail-section">
+            <h4>기록 방식</h4>
+            ${renderRecordDetailModeButtons(mode)}
+            <div class="record-detail-edit-disabled">${escapeHtml(getRecordModeHint(mode))}</div>
+          </section>
+          <section class="record-detail-section">
+            <h4>체중 / 메모</h4>
+            <div class="record-detail-edit-grid">
+              <div class="record-detail-edit-field">
+                <label for="recordDetailEditWeight">아침 공복 체중 kg</label>
+                <input id="recordDetailEditWeight" type="number" min="0" step="0.1" inputmode="decimal" data-detail-field="weight" value="${Number.isFinite(draft.weight) ? escapeHtml(draft.weight.toFixed(2)) : ""}" placeholder="선택 입력">
+              </div>
+              <div class="record-detail-edit-field full">
+                <label for="recordDetailEditNote">메모</label>
+                <textarea id="recordDetailEditNote" data-detail-field="note" placeholder="오늘 기록 메모">${escapeHtml(draft.note || "")}</textarea>
+              </div>
+            </div>
+          </section>
+          ${mode === "simple" ? `
+            <section class="record-detail-section">
+              <h4>간단 식단 평가</h4>
+              ${renderRecordDetailSimpleButtons(draft.adherence || "medium")}
+            </section>
+          ` : ""}
+          ${mode === "detailed" ? `
+            <section class="record-detail-section">
+              <h4>식사 수정</h4>
+              <div class="record-detail-meal-edit-list">
+                ${meals.map((meal, index) => renderRecordDetailMealEditor(meal, index)).join("")}
+              </div>
+              <div class="record-detail-edit-actions-bottom">
+                <button class="secondary-btn" type="button" data-detail-add-meal="${escapeHtml(draft.date)}">식사 추가</button>
+              </div>
+              <div class="record-detail-edit-disabled">식단 점수는 식사 기록을 기준으로 다시 계산됩니다.</div>
+            </section>
+          ` : ""}
+          ${mode === "weight_only" ? `
+            <section class="record-detail-section">
+              <h4>식단 판단 없음</h4>
+              <div class="record-detail-empty">식사 목록과 식단 점수는 저장하지 않습니다.</div>
+            </section>
+          ` : ""}
+          ${renderRecordDetailGoalBasisEdit(draft)}
+        </div>
+      `;
+    }
+
     function renderRecordArchiveDetail(record){
       if (!record) return "";
+      if (isRecordDetailEditActive(record)) return renderRecordDetailEdit(record);
       const { dateLabel, weekdayLabel } = getRecordArchiveDateParts(record.date);
       const modeInfo = inferRecordMode(record);
       const meals = Array.isArray(record.meals) ? record.meals : [];
@@ -13487,7 +14291,6 @@ Notes:
             </div>
             <div class="record-detail-actions">
               <button class="secondary-btn" type="button" data-edit-record-date="${escapeHtml(record.date)}">수정하기</button>
-              ${shouldShowMacroSections ? `<button class="secondary-btn" type="button" data-edit-record-date="${escapeHtml(record.date)}">식사 추가 / 수정</button>` : ""}
               <button class="secondary-btn" type="button" data-delete-record="${escapeHtml(record.date)}">기록 삭제</button>
             </div>
           </div>
@@ -13578,9 +14381,274 @@ Notes:
       }).join("");
     }
 
+    function getRecordDetailEditRoot(){
+      return document.querySelector("[data-record-detail-edit='true']");
+    }
+
+    function isRecordDetailMealDraftEmpty(row){
+      if (!row) return true;
+      const values = ["carbs","protein","fat","alcoholKcal","otherKcal"].map(field => String(row.querySelector(`[data-detail-meal-field="${field}"]`)?.value || "").trim());
+      const memo = String(row.querySelector('[data-detail-meal-field="memo"]')?.value || "").trim();
+      return !memo && values.every(value => value === "" || normalizeMacroValue(value) === 0);
+    }
+
+    function readRecordDetailBasisFromForm(root, currentDraft){
+      const fallback = getRecordDetailCalculationBasis(currentDraft);
+      const field = name => root.querySelector(`[data-detail-basis-field="${name}"]`);
+      const raw = {
+        mode: field("mode")?.value,
+        goal: field("goal")?.value,
+        weight: field("weight")?.value,
+        height: field("height")?.value,
+        age: field("age")?.value,
+        gender: field("gender")?.value,
+        bodyFat: field("bodyFat")?.value,
+        bodyFatMass: field("bodyFatMass")?.value,
+        skeletal: field("skeletal")?.value,
+        activityLevel: field("activityLevel")?.value,
+        workType: field("workType")?.value,
+        workAdj: field("workAdj")?.value,
+        weeklyTrainingDays: field("weeklyTrainingDays")?.value,
+        routinePlan: field("routinePlan")?.value,
+        routine: field("routine")?.value,
+        weightDuration: field("weightDuration")?.value,
+        intensityOverride: field("intensityOverride")?.value,
+        cardioType: field("cardioType")?.value,
+        cardioDuration: field("cardioDuration")?.value,
+        cardioSpeed: field("cardioSpeed")?.value,
+        cardioIncline: field("cardioIncline")?.value,
+        homeInbody: !!field("homeInbody")?.checked,
+        expertLbmAlpha: fallback.expertLbmAlpha,
+        generalAdvancedSettings: fallback.generalAdvancedSettings,
+        generalLowDigestCarbs: fallback.generalLowDigestCarbs
+      };
+      return normalizeRecordDetailCalculationBasis(raw, fallback);
+    }
+
+    function buildRecordDetailSnapshotFromBasis(basis, snapshotSource = "saved_at_entry"){
+      return withRecordDetailTemporaryBasis(basis, () => {
+        const result = calculate();
+        return {
+          result,
+          snapshot: result?.isCalculable ? buildGoalSnapshotFromCurrentState(result, snapshotSource) : null
+        };
+      });
+    }
+
+    function readRecordDetailDraftFromForm(){
+      const root = getRecordDetailEditRoot();
+      if (!root || !uiState.recordsDetailDraft) return null;
+      const currentDraft = cloneRecordDetailDraft(uiState.recordsDetailDraft);
+      const mode = getEditableRecordMode(currentDraft);
+      const weightRaw = String(root.querySelector('[data-detail-field="weight"]')?.value || "").trim();
+      const note = String(root.querySelector('[data-detail-field="note"]')?.value || "").trim();
+      const basis = readRecordDetailBasisFromForm(root, currentDraft);
+      const calculated = buildRecordDetailSnapshotFromBasis(basis, currentDraft.snapshotSource || "saved_at_entry");
+      const meals = Array.from(root.querySelectorAll("[data-detail-meal-row]"))
+        .filter(row => !isRecordDetailMealDraftEmpty(row))
+        .map((row, index) => normalizeMeal({
+          id: row.getAttribute("data-meal-id") || createMealId(),
+          createdAt: row.getAttribute("data-meal-created-at") || new Date().toISOString(),
+          mealLabel: row.querySelector('[data-detail-meal-field="mealLabel"]')?.value || getDefaultMealLabelFromCount(index),
+          carbs: row.querySelector('[data-detail-meal-field="carbs"]')?.value,
+          protein: row.querySelector('[data-detail-meal-field="protein"]')?.value,
+          fat: row.querySelector('[data-detail-meal-field="fat"]')?.value,
+          alcoholKcal: row.querySelector('[data-detail-meal-field="alcoholKcal"]')?.value,
+          otherKcal: row.querySelector('[data-detail-meal-field="otherKcal"]')?.value,
+          memo: row.querySelector('[data-detail-meal-field="memo"]')?.value
+        }, index))
+        .filter(Boolean);
+      return normalizeRecord({
+        ...currentDraft,
+        recordMode: mode,
+        weight: weightRaw,
+        note,
+        goalSnapshot: calculated.snapshot || currentDraft.goalSnapshot,
+        snapshotSource: calculated.snapshot ? (currentDraft.snapshotSource || "saved_at_entry") : currentDraft.snapshotSource,
+        meals: mode === "detailed" ? meals : currentDraft.meals
+      });
+    }
+
+    function updateRecordDetailDraftFromForm(){
+      const draft = readRecordDetailDraftFromForm();
+      if (!draft) return null;
+      uiState.recordsDetailDraft = draft;
+      return draft;
+    }
+
+    function refreshRecordDetailBasisPreview(){
+      const root = getRecordDetailEditRoot();
+      if (!root || !uiState.recordsDetailDraft) return;
+      const previewHost = root.querySelector("[data-detail-basis-preview]");
+      if (!previewHost) return;
+      const draft = updateRecordDetailDraftFromForm();
+      if (!draft) return;
+      previewHost.innerHTML = renderRecordDetailBasisPreview(draft);
+    }
+
+    function startRecordDetailEdit(date){
+      const normalized = normalizeDateString(date);
+      if (!normalized) return;
+      const record = getRecordByDate(normalized);
+      if (!record) return;
+      uiState.recordsDetailDate = normalized;
+      uiState.recordsDetailEditMode = true;
+      setRecordDetailDraft(record);
+      selectRecordArchiveDate(normalized);
+    }
+
+    function cancelRecordDetailEdit(){
+      uiState.recordsDetailEditMode = false;
+      uiState.recordsDetailDraft = null;
+      renderRecordsPanel();
+    }
+
+    function setRecordDetailDraftMode(mode){
+      const nextMode = normalizeRecordMode(mode);
+      if (!nextMode || !uiState.recordsDetailDraft) return;
+      const draft = updateRecordDetailDraftFromForm() || cloneRecordDetailDraft(uiState.recordsDetailDraft);
+      const currentMode = getEditableRecordMode(draft);
+      if (currentMode === nextMode) return;
+      const hasMeals = Array.isArray(draft.meals) && draft.meals.length > 0;
+      if (hasMeals && currentMode === "detailed" && nextMode !== "detailed") {
+        const message = nextMode === "weight_only"
+          ? "식단 판단 없음으로 바꾸면 식사와 식단 점수는 저장하지 않습니다. 계속할까요?"
+          : "기록 방식을 바꾸면 기존 식사 상세가 사라질 수 있습니다. 계속할까요?";
+        if (!window.confirm(message)) return;
+      }
+      let nextDraft = normalizeRecord({
+        ...draft,
+        recordMode: nextMode,
+        ...clearDietEvidenceForMode(nextMode, draft),
+        goalSnapshot: draft.goalSnapshot,
+        snapshotSource: draft.snapshotSource
+      });
+      if (nextMode === "detailed") {
+        nextDraft = normalizeRecord({
+          ...nextDraft,
+          recordMode: "detailed",
+          meals: Array.isArray(draft.meals) ? draft.meals : [],
+          adherence: "medium",
+          adherenceSource: "manual",
+          adherencePercent: null,
+          adherenceScoringVersion: null,
+          adherenceLockedAt: null
+        });
+      }
+      uiState.recordsDetailDraft = nextDraft;
+      renderRecordsPanel();
+    }
+
+    function setRecordDetailDraftAdherence(value){
+      if (!["high","medium","low"].includes(value) || !uiState.recordsDetailDraft) return;
+      const draft = updateRecordDetailDraftFromForm() || cloneRecordDetailDraft(uiState.recordsDetailDraft);
+      uiState.recordsDetailDraft = normalizeRecord({
+        ...draft,
+        recordMode: "simple",
+        adherence: value,
+        adherenceSource: "manual",
+        adherencePercent: null,
+        adherenceScoringVersion: null,
+        adherenceLockedAt: null,
+        goalSnapshot: draft.goalSnapshot,
+        snapshotSource: draft.snapshotSource,
+        meals: []
+      });
+      renderRecordsPanel();
+    }
+
+    function addRecordDetailDraftMeal(){
+      if (!uiState.recordsDetailDraft) return;
+      const draft = updateRecordDetailDraftFromForm() || cloneRecordDetailDraft(uiState.recordsDetailDraft);
+      const meals = Array.isArray(draft.meals) ? draft.meals : [];
+      const index = meals.length;
+      meals.push(normalizeMeal({
+        id: createMealId(),
+        mealLabel: getDefaultMealLabelFromCount(index),
+        carbs: "",
+        protein: "",
+        fat: "",
+        alcoholKcal: "",
+        otherKcal: "",
+        memo: "",
+        createdAt: new Date().toISOString()
+      }, index));
+      uiState.recordsDetailDraft = normalizeRecord({ ...draft, recordMode: "detailed", meals });
+      renderRecordsPanel();
+    }
+
+    function deleteRecordDetailDraftMeal(index){
+      if (!uiState.recordsDetailDraft) return;
+      const draft = updateRecordDetailDraftFromForm() || cloneRecordDetailDraft(uiState.recordsDetailDraft);
+      const nextMeals = (Array.isArray(draft.meals) ? draft.meals : []).filter((_, mealIndex) => mealIndex !== Number(index));
+      uiState.recordsDetailDraft = normalizeRecord({ ...draft, meals: nextMeals });
+      renderRecordsPanel();
+    }
+
+    function saveRecordDetailDraft(){
+      const draft = updateRecordDetailDraftFromForm();
+      if (!draft) return { saved: false, reason: "missing_draft" };
+      const mode = getEditableRecordMode(draft);
+      const root = getRecordDetailEditRoot();
+      const weightRaw = String(root?.querySelector('[data-detail-field="weight"]')?.value || "").trim();
+      if (weightRaw && !Number.isFinite(normalizeWeightValue(weightRaw))) {
+        setRecordFeedback("bad", "체중 입력값을 확인해 주세요.");
+        renderRecordsPanel();
+        return { saved: false, reason: "invalid_weight" };
+      }
+      const existing = getRecordByDate(draft.date);
+      const preview = calculateRecordDetailGoalPreview(draft);
+      const nextGoalSnapshot = preview.snapshot || draft.goalSnapshot || existing?.goalSnapshot || null;
+      if (mode === "detailed" && !nextGoalSnapshot) {
+        setRecordFeedback("bad", "당시 계산 기준 입력값을 확인해 주세요.");
+        renderRecordsPanel();
+        return { saved: false, reason: "invalid_goal_basis" };
+      }
+      const basisChanged = !!(preview.snapshot && existing?.goalSnapshot && !areGoalSnapshotsEquivalent(existing.goalSnapshot, preview.snapshot));
+      const snapshotSource = nextGoalSnapshot
+        ? (basisChanged ? "record_detail_edit" : (draft.snapshotSource || existing?.snapshotSource || "saved_at_entry"))
+        : null;
+      const update = {
+        date: draft.date,
+        recordMode: mode,
+        weight: weightRaw ? normalizeWeightValue(weightRaw) : null,
+        note: draft.note || "",
+        ...(mode !== "detailed" ? clearDietEvidenceForMode(mode, draft) : {}),
+        goalSnapshot: nextGoalSnapshot,
+        snapshotSource
+      };
+      if (mode === "simple") {
+        update.adherence = ["high","medium","low"].includes(draft.adherence) ? draft.adherence : "medium";
+        update.adherenceSource = "manual";
+      } else if (mode === "detailed") {
+        update.meals = Array.isArray(draft.meals) ? draft.meals : [];
+        update.adherence = "medium";
+        update.adherenceSource = existing?.adherenceSource;
+      }
+      let record = upsertRecord(update);
+      if (mode === "detailed") {
+        const autoResult = preview.result?.isCalculable ? preview.result : calculate();
+        const auto = persistAutoAdherenceForDate(draft.date, autoResult, {
+          snapshotSource
+        });
+        record = auto.record || getRecordByDate(draft.date);
+      }
+      uiState.recordsDetailEditMode = false;
+      uiState.recordsDetailDraft = null;
+      uiState.recordsDetailDate = draft.date;
+      syncRecordInputsForDate(draft.date);
+      setRecordFeedback("ok", `${draft.date} 기록을 수정했습니다.`);
+      render();
+      return { saved: true, record };
+    }
+
     function selectRecordArchiveDate(date, options = {}){
       const normalized = normalizeDateString(date);
       if (!normalized) return;
+      if (uiState.recordsDetailEditMode && normalizeDateString(uiState.recordsDetailDraft?.date) !== normalized) {
+        uiState.recordsDetailEditMode = false;
+        uiState.recordsDetailDraft = null;
+      }
       ids.recordDate.value = normalized;
       uiState.recordsMealsExpanded = false;
       syncRecordInputsForDate(normalized);
@@ -13595,14 +14663,17 @@ Notes:
       if (!normalized) return;
       const isOpen = normalizeDateString(uiState.recordsDetailDate) === normalized;
       uiState.recordsDetailDate = isOpen ? null : normalized;
+      if (isOpen || normalizeDateString(uiState.recordsDetailDraft?.date) !== normalized) {
+        uiState.recordsDetailEditMode = false;
+        uiState.recordsDetailDraft = null;
+      }
       selectRecordArchiveDate(normalized);
     }
 
     function editRecordArchiveDate(date){
       const normalized = normalizeDateString(date);
       if (!normalized) return;
-      uiState.recordsDetailDate = normalized;
-      selectRecordArchiveDate(normalized, { scrollToEdit: true });
+      startRecordDetailEdit(normalized);
     }
 
     function renderRecordsPanel(){
@@ -13611,6 +14682,12 @@ Notes:
       const detailDate = normalizeDateString(uiState.recordsDetailDate);
       if (detailDate && !sorted.some(record => normalizeDateString(record.date) === detailDate)) {
         uiState.recordsDetailDate = null;
+        uiState.recordsDetailEditMode = false;
+        uiState.recordsDetailDraft = null;
+      }
+      if (uiState.recordsDetailEditMode && normalizeDateString(uiState.recordsDetailDraft?.date) !== detailDate) {
+        uiState.recordsDetailEditMode = false;
+        uiState.recordsDetailDraft = null;
       }
       const recentAvg = averageWeight(recent7);
       const prevAvg = averageWeight(previous7);
@@ -15039,12 +16116,16 @@ Notes:
       ids.recordDate.addEventListener("input", () => {
         uiState.recordsMealsExpanded = false;
         uiState.recordsDetailDate = null;
+        uiState.recordsDetailEditMode = false;
+        uiState.recordsDetailDraft = null;
         syncRecordInputsForDate(ids.recordDate.value);
         render();
       });
       ids.recordDate.addEventListener("change", () => {
         uiState.recordsMealsExpanded = false;
         uiState.recordsDetailDate = null;
+        uiState.recordsDetailEditMode = false;
+        uiState.recordsDetailDraft = null;
         syncRecordInputsForDate(ids.recordDate.value);
         render();
       });
@@ -15203,6 +16284,36 @@ Notes:
       });
 
       document.getElementById("recordsTable").addEventListener("click", event => {
+        const saveDetailButton = event.target.closest("[data-detail-save]");
+        if (saveDetailButton) {
+          saveRecordDetailDraft();
+          return;
+        }
+        const cancelDetailButton = event.target.closest("[data-detail-cancel]");
+        if (cancelDetailButton) {
+          cancelRecordDetailEdit();
+          return;
+        }
+        const modeButton = event.target.closest("[data-detail-mode]");
+        if (modeButton) {
+          setRecordDetailDraftMode(modeButton.getAttribute("data-detail-mode"));
+          return;
+        }
+        const adherenceButton = event.target.closest("[data-detail-adherence]");
+        if (adherenceButton) {
+          setRecordDetailDraftAdherence(adherenceButton.getAttribute("data-detail-adherence"));
+          return;
+        }
+        const addMealButton = event.target.closest("[data-detail-add-meal]");
+        if (addMealButton) {
+          addRecordDetailDraftMeal();
+          return;
+        }
+        const deleteMealButton = event.target.closest("[data-detail-delete-meal]");
+        if (deleteMealButton) {
+          deleteRecordDetailDraftMeal(deleteMealButton.getAttribute("data-detail-delete-meal"));
+          return;
+        }
         const deleteButton = event.target.closest("[data-delete-record]");
         if (deleteButton) {
           deleteRecord(deleteButton.getAttribute("data-delete-record"));
@@ -15221,6 +16332,20 @@ Notes:
         const card = event.target.closest("[data-record-card-date]");
         if (!card) return;
         selectRecordArchiveDate(card.getAttribute("data-record-card-date"));
+      });
+      document.getElementById("recordsTable").addEventListener("input", event => {
+        if (!event.target.closest("[data-record-detail-edit='true']")) return;
+        updateRecordDetailDraftFromForm();
+        if (event.target.closest("[data-detail-basis-field]")) refreshRecordDetailBasisPreview();
+      });
+      document.getElementById("recordsTable").addEventListener("change", event => {
+        if (!event.target.closest("[data-record-detail-edit='true']")) return;
+        updateRecordDetailDraftFromForm();
+        if (event.target.closest("[data-detail-basis-rerender='true']")) {
+          renderRecordsPanel();
+          return;
+        }
+        if (event.target.closest("[data-detail-basis-field]")) refreshRecordDetailBasisPreview();
       });
 
       document.getElementById("todayRecordWeightMismatchHost").addEventListener("click", event => {
@@ -15254,6 +16379,8 @@ Notes:
         activeTab: uiState.activeTab,
         recordsMealsExpanded: uiState.recordsMealsExpanded,
         recordsDetailDate: uiState.recordsDetailDate,
+        recordsDetailEditMode: uiState.recordsDetailEditMode,
+        recordsDetailDraft: uiState.recordsDetailDraft ? JSON.stringify(uiState.recordsDetailDraft) : null,
         weight: ids.weight.value,
         height: ids.height.value,
         age: ids.age.value,
@@ -15298,6 +16425,8 @@ Notes:
         uiState.activeTab = snapshot.activeTab;
         uiState.recordsMealsExpanded = snapshot.recordsMealsExpanded;
         uiState.recordsDetailDate = snapshot.recordsDetailDate;
+        uiState.recordsDetailEditMode = snapshot.recordsDetailEditMode;
+        uiState.recordsDetailDraft = snapshot.recordsDetailDraft ? JSON.parse(snapshot.recordsDetailDraft) : null;
         ids.weight.value = snapshot.weight;
         ids.height.value = snapshot.height;
         ids.age.value = snapshot.age;
@@ -18729,6 +19858,290 @@ Notes:
         results.push(runNamedTest("records archive keeps fixed scoring and windows", () => {
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "records archive should not change scoring version");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "records archive should not change recent context windows");
+        }));
+
+        return results;
+      });
+    }
+
+    function runRecordsInlineEditTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const makeMeal = (id = "m1", overrides = {}) => ({
+          id,
+          mealLabel: "아침",
+          carbs: 40,
+          protein: 25,
+          fat: 10,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "",
+          createdAt: "2026-05-08T08:00:00.000Z",
+          ...overrides
+        });
+        const openDetailEdit = date => {
+          uiState.recordsDetailDate = null;
+          uiState.recordsDetailEditMode = false;
+          uiState.recordsDetailDraft = null;
+          renderRecordsPanel();
+          document.querySelector(`[data-toggle-record-detail="${date}"]`)?.click();
+          document.querySelector(`[data-record-detail-date="${date}"] [data-edit-record-date]`)?.click();
+          return document.querySelector(`[data-record-detail-date="${date}"][data-record-detail-edit="true"]`);
+        };
+        const withConfirm = (value, callback) => {
+          const originalConfirm = window.confirm;
+          window.confirm = () => value;
+          try {
+            return callback();
+          } finally {
+            window.confirm = originalConfirm;
+          }
+        };
+
+        results.push(runNamedTest("records inline edit opens with current weight and memo", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", weight: 75.2, note: "기존 메모", meals: [makeMeal()] }]);
+          const detail = openDetailEdit("2026-05-08");
+          assertTest(!!detail, "inline edit should open");
+          assertTest(detail.textContent.includes("기록 상세 수정"), "inline edit title should show");
+          assertTest(document.querySelector('[data-detail-field="weight"]').value === "75.20", "weight input should be prefilled");
+          assertTest(document.querySelector('[data-detail-field="note"]').value === "기존 메모", "memo input should be prefilled");
+          assertTest(!!uiState.recordsDetailDraft && getRecordByDate("2026-05-08").weight === 75.2, "draft should exist without changing original");
+        }));
+
+        results.push(runNamedTest("records inline edit cancel keeps original record", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", weight: 75.2, note: "원본", meals: [makeMeal()] }]);
+          openDetailEdit("2026-05-08");
+          document.querySelector('[data-detail-field="weight"]').value = "77.4";
+          document.querySelector('[data-detail-field="note"]').value = "바뀐 메모";
+          document.querySelector("[data-detail-cancel]").click();
+          const record = getRecordByDate("2026-05-08");
+          assertTest(record.weight === 75.2 && record.note === "원본", "cancel should keep original record");
+          assertTest(!document.querySelector("[data-record-detail-edit='true']"), "cancel should leave edit mode");
+        }));
+
+        results.push(runNamedTest("records inline edit save updates common weight and memo", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", weight: 75.2, note: "원본", meals: [makeMeal()] }]);
+          openDetailEdit("2026-05-08");
+          document.querySelector('[data-detail-field="weight"]').value = "76.1";
+          document.querySelector('[data-detail-field="note"]').value = "저장 메모";
+          const result = saveRecordDetailDraft();
+          const record = getRecordByDate("2026-05-08");
+          assertTest(result.saved === true, "inline save should succeed");
+          assertTest(record.weight === 76.1 && record.note === "저장 메모", "inline save should update common fields");
+          assertTest(!document.querySelector("[data-record-detail-edit='true']"), "save should return to view mode");
+        }));
+
+        results.push(runNamedTest("records inline edit simple evaluation remains manual", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-07", recordMode: "simple", adherence: "medium", adherenceSource: "manual", weight: 74.8 }]);
+          openDetailEdit("2026-05-07");
+          document.querySelector('[data-detail-adherence="low"]').click();
+          saveRecordDetailDraft();
+          const record = getRecordByDate("2026-05-07");
+          const text = document.querySelector("[data-record-detail-date='2026-05-07']").textContent || "";
+          assertTest(record.recordMode === "simple" && record.adherence === "low", "simple edit should update manual evaluation");
+          assertTest(record.adherencePercent === null && record.meals.length === 0, "simple edit should not create auto score or meals");
+          assertExcludesAll(text, ["자동 점수", "식단 점수"], "simple edit view should not look like an auto score");
+        }));
+
+        results.push(runNamedTest("records inline edit weight-only does not create diet evidence", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-06", recordMode: "weight_only", weight: 75 }]);
+          openDetailEdit("2026-05-06");
+          document.querySelector('[data-detail-field="note"]').value = "체중만 확인";
+          saveRecordDetailDraft();
+          const record = getRecordByDate("2026-05-06");
+          assertTest(record.recordMode === "weight_only" && record.note === "체중만 확인", "weight_only edit should save memo");
+          assertTest(record.meals.length === 0 && record.adherencePercent === null && inferRecordMode(record).hasMacroAnalysisPermission === false, "weight_only edit should not create diet evidence");
+        }));
+
+        results.push(runNamedTest("records inline edit detailed meal macros save and recalculate score", () => {
+          setValidTodayBalanceTestInputs();
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-05-08",
+            recordMode: "detailed",
+            goalSnapshot: buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry"),
+            meals: [
+              makeMeal("m1", { carbs: 90, protein: 45, fat: 18 }),
+              makeMeal("m2", { carbs: 90, protein: 45, fat: 18, createdAt: "2026-05-08T12:00:00.000Z" })
+            ]
+          }]);
+          openDetailEdit("2026-05-08");
+          document.querySelector('[data-detail-meal-row="0"] [data-detail-meal-field="carbs"]').value = "120";
+          document.querySelector('[data-detail-meal-row="0"] [data-detail-meal-field="protein"]').value = "65";
+          document.querySelector('[data-detail-meal-row="0"] [data-detail-meal-field="fat"]').value = "24";
+          saveRecordDetailDraft();
+          const record = getRecordByDate("2026-05-08");
+          assertTest(record.meals[0].carbs === 120 && record.meals[0].protein === 65 && record.meals[0].fat === 24, "detailed edit should update meal macros");
+          assertTest(record.adherenceSource === "auto" && Number.isFinite(record.adherencePercent), "detailed edit should recalculate score through existing scoring");
+        }));
+
+        results.push(runNamedTest("records inline edit detailed meal add and delete use draft", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", meals: [makeMeal("m1")] }]);
+          openDetailEdit("2026-05-08");
+          document.querySelector("[data-detail-add-meal]").click();
+          document.querySelector('[data-detail-meal-row="1"] [data-detail-meal-field="carbs"]').value = "22";
+          saveRecordDetailDraft();
+          assertTest(getRecordByDate("2026-05-08").meals.length === 2, "meal add should save a second meal");
+
+          openDetailEdit("2026-05-08");
+          document.querySelector('[data-detail-delete-meal="0"]').click();
+          assertTest(getRecordByDate("2026-05-08").meals.length === 2, "meal delete should only affect draft before save");
+          saveRecordDetailDraft();
+          assertTest(getRecordByDate("2026-05-08").meals.length === 1, "meal delete should apply after save");
+        }));
+
+        results.push(runNamedTest("records inline edit detailed to simple requires confirmation and clears meals", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", adherencePercent: 82, adherenceSource: "auto", meals: [makeMeal("m1")] }]);
+          openDetailEdit("2026-05-08");
+          withConfirm(false, () => document.querySelector('[data-detail-mode="simple"]').click());
+          assertTest(uiState.recordsDetailDraft.recordMode === "detailed", "cancelled conversion should keep draft detailed");
+          withConfirm(true, () => document.querySelector('[data-detail-mode="simple"]').click());
+          document.querySelector('[data-detail-adherence="high"]').click();
+          saveRecordDetailDraft();
+          const record = getRecordByDate("2026-05-08");
+          assertTest(record.recordMode === "simple" && record.adherence === "high", "confirmed conversion should save simple mode");
+          assertTest(record.meals.length === 0 && record.adherencePercent === null, "simple conversion should clear detailed diet evidence");
+        }));
+
+        results.push(runNamedTest("records inline edit detailed to weight-only requires confirmation and clears score", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", weight: 75, adherencePercent: 82, adherenceSource: "auto", meals: [makeMeal("m1")] }]);
+          openDetailEdit("2026-05-08");
+          withConfirm(true, () => document.querySelector('[data-detail-mode="weight_only"]').click());
+          saveRecordDetailDraft();
+          const record = getRecordByDate("2026-05-08");
+          assertTest(record.recordMode === "weight_only", "confirmed conversion should save weight_only");
+          assertTest(record.meals.length === 0 && record.adherencePercent === null && inferRecordMode(record).hasMacroAnalysisPermission === false, "weight_only conversion should clear diet evidence");
+        }));
+
+        results.push(runNamedTest("records inline edit keeps calculation basis user-facing and hides internal words", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-05-08",
+            recordMode: "detailed",
+            goalSnapshot: { goal: "lean_bulk", targetCal: 2400, carbs: 300, protein: 150, fat: 60, mode: "athlete" },
+            meals: [makeMeal("m1")]
+          }]);
+          openDetailEdit("2026-05-08");
+          const text = document.querySelector("[data-record-detail-date='2026-05-08']").textContent || "";
+          assertIncludesAll(text, ["당시 목표", "당시 계산 기준", "다시 계산될 기준", "이 값은 저장 전까지 원본에 반영되지 않습니다"], "inline edit should show editable goal context");
+          assertExcludesAll(text, ["recordMode", "goalSnapshot", "snapshot", "draft", "schema", "autoDietAnalysis", "자동 점수 토글"], "inline edit should hide internal terms");
+        }));
+
+        results.push(runNamedTest("records inline edit opens goal basis edit section", () => {
+          setValidTodayBalanceTestInputs();
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-05-08",
+            recordMode: "detailed",
+            goalSnapshot: buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry"),
+            meals: [makeMeal("m1"), makeMeal("m2", { createdAt: "2026-05-08T12:00:00.000Z" })]
+          }]);
+          const detail = openDetailEdit("2026-05-08");
+          assertTest(!!detail.querySelector('[data-detail-basis-field="goal"]'), "goal basis field should render");
+          assertTest(!!detail.querySelector('[data-detail-basis-field="mode"]'), "mode basis field should render");
+          assertTest(!!detail.querySelector("[data-detail-basis-preview]"), "recalculated preview should render");
+        }));
+
+        results.push(runNamedTest("records inline edit goal change updates recalculated preview", () => {
+          setValidTodayBalanceTestInputs();
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-05-08",
+            recordMode: "detailed",
+            goalSnapshot: buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry"),
+            meals: [makeMeal("m1"), makeMeal("m2", { createdAt: "2026-05-08T12:00:00.000Z" })]
+          }]);
+          openDetailEdit("2026-05-08");
+          const preview = document.querySelector("[data-detail-basis-preview]");
+          const before = preview.textContent;
+          const goalSelect = document.querySelector('[data-detail-basis-field="goal"]');
+          goalSelect.value = "diet";
+          goalSelect.dispatchEvent(new Event("change", { bubbles: true }));
+          assertTest(preview.textContent !== before, "goal change should update recalculated macro preview");
+        }));
+
+        results.push(runNamedTest("records inline edit activity change updates recalculated preview", () => {
+          setValidTodayBalanceTestInputs();
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-05-08",
+            recordMode: "detailed",
+            goalSnapshot: buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry"),
+            meals: [makeMeal("m1"), makeMeal("m2", { createdAt: "2026-05-08T12:00:00.000Z" })]
+          }]);
+          openDetailEdit("2026-05-08");
+          const preview = document.querySelector("[data-detail-basis-preview]");
+          const before = preview.textContent;
+          const durationInput = document.querySelector('[data-detail-basis-field="weightDuration"]');
+          durationInput.value = "120";
+          durationInput.dispatchEvent(new Event("input", { bubbles: true }));
+          assertTest(preview.textContent !== before, "training duration change should update recalculated macro preview");
+        }));
+
+        results.push(runNamedTest("records inline edit goal basis changes do not mutate original before save", () => {
+          setValidTodayBalanceTestInputs();
+          const originalSnapshot = buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry");
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", goalSnapshot: originalSnapshot, meals: [makeMeal("m1")] }]);
+          openDetailEdit("2026-05-08");
+          const goalSelect = document.querySelector('[data-detail-basis-field="goal"]');
+          goalSelect.value = "diet";
+          goalSelect.dispatchEvent(new Event("change", { bubbles: true }));
+          assertTest(getRecordByDate("2026-05-08").goalSnapshot.goal === originalSnapshot.goal, "original goal basis should stay unchanged before save");
+        }));
+
+        results.push(runNamedTest("records inline edit cancel discards goal basis changes", () => {
+          setValidTodayBalanceTestInputs();
+          const originalSnapshot = buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry");
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", goalSnapshot: originalSnapshot, meals: [makeMeal("m1")] }]);
+          openDetailEdit("2026-05-08");
+          const goalSelect = document.querySelector('[data-detail-basis-field="goal"]');
+          goalSelect.value = "diet";
+          goalSelect.dispatchEvent(new Event("change", { bubbles: true }));
+          document.querySelector("[data-detail-cancel]").click();
+          assertTest(getRecordByDate("2026-05-08").goalSnapshot.goal === originalSnapshot.goal, "cancel should discard goal basis changes");
+        }));
+
+        results.push(runNamedTest("records inline edit save updates goal basis", () => {
+          setValidTodayBalanceTestInputs();
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", goalSnapshot: buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry"), meals: [makeMeal("m1"), makeMeal("m2", { createdAt: "2026-05-08T12:00:00.000Z" })] }]);
+          openDetailEdit("2026-05-08");
+          const goalSelect = document.querySelector('[data-detail-basis-field="goal"]');
+          goalSelect.value = "diet";
+          goalSelect.dispatchEvent(new Event("change", { bubbles: true }));
+          saveRecordDetailDraft();
+          const record = getRecordByDate("2026-05-08");
+          assertTest(record.goalSnapshot.goal === "diet", "save should persist changed goal basis");
+          assertTest(Number.isFinite(record.goalSnapshot.targetCal), "save should persist recalculated target calories");
+        }));
+
+        results.push(runNamedTest("records inline edit detailed score uses edited goal basis", () => {
+          setValidTodayBalanceTestInputs();
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", goalSnapshot: buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry"), meals: [makeMeal("m1", { carbs: 90, protein: 40, fat: 18 }), makeMeal("m2", { carbs: 80, protein: 35, fat: 16, createdAt: "2026-05-08T12:00:00.000Z" })] }]);
+          const beforeTarget = getRecordByDate("2026-05-08").goalSnapshot.targetCal;
+          openDetailEdit("2026-05-08");
+          const durationInput = document.querySelector('[data-detail-basis-field="weightDuration"]');
+          durationInput.value = "120";
+          durationInput.dispatchEvent(new Event("input", { bubbles: true }));
+          saveRecordDetailDraft();
+          const record = getRecordByDate("2026-05-08");
+          assertTest(record.goalSnapshot.targetCal !== beforeTarget, "edited calculation basis should change stored target");
+          assertTest(record.adherenceSource === "auto" && Number.isFinite(record.adherencePercent), "detailed score should recalculate from edited basis");
+        }));
+
+        results.push(runNamedTest("records inline edit does not expose direct target macro inputs", () => {
+          setValidTodayBalanceTestInputs();
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", goalSnapshot: buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry"), meals: [makeMeal("m1")] }]);
+          const detail = openDetailEdit("2026-05-08");
+          assertTest(!detail.querySelector('[data-detail-basis-field="targetCal"]'), "target calories should not be directly editable");
+          assertTest(!detail.querySelector('[data-detail-basis-field="carbsTarget"]'), "carb target should not be directly editable");
+          assertTest(!detail.querySelector('[data-detail-basis-field="proteinTarget"]'), "protein target should not be directly editable");
+          assertTest(!detail.querySelector('[data-detail-basis-field="fatTarget"]'), "fat target should not be directly editable");
+        }));
+
+        results.push(runNamedTest("records inline edit preserves UX surfaces and constants", () => {
+          render();
+          assertTest(!!document.getElementById("todayRecordStartBtn"), "Today record start should remain");
+          assertTest(document.getElementById("settingsCalculationInputHost").contains(document.getElementById("todayInputPanel")), "Settings calculation input should remain");
+          renderRecordsPanel();
+          const listStyle = window.getComputedStyle(document.getElementById("recordsTable"));
+          assertTest(listStyle.overflowY === "auto" && listStyle.maxHeight !== "none", "records archive scroll boundary should remain");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "inline edit should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "inline edit should not change recent windows");
         }));
 
         return results;
@@ -22188,6 +23601,7 @@ Notes:
     window.runRecordModeResolutionTests = runRecordModeResolutionTests;
     window.runRecordModeUiTests = runRecordModeUiTests;
     window.runRecordsArchiveLayoutTests = runRecordsArchiveLayoutTests;
+    window.runRecordsInlineEditTests = runRecordsInlineEditTests;
     window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runCalculationInputSeparationTests = runCalculationInputSeparationTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
