@@ -4032,6 +4032,42 @@ Notes:
       min-height:112px;
       text-align:center;
     }
+    .today-progress-card.needs-goal{
+      min-height:166px;
+      align-content:center;
+      justify-items:center;
+      gap:10px;
+      padding:10px 0 2px;
+    }
+    .today-goal-cta-icon{
+      width:42px;
+      height:42px;
+      border-radius:50%;
+      display:grid;
+      place-items:center;
+      color:var(--teal);
+      background:rgba(110,231,215,.24);
+      box-shadow:inset 0 0 0 1px rgba(16,141,134,.12);
+    }
+    .today-goal-cta-icon .svg-icon{
+      width:18px;
+      height:18px;
+      stroke-width:2.1;
+    }
+    .today-goal-cta-desc{
+      max-width:230px;
+      margin:0;
+      color:var(--muted);
+      font-size:11.5px;
+      line-height:1.55;
+      word-break:keep-all;
+    }
+    .today-goal-cta-card .secondary-btn{
+      min-height:34px;
+      padding:7px 12px;
+      border-radius:999px;
+      white-space:nowrap;
+    }
     .today-progress-ring{
       --progress:0%;
       width:94px;
@@ -4580,6 +4616,9 @@ Notes:
       }
       .today-progress-stat{
         display:none;
+      }
+      .today-progress-card.needs-goal .today-progress-stat{
+        display:flex;
       }
       .today-progress-card{
         min-height:104px;
@@ -12615,12 +12654,31 @@ Notes:
     }
 
     function renderTodayConsumptionPanel(balance){
+      const panel = document.getElementById("todayConsumedPanel");
       const rows = document.getElementById("todayConsumedRows");
       const consumedKcal = Number.isFinite(balance.consumed.scoringKcal)
         ? balance.consumed.scoringKcal
         : (Number.isFinite(balance.consumed.totalKcal) ? balance.consumed.totalKcal : balance.consumed.kcal);
       const targetKcal = balance.target.kcal;
-      const progress = Number.isFinite(consumedKcal) && Number.isFinite(targetKcal) && targetKcal > 0
+      const hasTargetKcal = Number.isFinite(targetKcal) && targetKcal > 0;
+      const hasCurrentIntake = balance.hasMeals && Number.isFinite(consumedKcal) && consumedKcal > 0;
+      const heading = panel?.querySelector("h2");
+      if (heading) heading.textContent = hasTargetKcal ? "달성률" : "목표 계산 필요";
+      panel?.classList.toggle("needs-goal", !hasTargetKcal);
+      if (!hasTargetKcal) {
+        rows.innerHTML = `
+          <div class="today-progress-card today-goal-cta-card needs-goal">
+            <div class="today-goal-cta-icon" aria-hidden="true">${renderInlineSvgIcon("target")}</div>
+            ${hasCurrentIntake ? `<div class="today-progress-stat"><span>현재 섭취</span><strong>${Math.round(consumedKcal).toLocaleString()}kcal</strong></div>` : ""}
+            <p class="today-goal-cta-desc">체중, 활동량, 목표 설정을 확인하면 오늘 목표와 달성률이 표시됩니다.</p>
+            <button class="secondary-btn" type="button" data-today-goal-input-check>기본 입력 확인하기</button>
+          </div>
+        `;
+        const noteHost = document.getElementById("todayConsumedNote");
+        noteHost.innerHTML = "";
+        return;
+      }
+      const progress = Number.isFinite(consumedKcal)
         ? round(clamp((consumedKcal / targetKcal) * 100, 0, 160), 0)
         : 0;
       const ringProgress = clamp(progress, 0, 100);
@@ -14971,6 +15029,10 @@ Notes:
         syncRecordInputsForDate(ids.recordDate.value);
         setActiveTab("records");
         saveState();
+      });
+      document.getElementById("todayConsumedRows")?.addEventListener("click", event => {
+        if (!event.target.closest("[data-today-goal-input-check]")) return;
+        document.getElementById("todayInputPanel")?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
       document.getElementById("loadLatestInbodyToTodayBtn").addEventListener("click", loadLatestInbodyToTodayInputs);
       document.getElementById("saveTodayInputBtn").addEventListener("click", () => saveTodayInputWeightToRecord());
