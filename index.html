@@ -1,14 +1,13 @@
 <!--
-Version: 6.5-UX2-3
-Stage: 6.5-UX2-3 Records 기록 보관함 레이아웃
+Version: 6.5-UX2-4
+Stage: 6.5-UX2-4 Records 날짜별 상세 보기 및 수정 연결
 Date: 2026-05-08
 Notes:
 - 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
-- Records 탭을 입력 중심에서 날짜별 기록 보관함 레이아웃으로 재구성
-- 탭명을 데이터 기록에서 기록으로 정리
-- 날짜별 요약 카드에 상세 기록 / 간단 기록 / 식단 판단 없음, 식사 수, 점수, 체중, InBody 여부 표시
-- 기존 직접 입력 / 백업 / 불러오기 기능은 보조 영역으로 유지
-- Records 상세 펼침은 UX2-4로 분리
+- Records 날짜별 카드에 상세 보기 / 접기 흐름 추가
+- 상세 보기에서 식사 목록, 탄단지 합계, 식단 점수 / 간단 평가, 당시 목표 / 당시 계산 기준, 체중 / 메모, InBody 여부 표시
+- 수정하기 버튼은 기존 직접 입력 / 수정 영역으로 연결
+- 카드 안 직접 편집은 하지 않고 기존 저장 흐름 재사용
 - InBody ↔ Records 연결은 UX2-5로 분리
 - 최근 흐름 문제 날짜 연결은 UX2-6으로 분리
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
@@ -18,7 +17,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-UX2-3</title>
+  <title>탄단지 다이어리 v6.5-UX2-4</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2613,6 +2612,115 @@ Notes:
       line-height:1.65;
       text-align:center;
     }
+    .record-archive-detail{
+      margin-top:-2px;
+      padding:18px;
+      border:1px solid color-mix(in srgb, var(--accent-strong) 24%, var(--line) 76%);
+      border-radius:18px;
+      background:rgba(255,252,247,.9);
+      box-shadow:0 12px 26px rgba(28,36,48,.05);
+    }
+    .record-detail-head{
+      display:flex;
+      justify-content:space-between;
+      gap:16px;
+      align-items:flex-start;
+      margin-bottom:16px;
+    }
+    .record-detail-eyebrow{
+      color:var(--muted);
+      font-size:11px;
+      font-weight:900;
+      letter-spacing:0;
+    }
+    .record-detail-title{
+      margin-top:4px;
+      color:var(--deep);
+      font-size:18px;
+      line-height:1.35;
+      font-weight:950;
+    }
+    .record-detail-actions{
+      display:flex;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      gap:8px;
+    }
+    .record-detail-section{
+      padding:14px;
+      border:1px solid color-mix(in srgb, var(--line) 84%, white 16%);
+      border-radius:16px;
+      background:rgba(255,255,255,.52);
+    }
+    .record-detail-section + .record-detail-section{
+      margin-top:12px;
+    }
+    .record-detail-section h4{
+      margin:0 0 10px;
+      color:var(--deep);
+      font-size:13px;
+      font-weight:950;
+    }
+    .record-detail-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:10px;
+    }
+    .record-detail-metric{
+      min-width:0;
+      padding:10px 12px;
+      border-radius:14px;
+      background:rgba(255,252,247,.82);
+      border:1px solid color-mix(in srgb, var(--line) 78%, white 22%);
+    }
+    .record-detail-metric .label{
+      color:var(--muted);
+      font-size:11px;
+      font-weight:850;
+      line-height:1.35;
+    }
+    .record-detail-metric .value{
+      margin-top:4px;
+      color:var(--deep);
+      font-size:14px;
+      font-weight:950;
+      line-height:1.35;
+      overflow-wrap:anywhere;
+    }
+    .record-detail-meals{
+      display:grid;
+      gap:8px;
+    }
+    .record-detail-meal{
+      display:grid;
+      grid-template-columns:minmax(84px,.7fr) repeat(4,minmax(0,1fr));
+      gap:8px;
+      align-items:start;
+      padding:10px 12px;
+      border-radius:14px;
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      background:rgba(255,252,247,.78);
+      color:var(--text);
+      font-size:12px;
+      line-height:1.45;
+    }
+    .record-detail-meal strong{
+      color:var(--deep);
+      font-weight:950;
+    }
+    .record-detail-meal-extra{
+      grid-column:1 / -1;
+      color:var(--muted);
+      overflow-wrap:anywhere;
+    }
+    .record-detail-empty{
+      padding:12px;
+      border-radius:14px;
+      background:rgba(255,255,255,.5);
+      color:var(--muted);
+      font-size:12.5px;
+      line-height:1.65;
+    }
     .records-edit-panel{
       scroll-margin-top:18px;
     }
@@ -3982,6 +4090,20 @@ Notes:
         flex:1 1 auto;
         width:100%;
       }
+      .record-detail-head{
+        flex-direction:column;
+        align-items:stretch;
+      }
+      .record-detail-actions{
+        justify-content:stretch;
+      }
+      .record-detail-actions .secondary-btn{
+        flex:1 1 auto;
+      }
+      .record-detail-grid,
+      .record-detail-meal{
+        grid-template-columns:1fr;
+      }
       #inbodyPanel .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
       #inbodyPanel .kpi{grid-column:auto;min-height:118px}
       .section-group,
@@ -4177,7 +4299,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-UX2-3</span>
+               <span class="app-version">v6.5-UX2-4</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -5409,7 +5531,8 @@ Notes:
     };
     const uiState = {
       activeTab: "today",
-      recordsMealsExpanded: false
+      recordsMealsExpanded: false,
+      recordsDetailDate: null
     };
     const recordsState = {
       items: [],
@@ -11750,6 +11873,7 @@ Notes:
 
     function deleteRecord(date){
       recordsState.items = normalizeRecordsCollection(recordsState.items.filter(item => normalizeRecord(item).date !== date));
+      if (normalizeDateString(uiState.recordsDetailDate) === normalizeDateString(date)) uiState.recordsDetailDate = null;
       if (getSelectedRecordDate() === normalizeDateString(date)) syncRecordInputsForDate(date);
       setRecordFeedback("ok", `${date} 기록을 삭제했습니다.`);
       render();
@@ -13208,6 +13332,212 @@ Notes:
       return chips;
     }
 
+    function formatRecordDetailGram(value){
+      return Number.isFinite(value) ? `${round(value, 1)} g` : "-";
+    }
+
+    function formatRecordDetailKcal(value){
+      return Number.isFinite(value) ? `${Math.round(value).toLocaleString()} kcal` : "-";
+    }
+
+    function getRecordDetailTotals(record){
+      const meals = Array.isArray(record?.meals) ? record.meals : [];
+      return meals.reduce((totals, meal) => {
+        const energy = calculateMealEnergy(meal);
+        totals.carbs += normalizeMacroValue(meal.carbs);
+        totals.protein += normalizeMacroValue(meal.protein);
+        totals.fat += normalizeMacroValue(meal.fat);
+        totals.alcoholKcal += energy.alcoholKcal;
+        totals.otherKcal += energy.otherKcal;
+        totals.totalKcal += energy.totalKcal;
+        return totals;
+      }, { carbs: 0, protein: 0, fat: 0, alcoholKcal: 0, otherKcal: 0, totalKcal: 0 });
+    }
+
+    function getRecordDetailInbodyRecords(date){
+      const normalized = normalizeDateString(date);
+      if (!normalized || !Array.isArray(state.inbodyRecords)) return [];
+      return state.inbodyRecords
+        .filter(item => normalizeDateString(item?.date) === normalized)
+        .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+    }
+
+    function renderRecordDetailMetrics(items){
+      const safeItems = (Array.isArray(items) ? items : []).filter(item => item && item.value !== null && item.value !== undefined && item.value !== "");
+      if (!safeItems.length) return `<div class="record-detail-empty">표시할 내용이 아직 없습니다.</div>`;
+      return `
+        <div class="record-detail-grid">
+          ${safeItems.map(item => `
+            <div class="record-detail-metric">
+              <div class="label">${escapeHtml(item.label)}</div>
+              <div class="value">${escapeHtml(item.value)}</div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function getRecordDetailRoutineLabel(snapshot){
+      if (!snapshot?.routine) return "";
+      const schemeItems = Object.values(ROUTINE_SCHEMES).flatMap(scheme => Array.isArray(scheme.items) ? scheme.items : []);
+      return schemeItems.find(item => item.value === snapshot.routine)?.label || snapshot.routine;
+    }
+
+    function renderRecordDetailGoalSnapshot(snapshot){
+      const normalized = normalizeGoalSnapshot(snapshot);
+      if (!normalized) {
+        return `<div class="record-detail-empty">이전 기록은 당시 계산 기준이 저장되지 않았습니다.</div>`;
+      }
+      const routineLabel = getRecordDetailRoutineLabel(normalized);
+      const cardioLabel = normalized.cardioType && CARDIO_TYPES[normalized.cardioType] ? CARDIO_TYPES[normalized.cardioType].label : "";
+      return renderRecordDetailMetrics([
+        { label: "당시 목표", value: GOALS[normalized.goal]?.label || "-" },
+        { label: "목표 칼로리", value: formatRecordDetailKcal(normalized.targetCal) },
+        { label: "탄수화물", value: formatRecordDetailGram(normalized.carbs) },
+        { label: "단백질", value: formatRecordDetailGram(normalized.protein) },
+        { label: "지방", value: formatRecordDetailGram(normalized.fat) },
+        { label: "계산 모드", value: MODE_CONFIGS[normalized.mode]?.label || "" },
+        { label: "운동", value: routineLabel },
+        { label: "웨이트", value: Number.isFinite(normalized.weightDuration) ? `${Math.round(normalized.weightDuration)}분` : "" },
+        { label: "유산소", value: cardioLabel && Number.isFinite(normalized.cardioDuration) ? `${cardioLabel} ${Math.round(normalized.cardioDuration)}분` : "" }
+      ]);
+    }
+
+    function renderRecordDetailMeals(record){
+      const meals = Array.isArray(record?.meals) ? record.meals : [];
+      if (!meals.length) {
+        return `<div class="record-detail-empty">이 날짜에는 식사 상세 기록이 없습니다.</div>`;
+      }
+      return `
+        <div class="record-detail-meals">
+          ${meals.map(meal => {
+            const energy = calculateMealEnergy(meal);
+            const extras = [];
+            if (energy.alcoholKcal > 0) extras.push(`알코올 ${Math.round(energy.alcoholKcal).toLocaleString()} kcal`);
+            if (energy.otherKcal > 0) extras.push(`기타 ${Math.round(energy.otherKcal).toLocaleString()} kcal`);
+            const memo = String(meal.memo || "").trim();
+            if (memo) extras.push(`메모: ${memo}`);
+            return `
+              <div class="record-detail-meal">
+                <div><strong>${escapeHtml(meal.mealLabel || "식사")}</strong></div>
+                <div>탄수화물 ${escapeHtml(formatRecordDetailGram(meal.carbs))}</div>
+                <div>단백질 ${escapeHtml(formatRecordDetailGram(meal.protein))}</div>
+                <div>지방 ${escapeHtml(formatRecordDetailGram(meal.fat))}</div>
+                <div>총 ${escapeHtml(formatRecordDetailKcal(energy.totalKcal))}</div>
+                ${extras.length ? `<div class="record-detail-meal-extra">${escapeHtml(extras.join(" · "))}</div>` : ""}
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `;
+    }
+
+    function renderRecordDetailScore(record, modeInfo){
+      const manualValue = ["high","medium","low"].includes(record?.adherence) ? adherenceLabel(record.adherence) : "";
+      const autoValue = Number.isFinite(record?.adherencePercent) && record?.adherenceSource === "auto"
+        ? clamp(record.adherencePercent, 0, 100)
+        : null;
+      if (modeInfo.recordMode === "simple") {
+        return renderRecordDetailMetrics([{ label: "간단 식단 평가", value: manualValue || "평가 없음" }]);
+      }
+      if (modeInfo.recordMode === "weight_only") {
+        return renderRecordDetailMetrics([{ label: "식단 판단 없음", value: "식사 기록과 식단 판단을 남기지 않은 날입니다." }]);
+      }
+      return renderRecordDetailMetrics([
+        { label: "식단 점수", value: Number.isFinite(autoValue) ? `${autoValue}점` : "평가 대기" },
+        { label: "점수 근거", value: Number.isFinite(autoValue) ? "저장된 상세 식사 기록으로 계산된 점수입니다." : "식사 기록을 저장하면 점수가 계산됩니다." }
+      ]);
+    }
+
+    function renderRecordDetailInbody(date){
+      const records = getRecordDetailInbodyRecords(date);
+      if (!records.length) return `<div class="record-detail-empty">이 날짜에는 InBody 기록이 없습니다.</div>`;
+      const latest = records[0];
+      const bodyFatPercent = getDisplayBodyFatPercent(latest);
+      return renderRecordDetailMetrics([
+        { label: "InBody 기록 있음", value: records.length > 1 ? `${records.length}건` : "1건" },
+        { label: "체중", value: Number.isFinite(latest.weight) ? `${formatKg2(latest.weight)} kg` : "" },
+        { label: "골격근량", value: Number.isFinite(latest.skeletalMuscle) ? `${formatKg2(latest.skeletalMuscle)} kg` : "" },
+        { label: "체지방률", value: Number.isFinite(bodyFatPercent) ? `${bodyFatPercent.toFixed(1)}%` : "" }
+      ]);
+    }
+
+    function renderRecordArchiveDetail(record){
+      if (!record) return "";
+      const { dateLabel, weekdayLabel } = getRecordArchiveDateParts(record.date);
+      const modeInfo = inferRecordMode(record);
+      const meals = Array.isArray(record.meals) ? record.meals : [];
+      const totals = getRecordDetailTotals(record);
+      const chips = getRecordArchiveChips(record);
+      const note = String(record.note || "").trim();
+      const summaryMetrics = [
+        { label: "기록 방식", value: getRecordArchiveModeChip(record, modeInfo).label },
+        { label: "식사", value: meals.length ? `식사 ${meals.length}건` : "식사 기록 없음" },
+        { label: "체중 기록", value: Number.isFinite(record.weight) ? `${formatKg2(record.weight)} kg` : "없음" },
+        { label: "메모", value: note ? "있음" : "없음" },
+        { label: "InBody", value: getInbodyRecordCountForDate(record.date) ? "InBody 기록 있음" : "없음" }
+      ];
+      const shouldShowMacroSections = modeInfo.recordMode === "detailed";
+      return `
+        <div class="record-archive-detail" data-record-detail-date="${escapeHtml(record.date)}">
+          <div class="record-detail-head">
+            <div>
+              <div class="record-detail-eyebrow">기록 상세</div>
+              <div class="record-detail-title">${escapeHtml(dateLabel)} ${escapeHtml(weekdayLabel)} 기록 상세</div>
+            </div>
+            <div class="record-detail-actions">
+              <button class="secondary-btn" type="button" data-edit-record-date="${escapeHtml(record.date)}">수정하기</button>
+              ${shouldShowMacroSections ? `<button class="secondary-btn" type="button" data-edit-record-date="${escapeHtml(record.date)}">식사 추가 / 수정</button>` : ""}
+              <button class="secondary-btn" type="button" data-delete-record="${escapeHtml(record.date)}">기록 삭제</button>
+            </div>
+          </div>
+          <section class="record-detail-section">
+            <h4>기록 요약</h4>
+            <div class="record-archive-chips">
+              ${chips.map(chip => `<span class="record-archive-chip ${escapeHtml(chip.type)}">${escapeHtml(chip.label)}</span>`).join("")}
+            </div>
+            ${renderRecordDetailMetrics(summaryMetrics)}
+          </section>
+          ${shouldShowMacroSections ? `
+            <section class="record-detail-section">
+              <h4>식사 목록</h4>
+              ${renderRecordDetailMeals(record)}
+            </section>
+            <section class="record-detail-section">
+              <h4>탄단지 합계</h4>
+              ${renderRecordDetailMetrics([
+                { label: "탄수화물 합계", value: formatRecordDetailGram(totals.carbs) },
+                { label: "단백질 합계", value: formatRecordDetailGram(totals.protein) },
+                { label: "지방 합계", value: formatRecordDetailGram(totals.fat) },
+                { label: "총 kcal", value: formatRecordDetailKcal(totals.totalKcal) },
+                { label: "알코올 kcal", value: totals.alcoholKcal > 0 ? formatRecordDetailKcal(totals.alcoholKcal) : "" },
+                { label: "기타 칼로리", value: totals.otherKcal > 0 ? formatRecordDetailKcal(totals.otherKcal) : "" }
+              ])}
+            </section>
+          ` : ""}
+          <section class="record-detail-section">
+            <h4>${modeInfo.recordMode === "simple" ? "간단 식단 평가" : modeInfo.recordMode === "weight_only" ? "식단 판단 없음" : "식단 점수"}</h4>
+            ${renderRecordDetailScore(record, modeInfo)}
+          </section>
+          <section class="record-detail-section">
+            <h4>당시 목표 / 당시 계산 기준</h4>
+            ${renderRecordDetailGoalSnapshot(record.goalSnapshot)}
+          </section>
+          <section class="record-detail-section">
+            <h4>체중 / 메모</h4>
+            ${renderRecordDetailMetrics([
+              { label: "체중 기록", value: Number.isFinite(record.weight) ? `${formatKg2(record.weight)} kg` : "없음" },
+              { label: "메모", value: note || "없음" }
+            ])}
+          </section>
+          <section class="record-detail-section">
+            <h4>InBody</h4>
+            ${renderRecordDetailInbody(record.date)}
+          </section>
+        </div>
+      `;
+    }
+
     function renderRecordsArchiveList(records, selectedDate){
       const host = document.getElementById("recordsTable");
       if (!host) return;
@@ -13225,6 +13555,7 @@ Notes:
         const chips = getRecordArchiveChips(record);
         const note = String(record.note || "").trim();
         const isSelected = normalizeDateString(record.date) === normalizeDateString(selectedDate);
+        const isDetailOpen = normalizeDateString(record.date) === normalizeDateString(uiState.recordsDetailDate);
         return `
           <article class="record-archive-card${isSelected ? " is-selected" : ""}" data-record-card-date="${escapeHtml(record.date)}">
             <div class="record-archive-main">
@@ -13238,10 +13569,11 @@ Notes:
               ${note ? `<div class="record-archive-note">메모: ${escapeHtml(note)}</div>` : ""}
             </div>
             <div class="record-archive-actions">
-              <button class="secondary-btn" type="button" data-select-record-date="${escapeHtml(record.date)}">자세히 보기</button>
+              <button class="secondary-btn" type="button" data-toggle-record-detail="${escapeHtml(record.date)}" aria-expanded="${isDetailOpen ? "true" : "false"}">${isDetailOpen ? "접기" : "자세히 보기"}</button>
               <button class="secondary-btn" type="button" data-delete-record="${escapeHtml(record.date)}" aria-label="삭제" title="삭제">×</button>
             </div>
           </article>
+          ${isDetailOpen ? renderRecordArchiveDetail(record) : ""}
         `;
       }).join("");
     }
@@ -13258,9 +13590,28 @@ Notes:
       }
     }
 
+    function toggleRecordArchiveDetail(date){
+      const normalized = normalizeDateString(date);
+      if (!normalized) return;
+      const isOpen = normalizeDateString(uiState.recordsDetailDate) === normalized;
+      uiState.recordsDetailDate = isOpen ? null : normalized;
+      selectRecordArchiveDate(normalized);
+    }
+
+    function editRecordArchiveDate(date){
+      const normalized = normalizeDateString(date);
+      if (!normalized) return;
+      uiState.recordsDetailDate = normalized;
+      selectRecordArchiveDate(normalized, { scrollToEdit: true });
+    }
+
     function renderRecordsPanel(){
       const { sorted, recent7, previous7 } = getRecentWindows();
       const selectedDate = getSelectedRecordDate();
+      const detailDate = normalizeDateString(uiState.recordsDetailDate);
+      if (detailDate && !sorted.some(record => normalizeDateString(record.date) === detailDate)) {
+        uiState.recordsDetailDate = null;
+      }
       const recentAvg = averageWeight(recent7);
       const prevAvg = averageWeight(previous7);
       const trend = recent7.length && previous7.length ? round(recentAvg - prevAvg, 2) : 0;
@@ -14687,11 +15038,13 @@ Notes:
       });
       ids.recordDate.addEventListener("input", () => {
         uiState.recordsMealsExpanded = false;
+        uiState.recordsDetailDate = null;
         syncRecordInputsForDate(ids.recordDate.value);
         render();
       });
       ids.recordDate.addEventListener("change", () => {
         uiState.recordsMealsExpanded = false;
+        uiState.recordsDetailDate = null;
         syncRecordInputsForDate(ids.recordDate.value);
         render();
       });
@@ -14855,9 +15208,14 @@ Notes:
           deleteRecord(deleteButton.getAttribute("data-delete-record"));
           return;
         }
-        const detailButton = event.target.closest("[data-select-record-date]");
+        const detailButton = event.target.closest("[data-toggle-record-detail]");
         if (detailButton) {
-          selectRecordArchiveDate(detailButton.getAttribute("data-select-record-date"), { scrollToEdit: true });
+          toggleRecordArchiveDetail(detailButton.getAttribute("data-toggle-record-detail"));
+          return;
+        }
+        const editButton = event.target.closest("[data-edit-record-date]");
+        if (editButton) {
+          editRecordArchiveDate(editButton.getAttribute("data-edit-record-date"));
           return;
         }
         const card = event.target.closest("[data-record-card-date]");
@@ -14895,6 +15253,7 @@ Notes:
         feedback: recordsState.feedback ? { ...recordsState.feedback } : null,
         activeTab: uiState.activeTab,
         recordsMealsExpanded: uiState.recordsMealsExpanded,
+        recordsDetailDate: uiState.recordsDetailDate,
         weight: ids.weight.value,
         height: ids.height.value,
         age: ids.age.value,
@@ -14938,6 +15297,7 @@ Notes:
         recordsState.feedback = snapshot.feedback;
         uiState.activeTab = snapshot.activeTab;
         uiState.recordsMealsExpanded = snapshot.recordsMealsExpanded;
+        uiState.recordsDetailDate = snapshot.recordsDetailDate;
         ids.weight.value = snapshot.weight;
         ids.height.value = snapshot.height;
         ids.age.value = snapshot.age;
@@ -15584,7 +15944,7 @@ Notes:
           const recordCards = document.querySelectorAll("#recordsTable .record-archive-card");
           const recordNotes = document.querySelectorAll("#recordsTable .record-archive-note");
           const recordDelete = document.querySelector("#recordsTable [data-delete-record]");
-          const detailButton = document.querySelector("#recordsTable [data-select-record-date]");
+          const detailButton = document.querySelector("#recordsTable [data-toggle-record-detail]");
           const mealHead = document.querySelector("#selectedMealsList .meal-table-head");
           const mealDelete = document.querySelector("#selectedMealsList [data-delete-meal]");
           const plainMealRow = Array.from(document.querySelectorAll("#selectedMealsList .meal-table-row:not(.meal-table-head)"))
@@ -18275,16 +18635,64 @@ Notes:
           assertIncludesAll(cardText("2026-05-05"), ["InBody 있음"], "same-date InBody should show archive chip");
         }));
 
-        results.push(runNamedTest("records archive detail button selects date", () => {
+        results.push(runNamedTest("records archive detail button opens one date detail", () => {
           recordsState.items = normalizeRecordsCollection([
-            { date: "2026-05-04", recordMode: "simple", adherence: "low" },
+            { date: "2026-05-04", recordMode: "simple", adherence: "low", weight: 74.8, note: "간단 상세" },
             { date: "2026-05-03", recordMode: "weight_only", weight: 75 }
           ]);
           ids.recordDate.value = "2026-05-03";
           renderRecordsPanel();
-          document.querySelector('[data-select-record-date="2026-05-04"]').click();
+          document.querySelector('[data-toggle-record-detail="2026-05-04"]').click();
           assertTest(ids.recordDate.value === "2026-05-04", "detail button should select that date");
           assertTest(document.querySelector('[data-record-card-date="2026-05-04"]').classList.contains("is-selected"), "selected archive card should be highlighted");
+          assertTest(document.querySelectorAll("[data-record-detail-date]").length === 1, "only one archive detail should be open");
+          assertTest(document.querySelector("[data-record-detail-date='2026-05-04']").textContent.includes("기록 상세"), "detail panel should render selected date detail");
+          document.querySelector('[data-toggle-record-detail="2026-05-03"]').click();
+          assertTest(document.querySelectorAll("[data-record-detail-date]").length === 1, "opening another detail should replace the previous detail");
+          assertTest(document.querySelector("[data-record-detail-date='2026-05-03']").textContent.includes("식단 판단 없음"), "weight_only detail should open for the new date");
+          document.querySelector('[data-toggle-record-detail="2026-05-03"]').click();
+          assertTest(document.querySelectorAll("[data-record-detail-date]").length === 0, "clicking the open detail button again should collapse it");
+        }));
+
+        results.push(runNamedTest("records archive detailed detail shows meals totals score snapshot and InBody", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: "2026-05-08",
+            recordMode: "detailed",
+            weight: 75.2,
+            adherencePercent: 82,
+            adherenceSource: "auto",
+            goalSnapshot: { goal: "lean_bulk", targetCal: 2400, carbs: 300, protein: 150, fat: 60, mode: "athlete", routine: "PUSH", weightDuration: 60 },
+            meals: [
+              { ...makeMeal("m1"), carbs: 40, protein: 25, fat: 10, alcoholKcal: 70, otherKcal: 0, memo: "식사 메모" },
+              { ...makeMeal("m2"), carbs: 50, protein: 30, fat: 12, alcoholKcal: 0, otherKcal: 80 }
+            ]
+          }]);
+          state.inbodyRecords = [{ date: "2026-05-08", weight: 75.2, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
+          renderRecordsPanel();
+          document.querySelector('[data-toggle-record-detail="2026-05-08"]').click();
+          const text = document.querySelector("[data-record-detail-date='2026-05-08']").textContent || "";
+          assertIncludesAll(text, ["식사 목록", "탄단지 합계", "탄수화물 합계", "90 g", "단백질 합계", "55 g", "총 kcal", "알코올", "기타", "식단 점수", "82점", "당시 목표", "당시 계산 기준", "InBody 기록 있음", "골격근량"], "detailed archive detail content");
+          assertExcludesAll(text, ["goalSnapshot", "recordMode", "autoDietAnalysis", "자동 점수 토글"], "detailed archive detail should hide internal terms");
+        }));
+
+        results.push(runNamedTest("records archive simple detail stays manual and non-macro", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-07", recordMode: "simple", adherence: "high", adherenceSource: "manual", weight: 74.8 }]);
+          renderRecordsPanel();
+          document.querySelector('[data-toggle-record-detail="2026-05-07"]').click();
+          const text = document.querySelector("[data-record-detail-date='2026-05-07']").textContent || "";
+          assertIncludesAll(text, ["간단 식단 평가", "상", "이전 기록은 당시 계산 기준이 저장되지 않았습니다."], "simple archive detail content");
+          assertExcludesAll(text, ["식사 목록", "탄단지 합계", "식단 점수", "점수 90", "자동 점수"], "simple archive detail should not look like macro analysis");
+        }));
+
+        results.push(runNamedTest("records archive edit button connects to direct edit panel", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-01", recordMode: "detailed", weight: 75, meals: [makeMeal("m1")] }]);
+          ids.recordDate.value = "2026-05-08";
+          renderRecordsPanel();
+          document.querySelector('[data-toggle-record-detail="2026-05-01"]').click();
+          document.querySelector("[data-record-detail-date='2026-05-01'] [data-edit-record-date]").click();
+          assertTest(ids.recordDate.value === "2026-05-01", "edit button should select detail date");
+          assertTest(document.querySelector('[data-record-card-date="2026-05-01"]').classList.contains("is-selected"), "edit button should keep card highlighted");
+          assertTest(document.querySelector("[data-record-detail-date='2026-05-01']"), "edit button should keep the detail open");
         }));
 
         results.push(runNamedTest("records archive keeps direct input backup and meal edit controls", () => {
