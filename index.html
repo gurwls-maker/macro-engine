@@ -1,15 +1,15 @@
 <!--
-Version: 6.5-UX1
-Stage: 6.5-UX1 공통 카드형 UI 시스템 및 Today 화면 리디자인
+Version: 6.5-UX2-1
+Stage: 6.5-UX2-1 Today 기록 시작 팝업 / 바텀시트
 Date: 2026-05-08
 Notes:
-- Stitch 시안의 카드형 UI 톤을 참고해 공통 카드 / 배지 / 점수 카드 스타일 정리
-- OS 이모지 대신 CSS 기반 한글 배지 / 아이콘 배지 기준 적용
-- Today Coach 최상단 카드 시각 강화
-- 오늘 식단 점수 카드 시각 구조 정리
-- 권장 탄단지 / 오늘 섭취 현황 카드 중복감 완화
-- 외부 CDN / 외부 폰트 / 외부 아이콘 / 외부 이미지 추가 없음
 - 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
+- Today에 기록 시작하기 팝업 / 모바일 바텀시트 추가
+- 상세 기록 / 간단 기록 / 식단 건너뛰기 3카드 기록 흐름 추가
+- detailed는 상세 식사 입력과 기존 자동 점수 / goalSnapshot 흐름 유지
+- simple은 상/중/하 직접 평가만 저장
+- weight_only는 Today 사용자-facing에서 식단 건너뛰기로 표시
+- 기본 계산 입력 분리는 UX2-2로 분리
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -17,7 +17,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-UX1</title>
+  <title>탄단지 다이어리 v6.5-UX2-1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -530,6 +530,213 @@ Notes:
       gap:10px;
       flex-wrap:wrap;
       position:relative;
+    }
+    .today-record-start-btn{
+      gap:8px;
+      box-shadow:0 14px 28px rgba(16,141,134,.20);
+    }
+    .today-record-start-btn svg{
+      width:16px;
+      height:16px;
+      stroke:currentColor;
+      stroke-width:2.1;
+      fill:none;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    .record-start-overlay{
+      position:fixed;
+      inset:0;
+      z-index:80;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+      background:rgba(20,28,38,.44);
+      backdrop-filter:blur(7px);
+    }
+    body.record-start-open{
+      overflow:hidden;
+    }
+    .record-start-overlay.hidden{display:none}
+    .record-start-dialog{
+      width:min(760px, 100%);
+      max-height:min(86vh, 820px);
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+      border:1px solid color-mix(in srgb, var(--line) 72%, white 28%);
+      border-radius:28px;
+      background:linear-gradient(145deg, rgba(255,253,249,.98), rgba(250,244,236,.98));
+      box-shadow:0 30px 80px rgba(23,50,77,.28);
+    }
+    .record-start-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+      padding:22px 24px 16px;
+      border-bottom:1px solid color-mix(in srgb, var(--line) 68%, white 32%);
+    }
+    .record-start-head h2{
+      margin:0;
+      font-size:22px;
+      letter-spacing:-.035em;
+      color:var(--deep);
+    }
+    .record-start-head p{
+      margin:6px 0 0;
+      font-size:13px;
+      line-height:1.55;
+      color:var(--muted);
+    }
+    .record-start-close{
+      flex:0 0 auto;
+      width:38px;
+      height:38px;
+      display:grid;
+      place-items:center;
+      border:1px solid var(--line);
+      border-radius:999px;
+      background:rgba(255,255,255,.72);
+      color:var(--deep);
+      font-size:22px;
+      line-height:1;
+      cursor:pointer;
+    }
+    .record-start-body{
+      padding:20px 24px 24px;
+      overflow:auto;
+    }
+    .record-start-choice-grid{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:14px;
+    }
+    .record-start-card{
+      min-height:172px;
+      display:flex;
+      flex-direction:column;
+      align-items:flex-start;
+      gap:10px;
+      padding:18px;
+      border:1px solid color-mix(in srgb, var(--line) 74%, white 26%);
+      border-radius:22px;
+      background:rgba(255,255,255,.72);
+      color:var(--ink);
+      text-align:left;
+      cursor:pointer;
+      box-shadow:0 14px 32px rgba(23,50,77,.07);
+      transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+    }
+    .record-start-card:hover,
+    .record-start-card:focus-visible{
+      transform:translateY(-2px);
+      border-color:color-mix(in srgb, var(--accent-strong) 36%, var(--line) 64%);
+      box-shadow:0 18px 38px rgba(16,141,134,.14);
+      outline:none;
+    }
+    .record-start-icon{
+      width:42px;
+      height:42px;
+      display:grid;
+      place-items:center;
+      border-radius:16px;
+      background:rgba(16,141,134,.11);
+      color:var(--teal);
+    }
+    .record-start-icon svg{
+      width:22px;
+      height:22px;
+      stroke:currentColor;
+      stroke-width:2;
+      fill:none;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    .record-start-card h3{
+      margin:4px 0 0;
+      font-size:17px;
+      letter-spacing:-.02em;
+      color:var(--deep);
+    }
+    .record-start-card p{
+      margin:0;
+      font-size:13px;
+      line-height:1.55;
+      color:var(--muted);
+      word-break:keep-all;
+    }
+    .record-start-step.hidden{display:none}
+    .record-start-form{
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+    .record-start-form-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .record-start-form-head h3{
+      margin:0;
+      font-size:18px;
+      color:var(--deep);
+    }
+    .record-start-form-head p{
+      margin:4px 0 0;
+      font-size:12px;
+      line-height:1.55;
+      color:var(--muted);
+    }
+    .record-start-grid{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+    }
+    .record-start-grid .field.wide{grid-column:1 / -1}
+    .record-start-form .field{
+      margin:0;
+    }
+    .record-start-form label{
+      font-size:12px;
+      font-weight:900;
+      color:var(--deep);
+    }
+    .record-start-form input,
+    .record-start-form select{
+      min-height:46px;
+    }
+    .record-start-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .simple-choice-row{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:10px;
+    }
+    .simple-choice-row button{
+      min-height:46px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:rgba(255,255,255,.72);
+      color:var(--deep);
+      font:inherit;
+      font-weight:900;
+      cursor:pointer;
+    }
+    .simple-choice-row button.active{
+      border-color:rgba(16,141,134,.38);
+      background:rgba(16,141,134,.12);
+      color:var(--teal);
+    }
+    #todayRecordStartFeedback{
+      margin-top:0;
     }
     .today-mode-chip{
       display:inline-flex;
@@ -3595,6 +3802,37 @@ Notes:
       }
     }
     @media (max-width:640px){
+      .record-start-overlay{
+        align-items:flex-end;
+        padding:0;
+      }
+      .record-start-dialog{
+        width:100%;
+        max-height:88vh;
+        border-radius:26px 26px 0 0;
+        border-left:none;
+        border-right:none;
+        border-bottom:none;
+      }
+      .record-start-head{
+        padding:18px 18px 14px;
+      }
+      .record-start-body{
+        padding:16px 18px 20px;
+      }
+      .record-start-choice-grid,
+      .record-start-grid{
+        grid-template-columns:1fr;
+      }
+      .record-start-card{
+        min-height:118px;
+      }
+      .record-start-actions{
+        justify-content:stretch;
+      }
+      .record-start-actions button{
+        flex:1 1 0;
+      }
       .help-tip{
         left:auto;
         right:0;
@@ -3654,7 +3892,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-UX1</span>
+               <span class="app-version">v6.5-UX2-1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -3735,6 +3973,10 @@ Notes:
     <div class="today-topbar">
       <div id="todayGoalHost" class="today-goal-host"></div>
       <div class="today-top-actions">
+        <button class="primary-btn today-record-start-btn" id="todayRecordStartBtn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+          <span>기록 시작하기</span>
+        </button>
         <button class="ghost-btn" id="todaySettingsBtn" type="button" aria-expanded="false" aria-controls="quickSettingsPanel">빠른 설정</button>
         <div class="quick-settings-popover hidden" id="quickSettingsPanel" aria-hidden="true">
           <div class="quick-settings-head">
@@ -4400,6 +4642,160 @@ Notes:
         </section>
       </div>
     </section>
+  </div>
+
+  <div class="record-start-overlay hidden" id="todayRecordStartOverlay" aria-hidden="true">
+    <div class="record-start-dialog" role="dialog" aria-modal="true" aria-labelledby="todayRecordStartTitle">
+      <div class="record-start-head">
+        <div>
+          <h2 id="todayRecordStartTitle">오늘은 어떻게 기록할까요?</h2>
+          <p>오늘 먹은 것과 메모만 빠르게 남깁니다.</p>
+        </div>
+        <button class="record-start-close" id="todayRecordStartClose" type="button" aria-label="닫기">×</button>
+      </div>
+      <div class="record-start-body">
+        <div class="record-start-step" id="todayRecordStartChoices">
+          <div class="record-start-choice-grid">
+            <button class="record-start-card" type="button" data-record-start-step="detailed">
+              <span class="record-start-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M7 3v8"></path><path d="M10 3v8"></path><path d="M7 11c0 2 3 2 3 0"></path><path d="M8.5 11v10"></path><path d="M16 3v18"></path><path d="M16 3c3 2 3 7 0 9"></path></svg>
+              </span>
+              <h3>상세 기록</h3>
+              <p>탄수화물·단백질·지방까지 입력합니다.</p>
+            </button>
+            <button class="record-start-card" type="button" data-record-start-step="simple">
+              <span class="record-start-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"></path><path d="M4 5h9"></path><path d="M4 9h6"></path></svg>
+              </span>
+              <h3>간단 기록</h3>
+              <p>오늘 식단을 상·중·하로 남깁니다.</p>
+            </button>
+            <button class="record-start-card" type="button" data-record-start-step="skip">
+              <span class="record-start-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M5 12h14"></path><path d="M12 5v14"></path><path d="M4 5l15 15"></path></svg>
+              </span>
+              <h3>식단 건너뛰기</h3>
+              <p>식단 판단 없이 오늘 기록을 남깁니다.</p>
+            </button>
+          </div>
+        </div>
+
+        <div class="record-start-step hidden" id="todayRecordStartDetailed">
+          <div class="record-start-form">
+            <div class="record-start-form-head">
+              <div>
+                <h3>상세 기록</h3>
+                <p>오늘 식사를 탄수화물·단백질·지방 기준으로 저장합니다.</p>
+              </div>
+              <button class="secondary-btn" type="button" data-record-start-back>기록 방식 다시 선택</button>
+            </div>
+            <div class="record-start-grid">
+              <div class="field">
+                <label>식사 구분</label>
+                <select id="todayRecordMealLabel">
+                  <option value="아침">아침</option>
+                  <option value="점심">점심</option>
+                  <option value="저녁">저녁</option>
+                  <option value="간식">간식</option>
+                  <option value="외식">외식</option>
+                  <option value="기타">기타</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>탄수화물 g</label>
+                <input id="todayRecordMealCarbs" type="number" min="0" step="0.1" inputmode="decimal">
+              </div>
+              <div class="field">
+                <label>단백질 g</label>
+                <input id="todayRecordMealProtein" type="number" min="0" step="0.1" inputmode="decimal">
+              </div>
+              <div class="field">
+                <label>지방 g</label>
+                <input id="todayRecordMealFat" type="number" min="0" step="0.1" inputmode="decimal">
+              </div>
+              <div class="field">
+                <label>알코올 kcal</label>
+                <input id="todayRecordMealAlcoholKcal" type="number" min="0" step="1" inputmode="decimal">
+              </div>
+              <div class="field">
+                <label>기타 칼로리 kcal</label>
+                <input id="todayRecordMealOtherKcal" type="number" min="0" step="1" inputmode="decimal">
+              </div>
+              <div class="field wide">
+                <label>메모</label>
+                <input id="todayRecordMealMemo" type="text" maxlength="80" placeholder="외식, 보충제, 간단 메모 등">
+              </div>
+            </div>
+            <div class="record-start-actions">
+              <button class="secondary-btn" type="button" data-record-start-close>닫기</button>
+              <button class="primary-btn" id="todayRecordDetailedSaveBtn" type="button">저장</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="record-start-step hidden" id="todayRecordStartSimple">
+          <div class="record-start-form">
+            <div class="record-start-form-head">
+              <div>
+                <h3>간단 기록</h3>
+                <p>오늘 식단을 직접 평가하고, 체중과 메모는 선택으로 남깁니다.</p>
+              </div>
+              <button class="secondary-btn" type="button" data-record-start-back>기록 방식 다시 선택</button>
+            </div>
+            <div class="field">
+              <label>간단 식단 평가</label>
+              <div class="simple-choice-row" id="todayRecordSimpleChoices">
+                <button type="button" data-adherence-value="high">상</button>
+                <button class="active" type="button" data-adherence-value="medium">중</button>
+                <button type="button" data-adherence-value="low">하</button>
+              </div>
+            </div>
+            <div class="record-start-grid">
+              <div class="field">
+                <label>체중 kg</label>
+                <input id="todayRecordSimpleWeight" type="number" min="30" max="200" step="0.01" inputmode="decimal">
+              </div>
+              <div class="field wide">
+                <label>메모</label>
+                <input id="todayRecordSimpleMemo" type="text" maxlength="60" placeholder="바쁜 날, 외식, 컨디션 등">
+              </div>
+            </div>
+            <div class="record-start-actions">
+              <button class="secondary-btn" type="button" data-record-start-close>닫기</button>
+              <button class="primary-btn" id="todayRecordSimpleSaveBtn" type="button">저장</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="record-start-step hidden" id="todayRecordStartSkip">
+          <div class="record-start-form">
+            <div class="record-start-form-head">
+              <div>
+                <h3>식단 건너뛰기</h3>
+                <p>식단 판단 없이 체중과 메모만 선택으로 남깁니다.</p>
+              </div>
+              <button class="secondary-btn" type="button" data-record-start-back>기록 방식 다시 선택</button>
+            </div>
+            <div class="record-start-grid">
+              <div class="field">
+                <label>체중 kg</label>
+                <input id="todayRecordSkipWeight" type="number" min="30" max="200" step="0.01" inputmode="decimal">
+              </div>
+              <div class="field wide">
+                <label>메모</label>
+                <input id="todayRecordSkipMemo" type="text" maxlength="60" placeholder="오늘 식단은 기록하지 않음">
+              </div>
+            </div>
+            <div class="record-start-actions">
+              <button class="secondary-btn" type="button" data-record-start-close>닫기</button>
+              <button class="primary-btn" id="todayRecordSkipSaveBtn" type="button">저장</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="todayRecordStartFeedback"></div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -6208,6 +6604,8 @@ Notes:
       });
       const quickSettingsButton = document.getElementById("todaySettingsBtn");
       if (quickSettingsButton) quickSettingsButton.style.display = tab === "settings" ? "none" : "inline-flex";
+      const todayRecordStartButton = document.getElementById("todayRecordStartBtn");
+      if (todayRecordStartButton) todayRecordStartButton.style.display = tab === "today" ? "inline-flex" : "none";
       if (tab === "settings") setQuickSettingsOpen(false);
     }
 
@@ -7108,6 +7506,198 @@ Notes:
           <ul>${cleanMessages.map(message => `<li>${escapeHtml(message)}</li>`).join("")}</ul>
         </div>
       `;
+    }
+
+    function setTodayRecordStartFeedback(tone, messages){
+      const host = document.getElementById("todayRecordStartFeedback");
+      if (!host) return;
+      const list = Array.isArray(messages) ? messages : [messages];
+      const cleanMessages = list.filter(Boolean);
+      if (!cleanMessages.length) {
+        host.innerHTML = "";
+        return;
+      }
+      const isOk = tone === "ok";
+      host.innerHTML = `
+        <div class="${isOk ? "notice" : `warn ${tone || "warn"}`}">
+          <h4>${isOk ? "저장 안내" : "입력 확인"}</h4>
+          <ul>${cleanMessages.map(message => `<li>${escapeHtml(message)}</li>`).join("")}</ul>
+        </div>
+      `;
+    }
+
+    function getTodayRecordStartOverlay(){
+      return document.getElementById("todayRecordStartOverlay");
+    }
+
+    function setTodayRecordStartStep(step = "choices"){
+      const steps = {
+        choices: document.getElementById("todayRecordStartChoices"),
+        detailed: document.getElementById("todayRecordStartDetailed"),
+        simple: document.getElementById("todayRecordStartSimple"),
+        skip: document.getElementById("todayRecordStartSkip")
+      };
+      Object.entries(steps).forEach(([name, node]) => {
+        if (node) node.classList.toggle("hidden", name !== step);
+      });
+      setTodayRecordStartFeedback("", "");
+      const focusTarget = step === "choices"
+        ? document.querySelector("[data-record-start-step]")
+        : step === "detailed"
+          ? document.getElementById("todayRecordMealCarbs")
+          : step === "simple"
+            ? document.querySelector("#todayRecordSimpleChoices button.active")
+            : document.getElementById("todayRecordSkipWeight");
+      setTimeout(() => focusTarget?.focus?.(), 0);
+    }
+
+    function resetTodayRecordStartInputs(){
+      const todayRecord = getRecordByDate(getTodayDateString());
+      const existingWeight = Number.isFinite(todayRecord?.weight) ? todayRecord.weight.toFixed(2) : "";
+      [
+        "todayRecordMealCarbs",
+        "todayRecordMealProtein",
+        "todayRecordMealFat",
+        "todayRecordMealAlcoholKcal",
+        "todayRecordMealOtherKcal",
+        "todayRecordMealMemo"
+      ].forEach(id => {
+        const input = document.getElementById(id);
+        if (input) input.value = "";
+      });
+      const mealLabel = document.getElementById("todayRecordMealLabel");
+      if (mealLabel) mealLabel.value = getSuggestedMealLabel(getTodayDateString());
+      const simpleWeight = document.getElementById("todayRecordSimpleWeight");
+      const skipWeight = document.getElementById("todayRecordSkipWeight");
+      const simpleMemo = document.getElementById("todayRecordSimpleMemo");
+      const skipMemo = document.getElementById("todayRecordSkipMemo");
+      if (simpleWeight) simpleWeight.value = existingWeight;
+      if (skipWeight) skipWeight.value = existingWeight;
+      if (simpleMemo) simpleMemo.value = "";
+      if (skipMemo) skipMemo.value = "";
+      setTodayRecordSimpleAdherence("medium");
+      setTodayRecordStartFeedback("", "");
+    }
+
+    function openTodayRecordStartDialog(step = "choices"){
+      const overlay = getTodayRecordStartOverlay();
+      if (!overlay) return;
+      resetTodayRecordStartInputs();
+      overlay.classList.remove("hidden");
+      overlay.setAttribute("aria-hidden", "false");
+      document.body.classList.add("record-start-open");
+      setTodayRecordStartStep(step);
+    }
+
+    function closeTodayRecordStartDialog(){
+      const overlay = getTodayRecordStartOverlay();
+      if (!overlay) return;
+      overlay.classList.add("hidden");
+      overlay.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("record-start-open");
+      setTodayRecordStartFeedback("", "");
+      document.getElementById("todayRecordStartBtn")?.focus?.();
+    }
+
+    function setTodayRecordSimpleAdherence(value){
+      const next = ["high", "medium", "low"].includes(value) ? value : "medium";
+      document.querySelectorAll("#todayRecordSimpleChoices [data-adherence-value]").forEach(button => {
+        button.classList.toggle("active", button.dataset.adherenceValue === next);
+        button.setAttribute("aria-pressed", String(button.dataset.adherenceValue === next));
+      });
+    }
+
+    function getTodayRecordSimpleAdherence(){
+      return document.querySelector("#todayRecordSimpleChoices [data-adherence-value].active")?.dataset.adherenceValue || "medium";
+    }
+
+    function getOptionalRecordStartWeight(inputId){
+      const input = document.getElementById(inputId);
+      const raw = String(input?.value || "").trim();
+      if (!raw) return { hasValue: false, value: null };
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value <= 0) return { hasValue: true, invalid: true };
+      return { hasValue: true, value };
+    }
+
+    function prepareTodayRecordMode(mode){
+      const today = getTodayDateString();
+      ids.recordDate.value = today;
+      syncRecordInputsForDate(today);
+      const conversion = setRecordModeForSelectedDate(mode);
+      if (conversion?.cancelled) {
+        setTodayRecordStartFeedback("warn", "기록 방식 전환이 취소됐습니다.");
+        return { ok: false, reason: "cancelled" };
+      }
+      return { ok: true, today };
+    }
+
+    function saveTodayRecordStartDetailed(){
+      const prepared = prepareTodayRecordMode("detailed");
+      if (!prepared.ok) return { saved: false, reason: prepared.reason };
+      ids.mealLabel.value = document.getElementById("todayRecordMealLabel")?.value || getSuggestedMealLabel(prepared.today);
+      ids.mealCarbs.value = document.getElementById("todayRecordMealCarbs")?.value || "";
+      ids.mealProtein.value = document.getElementById("todayRecordMealProtein")?.value || "";
+      ids.mealFat.value = document.getElementById("todayRecordMealFat")?.value || "";
+      ids.mealAlcoholKcal.value = document.getElementById("todayRecordMealAlcoholKcal")?.value || "";
+      ids.mealOtherKcal.value = document.getElementById("todayRecordMealOtherKcal")?.value || "";
+      ids.mealMemo.value = document.getElementById("todayRecordMealMemo")?.value || "";
+      const result = saveMealEntry();
+      if (result?.saved) {
+        setTodayInputFeedback("ok", "상세 기록을 저장했습니다.");
+        closeTodayRecordStartDialog();
+      } else {
+        setTodayRecordStartFeedback("warn", recordsState.feedback?.message || "저장할 식사 내용을 입력해 주세요.");
+      }
+      return result;
+    }
+
+    function saveTodayRecordStartSimple(){
+      const weight = getOptionalRecordStartWeight("todayRecordSimpleWeight");
+      if (weight.invalid) {
+        setTodayRecordStartFeedback("warn", "체중 입력값을 확인해 주세요.");
+        return { saved: false, reason: "invalid_weight" };
+      }
+      const prepared = prepareTodayRecordMode("simple");
+      if (!prepared.ok) return { saved: false, reason: prepared.reason };
+      ids.recordWeight.value = weight.hasValue ? String(weight.value) : "";
+      ids.recordAdherence.value = getTodayRecordSimpleAdherence();
+      ids.recordNote.value = String(document.getElementById("todayRecordSimpleMemo")?.value || "").trim();
+      saveRecord();
+      const record = getRecordByDate(prepared.today);
+      if (record?.recordMode === "simple") {
+        setTodayInputFeedback("ok", "간단 기록을 저장했습니다.");
+        closeTodayRecordStartDialog();
+        return { saved: true, record };
+      }
+      setTodayRecordStartFeedback("warn", recordsState.feedback?.message || "간단 기록을 저장하지 못했습니다.");
+      return { saved: false, reason: "save_failed" };
+    }
+
+    function saveTodayRecordStartSkip(){
+      const weight = getOptionalRecordStartWeight("todayRecordSkipWeight");
+      if (weight.invalid) {
+        setTodayRecordStartFeedback("warn", "체중 입력값을 확인해 주세요.");
+        return { saved: false, reason: "invalid_weight" };
+      }
+      const prepared = prepareTodayRecordMode("weight_only");
+      if (!prepared.ok) return { saved: false, reason: prepared.reason };
+      const existing = getRecordByDate(prepared.today);
+      const memo = String(document.getElementById("todayRecordSkipMemo")?.value || "").trim();
+      const update = {
+        date: prepared.today,
+        recordMode: "weight_only",
+        ...clearDietEvidenceForMode("weight_only", existing),
+        note: memo || existing?.note || ""
+      };
+      if (weight.hasValue) update.weight = weight.value;
+      const record = upsertRecord(update);
+      syncRecordInputsForDate(prepared.today);
+      setRecordFeedback("ok", "식단 판단 없이 오늘 기록을 저장했습니다.");
+      setTodayInputFeedback("ok", "식단 건너뛰기 기록을 저장했습니다.");
+      render();
+      closeTodayRecordStartDialog();
+      return { saved: true, record };
     }
 
     function getSelectedRecordDate(){
@@ -13777,6 +14367,35 @@ Notes:
         const panel = document.getElementById("quickSettingsPanel");
         setQuickSettingsOpen(panel?.classList.contains("hidden"));
       });
+      document.getElementById("todayRecordStartBtn")?.addEventListener("click", () => openTodayRecordStartDialog());
+      document.getElementById("todayRecordStartClose")?.addEventListener("click", closeTodayRecordStartDialog);
+      document.getElementById("todayRecordStartOverlay")?.addEventListener("click", event => {
+        if (event.target === event.currentTarget) closeTodayRecordStartDialog();
+      });
+      document.getElementById("todayRecordStartChoices")?.addEventListener("click", event => {
+        const button = event.target.closest("[data-record-start-step]");
+        if (!button) return;
+        setTodayRecordStartStep(button.dataset.recordStartStep || "choices");
+      });
+      document.querySelectorAll("[data-record-start-back]").forEach(button => {
+        button.addEventListener("click", () => setTodayRecordStartStep("choices"));
+      });
+      document.querySelectorAll("[data-record-start-close]").forEach(button => {
+        button.addEventListener("click", closeTodayRecordStartDialog);
+      });
+      document.getElementById("todayRecordSimpleChoices")?.addEventListener("click", event => {
+        const button = event.target.closest("[data-adherence-value]");
+        if (!button) return;
+        setTodayRecordSimpleAdherence(button.dataset.adherenceValue);
+      });
+      document.getElementById("todayRecordDetailedSaveBtn")?.addEventListener("click", saveTodayRecordStartDetailed);
+      document.getElementById("todayRecordSimpleSaveBtn")?.addEventListener("click", saveTodayRecordStartSimple);
+      document.getElementById("todayRecordSkipSaveBtn")?.addEventListener("click", saveTodayRecordStartSkip);
+      document.addEventListener("keydown", event => {
+        if (event.key !== "Escape") return;
+        const overlay = getTodayRecordStartOverlay();
+        if (overlay && !overlay.classList.contains("hidden")) closeTodayRecordStartDialog();
+      });
       document.getElementById("quickSettingsClose").addEventListener("click", () => setQuickSettingsOpen(false));
       document.getElementById("quickModeGeneral").addEventListener("click", () => setMode("general"));
       document.getElementById("quickModeAthlete").addEventListener("click", () => setMode("athlete"));
@@ -13928,6 +14547,13 @@ Notes:
         ids.mealAlcoholKcal.value = snapshot.mealAlcoholKcal;
         ids.mealOtherKcal.value = snapshot.mealOtherKcal;
         ids.mealMemo.value = snapshot.mealMemo;
+        const recordStartOverlay = getTodayRecordStartOverlay();
+        if (recordStartOverlay) {
+          recordStartOverlay.classList.add("hidden");
+          recordStartOverlay.setAttribute("aria-hidden", "true");
+        }
+        document.body.classList.remove("record-start-open");
+        setTodayRecordStartFeedback("", "");
         render();
       }
     }
@@ -17136,6 +17762,235 @@ Notes:
       });
     }
 
+    function runTodayRecordStartTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const withConfirm = (value, callback) => {
+          const originalConfirm = window.confirm;
+          window.confirm = () => value;
+          try {
+            return callback();
+          } finally {
+            window.confirm = originalConfirm;
+          }
+        };
+        const isOpen = () => !getTodayRecordStartOverlay()?.classList.contains("hidden");
+
+        results.push(runNamedTest("today record start button opens three-card modal", () => {
+          recordsState.items = [];
+          setActiveTab("today");
+          const button = document.getElementById("todayRecordStartBtn");
+          assertTest(!!button, "Today record start button should exist");
+          assertTest(getComputedStyle(button).display !== "none", "Today record start button should show on Today tab");
+          button.click();
+          const overlay = getTodayRecordStartOverlay();
+          assertTest(isOpen(), "record start modal should open");
+          const text = overlay.innerText || "";
+          assertIncludesAll(text, ["오늘은 어떻게 기록할까요?", "상세 기록", "간단 기록", "식단 건너뛰기"], "record start modal should show three choices");
+          closeTodayRecordStartDialog();
+        }));
+
+        results.push(runNamedTest("today record start button hides outside Today tab", () => {
+          setActiveTab("records");
+          const button = document.getElementById("todayRecordStartBtn");
+          assertTest(button.style.display === "none", "Today record start button should hide outside Today");
+          setActiveTab("today");
+          assertTest(button.style.display === "inline-flex", "Today record start button should return on Today");
+        }));
+
+        results.push(runNamedTest("today record start modal avoids internal and basic setting terms", () => {
+          openTodayRecordStartDialog();
+          const text = getTodayRecordStartOverlay().innerText || "";
+          assertExcludesAll(text, [
+            "recordMode",
+            "goalSnapshot",
+            "dietResolution",
+            "permission",
+            "confidence",
+            "primitive",
+            "macroPatternAllowed",
+            "autoDietAnalysis",
+            "자동 점수 토글",
+            "키",
+            "나이",
+            "활동량",
+            "운동 설정"
+          ], "record start modal should not expose internal terms or basic setting inputs");
+          closeTodayRecordStartDialog();
+        }));
+
+        results.push(runNamedTest("today record start card navigation and close actions", () => {
+          openTodayRecordStartDialog();
+          document.querySelector("[data-record-start-step='detailed']").click();
+          assertTest(!document.getElementById("todayRecordStartDetailed").classList.contains("hidden"), "detailed form should open");
+          document.querySelector("#todayRecordStartDetailed [data-record-start-back]").click();
+          assertTest(!document.getElementById("todayRecordStartChoices").classList.contains("hidden"), "back should return to choice cards");
+          document.querySelector("[data-record-start-step='simple']").click();
+          assertTest(!document.getElementById("todayRecordStartSimple").classList.contains("hidden"), "simple form should open");
+          document.querySelector("#todayRecordStartSimple [data-record-start-close]").click();
+          assertTest(!isOpen(), "close button should close modal");
+        }));
+
+        results.push(runNamedTest("today record start Escape closes modal", () => {
+          openTodayRecordStartDialog();
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+          assertTest(!isOpen(), "Escape should close the modal");
+        }));
+
+        results.push(runNamedTest("today record start detailed save stores today meal", () => {
+          recordsState.items = [];
+          setValidTodayBalanceTestInputs();
+          render();
+          openTodayRecordStartDialog("detailed");
+          document.getElementById("todayRecordMealLabel").value = "점심";
+          document.getElementById("todayRecordMealCarbs").value = "82";
+          document.getElementById("todayRecordMealProtein").value = "36";
+          document.getElementById("todayRecordMealFat").value = "14";
+          document.getElementById("todayRecordMealAlcoholKcal").value = "";
+          document.getElementById("todayRecordMealOtherKcal").value = "80";
+          document.getElementById("todayRecordMealMemo").value = "테스트 상세 기록";
+          const result = saveTodayRecordStartDetailed();
+          const record = getRecordByDate(today);
+          assertTest(result?.saved === true, "detailed modal save should succeed");
+          assertTest(record.recordMode === "detailed", "detailed modal save should store detailed mode");
+          assertTest(record.meals.length === 1, "detailed modal save should add one meal");
+          assertTest(record.meals[0].mealLabel === "점심", "detailed modal save should preserve meal label");
+          assertTest(record.meals[0].carbs === 82 && record.meals[0].protein === 36 && record.meals[0].fat === 14, "detailed modal save should preserve macros");
+          assertTest(record.meals[0].otherKcal === 80, "detailed modal save should preserve other kcal");
+          assertTest(!!record.goalSnapshot, "detailed modal save should keep existing snapshot flow");
+          assertTest(!isOpen(), "successful detailed save should close modal");
+        }));
+
+        results.push(runNamedTest("today record start detailed validation stays in modal", () => {
+          recordsState.items = [];
+          setValidTodayBalanceTestInputs();
+          render();
+          openTodayRecordStartDialog("detailed");
+          document.getElementById("todayRecordMealCarbs").value = "";
+          document.getElementById("todayRecordMealProtein").value = "";
+          document.getElementById("todayRecordMealFat").value = "";
+          document.getElementById("todayRecordMealAlcoholKcal").value = "";
+          document.getElementById("todayRecordMealOtherKcal").value = "";
+          const result = saveTodayRecordStartDetailed();
+          assertTest(result?.saved === false, "empty detailed modal meal should not save");
+          assertTest(isOpen(), "failed detailed save should keep modal open");
+          assertIncludesAll(document.getElementById("todayRecordStartFeedback").textContent || "", ["저장할 식사 내용"], "failed detailed save should show modal feedback");
+          closeTodayRecordStartDialog();
+        }));
+
+        results.push(runNamedTest("today record start simple save stores manual simple record only", () => {
+          recordsState.items = [];
+          render();
+          openTodayRecordStartDialog("simple");
+          setTodayRecordSimpleAdherence("high");
+          document.getElementById("todayRecordSimpleWeight").value = "76.2";
+          document.getElementById("todayRecordSimpleMemo").value = "간단 기록 테스트";
+          const result = saveTodayRecordStartSimple();
+          const record = getRecordByDate(today);
+          assertTest(result?.saved === true, "simple modal save should succeed");
+          assertTest(record.recordMode === "simple", "simple modal save should store simple mode");
+          assertTest(record.adherence === "high" && record.adherenceSource === "manual", "simple modal save should keep manual evaluation");
+          assertTest(record.weight === 76.2, "simple modal save should preserve optional weight");
+          assertTest(record.meals.length === 0, "simple modal save should not create meals");
+          assertTest(record.adherencePercent === null && record.adherenceScoringVersion === null, "simple modal save should not create auto score metadata");
+          assertTest(!record.goalSnapshot, "simple modal save should not create a goal snapshot");
+        }));
+
+        results.push(runNamedTest("today record start skip save stores weight-only record", () => {
+          recordsState.items = [];
+          render();
+          openTodayRecordStartDialog("skip");
+          document.getElementById("todayRecordSkipWeight").value = "75.8";
+          document.getElementById("todayRecordSkipMemo").value = "식단은 오늘 건너뜀";
+          const result = saveTodayRecordStartSkip();
+          const record = getRecordByDate(today);
+          const entry = getStoredAdherenceEntry(record);
+          assertTest(result?.saved === true, "skip modal save should succeed");
+          assertTest(record.recordMode === "weight_only", "skip modal save should store weight_only internally");
+          assertTest(record.weight === 75.8, "skip modal save should preserve optional weight");
+          assertTest(record.meals.length === 0, "skip modal save should not create meals");
+          assertTest(entry.percent === null, "skip modal save should not expose a diet score");
+          assertTest(!record.goalSnapshot, "skip modal save should not create a goal snapshot");
+        }));
+
+        results.push(runNamedTest("today record start skip can save without weight", () => {
+          recordsState.items = [];
+          render();
+          openTodayRecordStartDialog("skip");
+          document.getElementById("todayRecordSkipWeight").value = "";
+          document.getElementById("todayRecordSkipMemo").value = "기록만 남김";
+          const result = saveTodayRecordStartSkip();
+          const record = getRecordByDate(today);
+          assertTest(result?.saved === true, "skip modal should allow optional weight");
+          assertTest(record.recordMode === "weight_only", "skip without weight should still store weight_only mode");
+          assertTest(!Number.isFinite(record.weight), "skip without weight should not invent weight");
+          assertTest(record.note === "기록만 남김", "skip without weight should keep memo");
+        }));
+
+        results.push(runNamedTest("today record start respects detailed conversion cancellation", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            recordMode: "detailed",
+            meals: [{
+              id: "m1",
+              mealLabel: "아침",
+              carbs: 30,
+              protein: 25,
+              fat: 8,
+              alcoholKcal: 0,
+              otherKcal: 0,
+              memo: "",
+              createdAt: `${today}T08:00:00.000Z`
+            }]
+          }]);
+          syncRecordInputsForDate(today);
+          openTodayRecordStartDialog("simple");
+          setTodayRecordSimpleAdherence("low");
+          const result = withConfirm(false, () => saveTodayRecordStartSimple());
+          const record = getRecordByDate(today);
+          assertTest(result?.saved === false && result.reason === "cancelled", "declined conversion should cancel simple modal save");
+          assertTest(record.recordMode === "detailed", "cancelled modal conversion should keep detailed mode");
+          assertTest(record.meals.length === 1, "cancelled modal conversion should keep meals");
+          closeTodayRecordStartDialog();
+        }));
+
+        results.push(runNamedTest("today record start confirmed simple conversion clears meal evidence", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            recordMode: "detailed",
+            meals: [{
+              id: "m1",
+              mealLabel: "아침",
+              carbs: 30,
+              protein: 25,
+              fat: 8,
+              alcoholKcal: 0,
+              otherKcal: 0,
+              memo: "",
+              createdAt: `${today}T08:00:00.000Z`
+            }]
+          }]);
+          syncRecordInputsForDate(today);
+          openTodayRecordStartDialog("simple");
+          setTodayRecordSimpleAdherence("medium");
+          const result = withConfirm(true, () => saveTodayRecordStartSimple());
+          const record = getRecordByDate(today);
+          assertTest(result?.saved === true, "confirmed conversion should save simple modal record");
+          assertTest(record.recordMode === "simple", "confirmed modal conversion should store simple mode");
+          assertTest(record.meals.length === 0, "confirmed modal conversion should clear meals");
+          assertTest(inferRecordMode(record).hasMacroAnalysisPermission === false, "confirmed simple modal conversion should not allow macro analysis");
+        }));
+
+        results.push(runNamedTest("today record start keeps fixed scoring and recent windows", () => {
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "record start should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "record start should not change recent context windows");
+        }));
+
+        return results;
+      });
+    }
+
     function runDailyCoachRecentContextTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -20221,6 +21076,7 @@ Notes:
     window.runRecentContextTests = runRecentContextTests;
     window.runRecordModeResolutionTests = runRecordModeResolutionTests;
     window.runRecordModeUiTests = runRecordModeUiTests;
+    window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
     window.runGoalAwareCopyRegressionTests = runGoalAwareCopyRegressionTests;
     window.runCoachAdherenceCopySeparationTests = runCoachAdherenceCopySeparationTests;
@@ -20241,6 +21097,11 @@ Notes:
     window.summarizeDietResolution = summarizeDietResolution;
     window.getDietAnalysisPermission = getDietAnalysisPermission;
     window.setRecordModeForSelectedDate = setRecordModeForSelectedDate;
+    window.openTodayRecordStartDialog = openTodayRecordStartDialog;
+    window.closeTodayRecordStartDialog = closeTodayRecordStartDialog;
+    window.saveTodayRecordStartDetailed = saveTodayRecordStartDetailed;
+    window.saveTodayRecordStartSimple = saveTodayRecordStartSimple;
+    window.saveTodayRecordStartSkip = saveTodayRecordStartSkip;
     window.buildRecentContext = buildRecentContext;
     window.buildInbodyTrendContext = buildInbodyTrendContext;
 
