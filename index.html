@@ -1,16 +1,14 @@
 <!--
-Version: 6.5-UX2-6
-Stage: 6.5-UX2-6 최근 흐름 문제 날짜 → Records 연결
+Version: 6.5-UX2-7
+Stage: 6.5-UX2-7 모바일 / 회귀 QA
 Date: 2026-05-08
 Notes:
-- 최근 흐름에서 문제 날짜 보기 / 기록에서 확인 연결 추가
-- 문제 날짜 버튼 클릭 시 Records 탭으로 이동하고 해당 날짜 카드/상세를 표시
-- Records 날짜 카드/상세에 문제 chip 표시 후보 보강
-- detailed 기록만 탄단지 원인 날짜로 연결
-- simple / weight_only는 식단 원인 단정을 피하고 기록 보완 중심으로 연결
-- InBody ↔ Records 연결은 UX2-5 기준 유지
-- Records 상세 인라인 편집 모드는 UX2-4.1 기준 유지
-- 점수 산식 / Coach decision matrix / InBody gate / 저장 schema 변경 없음
+- UX2-1 ~ UX2-6 탭 책임 재정의 흐름의 모바일 / 회귀 QA
+- Today 기록 시작 팝업, Settings 계산 기준 분리, Records 보관함/상세/인라인 편집, InBody ↔ Records, 최근 흐름 → Records 연결 유지 확인
+- 모바일 390px 기준 overflow / 버튼 줄바꿈 / active tab / 내부 용어 노출 QA
+- 명확한 화면 깨짐만 최소 수정
+- 큰 구조 변경과 신규 기능은 후속 후보로 분리
+- 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
 <!doctype html>
@@ -18,7 +16,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-UX2-6</title>
+  <title>탄단지 다이어리 v6.5-UX2-7</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -1127,6 +1125,16 @@ Notes:
     .help-wrap:focus-within .help-tip{
       opacity:1;
       visibility:visible;
+    }
+    @media (min-width:821px){
+      #skeletalTip{
+        left:auto;
+        right:26px;
+      }
+      #skeletalTip::before{
+        left:auto;
+        right:-6px;
+      }
     }
     .check-card{
       display:flex;
@@ -4569,15 +4577,15 @@ Notes:
       }
       .help-tip{
         left:auto;
-        right:0;
+        right:4px;
         top:calc(100% + 8px);
         transform:none;
-        width:min(280px, calc(100vw - 32px));
-        max-width:calc(100vw - 32px);
+        width:min(272px, calc(100vw - 40px));
+        max-width:calc(100vw - 40px);
       }
       .help-tip::before{
         left:auto;
-        right:12px;
+        right:16px;
         top:-6px;
         transform:rotate(45deg);
       }
@@ -4598,6 +4606,21 @@ Notes:
         text-align:left;
         white-space:normal;
         overflow-wrap:anywhere;
+      }
+      .recent-flow-range-row{
+        flex-wrap:wrap;
+        overflow-x:visible;
+      }
+      .recent-flow-range-controls{
+        flex:1 1 100%;
+        flex-wrap:wrap;
+      }
+      .recent-flow-range-stats{
+        flex:1 1 100%;
+        min-width:0;
+        justify-content:flex-start;
+        flex-wrap:wrap;
+        white-space:normal;
       }
       #kpiPanel .kpi.target{
         grid-column:1 / -1;
@@ -4626,7 +4649,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-UX2-6</span>
+               <span class="app-version">v6.5-UX2-7</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -20521,6 +20544,141 @@ Notes:
       });
     }
 
+    function runMobileRegressionQaTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        setValidTodayBalanceTestInputs();
+        state.goal = "lean_bulk";
+        recentFlowSelectedRangeDays = 7;
+        const today = getTodayDateString();
+        const yesterday = shiftDateString(today, -1);
+        const makeSnapshot = (overrides = {}) => ({
+          targetCal: 2200,
+          protein: 150,
+          carbs: 260,
+          fat: 60,
+          goal: "lean_bulk",
+          routine: "PUSH",
+          weightDuration: 55,
+          weeklyTrainingDays: 5,
+          ...overrides
+        });
+        const makeMeal = (date, id, overrides = {}) => ({
+          id,
+          mealLabel: "식사",
+          carbs: 35,
+          protein: 12,
+          fat: 48,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "",
+          createdAt: `${date}T08:00:00.000Z`,
+          ...overrides
+        });
+        const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
+
+        results.push(runNamedTest("UX2-7 version labels are updated", () => {
+          assertTest(document.title.includes("v6.5-UX2-7"), "document title should show UX2-7");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.5-UX2-7"), "app version badge should show UX2-7");
+        }));
+
+        results.push(runNamedTest("UX2-7 active tab state stays singular", () => {
+          ["today", "records", "weekly", "inbody", "settings"].forEach(name => {
+            setActiveTab(name);
+            const activePanels = Array.from(document.querySelectorAll(".tab-panel.active")).map(panel => panel.id);
+            const activeTabs = Array.from(document.querySelectorAll(".tab-btn.active")).map(button => button.id);
+            assertTest(activePanels.length === 1 && activePanels[0] === `${name}Panel`, `${name} panel should be the only active panel`);
+            assertTest(activeTabs.length === 1 && activeTabs[0] === `tab${name.charAt(0).toUpperCase()}${name.slice(1)}`, `${name} tab should be the only active tab`);
+          });
+        }));
+
+        results.push(runNamedTest("UX2-7 Today record start sheet and saves remain reachable", () => {
+          render();
+          openTodayRecordStartDialog();
+          const overlay = getTodayRecordStartOverlay();
+          assertTest(overlay && !overlay.classList.contains("hidden"), "record start sheet should open");
+          setTodayRecordStartStep("simple");
+          document.querySelector('[data-adherence-value="high"]')?.click();
+          const saved = saveTodayRecordStartSimple();
+          assertTest(saved?.saved === true, "simple record start save should still work");
+          assertTest(getRecordByDate(getTodayDateString())?.recordMode === "simple", "simple start should store simple record");
+          closeTodayRecordStartDialog();
+        }));
+
+        results.push(runNamedTest("UX2-7 Records detail and inline edit remain reachable", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            recordMode: "detailed",
+            weight: 75.2,
+            adherencePercent: 70,
+            adherenceSource: "auto",
+            adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+            goalSnapshot: makeSnapshot(),
+            meals: [
+              makeMeal(today, "m1", { alcoholKcal: 180 }),
+              makeMeal(today, "m2", { otherKcal: 420 })
+            ]
+          }]);
+          ids.recordDate.value = today;
+          renderRecordsPanel();
+          document.querySelector(`[data-toggle-record-detail="${today}"]`)?.click();
+          assertTest(!!document.querySelector(`[data-record-detail-date="${today}"]`), "Records detail should open");
+          document.querySelector(`[data-record-detail-date="${today}"] [data-edit-record-date]`)?.click();
+          assertTest(!!document.querySelector(`[data-record-detail-date="${today}"][data-record-detail-edit="true"]`), "Records inline edit should open");
+          document.querySelector("[data-detail-cancel]")?.click();
+          assertTest(!document.querySelector("[data-record-detail-edit='true']"), "Records inline edit cancel should close edit mode");
+        }));
+
+        results.push(runNamedTest("UX2-7 Records chips keep mode limits", () => {
+          recordsState.items = normalizeRecordsCollection([
+            { date: today, recordMode: "simple", adherence: "low", adherenceSource: "manual", goalSnapshot: makeSnapshot() },
+            { date: yesterday, recordMode: "weight_only", weight: 75 }
+          ]);
+          renderRecordsPanel();
+          const simpleText = document.querySelector(`[data-record-card-date="${today}"]`)?.textContent || "";
+          const weightText = document.querySelector(`[data-record-card-date="${yesterday}"]`)?.textContent || "";
+          assertIncludesAll(simpleText, ["간단 기록", "기록 보완 필요"], "simple record should show record-completion wording");
+          assertIncludesAll(weightText, ["식단 판단 없음", "기록 부족"], "weight-only record should show low-resolution wording");
+          assertExcludesAll(`${simpleText} ${weightText}`, macroLabels, "simple and weight-only cards should not show macro cause chips");
+        }));
+
+        results.push(runNamedTest("UX2-7 InBody and recent flow links remain connected", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            recordMode: "detailed",
+            adherencePercent: 70,
+            adherenceSource: "auto",
+            adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+            goalSnapshot: makeSnapshot(),
+            meals: [
+              makeMeal(today, "l1", { carbs: 35, protein: 12, fat: 48, alcoholKcal: 180 }),
+              makeMeal(today, "l2", { carbs: 30, protein: 10, fat: 42, otherKcal: 420 })
+            ]
+          }]);
+          state.inbodyRecords = [{ date: today, weight: 75.2, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
+          render();
+          setActiveTab("inbody");
+          document.getElementById("viewInbodyRecordsBtn").click();
+          assertTest(uiState.activeTab === "records" && uiState.recordsDetailDate === today, "InBody to Records should open same date detail");
+          document.querySelector(`[data-open-inbody-input="${today}"]`)?.click();
+          assertTest(uiState.activeTab === "inbody" && document.getElementById("inbodyDate").value === today, "Records to InBody should keep selected date");
+          renderWeeklyPanel(calculate());
+          document.querySelector("#recentFlowPreviewHost [data-open-problem-date]")?.click();
+          assertTest(uiState.activeTab === "records" && uiState.recordsDetailDate === today, "recent flow problem date should open Records detail");
+        }));
+
+        results.push(runNamedTest("UX2-7 user-facing copy and fixed constants stay clean", () => {
+          render();
+          const text = getRenderedBodyText();
+          assertExcludesAll(text, ["recordMode", "goalSnapshot", "dietResolution", "permission", "confidence", "primitive", "macroPatternAllowed", "dietCauseAllowed", "autoDietAnalysis", "자동 점수 토글", "InBody gate", "signal", "snapshot", "schema", "draft"], "rendered app copy should hide internal terms");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "UX2-7 should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "UX2-7 should not add five day window");
+        }));
+
+        return results;
+      });
+    }
+
     function runRecordsInlineEditTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -24260,6 +24418,7 @@ Notes:
     window.runRecordsArchiveLayoutTests = runRecordsArchiveLayoutTests;
     window.runInbodyRecordsLinkTests = runInbodyRecordsLinkTests;
     window.runRecentFlowRecordsLinkTests = runRecentFlowRecordsLinkTests;
+    window.runMobileRegressionQaTests = runMobileRegressionQaTests;
     window.runRecordsInlineEditTests = runRecordsInlineEditTests;
     window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runCalculationInputSeparationTests = runCalculationInputSeparationTests;
