@@ -1,6 +1,6 @@
 <!--
-Version: 6.6-A1.1
-Stage: 6.6-A1.1 보정식 QA 모드 커버리지 보강
+Version: 6.6-A1.2
+Stage: 6.6-A1.2 보정식 생리학적 타당성 / 원인 축 분리 QA
 Date: 2026-05-10
 Notes:
 - 보정식 대량 QA를 위한 읽기 전용 리포트 함수 추가
@@ -8,6 +8,9 @@ Notes:
 - 수동 리뷰 40개 스탯 / 자동 스캔 120개 스탯 구성 추가
 - 케이스별 BMR / 활동 / 업무 / 웨이트 / 유산소 / EPOC / 목표 보정 분해표 추가
 - weeklyTrainingDays Xw 반영 제거 후보를 리포트 전용 비교값으로 추가
+- cardio 공식 검산 / weeklyTrainingDays / activity-work / cardio / weightDuration 단독 효과 리뷰 추가
+- combined stack decomposition과 생리학적 classification 리포트 추가
+- 높은 값은 경고나 상한 후보로 단정하지 않고 report-only 검토 대상으로 분류
 - 사용자 화면 노출 없이 개발자용 window QA 함수로만 제공
 - 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
@@ -17,7 +20,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A1.1</title>
+  <title>탄단지 다이어리 v6.6-A1.2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4761,7 +4764,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A1.1</span>
+               <span class="app-version">v6.6-A1.2</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -20826,9 +20829,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("A1.1 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A1.1"), "document title should show v6.6-A1.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A1.1"), "app version badge should show v6.6-A1.1");
+        results.push(runNamedTest("A1.2 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-A1.2"), "document title should show v6.6-A1.2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A1.2"), "app version badge should show v6.6-A1.2");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22302,8 +22305,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A1.1";
-    const CALIBRATION_QA_STAGE = "6.6-A1.1 보정식 QA 모드 커버리지 보강";
+    const CALIBRATION_QA_VERSION = "6.6-A1.2";
+    const CALIBRATION_QA_STAGE = "6.6-A1.2 보정식 생리학적 타당성 / 원인 축 분리 QA";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -22981,6 +22984,611 @@ Notes:
       };
     }
 
+    const CALIBRATION_REVIEW_CLASSIFICATIONS = [
+      "formula_consistent",
+      "physiology_extreme_but_plausible",
+      "overlap_suspect",
+      "formula_suspect",
+      "intake_policy_suspect",
+      "needs_isolated_axis_review"
+    ];
+
+    function normalizeCalibrationReviewClassifications(value){
+      const raw = Array.isArray(value) ? value : [value];
+      const known = new Set(CALIBRATION_REVIEW_CLASSIFICATIONS);
+      const normalized = raw.filter(item => known.has(item));
+      return normalized.length ? [...new Set(normalized)] : ["formula_consistent"];
+    }
+
+    function getCalibrationComboById(items, id){
+      return items.find(item => item.id === id) || items[0];
+    }
+
+    function getCalibrationReviewModes(options = {}){
+      if (Array.isArray(options.modes) && options.modes.length) {
+        return [...new Set(options.modes.map(normalizeCalibrationMode))];
+      }
+      if (options.mode === "all") return ["general", "athlete", "expert"];
+      return [normalizeCalibrationMode(options.mode || "athlete")];
+    }
+
+    function getCalibrationReviewStats(options = {}){
+      const idsToUse = Array.isArray(options.statIds) && options.statIds.length
+        ? new Set(options.statIds)
+        : new Set(["M01", "M06", "M09", "M20", "F01", "F06", "F10", "F20"]);
+      return buildCalibrationManualStats().filter(stat => idsToUse.has(stat.id));
+    }
+
+    function getCalibrationCombinedStackStats(options = {}){
+      const idsToUse = Array.isArray(options.statIds) && options.statIds.length
+        ? new Set(options.statIds)
+        : new Set(["M01", "M09", "M20", "F01", "F10", "F20"]);
+      return buildCalibrationManualStats().filter(stat => idsToUse.has(stat.id));
+    }
+
+    function makeCalibrationReviewScenario(config = {}){
+      const goalCombo = config.goalCombo || getCalibrationComboById(getCalibrationGoalCombos(), config.goalId || "lean");
+      const activityCombo = config.activityCombo || getCalibrationComboById(getCalibrationActivityCombos(), config.activityId || "A2");
+      const weightCombo = config.weightCombo || getCalibrationComboById(getCalibrationWeightCombos(), config.weightId || "W1");
+      const cardioCombo = config.cardioCombo || getCalibrationComboById(getCalibrationCardioCombos(), config.cardioId || "C0");
+      return { goalCombo, activityCombo, weightCombo, cardioCombo };
+    }
+
+    function makeCalibrationReviewWeightCombo(config = {}){
+      const duration = Math.max(0, Number(config.weightDuration) || 0);
+      const weeklyTrainingDays = clamp(Math.round(Number(config.weeklyTrainingDays) || 0), 0, 14);
+      const intensityOverride = duration > 0 ? Number(config.intensityOverride ?? 1) : 0;
+      return {
+        id: config.id || `RW${weeklyTrainingDays}-${duration}`,
+        label: config.label || `weekly ${weeklyTrainingDays} / today ${duration}min`,
+        weeklyTrainingDays,
+        weightDuration: duration,
+        routine: duration > 0 ? (config.routine || "LEGS") : "REST",
+        intensityOverride,
+        routinePlan: config.routinePlan || "ppl_ul"
+      };
+    }
+
+    function makeCalibrationReviewActivityCombo(config = {}){
+      return {
+        id: config.id || `RA-${config.activityLevel || "moderate"}-${config.workType || "office"}-${Number(config.workAdj) || 0}`,
+        label: config.label || `${config.activityLevel || "moderate"} + ${config.workType || "office"}`,
+        activityLevel: config.activityLevel || "moderate",
+        workType: config.workType || "office",
+        workAdj: Number(config.workAdj) || 0
+      };
+    }
+
+    function calculateCalibrationReviewCase(stat, scenarioConfig, sequence, axis, mode, options = {}){
+      const config = buildCalibrationCaseConfig(
+        stat,
+        makeCalibrationReviewScenario(scenarioConfig),
+        sequence,
+        axis,
+        mode
+      );
+      return calculateCalibrationCase(config, { compareWeeklyXw: options.compareWeeklyXw !== false });
+    }
+
+    function compactCalibrationAxisCase(item){
+      const durationHours = Number(item.weightDuration || 0) / 60;
+      const cardioHours = Number(item.cardioDuration || 0) / 60;
+      return {
+        caseId: item.caseId,
+        axis: item.axis,
+        statId: item.statId,
+        mode: item.mode,
+        goal: item.goal,
+        activityCombo: item.activityCombo,
+        weightCombo: item.weightCombo,
+        cardioCombo: item.cardioCombo,
+        weeklyTrainingDays: item.weeklyTrainingDays,
+        weightDuration: item.weightDuration,
+        cardioDuration: item.cardioDuration,
+        cardioSpeed: item.cardioSpeed,
+        cardioIncline: item.cardioIncline,
+        bmr: item.bmr,
+        baseDaily: item.baseDaily,
+        activityCoeff: item.activityCoeff,
+        rawActivityCoeff: item.rawActivityCoeff,
+        workloadY: item.workloadY,
+        trainingBaselineKcal: item.trainingBaselineKcal,
+        xw: item.xw,
+        weeklyXwAdjustment: item.weeklyXwAdjustment,
+        weightKcal: item.weightKcal,
+        cardioMet: item.cardioMet,
+        cardioKcal: item.cardioKcal,
+        epocRate: item.epocRate,
+        epocKcal: item.epocKcal,
+        totalBurn: item.totalBurn,
+        targetCal: item.targetCal,
+        totalBurnToBmr: item.totalBurnToBmr,
+        targetCalToBmr: item.targetCalToBmr,
+        targetCalToTotalBurn: item.targetCalToTotalBurn,
+        weightKcalPerKgHour: durationHours > 0 && item.weight > 0 ? item.weightKcal / item.weight / durationHours : 0,
+        cardioKcalPerKgHour: cardioHours > 0 && item.weight > 0 ? item.cardioKcal / item.weight / cardioHours : 0,
+        currentVsCandidateDelta: item.currentVsCandidateDelta
+      };
+    }
+
+    function addCalibrationCaseInputFields(item, config){
+      return {
+        ...item,
+        weeklyTrainingDays: config.weightCombo.weeklyTrainingDays,
+        weightDuration: config.weightCombo.weightDuration,
+        routine: config.weightCombo.routine,
+        intensityOverride: config.weightCombo.intensityOverride,
+        cardioType: config.cardioCombo.cardioType,
+        cardioDuration: config.cardioCombo.cardioDuration,
+        cardioSpeed: config.cardioCombo.cardioSpeed,
+        cardioIncline: config.cardioCombo.cardioIncline
+      };
+    }
+
+    function calculateCalibrationReviewCaseWithInputs(stat, scenarioConfig, sequence, axis, mode, options = {}){
+      const scenario = makeCalibrationReviewScenario(scenarioConfig);
+      const config = buildCalibrationCaseConfig(stat, scenario, sequence, axis, mode);
+      return addCalibrationCaseInputFields(calculateCalibrationCase(config, { compareWeeklyXw: options.compareWeeklyXw !== false }), config);
+    }
+
+    function getCalibrationSeriesStepDelta(series, fromValue, toValue, valueKey, matchKey){
+      const from = series.find(item => item[matchKey] === fromValue);
+      const to = series.find(item => item[matchKey] === toValue);
+      return from && to && Number.isFinite(from[valueKey]) && Number.isFinite(to[valueKey]) ? to[valueKey] - from[valueKey] : null;
+    }
+
+    function buildCalibrationSeriesDeltas(series, steps, valueKey, matchKey){
+      return Object.fromEntries(steps.map(([from, to]) => [
+        `${from}to${to}`,
+        getCalibrationSeriesStepDelta(series, from, to, valueKey, matchKey)
+      ]));
+    }
+
+    function buildCardioCodeFormulaParts(cardioCombo){
+      const durationMin = Math.max(0, Number(cardioCombo.cardioDuration) || 0);
+      const speedKmh = Math.max(0, Number(cardioCombo.cardioSpeed) || 0);
+      const speedMMin = speedKmh * 1000 / 60;
+      const inclinePercent = Math.max(0, Number(cardioCombo.cardioIncline) || 0);
+      const inclineDecimal = inclinePercent / 100;
+      let formulaType = "outdoor_run_flat";
+      let estimatedVO2 = 0.2 * speedMMin + 3.5;
+      let metFloor = 3;
+      if (cardioCombo.cardioType === "treadmill_walk"){
+        formulaType = "treadmill_walk_acsm_style";
+        estimatedVO2 = 0.1 * speedMMin + 1.8 * speedMMin * inclineDecimal + 3.5;
+        metFloor = 2;
+      } else if (cardioCombo.cardioType === "treadmill_run"){
+        formulaType = "treadmill_run_acsm_style";
+        estimatedVO2 = 0.2 * speedMMin + 0.9 * speedMMin * inclineDecimal + 3.5;
+      } else if (speedKmh < OUTDOOR_RUN_WALK_THRESHOLD_KMH){
+        formulaType = "outdoor_walk_flat";
+        estimatedVO2 = 0.1 * speedMMin + 3.5;
+        metFloor = 2;
+      }
+      const estimatedMETFromCodeFormula = Math.max(metFloor, estimatedVO2 / 3.5);
+      const effectiveExpectedMet = durationMin > 0 && speedKmh > 0 ? estimatedMETFromCodeFormula : 0;
+      const codeCardio = calcCardio({
+        weight: 75,
+        cardioType: cardioCombo.cardioType,
+        cardioDuration: durationMin,
+        cardioSpeed: speedKmh,
+        cardioIncline: inclinePercent
+      });
+      return {
+        cardioCombo: cardioCombo.id,
+        cardioType: cardioCombo.cardioType,
+        durationMin,
+        speedKmh,
+        speedMMin,
+        inclinePercent,
+        inclineDecimal,
+        codeFormulaType: formulaType,
+        estimatedVO2FromCodeFormula: estimatedVO2,
+        estimatedMETFromCodeFormula,
+        codeCardioMet: codeCardio.met,
+        metDifference: codeCardio.met - effectiveExpectedMet,
+        kcalPerKgHour: codeCardio.met,
+        epocRate: getEpocRate(codeCardio.met)
+      };
+    }
+
+    function classifyCardioFormulaReview(item){
+      if (!Number.isFinite(item.codeCardioMet) || !Number.isFinite(item.estimatedMETFromCodeFormula) || Math.abs(item.metDifference) > 0.0001) {
+        return ["formula_suspect"];
+      }
+      const classes = ["formula_consistent"];
+      if (["C4", "C5"].includes(item.cardioCombo)) classes.push("physiology_extreme_but_plausible");
+      return classes;
+    }
+
+    function buildCardioFormulaReview(options = {}){
+      const mode = normalizeCalibrationMode(options.mode);
+      const stats = getCalibrationReviewStats(options);
+      const goalCombo = getCalibrationComboById(getCalibrationGoalCombos(), "lean");
+      const activityCombo = getCalibrationComboById(getCalibrationActivityCombos(), "A2");
+      const weightCombo = makeCalibrationReviewWeightCombo({ id: "formula-rest", weeklyTrainingDays: 0, weightDuration: 0 });
+      const items = getCalibrationCardioCombos().map((cardioCombo, index) => {
+        const cases = stats.map((stat, statIndex) => calculateCalibrationReviewCaseWithInputs(stat, {
+          goalCombo,
+          activityCombo,
+          weightCombo,
+          cardioCombo
+        }, statIndex, "cardioFormula", mode, options));
+        const formula = buildCardioCodeFormulaParts(cardioCombo);
+        const item = {
+          ...formula,
+          medianCardioKcal: summarizeCalibrationValues(cases.map(item => item.cardioKcal)).median,
+          maxCardioKcal: summarizeCalibrationValues(cases.map(item => item.cardioKcal)).max,
+          medianEpocKcal: summarizeCalibrationValues(cases.map(item => item.epocKcal)).median,
+          classification: classifyCardioFormulaReview({ ...formula, cardioCombo: cardioCombo.id }),
+          note: index >= 4
+            ? "High treadmill output is reviewed as code-formula decomposition first, not as a cap or warning candidate."
+            : "Code formula review, report-only."
+        };
+        return item;
+      });
+      return {
+        axis: "cardioFormula",
+        mode,
+        items,
+        notes: [
+          "Current calcCardioMet() code path is the primary reference.",
+          "ACSM-style treadmill estimates are used only when they match the existing code shape.",
+          "No cardio cap, warning, or production formula change is introduced here."
+        ]
+      };
+    }
+
+    function classifyWeeklyIsolatedGroup(series){
+      const maxCandidateDelta = Math.max(...series.map(item => Math.abs(item.currentVsCandidateDelta?.targetCal || 0)));
+      if (maxCandidateDelta > 120) return ["overlap_suspect"];
+      return ["formula_consistent"];
+    }
+
+    function buildWeeklyTrainingIsolatedReview(options = {}){
+      const modes = getCalibrationReviewModes(options);
+      const stats = getCalibrationReviewStats(options);
+      const weeklyDays = [0, 1, 2, 3, 4, 5, 6, 7];
+      const durations = [0, 60, 90, 120];
+      const goalCombo = getCalibrationComboById(getCalibrationGoalCombos(), "lean");
+      const activityCombo = getCalibrationComboById(getCalibrationActivityCombos(), "A2");
+      const cardioCombo = getCalibrationComboById(getCalibrationCardioCombos(), "C0");
+      const groups = [];
+      modes.forEach(mode => {
+        stats.forEach(stat => {
+          durations.forEach(duration => {
+            const series = weeklyDays.map(day => {
+              const weightCombo = makeCalibrationReviewWeightCombo({
+                id: `weekly-only-${day}-${duration}`,
+                weeklyTrainingDays: day,
+                weightDuration: duration,
+                routine: duration > 0 ? "LEGS" : "REST",
+                intensityOverride: duration > 0 ? 1 : 0
+              });
+              return compactCalibrationAxisCase(calculateCalibrationReviewCaseWithInputs(stat, {
+                goalCombo,
+                activityCombo,
+                weightCombo,
+                cardioCombo
+              }, day, "weeklyTrainingDaysOnly", mode, options));
+            });
+            groups.push({
+              mode,
+              statId: stat.id,
+              weightDuration: duration,
+              fixedAxes: {
+                goal: goalCombo.goal,
+                activityCombo: activityCombo.id,
+                workType: activityCombo.workType,
+                cardioCombo: cardioCombo.id,
+                routine: duration > 0 ? "LEGS" : "REST",
+                intensityOverride: duration > 0 ? 1 : 0
+              },
+              weeklyOnlyDelta: {
+                targetCal: buildCalibrationSeriesDeltas(series, [[0, 3], [3, 4], [4, 5], [5, 7]], "targetCal", "weeklyTrainingDays"),
+                totalBurn: buildCalibrationSeriesDeltas(series, [[0, 3], [3, 4], [4, 5], [5, 7]], "totalBurn", "weeklyTrainingDays"),
+                weightKcal: buildCalibrationSeriesDeltas(series, [[0, 3], [3, 4], [4, 5], [5, 7]], "weightKcal", "weeklyTrainingDays")
+              },
+              classification: classifyWeeklyIsolatedGroup(series),
+              note: "weeklyTrainingDays changes only; today weight duration, activity, work, cardio, and goal stay fixed.",
+              series
+            });
+          });
+        });
+      });
+      return {
+        axis: "weeklyTrainingDays",
+        modes,
+        weeklyDays,
+        weightDurations: durations,
+        groups,
+        notes: [
+          "This review separates weeklyTrainingDays-only effects from W0/W1 combined training changes.",
+          "current vs candidate-no-weekly-xw remains a report-only model comparison."
+        ]
+      };
+    }
+
+    function buildActivityWorkIsolatedReview(options = {}){
+      const modes = getCalibrationReviewModes(options);
+      const stats = getCalibrationReviewStats(options);
+      const goalCombo = getCalibrationComboById(getCalibrationGoalCombos(), "lean");
+      const weightCombo = makeCalibrationReviewWeightCombo({ id: "activity-work-fixed-weight", weeklyTrainingDays: 3, weightDuration: 60, routine: "PUSH", intensityOverride: 0.8 });
+      const cardioCombo = getCalibrationComboById(getCalibrationCardioCombos(), "C0");
+      const activityLevels = Object.keys(ACTIVITY_COEFF);
+      const workTypes = Object.keys(WORK_TYPE_Y);
+      const combined = getCalibrationActivityCombos();
+      const makeSeries = (mode, stat, axis, combos) => combos.map((activityCombo, index) => compactCalibrationAxisCase(calculateCalibrationReviewCaseWithInputs(stat, {
+        goalCombo,
+        activityCombo,
+        weightCombo,
+        cardioCombo
+      }, index, axis, mode, options)));
+      const buildGroup = (mode, stat, axis, combos) => {
+        const series = makeSeries(mode, stat, axis, combos);
+        return {
+          mode,
+          statId: stat.id,
+          axis,
+          fixedAxes: { goal: goalCombo.goal, weightCombo: weightCombo.id, cardioCombo: cardioCombo.id },
+          stepDelta: {
+            targetCal: series.slice(1).map((item, index) => item.targetCal - series[index].targetCal),
+            totalBurn: series.slice(1).map((item, index) => item.totalBurn - series[index].totalBurn),
+            baseDaily: series.slice(1).map((item, index) => item.baseDaily - series[index].baseDaily)
+          },
+          classification: axis === "activityWorkCombined" ? ["needs_isolated_axis_review"] : ["formula_consistent"],
+          note: axis === "activityWorkCombined"
+            ? "Combined activity/work stack is compared with activityOnly and workOnly before treating it as a defect."
+            : "Single-axis activity/work review.",
+          series
+        };
+      };
+      const groups = { activityOnly: [], workOnly: [], activityWorkCombined: [] };
+      modes.forEach(mode => {
+        stats.forEach(stat => {
+          groups.activityOnly.push(buildGroup(mode, stat, "activityOnly", activityLevels.map(activityLevel => makeCalibrationReviewActivityCombo({
+            id: `activity-${activityLevel}`,
+            activityLevel,
+            workType: "office",
+            workAdj: 0
+          }))));
+          groups.workOnly.push(buildGroup(mode, stat, "workOnly", workTypes.map(workType => makeCalibrationReviewActivityCombo({
+            id: `work-${workType}`,
+            activityLevel: "moderate",
+            workType,
+            workAdj: 0
+          }))));
+          groups.activityWorkCombined.push(buildGroup(mode, stat, "activityWorkCombined", combined));
+        });
+      });
+      return {
+        axis: "activityWork",
+        modes,
+        groups,
+        notes: [
+          "A5 is not automatically treated as a defect; this section separates activityLevel-only, workType-only, and combined effects.",
+          "activityKcalEstimate and workKcalEstimate remain estimates because production baseDaily combines both in activityCoeff."
+        ]
+      };
+    }
+
+    function buildCardioIsolatedReview(options = {}){
+      const modes = getCalibrationReviewModes(options);
+      const stats = getCalibrationReviewStats(options);
+      const goalCombo = getCalibrationComboById(getCalibrationGoalCombos(), "lean");
+      const activityCombo = getCalibrationComboById(getCalibrationActivityCombos(), "A2");
+      const weightCombo = makeCalibrationReviewWeightCombo({ id: "cardio-only-fixed-weight", weeklyTrainingDays: 3, weightDuration: 60, routine: "PUSH", intensityOverride: 0.8 });
+      const cardioCombos = getCalibrationCardioCombos();
+      const groups = [];
+      modes.forEach(mode => {
+        stats.forEach(stat => {
+          const series = cardioCombos.map((cardioCombo, index) => {
+            const item = compactCalibrationAxisCase(calculateCalibrationReviewCaseWithInputs(stat, {
+              goalCombo,
+              activityCombo,
+              weightCombo,
+              cardioCombo
+            }, index, "cardioOnly", mode, options));
+            const formula = buildCardioCodeFormulaParts(cardioCombo);
+            return {
+              ...item,
+              formulaVO2: formula.estimatedVO2FromCodeFormula,
+              formulaMET: formula.estimatedMETFromCodeFormula,
+              kcalPerKgHour: item.cardioKcalPerKgHour,
+              classification: normalizeCalibrationReviewClassifications(classifyCardioFormulaReview({ ...formula, cardioCombo: cardioCombo.id }))
+            };
+          });
+          const baseline = series.find(item => item.cardioCombo === "C0") || series[0];
+          groups.push({
+            mode,
+            statId: stat.id,
+            fixedAxes: { goal: goalCombo.goal, activityCombo: activityCombo.id, weightCombo: weightCombo.id },
+            cardioOnlyDelta: Object.fromEntries(series.map(item => [item.cardioCombo, item.targetCal - baseline.targetCal])),
+            epocOnlyDelta: Object.fromEntries(series.map(item => [item.cardioCombo, item.epocKcal - baseline.epocKcal])),
+            classification: series.some(item => item.classification.includes("physiology_extreme_but_plausible"))
+              ? ["physiology_extreme_but_plausible"]
+              : ["formula_consistent"],
+            note: "C0-C5 changes only cardio inputs; high C4/C5 output is formula-reviewed before any policy judgment.",
+            series
+          });
+        });
+      });
+      return { axis: "cardioOnly", modes, groups };
+    }
+
+    function buildWeightDurationIsolatedReview(options = {}){
+      const modes = getCalibrationReviewModes(options);
+      const stats = getCalibrationReviewStats(options);
+      const durations = [0, 30, 60, 90, 120, 150];
+      const goalCombo = getCalibrationComboById(getCalibrationGoalCombos(), "lean");
+      const activityCombo = getCalibrationComboById(getCalibrationActivityCombos(), "A2");
+      const cardioCombo = getCalibrationComboById(getCalibrationCardioCombos(), "C0");
+      const groups = [];
+      modes.forEach(mode => {
+        stats.forEach(stat => {
+          const series = durations.map(duration => {
+            const weightCombo = makeCalibrationReviewWeightCombo({
+              id: `duration-only-${duration}`,
+              weeklyTrainingDays: 5,
+              weightDuration: duration,
+              routine: duration > 0 ? "LEGS" : "REST",
+              intensityOverride: duration > 0 ? 1 : 0
+            });
+            return compactCalibrationAxisCase(calculateCalibrationReviewCaseWithInputs(stat, {
+              goalCombo,
+              activityCombo,
+              weightCombo,
+              cardioCombo
+            }, duration, "weightDurationOnly", mode, options));
+          });
+          const baseline = series.find(item => item.weightDuration === 0) || series[0];
+          groups.push({
+            mode,
+            statId: stat.id,
+            fixedAxes: { goal: goalCombo.goal, activityCombo: activityCombo.id, cardioCombo: cardioCombo.id, weeklyTrainingDays: 5, routine: "LEGS" },
+            durationOnlyDelta: Object.fromEntries(series.map(item => [String(item.weightDuration), item.targetCal - baseline.targetCal])),
+            classification: ["formula_consistent"],
+            note: "weightDuration changes only; weekly baseline and cardio stay fixed.",
+            series
+          });
+        });
+      });
+      return { axis: "weightDurationOnly", modes, durations, groups };
+    }
+
+    function buildCombinedStackDecomposition(options = {}){
+      const modes = getCalibrationReviewModes(options);
+      const stats = getCalibrationCombinedStackStats(options);
+      const goalCombo = getCalibrationComboById(getCalibrationGoalCombos(), options.goalId || "bulk");
+      const activityA1 = getCalibrationComboById(getCalibrationActivityCombos(), "A1");
+      const activityA5 = getCalibrationComboById(getCalibrationActivityCombos(), "A5");
+      const weightW0 = getCalibrationComboById(getCalibrationWeightCombos(), "W0");
+      const weightW5 = getCalibrationComboById(getCalibrationWeightCombos(), "W5");
+      const cardioC0 = getCalibrationComboById(getCalibrationCardioCombos(), "C0");
+      const cardioC5 = getCalibrationComboById(getCalibrationCardioCombos(), "C5");
+      const variants = [
+        { id: "baseline", label: "A1 + W0 + C0", activityCombo: activityA1, weightCombo: weightW0, cardioCombo: cardioC0 },
+        { id: "activityOnly", label: "A5 + W0 + C0", activityCombo: activityA5, weightCombo: weightW0, cardioCombo: cardioC0 },
+        { id: "weightOnly", label: "A1 + W5 + C0", activityCombo: activityA1, weightCombo: weightW5, cardioCombo: cardioC0 },
+        { id: "cardioOnly", label: "A1 + W0 + C5", activityCombo: activityA1, weightCombo: weightW0, cardioCombo: cardioC5 },
+        { id: "activityWeight", label: "A5 + W5 + C0", activityCombo: activityA5, weightCombo: weightW5, cardioCombo: cardioC0 },
+        { id: "activityCardio", label: "A5 + W0 + C5", activityCombo: activityA5, weightCombo: weightW0, cardioCombo: cardioC5 },
+        { id: "weightCardio", label: "A1 + W5 + C5", activityCombo: activityA1, weightCombo: weightW5, cardioCombo: cardioC5 },
+        { id: "fullStack", label: "A5 + W5 + C5", activityCombo: activityA5, weightCombo: weightW5, cardioCombo: cardioC5 }
+      ];
+      const groups = [];
+      modes.forEach(mode => {
+        stats.forEach(stat => {
+          const series = variants.map((variant, index) => {
+            const item = compactCalibrationAxisCase(calculateCalibrationReviewCaseWithInputs(stat, {
+              goalCombo,
+              activityCombo: variant.activityCombo,
+              weightCombo: variant.weightCombo,
+              cardioCombo: variant.cardioCombo
+            }, index, "combinedStack", mode, options));
+            return { ...item, variant: variant.id, variantLabel: variant.label };
+          });
+          const baseline = series.find(item => item.variant === "baseline") || series[0];
+          groups.push({
+            mode,
+            statId: stat.id,
+            goal: goalCombo.goal,
+            contributionVsBaseline: Object.fromEntries(series.map(item => [item.variant, {
+              totalBurn: item.totalBurn - baseline.totalBurn,
+              targetCal: item.targetCal - baseline.targetCal,
+              baseDaily: item.baseDaily - baseline.baseDaily,
+              trainingBaselineKcal: item.trainingBaselineKcal - baseline.trainingBaselineKcal,
+              weightKcal: item.weightKcal - baseline.weightKcal,
+              cardioKcal: item.cardioKcal - baseline.cardioKcal,
+              epocKcal: item.epocKcal - baseline.epocKcal
+            }])),
+            classification: ["needs_isolated_axis_review"],
+            note: "Full stack is high-input decomposition, not a warning or cap candidate by itself.",
+            series
+          });
+        });
+      });
+      return { axis: "combinedStack", modes, variants: variants.map(item => ({ id: item.id, label: item.label })), groups };
+    }
+
+    function compactCalibrationReviewClassifiedItem(item){
+      return {
+        axis: item.axis,
+        mode: item.mode,
+        statId: item.statId,
+        caseId: item.caseId,
+        cardioCombo: item.cardioCombo,
+        variant: item.variant,
+        classification: item.classification,
+        note: item.note
+      };
+    }
+
+    function collectCalibrationReviewClassifications(value, buckets){
+      if (!value || typeof value !== "object") return buckets;
+      if (Array.isArray(value)) {
+        value.forEach(item => collectCalibrationReviewClassifications(item, buckets));
+        return buckets;
+      }
+      if (value.classification || value.classifications) {
+        normalizeCalibrationReviewClassifications(value.classification || value.classifications)
+          .forEach(key => buckets[key].push(compactCalibrationReviewClassifiedItem(value)));
+      }
+      Object.entries(value).forEach(([key, item]) => {
+        if (key !== "classifications") collectCalibrationReviewClassifications(item, buckets);
+      });
+      return buckets;
+    }
+
+    function buildCalibrationReviewClassificationBuckets(review){
+      const buckets = Object.fromEntries(CALIBRATION_REVIEW_CLASSIFICATIONS.map(key => [key, []]));
+      return collectCalibrationReviewClassifications(review, buckets);
+    }
+
+    function runCalibrationPhysiologyReview(options = {}){
+      return withCalibrationReportSandbox(() => {
+        const mode = normalizeCalibrationMode(options.mode);
+        const modes = getCalibrationReviewModes(options);
+        const compareWeeklyXw = options.compareWeeklyXw !== false;
+        const reviewOptions = { ...options, compareWeeklyXw };
+        const physiologyReview = {
+          cardioFormula: options.includeFormulaReview === false ? null : buildCardioFormulaReview({ ...reviewOptions, mode }),
+          isolatedAxes: {
+            weeklyTrainingDays: buildWeeklyTrainingIsolatedReview(reviewOptions),
+            activityWork: buildActivityWorkIsolatedReview(reviewOptions),
+            cardioOnly: buildCardioIsolatedReview(reviewOptions),
+            weightDurationOnly: buildWeightDurationIsolatedReview(reviewOptions)
+          },
+          combinedStack: options.includeCombinedStack === false ? null : buildCombinedStackDecomposition(reviewOptions),
+          classifications: {},
+          notes: [
+            "A1.2 is a report-only physiology review. It does not change production formulas or user-facing output.",
+            "High values are not treated as defects unless a formula, overlap, or intake policy question is separately indicated.",
+            "Extreme cardio inputs are reviewed as code-formula decomposition first, not as caps or warnings."
+          ]
+        };
+        physiologyReview.classifications = buildCalibrationReviewClassificationBuckets(physiologyReview);
+        const report = {
+          meta: {
+            version: CALIBRATION_QA_VERSION,
+            stage: CALIBRATION_QA_STAGE,
+            generatedAt: new Date().toISOString(),
+            mode,
+            modes,
+            compareWeeklyXw,
+            full: false,
+            reportOnly: true
+          },
+          physiologyReview
+        };
+        if (options.log === true) {
+          console.log("Calibration physiology review", report.meta);
+          console.table(Object.fromEntries(Object.entries(physiologyReview.classifications).map(([key, items]) => [key, items.length])));
+        }
+        return report;
+      });
+    }
+
     function buildCalibrationManualReview(options = {}){
       const mode = normalizeCalibrationMode(options.mode);
       const representativeScenario = {
@@ -23059,6 +23667,9 @@ Notes:
             summary: buildCalibrationSummary(cases),
             byAxis: mapCalibrationGroupSummaries(cases, item => item.axis)
           } : {},
+          physiologyReview: options.includePhysiologyReview === true
+            ? runCalibrationPhysiologyReview({ mode, modes: [mode], compareWeeklyXw, log: false }).physiologyReview
+            : null,
           modeCoverage: null,
           cases: includeCases ? cases : []
         };
@@ -23237,6 +23848,109 @@ Notes:
           assertTest(typeof window.runCalibrationScanReport === "function", "runCalibrationScanReport should be exported");
           assertTest(typeof window.runCalibrationModeCoverageReport === "function", "runCalibrationModeCoverageReport should be exported");
           assertTest(typeof window.runCalibrationScanReportTests === "function", "runCalibrationScanReportTests should be exported");
+          assertTest(typeof window.runCalibrationPhysiologyReview === "function", "runCalibrationPhysiologyReview should be exported");
+          assertTest(typeof window.runCalibrationPhysiologyReviewTests === "function", "runCalibrationPhysiologyReviewTests should be exported");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+        }));
+
+        return results;
+      });
+    }
+
+    function runCalibrationPhysiologyReviewTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        results.push(runNamedTest("A1.2 physiology review returns report object without full scan", () => {
+          const report = runCalibrationPhysiologyReview();
+          assertTest(report && typeof report === "object", "physiology review should return an object");
+          assertTest(report.meta.full === false, "physiology review should not run full scan by default");
+          assertTest(report.meta.reportOnly === true, "physiology review should be marked report-only");
+          assertTest(report.physiologyReview && typeof report.physiologyReview === "object", "physiology review section should exist");
+          assertTest(findInvalidCalibrationNumber(report).length === 0, "physiology review should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("A1.2 cardio formula review covers C0-C5 and keeps C5 non-suspect by height alone", () => {
+          const report = runCalibrationPhysiologyReview({ mode: "athlete" });
+          const items = report.physiologyReview.cardioFormula.items;
+          const ids = items.map(item => item.cardioCombo);
+          ["C0", "C1", "C2", "C3", "C4", "C5"].forEach(id => assertTest(ids.includes(id), `${id} should be in cardio formula review`));
+          const c5 = items.find(item => item.cardioCombo === "C5");
+          assertTest(Number.isFinite(c5.codeCardioMet), "C5 code MET should be finite");
+          assertTest(Number.isFinite(c5.estimatedVO2FromCodeFormula), "C5 formula VO2 should be finite");
+          assertTest(!c5.classification.includes("formula_suspect"), "C5 should not become formula_suspect only because it is high");
+          assertTest(c5.classification.includes("physiology_extreme_but_plausible"), "C5 should be marked as extreme but plausible when formula-consistent");
+        }));
+
+        results.push(runNamedTest("A1.2 weeklyTrainingDays review isolates weekly 0-7 by mode", () => {
+          const report = runCalibrationPhysiologyReview({ modes: ["general", "athlete", "expert"], statIds: ["M09"] });
+          const weekly = report.physiologyReview.isolatedAxes.weeklyTrainingDays;
+          assertTest(JSON.stringify(weekly.weeklyDays) === JSON.stringify([0, 1, 2, 3, 4, 5, 6, 7]), "weekly isolated review should include 0-7 days");
+          ["general", "athlete", "expert"].forEach(mode => {
+            assertTest(weekly.groups.some(group => group.mode === mode), `${mode} weekly group should exist`);
+          });
+          const sample = weekly.groups.find(group => group.mode === "athlete" && group.weightDuration === 60);
+          assertTest(!!sample, "athlete 60min weekly isolated group should exist");
+          assertTest(sample.series.length === 8, "weekly isolated group should have eight weekly points");
+          assertTest(sample.series.every(item => item.weightDuration === 60), "weightDuration should stay fixed in weekly isolated series");
+          assertTest(sample.series.every(item => item.cardioCombo === "C0"), "cardio should stay fixed in weekly isolated series");
+        }));
+
+        results.push(runNamedTest("A1.2 activity/work axes are separated", () => {
+          const report = runCalibrationPhysiologyReview({ mode: "athlete", statIds: ["M09"] });
+          const activityWork = report.physiologyReview.isolatedAxes.activityWork.groups;
+          assertTest(activityWork.activityOnly.length > 0, "activityOnly groups should exist");
+          assertTest(activityWork.workOnly.length > 0, "workOnly groups should exist");
+          assertTest(activityWork.activityWorkCombined.length > 0, "activityWorkCombined groups should exist");
+          assertTest(activityWork.activityOnly[0].series.every(item => item.workloadY === 0), "activityOnly should keep office/workAdj zero");
+          assertTest(activityWork.workOnly[0].series.every(item => item.activityCombo.startsWith("work-")), "workOnly should use work-only activity combo ids");
+        }));
+
+        results.push(runNamedTest("A1.2 cardioOnly and weightDurationOnly axes stay isolated", () => {
+          const report = runCalibrationPhysiologyReview({ mode: "athlete", statIds: ["M09"] });
+          const cardioGroup = report.physiologyReview.isolatedAxes.cardioOnly.groups[0];
+          assertTest(cardioGroup.series.map(item => item.cardioCombo).join(",") === "C0,C1,C2,C3,C4,C5", "cardioOnly should cover C0-C5");
+          assertTest(cardioGroup.series.every(item => item.weightCombo === "cardio-only-fixed-weight"), "cardioOnly should keep weight combo fixed");
+          const weightGroup = report.physiologyReview.isolatedAxes.weightDurationOnly.groups[0];
+          assertTest(weightGroup.series.map(item => item.weightDuration).join(",") === "0,30,60,90,120,150", "weightDurationOnly should cover 0/30/60/90/120/150");
+          assertTest(weightGroup.series.every(item => item.cardioCombo === "C0"), "weightDurationOnly should keep cardio fixed");
+        }));
+
+        results.push(runNamedTest("A1.2 combined stack decomposition includes baseline and full stack", () => {
+          const report = runCalibrationPhysiologyReview({ mode: "athlete", statIds: ["M09"] });
+          const combined = report.physiologyReview.combinedStack;
+          const variants = combined.variants.map(item => item.id);
+          ["baseline", "activityOnly", "weightOnly", "cardioOnly", "activityWeight", "activityCardio", "weightCardio", "fullStack"].forEach(id => {
+            assertTest(variants.includes(id), `${id} variant should exist`);
+          });
+          const group = combined.groups[0];
+          assertTest(!!group.contributionVsBaseline.fullStack, "full stack contribution should exist");
+          assertTest(group.classification.includes("needs_isolated_axis_review"), "combined stack should request isolated axis review instead of direct formula blame");
+        }));
+
+        results.push(runNamedTest("A1.2 classifications and existing A1.1 reports remain available", () => {
+          const report = runCalibrationPhysiologyReview({ mode: "athlete", statIds: ["M09"] });
+          const classes = report.physiologyReview.classifications;
+          CALIBRATION_REVIEW_CLASSIFICATIONS.forEach(key => assertTest(Array.isArray(classes[key]), `${key} classification bucket should exist`));
+          assertTest(classes.formula_consistent.length > 0, "formula_consistent bucket should have review items");
+          assertTest(classes.physiology_extreme_but_plausible.length > 0, "extreme but plausible bucket should have review items");
+          const scan = runCalibrationScanReport({ mode: "athlete", profileSet: "manual", limitScenarios: 1 });
+          const coverage = runCalibrationModeCoverageReport({ limitScenarios: 1, limitCandidates: 3 });
+          assertTest(scan.meta.caseCount === 40, "existing scan report should still run");
+          assertTest(coverage.meta.fullAthlete === false, "mode coverage should still keep full athlete opt-in");
+        }));
+
+        results.push(runNamedTest("A1.2 physiology review restores state and protected constants", () => {
+          setMacroCalibrationInputs("lean_bulk");
+          state.weeklyTrainingDaysManual = true;
+          const before = calculate();
+          const beforeRecords = JSON.stringify(recordsState.items);
+          runCalibrationPhysiologyReview({ modes: ["general", "athlete", "expert"], statIds: ["M09", "F10"] });
+          const after = calculate();
+          assertClose(after.targetCal, before.targetCal, 0.0001, "physiology review should not change production targetCal");
+          assertClose(after.totalBurn, before.totalBurn, 0.0001, "physiology review should not change production totalBurn");
+          assertTest(JSON.stringify(recordsState.items) === beforeRecords, "physiology review should not mutate records");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
         }));
@@ -26017,7 +26731,9 @@ Notes:
     window.runMacroCalibrationTests = runMacroCalibrationTests;
     window.runCalibrationScanReport = runCalibrationScanReport;
     window.runCalibrationModeCoverageReport = runCalibrationModeCoverageReport;
+    window.runCalibrationPhysiologyReview = runCalibrationPhysiologyReview;
     window.runCalibrationScanReportTests = runCalibrationScanReportTests;
+    window.runCalibrationPhysiologyReviewTests = runCalibrationPhysiologyReviewTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
     window.runInbodyTrendContextTests = runInbodyTrendContextTests;
