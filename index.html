@@ -1,13 +1,12 @@
 <!--
-Version: 6.5-UX2-8
-Stage: 6.5-UX2-8 Records / Settings 압축 polish
-Date: 2026-05-08
+Version: 6.5-UX2-9
+Stage: 6.5-UX2-9 Today Coach 출력 슬롯 중복 정리
+Date: 2026-05-10
 Notes:
-- Records 기록 보관함은 유지하고 직접 입력 / 수정 영역을 보조 접힘 구조로 압축
-- Settings 계산 기준 설정을 신체 정보 / 활동 / 훈련 / 유산소 / InBody 저장 단위로 압축
-- 모바일 390px 기준 긴 폼 노출과 overflow를 최소화
-- UX2-1 ~ UX2-7 연결 흐름 유지
-- 새 기능 추가 없이 명확한 화면 밀도 문제만 최소 수정
+- Today Coach 상단 summary와 첫 번째 Coach block의 동일 action 반복 제거
+- summary는 오늘 먼저 할 일 역할 유지
+- 첫 번째 block의 상태 / 이유는 유지
+- action-only 첫 번째 Coach item은 빈 block 없이 summary에만 표시
 - 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
@@ -16,7 +15,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-UX2-8</title>
+  <title>탄단지 다이어리 v6.5-UX2-9</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4760,7 +4759,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-UX2-8</span>
+               <span class="app-version">v6.5-UX2-9</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -13079,6 +13078,83 @@ Notes:
     }
 
     */
+    function getCoachPanelSummaryText(coachItems){
+      const firstItem = Array.isArray(coachItems) ? coachItems.find(Boolean) : null;
+      const state = String(firstItem?.state || "").trim();
+      const action = String(firstItem?.action || "").trim();
+      if (action) return action;
+      if (state) return state;
+      return "오늘은 기록부터 이어가세요.";
+    }
+
+    function isSameCoachSlotCopy(a, b){
+      return String(a || "").trim() === String(b || "").trim();
+    }
+
+    function renderCoachPanelContent(host, coachItems, coach = {}){
+      host.innerHTML = `
+        <div class="panel coach-panel">
+          <div class="eyebrow"><span class="ui-icon-badge badge-coach">코치</span>오늘 코치</div>
+          <h3>오늘 먼저 할 일</h3>
+          <div class="coach-summary" data-coach-summary></div>
+          <div class="coach-grid" data-coach-grid></div>
+        </div>
+      `;
+      const summaryEl = host.querySelector("[data-coach-summary]");
+      const gridEl = host.querySelector("[data-coach-grid]");
+      if (summaryEl) {
+        summaryEl.textContent = getCoachPanelSummaryText(coachItems);
+      }
+      const summaryText = summaryEl?.textContent || getCoachPanelSummaryText(coachItems);
+      const hasContextGuardCard = coachItems.some(item => !!item?.contextGuardType);
+      if (coach?.confidence && !hasContextGuardCard) {
+        const confidenceEl = document.createElement("div");
+        confidenceEl.className = "coach-summary";
+        confidenceEl.textContent = coach.confidence;
+        gridEl?.before(confidenceEl);
+      }
+      if (coach?.contextNotice) {
+        const contextNoticeEl = document.createElement("div");
+        contextNoticeEl.className = "coach-summary";
+        contextNoticeEl.textContent = coach.contextNotice;
+        gridEl?.before(contextNoticeEl);
+      }
+      if (!gridEl) return;
+      coachItems.forEach((item, index) => {
+        const stateCopy = String(item?.state || "").trim();
+        const reasonCopy = String(item?.reason || "").trim();
+        const actionCopy = String(item?.action || "").trim();
+        const shouldRenderAction = actionCopy && !(index === 0 && isSameCoachSlotCopy(summaryText, actionCopy));
+        if (!stateCopy && !reasonCopy && !shouldRenderAction) return;
+        const block = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "k";
+        title.textContent = stateCopy || "현재 상태";
+        block.className = "coach-block";
+        block.append(title);
+        if (shouldRenderAction) {
+          const action = document.createElement("div");
+          action.className = "v coach-action";
+          action.textContent = `행동: ${actionCopy}`;
+          block.appendChild(action);
+        }
+        if (reasonCopy) {
+          const reason = document.createElement("div");
+          reason.className = "v coach-reason";
+          reason.textContent = `이유: ${reasonCopy}`;
+          block.appendChild(reason);
+        }
+        gridEl.appendChild(block);
+      });
+      const coachContainer = host.querySelector(".coach-panel");
+      if (coach?.inbodyHint && coachContainer) {
+        const hintEl = document.createElement("div");
+        hintEl.className = "coach-inbody-hint";
+        hintEl.textContent = coach.inbodyHint;
+        coachContainer.appendChild(hintEl);
+      }
+    }
+
     function renderCoachPanel(r, balance, adherenceResult, options = {}){
       const host = document.getElementById("coachHost");
       if (!host) return;
@@ -13098,61 +13174,7 @@ Notes:
           action: "다음 식사도 탄수화물·단백질·지방으로 나눠 기록하세요."
         }];
 
-      host.innerHTML = `
-        <div class="panel coach-panel">
-          <div class="eyebrow"><span class="ui-icon-badge badge-coach">코치</span>오늘 코치</div>
-          <h3>오늘 먼저 할 일</h3>
-          <div class="coach-summary" data-coach-summary></div>
-          <div class="coach-grid" data-coach-grid></div>
-        </div>
-      `;
-      const summaryEl = host.querySelector("[data-coach-summary]");
-      const gridEl = host.querySelector("[data-coach-grid]");
-      if (summaryEl) {
-        summaryEl.textContent = coachItems[0]?.action || coachItems[0]?.state || "오늘은 기록부터 이어가세요.";
-      }
-      const hasContextGuardCard = coachItems.some(item => !!item?.contextGuardType);
-      if (coach?.confidence && !hasContextGuardCard) {
-        const confidenceEl = document.createElement("div");
-        confidenceEl.className = "coach-summary";
-        confidenceEl.textContent = coach.confidence;
-        gridEl?.before(confidenceEl);
-      }
-      if (coach?.contextNotice) {
-        const contextNoticeEl = document.createElement("div");
-        contextNoticeEl.className = "coach-summary";
-        contextNoticeEl.textContent = coach.contextNotice;
-        gridEl?.before(contextNoticeEl);
-      }
-      if (!gridEl) return;
-      coachItems.forEach(item => {
-        const block = document.createElement("div");
-        const title = document.createElement("div");
-        title.className = "k";
-        title.textContent = item?.state || "현재 상태";
-        block.className = "coach-block";
-        block.append(title);
-        if (item?.action) {
-          const action = document.createElement("div");
-          action.className = "v coach-action";
-          action.textContent = `행동: ${item.action}`;
-          block.appendChild(action);
-        }
-        if (item?.reason) {
-          const reason = document.createElement("div");
-          reason.className = "v coach-reason";
-          reason.textContent = `이유: ${item.reason}`;
-          block.appendChild(reason);
-        }
-        gridEl.appendChild(block);
-      });
-      const coachContainer = host.querySelector(".coach-panel");
-      if (coach?.inbodyHint && coachContainer) {
-        const hintEl = document.createElement("div");
-        hintEl.className = "coach-inbody-hint";
-        hintEl.textContent = coach.inbodyHint;
-        coachContainer.appendChild(hintEl);
-      }
+      renderCoachPanelContent(host, coachItems, coach);
     }
 
     function renderInfoAndWarnings(r){
@@ -20782,9 +20804,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("UX2-8 version labels are updated", () => {
-          assertTest(document.title.includes("v6.5-UX2-8"), "document title should show UX2-8");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.5-UX2-8"), "app version badge should show UX2-8");
+        results.push(runNamedTest("UX2-9 version labels are updated", () => {
+          assertTest(document.title.includes("v6.5-UX2-9"), "document title should show UX2-9");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.5-UX2-9"), "app version badge should show UX2-9");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -21797,21 +21819,24 @@ Notes:
           assertTest(!afterKeys.includes("recentContext"), "record schema should not store recent context");
         }));
 
-        results.push(runNamedTest("daily coach card renders action before reason", () => {
+        results.push(runNamedTest("daily coach card avoids duplicated summary action", () => {
           render();
           const firstBlock = document.querySelector("#coachHost .coach-block");
           assertTest(!!firstBlock, "coach block should render");
           const actionEl = firstBlock.querySelector(".coach-action");
           const reasonEl = firstBlock.querySelector(".coach-reason");
-          assertTest(!!actionEl && !!reasonEl, "coach block should have action and reason");
-          assertTest(
-            Array.from(firstBlock.children).indexOf(actionEl) < Array.from(firstBlock.children).indexOf(reasonEl),
-            "coach action should render before reason"
-          );
-          const blockText = firstBlock.textContent || "";
-          assertTest(blockText.indexOf("행동:") >= 0 && blockText.indexOf("행동:") < blockText.indexOf("이유:"), "coach action text should appear before reason text");
+          assertTest(!!reasonEl, "coach block should keep reason");
           const summaryText = document.querySelector("#coachHost [data-coach-summary]")?.textContent || "";
-          assertTest(summaryText === actionEl.textContent.replace(/^행동:\s*/, ""), "coach summary should stay action-first");
+          assertTest(!!summaryText, "coach summary should render");
+          if (actionEl) {
+            assertTest(
+              Array.from(firstBlock.children).indexOf(actionEl) < Array.from(firstBlock.children).indexOf(reasonEl),
+              "coach action should render before reason when visible"
+            );
+            assertTest(summaryText !== actionEl.textContent.replace(/^행동:\s*/, ""), "coach summary should not duplicate visible first action");
+          } else {
+            assertTest(!firstBlock.textContent.includes(summaryText), "first block should not repeat summary action");
+          }
         }));
 
         results.push(runNamedTest("daily coach low and blocked context still returns today action", () => {
@@ -23771,14 +23796,26 @@ Notes:
         setValidTodayBalanceTestInputs();
 
         results.push(runNamedTest("D3 separation: coach action renders before reason", () => {
-          render();
-          const firstBlock = document.querySelector("#coachHost .coach-block");
-          assertTest(!!firstBlock, "coach block should render");
-          const actionEl = firstBlock.querySelector(".coach-action");
-          const reasonEl = firstBlock.querySelector(".coach-reason");
+          const host = document.createElement("div");
+          renderCoachPanelContent(host, [
+            {
+              state: "오늘은 기록부터 이어가세요.",
+              reason: "기록이 부족합니다.",
+              action: "오늘 먹은 주요 식사부터 상세 기록으로 남겨주세요."
+            },
+            {
+              state: "단백질이 부족해요.",
+              reason: "오늘 단백질 기록이 목표보다 낮습니다.",
+              action: "다음 식사에 단백질부터 챙기세요."
+            }
+          ]);
+          const actionBlock = Array.from(host.querySelectorAll(".coach-block")).find(block => block.querySelector(".coach-action"));
+          assertTest(!!actionBlock, "coach block with action should render");
+          const actionEl = actionBlock.querySelector(".coach-action");
+          const reasonEl = actionBlock.querySelector(".coach-reason");
           assertTest(!!actionEl && !!reasonEl, "coach block should keep action and reason nodes");
-          assertTest(Array.from(firstBlock.children).indexOf(actionEl) < Array.from(firstBlock.children).indexOf(reasonEl), "coach action should stay before reason");
-          const text = firstBlock.textContent || "";
+          assertTest(Array.from(actionBlock.children).indexOf(actionEl) < Array.from(actionBlock.children).indexOf(reasonEl), "coach action should stay before reason");
+          const text = actionBlock.textContent || "";
           assertTest(text.indexOf("행동:") >= 0 && text.indexOf("행동:") < text.indexOf("이유:"), "coach action text should stay before reason text");
         }));
 
@@ -23850,6 +23887,118 @@ Notes:
 
         return results;
       });
+    }
+
+    function runCoachOutputSlotDedupTests(){
+      const results = [];
+      const stripSlotPrefix = (text) => String(text || "").replace(/^(행동|이유):\s*/, "").trim();
+      const countText = (text, needle) => {
+        const source = String(text || "");
+        const value = String(needle || "");
+        if (!value) return 0;
+        return source.split(value).length - 1;
+      };
+      const renderSlots = (items, coach = {}) => {
+        const host = document.createElement("div");
+        renderCoachPanelContent(host, items, coach);
+        return host;
+      };
+      const assertNoActionDuplication = (label, item) => {
+        const host = renderSlots([item]);
+        const summaryText = (host.querySelector("[data-coach-summary]")?.textContent || "").trim();
+        const actionText = stripSlotPrefix(host.querySelector(".coach-action")?.textContent || "");
+        assertTest(summaryText === item.action || actionText === item.action, `${label} action should render in one output slot`);
+        assertTest(countText(host.textContent || "", item.action) === 1, `${label} action should appear once in the panel`);
+      };
+
+      results.push(runNamedTest("UX2-9 coach summary keeps first action slot without block duplicate", () => {
+        const host = renderSlots([{
+          state: "기록이 부족한 상태입니다.",
+          reason: "식사 기록이 더 필요해요.",
+          action: "오늘 먹은 주요 식사부터 상세 기록으로 남겨주세요."
+        }]);
+        const summaryText = (host.querySelector("[data-coach-summary]")?.textContent || "").trim();
+        const firstBlock = host.querySelector(".coach-block");
+        assertTest(summaryText === "오늘 먹은 주요 식사부터 상세 기록으로 남겨주세요.", "summary should render the first action copy");
+        assertTest(!firstBlock?.querySelector(".coach-action"), "first block should hide the duplicated action copy");
+        assertTest(countText(host.textContent || "", summaryText) === 1, "summary action should appear once");
+      }));
+
+      results.push(runNamedTest("UX2-9 action-only first item does not leave empty block", () => {
+        const action = "오늘 먹은 주요 식사부터 상세 기록으로 남겨주세요.";
+        const host = renderSlots([{ action }]);
+        const summaryText = (host.querySelector("[data-coach-summary]")?.textContent || "").trim();
+        assertTest(summaryText === action, "summary should keep the first action");
+        assertTest(host.querySelectorAll(".coach-block").length === 0, "action-only first item should not render an empty block");
+        assertTest(countText(host.textContent || "", action) === 1, "action-only first item should show action once");
+      }));
+
+      results.push(runNamedTest("UX2-9 first coach block keeps state and reason when action is summarized", () => {
+        const host = renderSlots([{
+          state: "단백질이 부족해요.",
+          reason: "오늘 단백질 기록이 목표보다 낮습니다.",
+          action: "다음 식사에 단백질부터 챙기세요."
+        }]);
+        const firstBlock = host.querySelector(".coach-block");
+        assertTest(firstBlock?.querySelector(".k")?.textContent === "단백질이 부족해요.", "first block should keep state");
+        assertTest(stripSlotPrefix(firstBlock?.querySelector(".coach-reason")?.textContent || "") === "오늘 단백질 기록이 목표보다 낮습니다.", "first block should keep reason");
+        assertTest(!firstBlock?.querySelector(".coach-action"), "first block should not repeat summarized action");
+      }));
+
+      results.push(runNamedTest("UX2-9 later coach block actions stay visible", () => {
+        const host = renderSlots([
+          {
+            state: "술 영향이 큽니다.",
+            reason: "오늘 술 칼로리 비중이 큽니다.",
+            action: "오늘 술은 여기서 멈추세요."
+          },
+          {
+            state: "지방이 높습니다.",
+            reason: "기름진 음식이 많았습니다.",
+            action: "기름진 음식과 간식은 끊으세요."
+          }
+        ]);
+        const summaryText = (host.querySelector("[data-coach-summary]")?.textContent || "").trim();
+        const actions = Array.from(host.querySelectorAll(".coach-action")).map(el => stripSlotPrefix(el.textContent));
+        assertTest(summaryText === "오늘 술은 여기서 멈추세요.", "first action should stay visible in summary");
+        assertTest(actions.includes("기름진 음식과 간식은 끊으세요."), "later action should stay visible");
+        assertTest(countText(host.textContent || "", "오늘 술은 여기서 멈추세요.") === 1, "first action should not be duplicated");
+        assertTest(countText(host.textContent || "", "기름진 음식과 간식은 끊으세요.") === 1, "later action should not be duplicated");
+      }));
+
+      results.push(runNamedTest("UX2-9 single item still shows one action", () => {
+        assertNoActionDuplication("single item", {
+          state: "오늘은 기록부터 이어가세요.",
+          reason: "오늘 기록이 아직 부족합니다.",
+          action: "오늘 먹은 주요 식사부터 상세 기록으로 남겨주세요."
+        });
+      }));
+
+      results.push(runNamedTest("UX2-9 record shortage action is not duplicated", () => {
+        assertNoActionDuplication("record shortage", {
+          state: "기록이 부족합니다.",
+          reason: "탄단지 기록이 부족해 식단 원인은 아직 말하기 어렵습니다.",
+          action: "오늘 먹은 주요 식사부터 상세 기록으로 남겨주세요."
+        });
+      }));
+
+      results.push(runNamedTest("UX2-9 alcohol action is not duplicated", () => {
+        assertNoActionDuplication("alcohol", {
+          state: "술 영향이 큽니다.",
+          reason: "오늘 술 칼로리 비중이 큽니다.",
+          action: "오늘 술은 여기서 멈추세요."
+        });
+      }));
+
+      results.push(runNamedTest("UX2-9 protein action is not duplicated", () => {
+        assertNoActionDuplication("protein", {
+          state: "단백질이 부족해요.",
+          reason: "오늘 단백질 기록이 목표보다 낮습니다.",
+          action: "다음 식사에 단백질부터 챙기세요."
+        });
+      }));
+
+      return results;
     }
 
     function runUserFacingForbiddenCopyTests(){
@@ -23990,8 +24139,14 @@ Notes:
           assertTest(!!(coachHost.compareDocumentPosition(kpiPanel) & Node.DOCUMENT_POSITION_FOLLOWING), "Coach should stay above KPI");
           const actionEl = firstBlock.querySelector(".coach-action");
           const reasonEl = firstBlock.querySelector(".coach-reason");
-          assertTest(!!actionEl && !!reasonEl, "coach block should include action and reason");
-          assertTest(Array.from(firstBlock.children).indexOf(actionEl) < Array.from(firstBlock.children).indexOf(reasonEl), "coach action should render before reason");
+          const summaryText = document.querySelector("#coachHost [data-coach-summary]")?.textContent || "";
+          assertTest(!!summaryText && !!reasonEl, "coach summary and first reason should render");
+          if (actionEl) {
+            assertTest(Array.from(firstBlock.children).indexOf(actionEl) < Array.from(firstBlock.children).indexOf(reasonEl), "coach action should render before reason when visible");
+            assertTest(summaryText !== actionEl.textContent.replace(/^행동:\s*/, ""), "coach summary should not duplicate visible first action");
+          } else {
+            assertTest(!firstBlock.textContent.includes(summaryText), "first block should not repeat summary action");
+          }
           assertExcludesAll(coachHost.textContent || "", ["참고할 수 있습니다", "보수적으로 봅니다", "후보입니다", "가능하면", "해보세요"], "Today Coach should avoid weak copy");
         }));
 
@@ -24734,6 +24889,7 @@ Notes:
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
     window.runGoalAwareCopyRegressionTests = runGoalAwareCopyRegressionTests;
     window.runCoachAdherenceCopySeparationTests = runCoachAdherenceCopySeparationTests;
+    window.runCoachOutputSlotDedupTests = runCoachOutputSlotDedupTests;
     window.runUserFacingForbiddenCopyTests = runUserFacingForbiddenCopyTests;
     window.runUserFacingCopyPolishTests = runUserFacingCopyPolishTests;
     window.runRecentFlowCopyPolishTests = runRecentFlowCopyPolishTests;
