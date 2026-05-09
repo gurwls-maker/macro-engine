@@ -1,12 +1,12 @@
 <!--
-Version: 6.5-UX2-9
-Stage: 6.5-UX2-9 Today Coach 출력 슬롯 중복 정리
+Version: 6.5-UX2-10
+Stage: 6.5-UX2-10 P1 출력 중복 polish
 Date: 2026-05-10
 Notes:
-- Today Coach 상단 summary와 첫 번째 Coach block의 동일 action 반복 제거
-- summary는 오늘 먼저 할 일 역할 유지
-- 첫 번째 block의 상태 / 이유는 유지
-- action-only 첫 번째 Coach item은 빈 block 없이 summary에만 표시
+- Recent Flow 요약 카드와 기간 카드의 동일 문제 날짜 CTA 반복 완화
+- Today InBody hint와 식단 점수 추가 확인의 출력 책임 분리
+- otherKcal/기록 부족 행동은 Coach 우선, 점수/카드는 근거 설명 중심 유지
+- UX2-9 Today Coach summary/action 중복 제거 유지
 - 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
@@ -15,7 +15,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.5-UX2-9</title>
+  <title>탄단지 다이어리 v6.5-UX2-10</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4759,7 +4759,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.5-UX2-9</span>
+               <span class="app-version">v6.5-UX2-10</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -11642,7 +11642,7 @@ Notes:
         return "기타 칼로리와 높은 항목이 함께 있습니다.";
       }
       if (flags.otherKcal) {
-        return "먹은 양보다 기록 품질을 먼저 정리하세요.";
+        return "기타 칼로리가 많아 점수 해석이 제한됩니다.";
       }
       if (flags.highCarbs && flags.highFat) {
         return "탄수화물과 지방이 같이 높습니다.";
@@ -13640,7 +13640,7 @@ Notes:
         extraItems.push({
           key: "inbody",
           label: ADHERENCE_EXTRA_LABELS.inbody,
-          state: "인바디 분석 결과는 체중 기록과 분리해서 표시합니다.",
+          state: "인바디 값은 식단 점수 계산과 분리해서 확인합니다.",
           action: "오늘 식단 점수는 저장된 식사 총합과 항목별 감점으로 계산합니다."
         });
       }
@@ -15353,6 +15353,25 @@ Notes:
       };
     }
 
+    function normalizeRecentFlowActionLabel(label){
+      return String(label || "").replace(/\s+\d+일\s*$/, "").trim();
+    }
+
+    function getRecentFlowActionProblemSet(action){
+      return new Set((Array.isArray(action?.labels) ? action.labels : [])
+        .map(normalizeRecentFlowActionLabel)
+        .filter(Boolean));
+    }
+
+    function isDuplicateRecentFlowProblemAction(action, summaryAction){
+      if (!action || !summaryAction) return false;
+      if (action.date !== summaryAction.date) return false;
+      const actionProblems = getRecentFlowActionProblemSet(action);
+      const summaryProblems = getRecentFlowActionProblemSet(summaryAction);
+      if (!actionProblems.size && !summaryProblems.size) return true;
+      return Array.from(actionProblems).some(problem => summaryProblems.has(problem));
+    }
+
     function getRecentFlowWeightChange(window){
       const weightRecords = (Array.isArray(window?.records) ? window.records : [])
         .filter(item => item.hasWeight && Number.isFinite(item.weight))
@@ -15671,6 +15690,7 @@ Notes:
         const label = RECENT_FLOW_CARD_LABELS[days] || { title: `${days}일`, role: "기간 분석" };
         const summary = getRecentFlowCardSummary(days, window, currentResult);
         const problemAction = getRecentFlowProblemDateAction(window, currentResult);
+        const cardProblemAction = isDuplicateRecentFlowProblemAction(problemAction, selectedProblemAction) ? null : problemAction;
         return `
           <div class="recent-flow-window-card" data-recent-flow-days="${days}">
             <div class="eyebrow">${days}일</div>
@@ -15679,10 +15699,10 @@ Notes:
             <div class="conclusion">${escapeHtml(summary.conclusion)}</div>
             <p class="reason">${escapeHtml(summary.reason)}</p>
             <p class="metric">${escapeHtml(summary.metric)}</p>
-            ${problemAction ? `
+            ${cardProblemAction ? `
               <div class="recent-flow-card-action">
-                <button class="secondary-btn" type="button" data-open-problem-date="${escapeHtml(problemAction.date)}">문제 날짜 보기</button>
-                <span class="recent-flow-action-note">${escapeHtml(problemAction.date)}</span>
+                <button class="secondary-btn" type="button" data-open-problem-date="${escapeHtml(cardProblemAction.date)}">문제 날짜 보기</button>
+                <span class="recent-flow-action-note">${escapeHtml(cardProblemAction.date)}</span>
               </div>
             ` : ""}
           </div>
@@ -20804,9 +20824,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("UX2-9 version labels are updated", () => {
-          assertTest(document.title.includes("v6.5-UX2-9"), "document title should show UX2-9");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.5-UX2-9"), "app version badge should show UX2-9");
+        results.push(runNamedTest("UX2-10 version labels are updated", () => {
+          assertTest(document.title.includes("v6.5-UX2-10"), "document title should show UX2-10");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.5-UX2-10"), "app version badge should show UX2-10");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -24001,6 +24021,160 @@ Notes:
       return results;
     }
 
+    function runP1OutputPolishTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        setValidTodayBalanceTestInputs();
+
+        const countText = (text, needle) => {
+          const source = String(text || "");
+          const value = String(needle || "");
+          if (!value) return 0;
+          return source.split(value).length - 1;
+        };
+        const makeRecentSummary = (overrides = {}) => ({
+          date: overrides.date || "2026-04-27",
+          recordMode: "detailed",
+          hasDetailedDiet: true,
+          hasMeals: true,
+          componentEligible: true,
+          hasGoalSnapshot: true,
+          goalType: state.goal || "diet",
+          targetProtein: 150,
+          targetCarbs: 250,
+          targetFat: 60,
+          protein: 150,
+          carbs: 250,
+          fat: 50,
+          alcoholKcal: 0,
+          otherKcalHeavy: false,
+          isActualWeightTrainingDay: false,
+          hasWeight: true,
+          weight: 75,
+          ...overrides
+        });
+        const makeRecentWindow = (days, records = [], overrides = {}) => ({
+          windowDays: days,
+          records,
+          usableDietDays: records.filter(record => record.hasDetailedDiet || record.hasSimpleDiet).length,
+          detailedDietDays: records.filter(record => record.hasDetailedDiet).length,
+          simpleDietDays: records.filter(record => record.recordMode === "simple").length,
+          weightOnlyDays: records.filter(record => record.recordMode === "weight_only").length,
+          mealRecordDays: records.filter(record => record.hasMeals).length,
+          macroAnalysisDays: records.filter(record => record.componentEligible).length,
+          macroPatternAllowed: records.filter(record => record.componentEligible).length > 0,
+          actualWeightTrainingDays: records.filter(record => record.isActualWeightTrainingDay).length,
+          weightDays: records.filter(record => record.hasWeight).length,
+          proteinLowDays: records.filter(record => record.componentEligible && record.protein < record.targetProtein * 0.90).length,
+          fatHighDays: records.filter(record => record.componentEligible && record.fat > record.targetFat * 1.25).length,
+          otherKcalHeavyDays: records.filter(record => record.otherKcalHeavy).length,
+          alcoholDays: records.filter(record => record.alcoholKcal > 0).length,
+          carbLowTrainingDays: records.filter(record => record.componentEligible && record.isActualWeightTrainingDay && record.carbs < record.targetCarbs * 0.85).length,
+          carbLowRestDays: 0,
+          goalSnapshotCoverage: records.length ? 1 : 0,
+          goalChangeDetected: false,
+          ...overrides
+        });
+        const getProblemButtons = () => Array.from(document.querySelectorAll("#recentFlowPreviewHost [data-open-problem-date]"))
+          .map(button => ({
+            date: button.getAttribute("data-open-problem-date"),
+            scope: button.closest(".recent-flow-summary-card") ? "summary" : (button.closest(".recent-flow-window-card")?.getAttribute("data-recent-flow-days") || "unknown"),
+            text: button.textContent.trim()
+          }));
+
+        results.push(runNamedTest("UX2-10 Recent Flow hides duplicate summary/card problem CTA", () => {
+          recentFlowSelectedRangeDays = 7;
+          const problemRecord = makeRecentSummary({ date: "2026-04-27", protein: 80 });
+          renderRecentFlowOverview(calculate(), {
+            windows: {
+              3: makeRecentWindow(3, [problemRecord]),
+              7: makeRecentWindow(7, [problemRecord]),
+              14: makeRecentWindow(14, []),
+              28: makeRecentWindow(28, [])
+            }
+          });
+          const buttons = getProblemButtons().filter(button => button.date === "2026-04-27");
+          assertTest(buttons.length === 1, "same date/problem CTA should appear once");
+          assertTest(buttons[0]?.scope === "summary", "summary CTA should own the representative problem date");
+        }));
+
+        results.push(runNamedTest("UX2-10 Recent Flow keeps distinct problem CTAs", () => {
+          recentFlowSelectedRangeDays = 7;
+          const summaryProblem = makeRecentSummary({ date: "2026-04-27", protein: 80 });
+          const cardProblem = makeRecentSummary({ date: "2026-04-26", fat: 90 });
+          renderRecentFlowOverview(calculate(), {
+            windows: {
+              3: makeRecentWindow(3, [cardProblem]),
+              7: makeRecentWindow(7, [summaryProblem]),
+              14: makeRecentWindow(14, []),
+              28: makeRecentWindow(28, [])
+            }
+          });
+          const buttons = getProblemButtons();
+          assertTest(buttons.some(button => button.scope === "summary" && button.date === "2026-04-27"), "summary CTA should remain");
+          assertTest(buttons.some(button => button.scope === "3" && button.date === "2026-04-26"), "different card problem CTA should remain");
+        }));
+
+        results.push(runNamedTest("UX2-10 InBody score extra does not repeat Coach hint wording", () => {
+          const html = renderAdherenceExtraChecks({
+            inbodyHint: "인바디 분석 결과, 체지방이 늘고 있습니다."
+          }, {
+            detail: { consumed: {} }
+          });
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = html;
+          const inbodyText = wrapper.querySelector("[data-extra-key='inbody']")?.textContent || "";
+          assertIncludesAll(inbodyText, ["인바디 값", "식단 점수", "분리"], "InBody extra should stay in score/evidence role");
+          assertExcludesAll(inbodyText, ["인바디 분석 결과"], "InBody extra should not repeat Coach hint phrasing");
+        }));
+
+        results.push(runNamedTest("UX2-10 other kcal score copy stays evidence, not Coach action", () => {
+          const otherScore = {
+            isAvailable: true,
+            status: "available",
+            percent: 76,
+            direction: "balanced",
+            detail: {
+              consumed: { kcal: 2100, protein: 150, carbs: 250, fat: 60, alcoholKcal: 0, otherKcal: 700 },
+              componentScores: { kcal: 0.9, protein: 1, carbs: 1, fat: 1 }
+            },
+            reasons: {}
+          };
+          const scoreCopy = getTodayScoreCardCopy(otherScore, { items: [{ key: "otherKcal" }] });
+          const extraHtml = renderAdherenceExtraChecks({
+            items: [{ key: "otherKcal", action: "다음 기록부터 탄수화물·단백질·지방으로 나눠 입력하세요." }]
+          }, otherScore);
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = extraHtml;
+          const scoreAndExtra = `${scoreCopy} ${wrapper.textContent || ""}`;
+          assertIncludesAll(scoreAndExtra, ["기타 칼로리", "점수 해석", "보기 어렵습니다"], "score/extra should explain evidence limits");
+          assertExcludesAll(scoreAndExtra, ["입력하세요", "줄이세요", "정리하세요"], "score/extra should not repeat Coach-like other kcal action");
+        }));
+
+        results.push(runNamedTest("UX2-10 record shortage action stays in Coach, score extra stays evidence", () => {
+          const action = "오늘 먹은 주요 식사부터 상세 기록으로 남겨주세요.";
+          const coachHost = document.createElement("div");
+          renderCoachPanelContent(coachHost, [{
+            state: "기록이 부족합니다.",
+            reason: "탄단지 기록이 부족해 식단 원인은 아직 말하기 어렵습니다.",
+            action
+          }]);
+          const extraHtml = renderAdherenceExtraChecks({
+            items: [{ key: "dataQuality", contextGuardType: "blocked", action }]
+          }, {
+            detail: { consumed: {} }
+          });
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = extraHtml;
+          const combined = `${coachHost.textContent || ""} ${wrapper.textContent || ""}`;
+          assertTest(countText(combined, action) === 1, "record shortage action should appear once across Coach and score extra");
+          assertExcludesAll(wrapper.textContent || "", ["상세 기록으로 남겨주세요", "기록해 주세요"], "score extra should not carry record shortage action");
+        }));
+
+        return results;
+      });
+    }
+
     function runUserFacingForbiddenCopyTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -24890,6 +25064,7 @@ Notes:
     window.runGoalAwareCopyRegressionTests = runGoalAwareCopyRegressionTests;
     window.runCoachAdherenceCopySeparationTests = runCoachAdherenceCopySeparationTests;
     window.runCoachOutputSlotDedupTests = runCoachOutputSlotDedupTests;
+    window.runP1OutputPolishTests = runP1OutputPolishTests;
     window.runUserFacingForbiddenCopyTests = runUserFacingForbiddenCopyTests;
     window.runUserFacingCopyPolishTests = runUserFacingCopyPolishTests;
     window.runRecentFlowCopyPolishTests = runRecentFlowCopyPolishTests;
