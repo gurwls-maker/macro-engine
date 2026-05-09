@@ -1,19 +1,14 @@
 <!--
-Version: 6.6-A1.3
-Stage: 6.6-A1.3 주간 총량 정합성 QA
+Version: 6.6-A2
+Stage: 6.6-A2 주간 운동 baseline 운동일 감쇠 / QA 재검증
 Date: 2026-05-10
 Notes:
-- 보정식 대량 QA를 위한 읽기 전용 리포트 함수 추가
-- general / athlete / expert 모드별 대표 스캔 커버리지 보강
-- 수동 리뷰 40개 스탯 / 자동 스캔 120개 스탯 구성 추가
-- 케이스별 BMR / 활동 / 업무 / 웨이트 / 유산소 / EPOC / 목표 보정 분해표 추가
-- weeklyTrainingDays Xw 반영 제거 후보를 리포트 전용 비교값으로 추가
-- cardio 공식 검산 / weeklyTrainingDays / activity-work / cardio / weightDuration 단독 효과 리뷰 추가
-- combined stack decomposition과 생리학적 classification 리포트 추가
-- 높은 값은 경고나 상한 후보로 단정하지 않고 report-only 검토 대상으로 분류
-- weeklyTrainingDays baseline과 오늘 웨이트 kcal의 7일 총량 비교 리포트 추가
-- current / noWeeklyBaseline estimate / baselineOnly / directWorkoutOnly 비교 모델 추가
-- 사용자 화면 노출 없이 개발자용 window QA 함수로만 제공
+- weeklyTrainingDays baseline을 작은 회복 / 생활 보정으로 축소
+- 오늘 웨이트 kcal가 입력된 날에는 weekly baseline을 감쇠
+- 휴식일에는 주간 훈련 빈도에 따른 baseline 일부 유지
+- weekly budget QA 리포트로 S5_60 / S5_90 baseline-direct overlap 재검증
+- direct weightKcal / cardioKcal / Xw / goal factor / macro target 산식 변경 없음
+- 사용자 화면 노출 없이 개발자용 window QA 함수로만 검증
 - 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
@@ -22,7 +17,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A1.3</title>
+  <title>탄단지 다이어리 v6.6-A2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4766,7 +4761,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A1.3</span>
+               <span class="app-version">v6.6-A2</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -6668,9 +6663,12 @@ Notes:
     function getWeeklyTrainingBaselineKcal(s, bmr){
       const weeklyDays = clamp(Number(s.weeklyTrainingDays) || 0, 0, 14);
       if (!(weeklyDays > 0) || !(bmr > 0)) return 0;
-      const frequencyRatio = clamp(weeklyDays / 7, 0, 1.2);
-      const recoveryFactor = clamp(0.035 + frequencyRatio * 0.14, 0.035, 0.19);
-      return bmr * recoveryFactor;
+      const frequencyRatio = clamp(weeklyDays / 7, 0, 1);
+      const recoveryFactor = clamp(0.012 + frequencyRatio * 0.053, 0.015, 0.05);
+      const weightDuration = Math.max(0, Number(s.weightDuration) || 0);
+      const hasWeightTrainingToday = weightDuration > 0 && s.routine !== "REST";
+      const trainingDayMultiplier = 0.40;
+      return bmr * recoveryFactor * (hasWeightTrainingToday ? trainingDayMultiplier : 1);
     }
 
     function getEpocRate(met){
@@ -20831,9 +20829,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("A1.3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A1.3"), "document title should show v6.6-A1.3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A1.3"), "app version badge should show v6.6-A1.3");
+        results.push(runNamedTest("A2 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-A2"), "document title should show v6.6-A2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A2"), "app version badge should show v6.6-A2");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22111,7 +22109,9 @@ Notes:
           setMacroCalibrationInputs("lean_bulk");
           const result = calculate();
           assertTest(result.isCalculable, "rest baseline case should calculate");
-          assertTest(result.totalBurn >= 2200, "rest day with five weekly sessions should not collapse below realistic maintenance");
+          assertTest(result.trainingBaselineKcal > 0, "rest day with five weekly sessions should keep a recovery baseline");
+          assertTest(result.totalBurn > result.baseDaily, "rest day weekly baseline should still lift total burn above base daily");
+          assertTest(result.trainingBaselineKcal < result.bmr * 0.06, "rest day weekly baseline should stay a small recovery/lifestyle adjustment");
         }));
 
         results.push(runNamedTest("macro calibration lean versus bulk calories", () => {
@@ -22307,8 +22307,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A1.3";
-    const CALIBRATION_QA_STAGE = "6.6-A1.3 주간 총량 정합성 QA";
+    const CALIBRATION_QA_VERSION = "6.6-A2";
+    const CALIBRATION_QA_STAGE = "6.6-A2 주간 운동 baseline 운동일 감쇠 / QA 재검증";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -23813,6 +23813,7 @@ Notes:
       overlapAnalysis.classification = classifyWeeklyBudgetReview(overlapAnalysis);
       overlapAnalysis.notes = [
         "weeklyTrainingDays baseline is compared against direct workout kcal at weekly-total level.",
+        "A2 attenuates the weekly baseline on days with direct weight training so weightKcal remains the primary session-cost signal.",
         "noWeeklyBaseline is an estimate based on current minus trainingBaselineKcal; it is not production output.",
         "directWorkoutOnly sets weeklyTrainingDays to 0, so Xw may also differ from current."
       ];
@@ -24342,6 +24343,31 @@ Notes:
             assertTest(!!report.summary.bySchedule[id], `${id} summary should exist`);
           });
           assertTest(findInvalidCalibrationNumber(report).length === 0, "weekly budget report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("A2 weekly training baseline attenuates on direct weight days", () => {
+          const bmr = 1800;
+          const restDayBaseline = getWeeklyTrainingBaselineKcal({ weeklyTrainingDays: 5, weightDuration: 0, routine: "REST" }, bmr);
+          const trainingDayBaseline = getWeeklyTrainingBaselineKcal({ weeklyTrainingDays: 5, weightDuration: 60, routine: "PUSH" }, bmr);
+          const zeroWeeklyBaseline = getWeeklyTrainingBaselineKcal({ weeklyTrainingDays: 0, weightDuration: 60, routine: "PUSH" }, bmr);
+          assertTest(zeroWeeklyBaseline === 0, "weeklyTrainingDays 0 should not add a baseline");
+          assertTest(Number.isFinite(restDayBaseline) && restDayBaseline > 0, "rest day baseline should stay positive and finite");
+          assertTest(Number.isFinite(trainingDayBaseline) && trainingDayBaseline > 0, "training day baseline should stay positive and finite");
+          assertTest(trainingDayBaseline < restDayBaseline, "training day baseline should be attenuated below rest day baseline");
+        }));
+
+        results.push(runNamedTest("A2 weekly baseline overlap ratio is reduced for S5 schedules", () => {
+          const report = runCalibrationWeeklyBudgetReview({ mode: "athlete", statIds: ["M09"], scheduleIds: ["S5_60", "S5_90"], includeDayRows: true });
+          const bySchedule = Object.fromEntries(report.reviews.map(item => [item.meta.scheduleId, item]));
+          const s5_60 = bySchedule.S5_60;
+          const s5_90 = bySchedule.S5_90;
+          assertTest(s5_60.overlapAnalysis.baselineToDirectWorkoutRatio < 0.5, "S5_60 baseline/direct ratio should be materially lower than the A1.3 overlap range");
+          assertTest(s5_90.overlapAnalysis.baselineToDirectWorkoutRatio < 0.4, "S5_90 baseline/direct ratio should be materially lower than the A1.3 overlap range");
+          assertTest(s5_60.overlapAnalysis.directWorkoutKcalSum > 0, "S5_60 direct workout kcal should remain present");
+          assertTest(s5_90.overlapAnalysis.directWorkoutKcalSum > s5_60.overlapAnalysis.directWorkoutKcalSum, "S5_90 direct workout kcal should remain higher than S5_60");
+          assertTest(s5_60.weeklyTotals.current.weeklyCardioKcal === 0 && s5_90.weeklyTotals.current.weeklyCardioKcal === 0, "default weekly baseline QA schedules should not change cardio kcal");
+          assertTest(s5_60.overlapAnalysis.trainingDayBaselineKcalAvg > 0, "training day baseline should not be removed");
+          assertTest(s5_60.overlapAnalysis.restDayBaselineKcalAvg > s5_60.overlapAnalysis.trainingDayBaselineKcalAvg, "rest day baseline should remain higher than training day baseline");
         }));
 
         results.push(runNamedTest("A1.3 weekly budget schedules simulate seven days", () => {
