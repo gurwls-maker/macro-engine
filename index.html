@@ -1,6 +1,6 @@
 <!--
-Version: 6.6-A1.2
-Stage: 6.6-A1.2 보정식 생리학적 타당성 / 원인 축 분리 QA
+Version: 6.6-A1.3
+Stage: 6.6-A1.3 주간 총량 정합성 QA
 Date: 2026-05-10
 Notes:
 - 보정식 대량 QA를 위한 읽기 전용 리포트 함수 추가
@@ -11,6 +11,8 @@ Notes:
 - cardio 공식 검산 / weeklyTrainingDays / activity-work / cardio / weightDuration 단독 효과 리뷰 추가
 - combined stack decomposition과 생리학적 classification 리포트 추가
 - 높은 값은 경고나 상한 후보로 단정하지 않고 report-only 검토 대상으로 분류
+- weeklyTrainingDays baseline과 오늘 웨이트 kcal의 7일 총량 비교 리포트 추가
+- current / noWeeklyBaseline estimate / baselineOnly / directWorkoutOnly 비교 모델 추가
 - 사용자 화면 노출 없이 개발자용 window QA 함수로만 제공
 - 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
@@ -20,7 +22,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A1.2</title>
+  <title>탄단지 다이어리 v6.6-A1.3</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4764,7 +4766,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A1.2</span>
+               <span class="app-version">v6.6-A1.3</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -20829,9 +20831,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("A1.2 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A1.2"), "document title should show v6.6-A1.2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A1.2"), "app version badge should show v6.6-A1.2");
+        results.push(runNamedTest("A1.3 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-A1.3"), "document title should show v6.6-A1.3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A1.3"), "app version badge should show v6.6-A1.3");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22305,8 +22307,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A1.2";
-    const CALIBRATION_QA_STAGE = "6.6-A1.2 보정식 생리학적 타당성 / 원인 축 분리 QA";
+    const CALIBRATION_QA_VERSION = "6.6-A1.3";
+    const CALIBRATION_QA_STAGE = "6.6-A1.3 주간 총량 정합성 QA";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -23589,6 +23591,371 @@ Notes:
       });
     }
 
+    const CALIBRATION_WEEKLY_BUDGET_CLASSIFICATIONS = [
+      "formula_consistent",
+      "weekly_baseline_plausible",
+      "distributed_workout_overlap_suspect",
+      "intake_policy_suspect",
+      "needs_manual_review"
+    ];
+
+    function getCalibrationGoalComboByGoal(goal){
+      return getCalibrationGoalCombos().find(item => item.goal === goal || item.id === goal) || getCalibrationComboById(getCalibrationGoalCombos(), "lean");
+    }
+
+    function buildCalibrationWeeklySchedules(options = {}){
+      const routines = ["PUSH", "PULL", "LEGS", "UPPER", "LOWER", "PUSH", "LEGS"];
+      const makeDays = (trainingCount, duration, config = {}) => Array.from({ length: 7 }, (_, dayIndex) => {
+        const isTrainingDay = dayIndex < trainingCount;
+        const cardioCombo = config.cardioCombo && (config.cardioOnTrainingOnly ? isTrainingDay : true)
+          ? config.cardioCombo
+          : getCalibrationComboById(getCalibrationCardioCombos(), "C0");
+        return {
+          dayIndex,
+          isTrainingDay,
+          weeklyTrainingDays: Number(config.weeklyTrainingDays ?? trainingCount),
+          weightDuration: isTrainingDay ? duration : 0,
+          routine: isTrainingDay ? routines[dayIndex % routines.length] : "REST",
+          intensityOverride: isTrainingDay ? Number(config.intensityOverride ?? 0.9) : 0,
+          cardioCombo
+        };
+      });
+      const schedules = [
+        { id: "S0_REST", label: "weekly 0 / rest week", weeklyTrainingDays: 0, days: makeDays(0, 0) },
+        { id: "S3_60", label: "weekly 3 / 60min", weeklyTrainingDays: 3, days: makeDays(3, 60) },
+        { id: "S4_90", label: "weekly 4 / 90min", weeklyTrainingDays: 4, days: makeDays(4, 90) },
+        { id: "S5_60", label: "weekly 5 / 60min", weeklyTrainingDays: 5, days: makeDays(5, 60) },
+        { id: "S5_90", label: "weekly 5 / 90min", weeklyTrainingDays: 5, days: makeDays(5, 90) },
+        { id: "S5_120", label: "weekly 5 / 120min", weeklyTrainingDays: 5, days: makeDays(5, 120) },
+        { id: "S7_90", label: "weekly 7 / 90min", weeklyTrainingDays: 7, days: makeDays(7, 90) }
+      ];
+      if (options.includeCardioSchedules === true) {
+        const c2 = getCalibrationComboById(getCalibrationCardioCombos(), "C2");
+        const c5 = getCalibrationComboById(getCalibrationCardioCombos(), "C5");
+        schedules.push(
+          { id: "S5_90_C2", label: "weekly 5 / 90min + C2 training days", weeklyTrainingDays: 5, days: makeDays(5, 90, { cardioCombo: c2, cardioOnTrainingOnly: true }) },
+          { id: "S5_90_C5", label: "weekly 5 / 90min + C5 training days", weeklyTrainingDays: 5, days: makeDays(5, 90, { cardioCombo: c5, cardioOnTrainingOnly: true }) }
+        );
+      }
+      const idsToUse = Array.isArray(options.scheduleIds) && options.scheduleIds.length ? new Set(options.scheduleIds) : null;
+      return idsToUse ? schedules.filter(item => idsToUse.has(item.id)) : schedules;
+    }
+
+    function buildCalibrationWeeklyReviewStats(options = {}){
+      const idsToUse = Array.isArray(options.statIds) && options.statIds.length
+        ? new Set(options.statIds)
+        : new Set(["M09", "F10"]);
+      return buildCalibrationManualStats().filter(stat => idsToUse.has(stat.id));
+    }
+
+    function buildCalibrationWeeklyReviewScenarios(options = {}){
+      const modes = Array.isArray(options.modes) && options.modes.length
+        ? [...new Set(options.modes.map(normalizeCalibrationMode))]
+        : [normalizeCalibrationMode(options.mode || "athlete")];
+      const goals = Array.isArray(options.goals) && options.goals.length
+        ? [...new Set(options.goals)]
+        : [options.goal || "lean_bulk"];
+      const activityIds = Array.isArray(options.activityCombos) && options.activityCombos.length
+        ? new Set(options.activityCombos)
+        : new Set(["A2"]);
+      return {
+        modes,
+        goals: goals.map(getCalibrationGoalComboByGoal),
+        activities: getCalibrationActivityCombos().filter(item => activityIds.has(item.id)),
+        schedules: buildCalibrationWeeklySchedules(options),
+        stats: buildCalibrationWeeklyReviewStats(options)
+      };
+    }
+
+    function buildCalibrationWeeklyDayScenario(goalCombo, activityCombo, day, model){
+      const plannedWeeklyDays = Number(day.weeklyTrainingDays) || 0;
+      const isBaselineOnly = model === "baselineOnly";
+      const weeklyTrainingDays = model === "directWorkoutOnly" ? 0 : plannedWeeklyDays;
+      const cardioCombo = isBaselineOnly ? getCalibrationComboById(getCalibrationCardioCombos(), "C0") : day.cardioCombo;
+      return {
+        goalCombo,
+        activityCombo,
+        weightCombo: makeCalibrationReviewWeightCombo({
+          id: `${model}-D${day.dayIndex}`,
+          weeklyTrainingDays,
+          weightDuration: isBaselineOnly ? 0 : day.weightDuration,
+          routine: isBaselineOnly ? "REST" : day.routine,
+          intensityOverride: isBaselineOnly ? 0 : day.intensityOverride
+        }),
+        cardioCombo
+      };
+    }
+
+    function calculateCalibrationWeeklyDay(stat, mode, goalCombo, activityCombo, day, model, sequence, options = {}){
+      const item = calculateCalibrationReviewCaseWithInputs(
+        stat,
+        buildCalibrationWeeklyDayScenario(goalCombo, activityCombo, day, model),
+        sequence,
+        `weeklyBudget:${model}`,
+        mode,
+        options
+      );
+      return {
+        dayIndex: day.dayIndex,
+        isTrainingDay: day.isTrainingDay,
+        model,
+        weeklyTrainingDays: model === "directWorkoutOnly" ? 0 : day.weeklyTrainingDays,
+        plannedWeeklyTrainingDays: day.weeklyTrainingDays,
+        weightDuration: model === "baselineOnly" ? 0 : day.weightDuration,
+        routine: model === "baselineOnly" ? "REST" : day.routine,
+        xw: item.xw,
+        trainingBaselineKcal: item.trainingBaselineKcal,
+        weightKcal: item.weightKcal,
+        cardioKcal: item.cardioKcal,
+        epocKcal: item.epocKcal,
+        totalBurn: item.totalBurn,
+        targetCal: item.targetCal,
+        protein: item.protein,
+        carbs: item.carbs,
+        fat: item.fat,
+        bmr: item.bmr,
+        baseDaily: item.baseDaily,
+        goalDelta: item.targetCal - item.totalBurn,
+        targetCalToTotalBurn: item.targetCalToTotalBurn,
+        cardioCombo: item.cardioCombo
+      };
+    }
+
+    function buildNoWeeklyBaselineEstimateDay(currentDay){
+      const totalBurn = currentDay.totalBurn - currentDay.trainingBaselineKcal;
+      const targetCal = currentDay.targetCal - currentDay.trainingBaselineKcal * (currentDay.targetCalToTotalBurn || 1);
+      return {
+        ...currentDay,
+        model: "noWeeklyBaselineEstimate",
+        trainingBaselineKcal: 0,
+        totalBurn,
+        targetCal,
+        goalDelta: targetCal - totalBurn,
+        estimate: true,
+        note: "estimate: current day minus trainingBaselineKcal; production calculate() is not changed."
+      };
+    }
+
+    function sumCalibrationWeeklyRows(rows){
+      const sum = field => rows.reduce((total, row) => total + (Number(row[field]) || 0), 0);
+      return {
+        weeklyTargetCal: sum("targetCal"),
+        weeklyTotalBurn: sum("totalBurn"),
+        weeklyBmr: sum("bmr"),
+        weeklyBaseDaily: sum("baseDaily"),
+        weeklyTrainingBaselineKcal: sum("trainingBaselineKcal"),
+        weeklyWeightKcal: sum("weightKcal"),
+        weeklyCardioKcal: sum("cardioKcal"),
+        weeklyEpocKcal: sum("epocKcal"),
+        weeklyGoalDelta: sum("goalDelta"),
+        weeklyProtein: sum("protein"),
+        weeklyCarbs: sum("carbs"),
+        weeklyFat: sum("fat")
+      };
+    }
+
+    function averageCalibrationWeeklyTotals(totals){
+      return {
+        avgTargetCal: totals.weeklyTargetCal / 7,
+        avgTotalBurn: totals.weeklyTotalBurn / 7,
+        avgTrainingBaselineKcal: totals.weeklyTrainingBaselineKcal / 7,
+        avgWeightKcal: totals.weeklyWeightKcal / 7,
+        avgCardioKcal: totals.weeklyCardioKcal / 7,
+        avgEpocKcal: totals.weeklyEpocKcal / 7
+      };
+    }
+
+    function classifyWeeklyBudgetReview(analysis){
+      const classes = ["formula_consistent"];
+      if (analysis.directWorkoutKcalSum > 0) {
+        if (analysis.baselineToDirectWorkoutRatio >= 0.65) {
+          classes.push("distributed_workout_overlap_suspect");
+        } else {
+          classes.push("weekly_baseline_plausible");
+        }
+      } else if (analysis.weeklyBaselineSum > 0) {
+        classes.push("needs_manual_review");
+      }
+      if (analysis.currentMinusDirectWorkoutOnlyTargetCal > 1200 && analysis.baselineToDirectWorkoutRatio >= 0.5) {
+        classes.push("intake_policy_suspect");
+      }
+      return [...new Set(classes)];
+    }
+
+    function buildWeeklyBudgetComparison(rowsByModel){
+      const current = sumCalibrationWeeklyRows(rowsByModel.current);
+      const noWeeklyBaseline = sumCalibrationWeeklyRows(rowsByModel.noWeeklyBaseline);
+      const baselineOnly = sumCalibrationWeeklyRows(rowsByModel.baselineOnly);
+      const directWorkoutOnly = sumCalibrationWeeklyRows(rowsByModel.directWorkoutOnly);
+      const trainingRows = rowsByModel.current.filter(row => row.isTrainingDay);
+      const restRows = rowsByModel.current.filter(row => !row.isTrainingDay);
+      const average = (rows, field) => rows.length ? rows.reduce((sum, row) => sum + (Number(row[field]) || 0), 0) / rows.length : 0;
+      const weeklyBaselineSum = current.weeklyTrainingBaselineKcal;
+      const directWorkoutKcalSum = directWorkoutOnly.weeklyWeightKcal;
+      const currentWorkoutKcalSum = current.weeklyWeightKcal;
+      const overlapAnalysis = {
+        weeklyBaselineSum,
+        directWorkoutKcalSum,
+        currentWorkoutKcalSum,
+        baselineToDirectWorkoutRatio: directWorkoutKcalSum > 0 ? weeklyBaselineSum / directWorkoutKcalSum : null,
+        baselineToCurrentWorkoutRatio: currentWorkoutKcalSum > 0 ? weeklyBaselineSum / currentWorkoutKcalSum : null,
+        currentMinusNoBaselineTotalBurn: current.weeklyTotalBurn - noWeeklyBaseline.weeklyTotalBurn,
+        currentMinusNoBaselineTargetCal: current.weeklyTargetCal - noWeeklyBaseline.weeklyTargetCal,
+        currentMinusDirectWorkoutOnlyTotalBurn: current.weeklyTotalBurn - directWorkoutOnly.weeklyTotalBurn,
+        currentMinusDirectWorkoutOnlyTargetCal: current.weeklyTargetCal - directWorkoutOnly.weeklyTargetCal,
+        restDayBaselineKcalAvg: average(restRows, "trainingBaselineKcal"),
+        trainingDayBaselineKcalAvg: average(trainingRows, "trainingBaselineKcal"),
+        trainingDayTotalBurnAvg: average(trainingRows, "totalBurn"),
+        restDayTotalBurnAvg: average(restRows, "totalBurn"),
+        trainingDayCount: trainingRows.length,
+        restDayCount: restRows.length
+      };
+      overlapAnalysis.classification = classifyWeeklyBudgetReview(overlapAnalysis);
+      overlapAnalysis.notes = [
+        "weeklyTrainingDays baseline is compared against direct workout kcal at weekly-total level.",
+        "noWeeklyBaseline is an estimate based on current minus trainingBaselineKcal; it is not production output.",
+        "directWorkoutOnly sets weeklyTrainingDays to 0, so Xw may also differ from current."
+      ];
+      return {
+        weeklyTotals: { current, noWeeklyBaseline, baselineOnly, directWorkoutOnly },
+        dailyAverages: {
+          current: averageCalibrationWeeklyTotals(current),
+          noWeeklyBaseline: averageCalibrationWeeklyTotals(noWeeklyBaseline),
+          baselineOnly: averageCalibrationWeeklyTotals(baselineOnly),
+          directWorkoutOnly: averageCalibrationWeeklyTotals(directWorkoutOnly)
+        },
+        overlapAnalysis
+      };
+    }
+
+    function simulateCalibrationWeek(scheduleConfig, options = {}){
+      const { stat, mode, goalCombo, activityCombo } = options;
+      const includeDayRows = options.includeDayRows === true;
+      const rowsByModel = { current: [], noWeeklyBaseline: [], baselineOnly: [], directWorkoutOnly: [] };
+      scheduleConfig.days.forEach((day, dayIndex) => {
+        const currentDay = calculateCalibrationWeeklyDay(stat, mode, goalCombo, activityCombo, day, "current", dayIndex, options);
+        rowsByModel.current.push(currentDay);
+        rowsByModel.noWeeklyBaseline.push(buildNoWeeklyBaselineEstimateDay(currentDay));
+        rowsByModel.baselineOnly.push(calculateCalibrationWeeklyDay(stat, mode, goalCombo, activityCombo, day, "baselineOnly", dayIndex, options));
+        rowsByModel.directWorkoutOnly.push(calculateCalibrationWeeklyDay(stat, mode, goalCombo, activityCombo, day, "directWorkoutOnly", dayIndex, options));
+      });
+      return {
+        meta: {
+          version: CALIBRATION_QA_VERSION,
+          stage: CALIBRATION_QA_STAGE,
+          mode,
+          statId: stat.id,
+          goal: goalCombo.goal,
+          scheduleId: scheduleConfig.id,
+          activityCombo: activityCombo.id,
+          cardioCombo: [...new Set(scheduleConfig.days.map(day => day.cardioCombo.id))].join("+"),
+          models: {
+            current: "production calculate() path with planned weeklyTrainingDays and daily workout inputs.",
+            noWeeklyBaseline: "report-only estimate: current minus trainingBaselineKcal; Xw is not recalculated.",
+            baselineOnly: "planned weeklyTrainingDays baseline with no direct workout or cardio day inputs.",
+            directWorkoutOnly: "report-only calculation with weeklyTrainingDays set to 0 and daily workout inputs retained."
+          },
+          note: "weekly budget report is review-only and does not change production formulas."
+        },
+        dayCount: 7,
+        trainingDayCount: rowsByModel.current.filter(row => row.isTrainingDay).length,
+        ...buildWeeklyBudgetComparison(rowsByModel),
+        dayRows: includeDayRows ? rowsByModel : []
+      };
+    }
+
+    function runCalibrationWeeklyBudgetReview(options = {}){
+      return withCalibrationReportSandbox(() => {
+        const scenario = buildCalibrationWeeklyReviewScenarios({
+          mode: options.mode || "athlete",
+          modes: options.modes,
+          goal: options.goal || "lean_bulk",
+          goals: options.goals,
+          statIds: options.statIds || ["M09", "F10"],
+          activityCombos: options.activityCombos || ["A2"],
+          scheduleIds: options.scheduleIds || ["S0_REST", "S3_60", "S5_60", "S5_90"],
+          includeCardioSchedules: options.includeCardioSchedules === true
+        });
+        const reviews = [];
+        scenario.modes.forEach(mode => {
+          scenario.goals.forEach(goalCombo => {
+            scenario.activities.forEach(activityCombo => {
+              scenario.stats.forEach(stat => {
+                scenario.schedules.forEach(scheduleConfig => {
+                  reviews.push(simulateCalibrationWeek(scheduleConfig, {
+                    ...options,
+                    mode,
+                    stat,
+                    goalCombo,
+                    activityCombo,
+                    includeDayRows: options.includeDayRows === true
+                  }));
+                });
+              });
+            });
+          });
+        });
+        const summary = {
+          reviewCount: reviews.length,
+          bySchedule: Object.fromEntries(scenario.schedules.map(schedule => {
+            const group = reviews.filter(item => item.meta.scheduleId === schedule.id);
+            return [schedule.id, {
+              count: group.length,
+              weeklyBaselineSum: summarizeCalibrationValues(group.map(item => item.overlapAnalysis.weeklyBaselineSum)),
+              directWorkoutKcalSum: summarizeCalibrationValues(group.map(item => item.overlapAnalysis.directWorkoutKcalSum)),
+              baselineToDirectWorkoutRatio: summarizeCalibrationValues(group.map(item => item.overlapAnalysis.baselineToDirectWorkoutRatio).filter(Number.isFinite)),
+              currentMinusNoBaselineTotalBurn: summarizeCalibrationValues(group.map(item => item.overlapAnalysis.currentMinusNoBaselineTotalBurn)),
+              currentMinusDirectWorkoutOnlyTotalBurn: summarizeCalibrationValues(group.map(item => item.overlapAnalysis.currentMinusDirectWorkoutOnlyTotalBurn))
+            }];
+          })),
+          classificationCounts: reviews.reduce((acc, item) => {
+            item.overlapAnalysis.classification.forEach(key => {
+              acc[key] = (acc[key] || 0) + 1;
+            });
+            return acc;
+          }, {})
+        };
+        const report = {
+          meta: {
+            version: CALIBRATION_QA_VERSION,
+            stage: CALIBRATION_QA_STAGE,
+            generatedAt: new Date().toISOString(),
+            modes: scenario.modes,
+            goals: scenario.goals.map(item => item.goal),
+            statIds: scenario.stats.map(item => item.id),
+            activityCombos: scenario.activities.map(item => item.id),
+            scheduleIds: scenario.schedules.map(item => item.id),
+            includeDayRows: options.includeDayRows === true,
+            includeCardioSchedules: options.includeCardioSchedules === true,
+            full: false,
+            reportOnly: true,
+            models: {
+              current: "production calculate() path.",
+              noWeeklyBaseline: "estimate from current minus trainingBaselineKcal.",
+              baselineOnly: "weeklyTrainingDays baseline without direct workout inputs.",
+              directWorkoutOnly: "weeklyTrainingDays 0 with direct workout inputs retained."
+            }
+          },
+          summary,
+          reviews,
+          notes: [
+            "High weekly totals are not treated as defects by themselves.",
+            "distributed_workout_overlap_suspect means the baseline role needs review, not that a formula change is confirmed.",
+            "The report does not add caps, warnings, or user-facing UI."
+          ]
+        };
+        if (options.log === true) {
+          console.log("Calibration weekly budget review", report.meta);
+          console.table(Object.entries(report.summary.bySchedule).map(([scheduleId, item]) => ({
+            scheduleId,
+            ratioMedian: item.baselineToDirectWorkoutRatio.median,
+            currentMinusNoBaselineTotalBurnMedian: item.currentMinusNoBaselineTotalBurn.median
+          })));
+        }
+        return report;
+      });
+    }
+
     function buildCalibrationManualReview(options = {}){
       const mode = normalizeCalibrationMode(options.mode);
       const representativeScenario = {
@@ -23850,6 +24217,8 @@ Notes:
           assertTest(typeof window.runCalibrationScanReportTests === "function", "runCalibrationScanReportTests should be exported");
           assertTest(typeof window.runCalibrationPhysiologyReview === "function", "runCalibrationPhysiologyReview should be exported");
           assertTest(typeof window.runCalibrationPhysiologyReviewTests === "function", "runCalibrationPhysiologyReviewTests should be exported");
+          assertTest(typeof window.runCalibrationWeeklyBudgetReview === "function", "runCalibrationWeeklyBudgetReview should be exported");
+          assertTest(typeof window.runCalibrationWeeklyBudgetReviewTests === "function", "runCalibrationWeeklyBudgetReviewTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
         }));
@@ -23951,6 +24320,103 @@ Notes:
           assertClose(after.targetCal, before.targetCal, 0.0001, "physiology review should not change production targetCal");
           assertClose(after.totalBurn, before.totalBurn, 0.0001, "physiology review should not change production totalBurn");
           assertTest(JSON.stringify(recordsState.items) === beforeRecords, "physiology review should not mutate records");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+        }));
+
+        return results;
+      });
+    }
+
+    function runCalibrationWeeklyBudgetReviewTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        results.push(runNamedTest("A1.3 weekly budget review returns lightweight report", () => {
+          const report = runCalibrationWeeklyBudgetReview();
+          assertTest(report && typeof report === "object", "weekly budget report should return an object");
+          assertTest(report.meta.full === false, "weekly budget report should not run full scan");
+          assertTest(report.meta.reportOnly === true, "weekly budget report should be marked report-only");
+          ["S0_REST", "S3_60", "S5_60", "S5_90"].forEach(id => {
+            assertTest(report.meta.scheduleIds.includes(id), `${id} should be included by default`);
+            assertTest(!!report.summary.bySchedule[id], `${id} summary should exist`);
+          });
+          assertTest(findInvalidCalibrationNumber(report).length === 0, "weekly budget report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("A1.3 weekly budget schedules simulate seven days", () => {
+          const report = runCalibrationWeeklyBudgetReview({ statIds: ["M09"], scheduleIds: ["S5_60"] });
+          const item = report.reviews[0];
+          assertTest(item.dayCount === 7, "weekly schedule should represent seven days");
+          assertTest(item.trainingDayCount === 5, "S5_60 should include five training days");
+          assertTest(Number.isFinite(item.weeklyTotals.current.weeklyTargetCal), "current weekly target should be finite");
+          assertTest(Number.isFinite(item.overlapAnalysis.weeklyBaselineSum), "weekly baseline sum should be finite");
+          assertTest(Number.isFinite(item.overlapAnalysis.directWorkoutKcalSum), "direct workout kcal sum should be finite");
+          assertTest(Number.isFinite(item.overlapAnalysis.baselineToDirectWorkoutRatio), "baseline/direct ratio should be finite for S5_60");
+        }));
+
+        results.push(runNamedTest("A1.3 weekly budget handles rest schedule and day rows option", () => {
+          const compact = runCalibrationWeeklyBudgetReview({ statIds: ["M09"], scheduleIds: ["S0_REST"], includeDayRows: false });
+          const compactItem = compact.reviews[0];
+          assertTest(Array.isArray(compactItem.dayRows) && compactItem.dayRows.length === 0, "dayRows should stay empty unless requested");
+          assertTest(compactItem.overlapAnalysis.directWorkoutKcalSum === 0, "S0_REST direct workout kcal should be zero");
+          const detailed = runCalibrationWeeklyBudgetReview({ statIds: ["M09"], scheduleIds: ["S5_60"], includeDayRows: true });
+          const detailedItem = detailed.reviews[0];
+          assertTest(detailedItem.dayRows.current.length === 7, "includeDayRows true should return seven current rows");
+          assertTest(detailedItem.dayRows.directWorkoutOnly.length === 7, "includeDayRows true should return seven directWorkoutOnly rows");
+        }));
+
+        results.push(runNamedTest("A1.3 weekly budget exposes all comparison models", () => {
+          const report = runCalibrationWeeklyBudgetReview({ statIds: ["M09"], scheduleIds: ["S5_90"], includeDayRows: true });
+          const item = report.reviews[0];
+          ["current", "noWeeklyBaseline", "baselineOnly", "directWorkoutOnly"].forEach(model => {
+            assertTest(!!item.weeklyTotals[model], `${model} weekly totals should exist`);
+            assertTest(!!item.dailyAverages[model], `${model} daily averages should exist`);
+            assertTest(!!item.meta.models[model], `${model} description should exist`);
+          });
+          assertTest(item.dayRows.noWeeklyBaseline.every(row => row.estimate === true), "noWeeklyBaseline rows should be marked estimates");
+        }));
+
+        results.push(runNamedTest("A1.3 weekly budget classifications do not flag high value alone", () => {
+          const report = runCalibrationWeeklyBudgetReview({ statIds: ["M20"], scheduleIds: ["S5_90"], goals: ["bulk"] });
+          const item = report.reviews[0];
+          assertTest(Array.isArray(item.overlapAnalysis.classification), "classification should exist");
+          assertTest(item.overlapAnalysis.classification.includes("formula_consistent"), "classification should keep formula_consistent");
+          assertTest(!item.overlapAnalysis.classification.includes("formula_suspect"), "weekly budget should not use formula_suspect for high totals");
+        }));
+
+        results.push(runNamedTest("A1.3 weekly budget supports mode and goal comparisons", () => {
+          const report = runCalibrationWeeklyBudgetReview({
+            modes: ["general", "athlete", "expert"],
+            goals: ["diet", "lean_bulk", "bulk"],
+            statIds: ["M09"],
+            scheduleIds: ["S5_60"]
+          });
+          assertTest(report.meta.modes.length === 3, "three modes should be included");
+          assertTest(report.meta.goals.length === 3, "three goals should be included");
+          assertTest(report.reviews.length === 9, "one stat x one schedule x three modes x three goals should create nine reviews");
+          report.reviews.forEach(item => assertTest(Number.isFinite(item.weeklyTotals.current.weeklyTotalBurn), "each weekly totalBurn should be finite"));
+        }));
+
+        results.push(runNamedTest("A1.3 weekly budget keeps prior calibration reports available", () => {
+          const scan = runCalibrationScanReport({ profileSet: "manual", limitScenarios: 1 });
+          const physiology = runCalibrationPhysiologyReview({ mode: "athlete", statIds: ["M09"] });
+          const coverage = runCalibrationModeCoverageReport({ limitScenarios: 1, limitCandidates: 3 });
+          assertTest(scan.meta.caseCount === 40, "scan report should still run");
+          assertTest(physiology.physiologyReview.cardioFormula.items.length === 6, "physiology review should still run");
+          assertTest(coverage.meta.fullAthlete === false, "mode coverage should still keep full athlete opt-in");
+        }));
+
+        results.push(runNamedTest("A1.3 weekly budget restores state and protected constants", () => {
+          setMacroCalibrationInputs("lean_bulk");
+          state.weeklyTrainingDaysManual = true;
+          const before = calculate();
+          const beforeRecords = JSON.stringify(recordsState.items);
+          runCalibrationWeeklyBudgetReview({ modes: ["general", "athlete", "expert"], statIds: ["M09"], scheduleIds: ["S5_60"] });
+          const after = calculate();
+          assertClose(after.targetCal, before.targetCal, 0.0001, "weekly budget report should not change production targetCal");
+          assertClose(after.totalBurn, before.totalBurn, 0.0001, "weekly budget report should not change production totalBurn");
+          assertTest(JSON.stringify(recordsState.items) === beforeRecords, "weekly budget report should not mutate records");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
         }));
@@ -26732,8 +27198,10 @@ Notes:
     window.runCalibrationScanReport = runCalibrationScanReport;
     window.runCalibrationModeCoverageReport = runCalibrationModeCoverageReport;
     window.runCalibrationPhysiologyReview = runCalibrationPhysiologyReview;
+    window.runCalibrationWeeklyBudgetReview = runCalibrationWeeklyBudgetReview;
     window.runCalibrationScanReportTests = runCalibrationScanReportTests;
     window.runCalibrationPhysiologyReviewTests = runCalibrationPhysiologyReviewTests;
+    window.runCalibrationWeeklyBudgetReviewTests = runCalibrationWeeklyBudgetReviewTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
     window.runInbodyTrendContextTests = runInbodyTrendContextTests;
