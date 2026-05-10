@@ -1,6 +1,6 @@
 <!--
-Version: 6.6-A5.5
-Stage: 6.6-A5.5 외부 기준식 벤치마크 QA
+Version: 6.6-A5.6
+Stage: 6.6-A5.6 cardio kcal 환산 convention + A4 target 반영률 joint QA
 Date: 2026-05-10
 Notes:
 - targetCal과 탄단지 kcal 합이 크게 다를 때 표시 전용 계산 근거를 추가
@@ -15,7 +15,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A5.5</title>
+  <title>탄단지 다이어리 v6.6-A5.6</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4759,7 +4759,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A5.5</span>
+               <span class="app-version">v6.6-A5.6</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -21008,8 +21008,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("A4 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A5.5"), "document title should show v6.6-A5.5");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.5"), "app version badge should show v6.6-A5.5");
+          assertTest(document.title.includes("v6.6-A5.6"), "document title should show v6.6-A5.6");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.6"), "app version badge should show v6.6-A5.6");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22485,8 +22485,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A5.5";
-    const CALIBRATION_QA_STAGE = "6.6-A5.5 외부 기준식 벤치마크 QA";
+    const CALIBRATION_QA_VERSION = "6.6-A5.6";
+    const CALIBRATION_QA_STAGE = "6.6-A5.6 cardio kcal 환산 convention + A4 target 반영률 joint QA";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -25936,6 +25936,347 @@ Notes:
       });
     }
 
+    const CARDIO_CONVENTION_REFLECTION_CLASSIFICATIONS = [
+      "target_goal_consistent",
+      "target_goal_conflict",
+      "diet_deficit_too_small",
+      "diet_deficit_too_large",
+      "lean_bulk_too_deficit_like",
+      "bulk_too_deficit_like",
+      "cardio_convention_shift_small",
+      "cardio_convention_shift_material",
+      "reflection_rate_too_conservative",
+      "reflection_rate_too_aggressive",
+      "possible_production_candidate",
+      "not_production_ready"
+    ];
+
+    function buildCardioKcalConventionCandidates(){
+      return [
+        {
+          id: "app_met_kcal_1_00",
+          label: "App MET kcal convention",
+          kcalPerKgHour: 1,
+          cardioKcalMultiplier: 1,
+          notes: ["Production convention: kcal = MET x kg x hours."]
+        },
+        {
+          id: "acsm_strict_kcal_1_05",
+          label: "Strict ACSM oxygen-cost kcal convention",
+          kcalPerKgHour: 1.05,
+          cardioKcalMultiplier: 1.05,
+          notes: ["Strict ACSM kcal: MET x 3.5 x kg / 200 x minutes, about 5% above app convention for matching MET."]
+        }
+      ];
+    }
+
+    function buildCardioReflectionRatePolicyCandidates(){
+      return [
+        { id: "current_40_60_80", label: "Current A4 40/60/80", rates: { diet: 0.40, lean_bulk: 0.60, bulk: 0.80 } },
+        { id: "moderate_50_70_90", label: "Moderate 50/70/90", rates: { diet: 0.50, lean_bulk: 0.70, bulk: 0.90 } },
+        { id: "lean_bulk_stronger_40_75_90", label: "Lean/bulk stronger 40/75/90", rates: { diet: 0.40, lean_bulk: 0.75, bulk: 0.90 } },
+        { id: "high_recovery_50_80_100", label: "High recovery 50/80/100", rates: { diet: 0.50, lean_bulk: 0.80, bulk: 1.00 } },
+        { id: "bulk_full_only_40_60_100", label: "Bulk full only 40/60/100", rates: { diet: 0.40, lean_bulk: 0.60, bulk: 1.00 } },
+        { id: "lean_bulk_bulk_fuller_40_80_100", label: "Lean/bulk fuller 40/80/100", rates: { diet: 0.40, lean_bulk: 0.80, bulk: 1.00 } },
+        { id: "diet_recovery_only_50_60_80", label: "Diet recovery only 50/60/80", rates: { diet: 0.50, lean_bulk: 0.60, bulk: 0.80 } }
+      ];
+    }
+
+    function getCardioReflectionRateForPolicy(policy, goal){
+      return clamp(Number(policy?.rates?.[goal] ?? getCardioTargetReflectionRate(goal)), 0, 1);
+    }
+
+    function buildCardioConventionReflectionCaseConfigs(options = {}){
+      return buildFormulaBenchmarkCaseConfigs(options);
+    }
+
+    function classifyCardioConventionReflectionCandidate(candidate){
+      const classes = [];
+      const goal = candidate.goal;
+      const delta = candidate.targetCalMinusTotalBurn;
+      const ratio = candidate.targetCalToTotalBurn;
+      const highCardio = candidate.cardioCombo === "C4" || candidate.cardioCombo === "C5" || candidate.candidateCardioKcal > candidate.bmr * 0.8;
+
+      if (goal === "diet") {
+        if (delta > -100) classes.push("diet_deficit_too_small", "reflection_rate_too_aggressive", "target_goal_conflict");
+        else if (delta < -1400 || ratio < 0.68) classes.push("diet_deficit_too_large", "reflection_rate_too_conservative");
+        else classes.push("target_goal_consistent");
+      } else if (goal === "lean_bulk") {
+        if (delta < -300) classes.push("lean_bulk_too_deficit_like", "reflection_rate_too_conservative", "target_goal_conflict");
+        else if (ratio > 1.15) classes.push("reflection_rate_too_aggressive", "target_goal_conflict");
+        else classes.push("target_goal_consistent");
+      } else if (goal === "bulk") {
+        if (delta < -100) classes.push("bulk_too_deficit_like", "reflection_rate_too_conservative", "target_goal_conflict");
+        else if (ratio > 1.22) classes.push("reflection_rate_too_aggressive", "target_goal_conflict");
+        else classes.push("target_goal_consistent");
+      } else {
+        classes.push("target_goal_consistent");
+      }
+
+      if (candidate.cardioConventionId === "acsm_strict_kcal_1_05" && candidate.cardioKcalDeltaFromProduction >= 100) {
+        classes.push("cardio_convention_shift_material");
+      } else {
+        classes.push("cardio_convention_shift_small");
+      }
+
+      const hasConflict = classes.includes("target_goal_conflict") || classes.includes("reflection_rate_too_conservative") || classes.includes("reflection_rate_too_aggressive");
+      if (!hasConflict && (!highCardio || candidate.macroKcalGap < MACRO_ALLOCATION_GAP_THRESHOLDS.strong)) {
+        classes.push("possible_production_candidate");
+      } else if (hasConflict) {
+        classes.push("not_production_ready");
+      }
+      return [...new Set(classes)];
+    }
+
+    function calculateCardioConventionReflectionCandidate(result, current, convention, policy){
+      const candidateCardioKcal = current.cardioKcal * convention.cardioKcalMultiplier;
+      const candidateEpocKcal = candidateCardioKcal * current.epocRate;
+      const candidateTotalBurn = current.totalBurn - current.cardioKcal - current.epocKcal + candidateCardioKcal + candidateEpocKcal;
+      const reflectionRate = getCardioReflectionRateForPolicy(policy, current.goal);
+      const target = calculateTargetAndMacrosForCalibration(result.s, candidateTotalBurn, result.lbmBase, result.lbmEffective, result.modeCfg, {
+        cardioKcal: candidateCardioKcal,
+        cardioTargetReflectionRate: reflectionRate
+      });
+      const macroInfo = buildMacroAllocationInfo(target);
+      const candidate = {
+        candidateId: `${convention.id}__${policy.id}`,
+        cardioConventionId: convention.id,
+        reflectionPolicyId: policy.id,
+        goal: current.goal,
+        cardioCombo: current.cardioCombo,
+        candidateCardioKcal,
+        cardioKcalDeltaFromProduction: candidateCardioKcal - current.cardioKcal,
+        candidateEpocKcal,
+        epocKcalDeltaFromProduction: candidateEpocKcal - current.epocKcal,
+        candidateTotalBurn,
+        totalBurnDeltaFromProduction: candidateTotalBurn - current.totalBurn,
+        targetBurnBase: target.targetBurnBase,
+        reflectionRate,
+        reflectedCardioKcalForTarget: target.reflectedCardioKcalForTarget,
+        unreflectedCardioKcalForTarget: target.unreflectedCardioKcalForTarget,
+        candidateTargetCal: target.targetCal,
+        targetCalDeltaFromProduction: target.targetCal - current.targetCal,
+        targetCalMinusTotalBurn: target.targetCal - candidateTotalBurn,
+        targetCalToTotalBurn: candidateTotalBurn > 0 ? target.targetCal / candidateTotalBurn : 0,
+        candidateProtein: target.protein,
+        candidateCarbs: target.carbs,
+        candidateFat: target.fat,
+        macroKcalSum: macroInfo.macroKcalSum,
+        macroKcalGap: macroInfo.macroKcalGap,
+        macroKcalGapRatio: macroInfo.macroKcalGapRatio
+      };
+      candidate.classification = classifyCardioConventionReflectionCandidate(candidate);
+      return candidate;
+    }
+
+    function calculateCardioConventionReflectionCase(caseConfig, conventions, policies){
+      applyCalibrationCaseToInputs(caseConfig);
+      const result = calculate();
+      const current = buildCalibrationBreakdown(result, caseConfig, { compareWeeklyXw: false });
+      const candidates = [];
+      conventions.forEach(convention => {
+        policies.forEach(policy => {
+          candidates.push(calculateCardioConventionReflectionCandidate(result, current, convention, policy));
+        });
+      });
+      return {
+        caseId: caseConfig.caseId,
+        statId: current.statId,
+        mode: current.mode,
+        goal: current.goal,
+        activityCombo: current.activityCombo,
+        weightCombo: current.weightCombo,
+        cardioCombo: current.cardioCombo,
+        current: {
+          bmr: current.bmr,
+          baseDaily: current.baseDaily,
+          trainingBaselineKcal: current.trainingBaselineKcal,
+          weightKcal: current.weightKcal,
+          cardioMet: current.cardioMet,
+          cardioKcal: current.cardioKcal,
+          epocRate: current.epocRate,
+          epocKcal: current.epocKcal,
+          totalBurn: current.totalBurn,
+          targetBurnBase: current.targetBurnBase,
+          cardioTargetReflectionRate: current.cardioTargetReflectionRate,
+          targetCal: current.targetCal,
+          targetCalMinusTotalBurn: current.targetCal - current.totalBurn,
+          targetCalToTotalBurn: current.totalBurn > 0 ? current.targetCal / current.totalBurn : 0,
+          protein: current.protein,
+          carbs: current.carbs,
+          fat: current.fat,
+          macroKcalSum: current.macroKcalSum,
+          macroKcalGap: current.macroKcalGap
+        },
+        candidates
+      };
+    }
+
+    function flattenCardioConventionReflectionRows(cases){
+      const rows = [];
+      cases.forEach(item => {
+        item.candidates.forEach(candidate => {
+          rows.push({
+            caseId: item.caseId,
+            statId: item.statId,
+            mode: item.mode,
+            goal: item.goal,
+            activityCombo: item.activityCombo,
+            weightCombo: item.weightCombo,
+            cardioCombo: item.cardioCombo,
+            ...candidate
+          });
+        });
+      });
+      return rows;
+    }
+
+    function summarizeCardioConventionReflectionRows(rows){
+      return {
+        count: rows.length,
+        targetCal: summarizeCalibrationValues(rows.map(item => item.candidateTargetCal)),
+        totalBurn: summarizeCalibrationValues(rows.map(item => item.candidateTotalBurn)),
+        targetCalToTotalBurn: summarizeCalibrationValues(rows.map(item => item.targetCalToTotalBurn)),
+        targetCalMinusTotalBurn: summarizeCalibrationValues(rows.map(item => item.targetCalMinusTotalBurn)),
+        cardioKcal: summarizeCalibrationValues(rows.map(item => item.candidateCardioKcal)),
+        cardioKcalDeltaFromProduction: summarizeCalibrationValues(rows.map(item => item.cardioKcalDeltaFromProduction)),
+        totalBurnDeltaFromProduction: summarizeCalibrationValues(rows.map(item => item.totalBurnDeltaFromProduction)),
+        targetCalDeltaFromProduction: summarizeCalibrationValues(rows.map(item => item.targetCalDeltaFromProduction)),
+        macroGap: summarizeCalibrationValues(rows.map(item => item.macroKcalGap)),
+        macroGapOver250: rows.filter(item => item.macroKcalGap > 250).length,
+        macroGapOver500: rows.filter(item => item.macroKcalGap > 500).length,
+        macroGapOver1000: rows.filter(item => item.macroKcalGap > 1000).length,
+        targetGoalConflictCount: rows.filter(item => item.classification.includes("target_goal_conflict")).length,
+        highCardioConflictCount: rows.filter(item => (item.cardioCombo === "C4" || item.cardioCombo === "C5") && item.classification.includes("target_goal_conflict")).length,
+        overRestrictiveCandidateCount: rows.filter(item => item.classification.includes("reflection_rate_too_conservative") || item.classification.includes("diet_deficit_too_large")).length,
+        excessiveTargetCandidateCount: rows.filter(item => item.classification.includes("reflection_rate_too_aggressive") || item.classification.includes("diet_deficit_too_small")).length,
+        possibleProductionCandidateCount: rows.filter(item => item.classification.includes("possible_production_candidate")).length
+      };
+    }
+
+    function summarizeCardioConventionReflectionGroups(rows, keyFn){
+      const groups = summarizeCalibrationGroups(rows, keyFn);
+      return Object.fromEntries(Object.entries(groups).map(([key, groupRows]) => [key, summarizeCardioConventionReflectionRows(groupRows)]));
+    }
+
+    function buildCardioConventionReflectionClassifications(rows){
+      const buckets = Object.fromEntries(CARDIO_CONVENTION_REFLECTION_CLASSIFICATIONS.map(key => [key, []]));
+      rows.forEach(item => {
+        item.classification.forEach(key => {
+          if (!buckets[key]) buckets[key] = [];
+          buckets[key].push({
+            caseId: item.caseId,
+            statId: item.statId,
+            goal: item.goal,
+            activityCombo: item.activityCombo,
+            weightCombo: item.weightCombo,
+            cardioCombo: item.cardioCombo,
+            cardioConventionId: item.cardioConventionId,
+            reflectionPolicyId: item.reflectionPolicyId,
+            targetCalMinusTotalBurn: item.targetCalMinusTotalBurn,
+            targetCalToTotalBurn: item.targetCalToTotalBurn,
+            macroKcalGap: item.macroKcalGap
+          });
+        });
+      });
+      return buckets;
+    }
+
+    function compactCardioConventionReflectionCase(item){
+      return {
+        caseId: item.caseId,
+        statId: item.statId,
+        mode: item.mode,
+        goal: item.goal,
+        activityCombo: item.activityCombo,
+        weightCombo: item.weightCombo,
+        cardioCombo: item.cardioCombo,
+        current: item.current,
+        candidates: item.candidates.map(candidate => ({
+          candidateId: candidate.candidateId,
+          cardioConventionId: candidate.cardioConventionId,
+          reflectionPolicyId: candidate.reflectionPolicyId,
+          candidateCardioKcal: candidate.candidateCardioKcal,
+          cardioKcalDeltaFromProduction: candidate.cardioKcalDeltaFromProduction,
+          candidateTotalBurn: candidate.candidateTotalBurn,
+          totalBurnDeltaFromProduction: candidate.totalBurnDeltaFromProduction,
+          candidateTargetCal: candidate.candidateTargetCal,
+          targetCalDeltaFromProduction: candidate.targetCalDeltaFromProduction,
+          targetCalMinusTotalBurn: candidate.targetCalMinusTotalBurn,
+          targetCalToTotalBurn: candidate.targetCalToTotalBurn,
+          macroKcalGap: candidate.macroKcalGap,
+          reflectionRate: candidate.reflectionRate,
+          classification: candidate.classification
+        }))
+      };
+    }
+
+    function runCardioConventionReflectionReview(options = {}){
+      return withCalibrationReportSandbox(() => {
+        const mode = normalizeCalibrationMode(options.mode);
+        const full = options.full === true;
+        const includeCases = options.includeCases === true;
+        const conventions = buildCardioKcalConventionCandidates();
+        const policies = buildCardioReflectionRatePolicyCandidates();
+        const configs = buildCardioConventionReflectionCaseConfigs({ ...options, mode });
+        const cases = configs.map(config => calculateCardioConventionReflectionCase(config, conventions, policies));
+        const rows = flattenCardioConventionReflectionRows(cases);
+        const report = {
+          meta: {
+            version: CALIBRATION_QA_VERSION,
+            stage: CALIBRATION_QA_STAGE,
+            generatedAt: new Date().toISOString(),
+            mode,
+            full,
+            includeCases,
+            reportOnly: true,
+            conventionCount: conventions.length,
+            reflectionPolicyCount: policies.length,
+            matrixCount: conventions.length * policies.length,
+            caseCount: cases.length,
+            candidateCount: rows.length,
+            notes: [
+              "This is a report-only joint review; production cardioKcal, totalBurn, targetCal, macros, and CARDIO_TARGET_REFLECTION_RATES are not changed.",
+              "Candidate totalBurn recomputes EPOC from candidate cardioKcal because production EPOC is proportional to cardio kcal.",
+              "MET formula is held constant; only kcal convention and target reflection rate are varied."
+            ]
+          },
+          conventions,
+          reflectionPolicies: policies,
+          summary: {
+            overall: summarizeCardioConventionReflectionRows(rows),
+            byMatrix: summarizeCardioConventionReflectionGroups(rows, item => item.candidateId),
+            byConvention: summarizeCardioConventionReflectionGroups(rows, item => item.cardioConventionId),
+            byReflectionPolicy: summarizeCardioConventionReflectionGroups(rows, item => item.reflectionPolicyId),
+            byGoal: summarizeCardioConventionReflectionGroups(rows, item => item.goal),
+            byGoalPolicy: summarizeCardioConventionReflectionGroups(rows, item => `${item.goal}__${item.reflectionPolicyId}`),
+            byCardioCombo: summarizeCardioConventionReflectionGroups(rows, item => item.cardioCombo)
+          },
+          classifications: buildCardioConventionReflectionClassifications(rows),
+          representativeCases: cases
+            .filter(item => ["M20", "F20", "F10", "M09"].includes(item.statId))
+            .map(compactCardioConventionReflectionCase),
+          cases: includeCases ? cases.map(compactCardioConventionReflectionCase) : [],
+          nextCandidates: [
+            "If current_40_60_80 keeps lean_bulk/bulk in large deficits, reflection rate should be revisited before macro soft range production work.",
+            "If strict ACSM convention changes target conflicts only slightly, convention can be treated as secondary to reflection policy.",
+            "If bulk/full recovery policies reduce conflicts without excessive targets, they are A5.7 candidates."
+          ]
+        };
+        if (options.log === true) {
+          console.log("Cardio convention x reflection review", report.meta);
+          console.table(Object.entries(report.summary.byMatrix).map(([id, summary]) => ({
+            id,
+            conflict: summary.targetGoalConflictCount,
+            overRestrictive: summary.overRestrictiveCandidateCount,
+            excessive: summary.excessiveTargetCandidateCount,
+            targetDeltaMedian: summary.targetCalMinusTotalBurn.median
+          })));
+        }
+        return report;
+      });
+    }
+
     function buildCalibrationManualReview(options = {}){
       const mode = normalizeCalibrationMode(options.mode);
       const representativeScenario = {
@@ -26207,6 +26548,8 @@ Notes:
           assertTest(typeof window.runMacroCapPhilosophyReviewTests === "function", "runMacroCapPhilosophyReviewTests should be exported");
           assertTest(typeof window.runFormulaBenchmarkReview === "function", "runFormulaBenchmarkReview should be exported");
           assertTest(typeof window.runFormulaBenchmarkReviewTests === "function", "runFormulaBenchmarkReviewTests should be exported");
+          assertTest(typeof window.runCardioConventionReflectionReview === "function", "runCardioConventionReflectionReview should be exported");
+          assertTest(typeof window.runCardioConventionReflectionReviewTests === "function", "runCardioConventionReflectionReviewTests should be exported");
           assertTest(typeof window.runMacroAllocationExplanationTests === "function", "runMacroAllocationExplanationTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
@@ -26921,6 +27264,121 @@ Notes:
         results.push(runNamedTest("A5.5 previous macro cap philosophy tests remain intact", () => {
           const philosophyResults = runMacroCapPhilosophyReviewTests();
           assertTest(philosophyResults.every(item => item.pass), "A5.4 philosophy review tests should still pass");
+        }));
+
+        return results;
+      });
+    }
+
+    function runCardioConventionReflectionReviewTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        results.push(runNamedTest("A5.6 cardio convention reflection review returns 2x7 matrix", () => {
+          const report = runCardioConventionReflectionReview({ statIds: ["M09", "M20"], limitCases: 4 });
+          assertTest(report && typeof report === "object", "cardio convention reflection report should return an object");
+          assertTest(report.meta.reportOnly === true, "cardio convention reflection report should be report-only");
+          assertTest(report.meta.full === false, "cardio convention reflection report should not run full scan by default");
+          assertTest(report.meta.conventionCount === 2, "report should include two cardio kcal conventions");
+          assertTest(report.meta.reflectionPolicyCount === 7, "report should include seven reflection policies");
+          assertTest(report.meta.matrixCount === 14, "report should include a 2 x 7 matrix");
+          assertTest(report.meta.candidateCount === report.meta.caseCount * 14, "candidate count should match case x matrix");
+          assertTest(findInvalidCalibrationNumber(report).length === 0, "cardio convention reflection report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("A5.6 required conventions and reflection policies exist", () => {
+          const conventionIds = buildCardioKcalConventionCandidates().map(item => item.id);
+          const policyIds = buildCardioReflectionRatePolicyCandidates().map(item => item.id);
+          ["app_met_kcal_1_00", "acsm_strict_kcal_1_05"].forEach(id => {
+            assertTest(conventionIds.includes(id), `${id} convention should exist`);
+          });
+          [
+            "current_40_60_80",
+            "moderate_50_70_90",
+            "lean_bulk_stronger_40_75_90",
+            "high_recovery_50_80_100",
+            "bulk_full_only_40_60_100",
+            "lean_bulk_bulk_fuller_40_80_100",
+            "diet_recovery_only_50_60_80"
+          ].forEach(id => {
+            assertTest(policyIds.includes(id), `${id} reflection policy should exist`);
+          });
+        }));
+
+        results.push(runNamedTest("A5.6 strict ACSM convention lifts cardio kcal by 1.05 with matching MET", () => {
+          const report = runCardioConventionReflectionReview({
+            statIds: ["M20"],
+            goals: ["bulk"],
+            activityCombos: ["A5"],
+            weightCombos: ["W5"],
+            cardioCombos: ["C5"],
+            includeCases: true
+          });
+          const item = report.cases[0];
+          const app = item.candidates.find(candidate => candidate.cardioConventionId === "app_met_kcal_1_00" && candidate.reflectionPolicyId === "current_40_60_80");
+          const strict = item.candidates.find(candidate => candidate.cardioConventionId === "acsm_strict_kcal_1_05" && candidate.reflectionPolicyId === "current_40_60_80");
+          assertClose(app.candidateCardioKcal, item.current.cardioKcal, 0.0001, "app convention should match production cardioKcal");
+          assertClose(strict.candidateCardioKcal / app.candidateCardioKcal, 1.05, 0.0001, "strict ACSM convention should be 1.05x app cardio kcal");
+          assertTest(Number.isFinite(item.current.cardioMet) && item.current.cardioMet > 0, "MET should stay finite and positive for C5");
+          assertTest(strict.candidateTotalBurn > app.candidateTotalBurn, "strict convention should raise candidate totalBurn");
+        }));
+
+        results.push(runNamedTest("A5.6 representative high and C2/C3 cases are included", () => {
+          const report = runCardioConventionReflectionReview({ includeCases: true });
+          const highCase = report.representativeCases.find(item => item.statId === "M20" && item.goal === "bulk" && item.activityCombo === "A5" && item.weightCombo === "W5" && item.cardioCombo === "C5");
+          const c2Case = report.representativeCases.find(item => item.statId === "M09" && item.goal === "lean_bulk" && item.activityCombo === "A2" && item.weightCombo === "W2" && item.cardioCombo === "C2");
+          const c3Case = report.representativeCases.find(item => item.statId === "M09" && item.goal === "lean_bulk" && item.activityCombo === "A2" && item.weightCombo === "W2" && item.cardioCombo === "C3");
+          assertTest(!!highCase, "M20 bulk A5 W5 C5 high case should be included");
+          assertTest(!!c2Case, "M09 lean C2 case should be included");
+          assertTest(!!c3Case, "M09 lean C3 case should be included");
+          assertTest(highCase.candidates.length === 14, "representative high case should include all 14 candidates");
+        }));
+
+        results.push(runNamedTest("A5.6 candidate matrix keeps production calculation unchanged", () => {
+          const stat = buildCalibrationManualStats().find(item => item.id === "M20");
+          applyCalibrationCaseToInputs({
+            mode: "athlete",
+            stat,
+            goalCombo: getCalibrationGoalComboByGoal("bulk"),
+            activityCombo: getCalibrationComboById(getCalibrationActivityCombos(), "A5"),
+            weightCombo: getCalibrationComboById(getCalibrationWeightCombos(), "W5"),
+            cardioCombo: getCalibrationComboById(getCalibrationCardioCombos(), "C5")
+          });
+          const before = calculate();
+          const beforeRecords = JSON.stringify(recordsState.items);
+          runCardioConventionReflectionReview({
+            statIds: ["M20"],
+            goals: ["bulk"],
+            activityCombos: ["A5"],
+            weightCombos: ["W5"],
+            cardioCombos: ["C5"]
+          });
+          const after = calculate();
+          ["targetCal", "totalBurn", "protein", "carbs", "fat", "weightKcal", "trainingBaselineKcal"].forEach(key => {
+            assertClose(after[key], before[key], 0.0001, `cardio convention reflection review should not change ${key}`);
+          });
+          assertClose(after.cardio.kcal, before.cardio.kcal, 0.0001, "cardio convention reflection review should not change production cardioKcal");
+          assertTest(JSON.stringify(recordsState.items) === beforeRecords, "cardio convention reflection review should not mutate records");
+        }));
+
+        results.push(runNamedTest("A5.6 classifications, exports, and protected constants exist", () => {
+          const report = runCardioConventionReflectionReview({
+            statIds: ["M09"],
+            includeCases: false,
+            limitCases: 4
+          });
+          CARDIO_CONVENTION_REFLECTION_CLASSIFICATIONS.forEach(key => {
+            assertTest(Array.isArray(report.classifications[key]), `${key} classification bucket should exist`);
+          });
+          assertTest(typeof window.runCardioConventionReflectionReview === "function", "runCardioConventionReflectionReview should be exported");
+          assertTest(typeof window.runCardioConventionReflectionReviewTests === "function", "runCardioConventionReflectionReviewTests should be exported");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+        }));
+
+        results.push(runNamedTest("A5.6 previous formula benchmark tests remain intact", () => {
+          const benchmarkResults = runFormulaBenchmarkReviewTests();
+          assertTest(benchmarkResults.every(item => item.pass), "A5.5 formula benchmark tests should still pass");
         }));
 
         return results;
@@ -29836,6 +30294,7 @@ Notes:
     window.runMacroCapCandidateReview = runMacroCapCandidateReview;
     window.runMacroCapPhilosophyReview = runMacroCapPhilosophyReview;
     window.runFormulaBenchmarkReview = runFormulaBenchmarkReview;
+    window.runCardioConventionReflectionReview = runCardioConventionReflectionReview;
     window.runCalibrationScanReportTests = runCalibrationScanReportTests;
     window.runCalibrationPhysiologyReviewTests = runCalibrationPhysiologyReviewTests;
     window.runCalibrationWeeklyBudgetReviewTests = runCalibrationWeeklyBudgetReviewTests;
@@ -29843,6 +30302,7 @@ Notes:
     window.runMacroCapCandidateReviewTests = runMacroCapCandidateReviewTests;
     window.runMacroCapPhilosophyReviewTests = runMacroCapPhilosophyReviewTests;
     window.runFormulaBenchmarkReviewTests = runFormulaBenchmarkReviewTests;
+    window.runCardioConventionReflectionReviewTests = runCardioConventionReflectionReviewTests;
     window.runMacroAllocationExplanationTests = runMacroAllocationExplanationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
