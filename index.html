@@ -1,6 +1,6 @@
 <!--
-Version: 6.6-A5.6
-Stage: 6.6-A5.6 cardio kcal 환산 convention + A4 target 반영률 joint QA
+Version: 6.6-A5.7
+Stage: 6.6-A5.7 targetCal goal policy + macro soft range joint QA
 Date: 2026-05-10
 Notes:
 - targetCal과 탄단지 kcal 합이 크게 다를 때 표시 전용 계산 근거를 추가
@@ -15,7 +15,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A5.6</title>
+  <title>탄단지 다이어리 v6.6-A5.7</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4759,7 +4759,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A5.6</span>
+               <span class="app-version">v6.6-A5.7</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -21008,8 +21008,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("A4 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A5.6"), "document title should show v6.6-A5.6");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.6"), "app version badge should show v6.6-A5.6");
+          assertTest(document.title.includes("v6.6-A5.7"), "document title should show v6.6-A5.7");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.7"), "app version badge should show v6.6-A5.7");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22485,8 +22485,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A5.6";
-    const CALIBRATION_QA_STAGE = "6.6-A5.6 cardio kcal 환산 convention + A4 target 반영률 joint QA";
+    const CALIBRATION_QA_VERSION = "6.6-A5.7";
+    const CALIBRATION_QA_STAGE = "6.6-A5.7 targetCal goal policy + macro soft range joint QA";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -26277,6 +26277,540 @@ Notes:
       });
     }
 
+    const TARGET_MACRO_JOINT_CLASSIFICATIONS = [
+      "target_goal_consistent",
+      "target_goal_conflict",
+      "lean_bulk_too_deficit_like",
+      "bulk_too_deficit_like",
+      "reflection_rate_too_conservative",
+      "goal_delta_clamp_suspect",
+      "macro_extreme_downshift_suspect",
+      "hard_cap_too_restrictive",
+      "soft_range_supported",
+      "soft_range_too_aggressive",
+      "diet_recovery_too_high",
+      "possible_production_candidate",
+      "not_production_ready",
+      "explanation_still_needed"
+    ];
+
+    function buildTargetMacroJointTargetPolicies(){
+      return [
+        {
+          id: "current_a4_policy",
+          label: "current A4 policy",
+          rates: { diet: 0.40, lean_bulk: 0.60, bulk: 0.80 },
+          applyExtremeDownshift: true,
+          notes: ["Production A4 cardio target reflection with current goal factor/delta and current macro extreme downshift."]
+        },
+        {
+          id: "current_reflection_no_extreme_downshift",
+          label: "current reflection without macro extreme downshift",
+          rates: { diet: 0.40, lean_bulk: 0.60, bulk: 0.80 },
+          applyExtremeDownshift: false,
+          notes: ["Report-only: isolates whether macro extreme downshift is lowering targetCal after current A4 reflection."]
+        },
+        {
+          id: "higher_reflection_50_80_100",
+          label: "higher reflection 50/80/100",
+          rates: { diet: 0.50, lean_bulk: 0.80, bulk: 1.00 },
+          applyExtremeDownshift: true,
+          notes: ["Report-only: raises cardio target reflection while keeping current goal factor/delta and macro extreme downshift."]
+        },
+        {
+          id: "higher_reflection_no_extreme_downshift",
+          label: "higher reflection without macro extreme downshift",
+          rates: { diet: 0.50, lean_bulk: 0.80, bulk: 1.00 },
+          applyExtremeDownshift: false,
+          notes: ["Report-only: combines higher reflection with no macro extreme downshift."]
+        },
+        {
+          id: "goal_floor_policy",
+          label: "goal floor policy",
+          rates: { diet: 0.40, lean_bulk: 0.60, bulk: 0.80 },
+          applyExtremeDownshift: false,
+          leanBulkFloorBelowBurn: 150,
+          bulkFloorSurplus: 0,
+          notes: ["Report-only: diet remains current; lean_bulk floor is totalBurn -150kcal; bulk floor is totalBurn."]
+        },
+        {
+          id: "goal_floor_plus_soft_macro",
+          label: "goal floor plus soft macro",
+          rates: { diet: 0.40, lean_bulk: 0.60, bulk: 0.80 },
+          applyExtremeDownshift: false,
+          leanBulkFloorBelowBurn: 150,
+          bulkFloorSurplus: 0,
+          preferredMacroPolicyId: "goal_aware_soft_range",
+          notes: ["Report-only: goal floor with goal-aware soft macro range."]
+        },
+        {
+          id: "higher_reflection_plus_goal_floor_plus_soft_macro",
+          label: "higher reflection plus goal floor plus soft macro",
+          rates: { diet: 0.50, lean_bulk: 0.80, bulk: 1.00 },
+          applyExtremeDownshift: false,
+          leanBulkFloorBelowBurn: 150,
+          bulkFloorSurplus: 0,
+          preferredMacroPolicyId: "goal_aware_soft_range",
+          notes: ["Report-only: strongest combined target/macro recovery candidate."]
+        },
+        {
+          id: "bulk_only_floor_soft_macro",
+          label: "bulk-only floor plus soft macro",
+          rates: { diet: 0.40, lean_bulk: 0.60, bulk: 0.80 },
+          applyExtremeDownshift: false,
+          bulkFloorSurplus: 0,
+          floorGoals: ["bulk"],
+          preferredMacroPolicyId: "goal_aware_soft_range",
+          notes: ["Report-only: diet and lean_bulk remain current; bulk gets totalBurn floor and soft macro."]
+        },
+        {
+          id: "lean_bulk_bulk_floor_soft_macro",
+          label: "lean_bulk and bulk floor plus soft macro",
+          rates: { diet: 0.40, lean_bulk: 0.60, bulk: 0.80 },
+          applyExtremeDownshift: false,
+          leanBulkFloorBelowBurn: 150,
+          bulkFloorSurplus: 0,
+          floorGoals: ["lean_bulk", "bulk"],
+          preferredMacroPolicyId: "goal_aware_soft_range",
+          notes: ["Report-only: diet remains current; lean_bulk and bulk use goal floors and soft macro."]
+        }
+      ];
+    }
+
+    function buildTargetMacroJointMacroPolicies(){
+      return [
+        { id: "current_hard_cap", label: "current hard cap", philosophyPolicyId: "current_hard_cap" },
+        { id: "goal_aware_soft_range", label: "goal-aware soft range", philosophyPolicyId: "goal_aware_soft_range" },
+        { id: "targeted_soft_range", label: "targeted soft range", philosophyPolicyId: "bulk_high_cardio_targeted_soft" },
+        { id: "no_upper_cap_fill_reference", label: "no upper cap fill reference", philosophyPolicyId: "no_upper_cap_fill" }
+      ];
+    }
+
+    function getTargetMacroJointReflectionRate(policy, goal){
+      return clamp(Number(policy?.rates?.[goal] ?? getCardioTargetReflectionRate(goal)), 0, 1);
+    }
+
+    function getTargetMacroJointGoalFloor(policy, goal, candidateTotalBurn){
+      if (!policy || !(candidateTotalBurn > 0)) return null;
+      const floorGoals = Array.isArray(policy.floorGoals) ? new Set(policy.floorGoals) : null;
+      if (floorGoals && !floorGoals.has(goal)) return null;
+      if (goal === "lean_bulk" && Number.isFinite(policy.leanBulkFloorBelowBurn)) {
+        return candidateTotalBurn - Math.max(0, Number(policy.leanBulkFloorBelowBurn));
+      }
+      if (goal === "bulk" && Number.isFinite(policy.bulkFloorSurplus)) {
+        return candidateTotalBurn + Number(policy.bulkFloorSurplus);
+      }
+      return null;
+    }
+
+    function calculateTargetAndMacrosForJointCandidate(s, totalBurn, lbmBase, lbmEffective, modeCfg, options = {}){
+      const cardioKcalForTarget = Number.isFinite(options.cardioKcal)
+        ? Math.max(0, Number(options.cardioKcal))
+        : calcCardio(s).kcal;
+      const reflectionRate = clamp(Number(options.cardioTargetReflectionRate ?? getCardioTargetReflectionRate(s.goal)), 0, 1);
+      const reflectedCardioKcalForTarget = cardioKcalForTarget * reflectionRate;
+      const unreflectedCardioKcalForTarget = cardioKcalForTarget - reflectedCardioKcalForTarget;
+      const targetBurnBase = totalBurn - cardioKcalForTarget + reflectedCardioKcalForTarget;
+      const baseGoalFactor = GOALS[s.goal].factor;
+      const rawTargetCal = targetBurnBase * baseGoalFactor;
+      const rawGoalDelta = rawTargetCal - targetBurnBase;
+      const clampedGoalDelta = clamp(rawGoalDelta, GOALS[s.goal].deltaMin, GOALS[s.goal].deltaMax);
+      const targetCalBeforeFloor = targetBurnBase + clampedGoalDelta;
+      const minimumTargetCal = s.goal === "diet" ? calcBMR(s, lbmEffective, modeCfg) : 0;
+      const goalFloor = Number.isFinite(options.goalFloor) ? Number(options.goalFloor) : null;
+      const floorBase = goalFloor === null ? Math.max(targetCalBeforeFloor, minimumTargetCal) : Math.max(targetCalBeforeFloor, minimumTargetCal, goalFloor);
+      let adjustedTargetCal = floorBase;
+      let macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg);
+      let extremeIterations = 0;
+      const applyExtremeDownshift = options.applyExtremeDownshift !== false;
+      if (applyExtremeDownshift) {
+        while (macroPlan.extreme && extremeIterations < EXTREME_CASE_ADJUST.maxIterations){
+          extremeIterations += 1;
+          adjustedTargetCal = adjustedTargetCal * EXTREME_CASE_ADJUST.factor;
+          macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg);
+        }
+      }
+      return {
+        rawTargetCal,
+        rawGoalDelta,
+        clampedGoalDelta,
+        targetCalBeforeFloor,
+        goalFloor,
+        floorBase,
+        targetBurnBase,
+        cardioTargetReflectionRate: reflectionRate,
+        reflectedCardioKcalForTarget,
+        unreflectedCardioKcalForTarget,
+        targetCal: adjustedTargetCal,
+        targetFloorUsed: Math.abs(Math.max(targetCalBeforeFloor, minimumTargetCal) - targetCalBeforeFloor) > 1e-6,
+        goalFloorUsed: goalFloor !== null && adjustedTargetCal >= goalFloor - 1e-6,
+        goalClampUsed: Math.abs(clampedGoalDelta - rawGoalDelta) > 1e-6,
+        applyExtremeDownshift,
+        extremeDetected: !!macroPlan.extreme || extremeIterations > 0,
+        extremeIterations,
+        extremeDownshiftAvoided: !applyExtremeDownshift && !!macroPlan.extreme,
+        protein: macroPlan.protein,
+        carbs: macroPlan.carbs,
+        fat: macroPlan.fat
+      };
+    }
+
+    function buildTargetMacroJointCurrentForMacro(current, targetCandidate, macroInfo){
+      return {
+        ...current,
+        targetCal: targetCandidate.candidateTargetCal,
+        totalBurn: targetCandidate.candidateTotalBurn,
+        cardioKcal: targetCandidate.candidateCardioKcal,
+        epocKcal: targetCandidate.candidateEpocKcal,
+        protein: targetCandidate.candidateProtein,
+        carbs: targetCandidate.candidateCarbs,
+        fat: targetCandidate.candidateFat,
+        macroKcalSum: macroInfo.macroKcalSum,
+        macroKcalGap: macroInfo.macroKcalGap,
+        macroKcalGapRatio: macroInfo.macroKcalGapRatio
+      };
+    }
+
+    function classifyTargetMacroJointCandidate(row){
+      const classes = [];
+      const delta = row.targetCalMinusTotalBurn;
+      const ratio = row.targetCalToTotalBurn;
+      if (row.goal === "diet") {
+        if (delta > -100) classes.push("diet_recovery_too_high", "target_goal_conflict");
+        else classes.push("target_goal_consistent");
+      } else if (row.goal === "lean_bulk") {
+        if (delta < -300) classes.push("lean_bulk_too_deficit_like", "reflection_rate_too_conservative", "target_goal_conflict");
+        else classes.push("target_goal_consistent");
+      } else if (row.goal === "bulk") {
+        if (delta < -100) classes.push("bulk_too_deficit_like", "reflection_rate_too_conservative", "target_goal_conflict");
+        else classes.push("target_goal_consistent");
+      } else {
+        classes.push("target_goal_consistent");
+      }
+
+      if (row.goalClampUsed && classes.includes("target_goal_conflict")) classes.push("goal_delta_clamp_suspect");
+      if (row.extremeIterations > 0 || row.extremeDownshiftAvoided) classes.push("macro_extreme_downshift_suspect");
+      if (row.macroPolicyId === "current_hard_cap" && row.candidateMacroGap > MACRO_ALLOCATION_GAP_THRESHOLDS.kpi) {
+        classes.push("hard_cap_too_restrictive");
+      }
+      if (row.macroGapReduction > 100 && row.macroPolicyId !== "current_hard_cap") classes.push("soft_range_supported");
+      if (row.candidateCarbsKg > 10 || row.candidateFatKg > 2.25) classes.push("soft_range_too_aggressive");
+      if (row.candidateMacroGap > MACRO_ALLOCATION_GAP_THRESHOLDS.explanation) classes.push("explanation_still_needed");
+      const targetOk = !classes.includes("target_goal_conflict") && !classes.includes("reflection_rate_too_conservative") && !classes.includes("diet_recovery_too_high");
+      const macroOk = row.candidateMacroGap <= MACRO_ALLOCATION_GAP_THRESHOLDS.kpi && row.candidateCarbsKg <= 10 && row.candidateFatKg <= 2;
+      if (targetOk && macroOk) classes.push("possible_production_candidate");
+      else classes.push("not_production_ready");
+      return [...new Set(classes)];
+    }
+
+    function calculateTargetMacroJointTargetCandidate(result, current, convention, targetPolicy){
+      const candidateCardioKcal = current.cardioKcal * convention.cardioKcalMultiplier;
+      const candidateEpocKcal = candidateCardioKcal * current.epocRate;
+      const candidateTotalBurn = current.totalBurn - current.cardioKcal - current.epocKcal + candidateCardioKcal + candidateEpocKcal;
+      const reflectionRate = getTargetMacroJointReflectionRate(targetPolicy, current.goal);
+      const goalFloor = getTargetMacroJointGoalFloor(targetPolicy, current.goal, candidateTotalBurn);
+      const target = calculateTargetAndMacrosForJointCandidate(result.s, candidateTotalBurn, result.lbmBase, result.lbmEffective, result.modeCfg, {
+        cardioKcal: candidateCardioKcal,
+        cardioTargetReflectionRate: reflectionRate,
+        goalFloor,
+        applyExtremeDownshift: targetPolicy.applyExtremeDownshift
+      });
+      const macroInfo = buildMacroAllocationInfo(target);
+      return {
+        cardioConventionId: convention.id,
+        targetPolicyId: targetPolicy.id,
+        candidateCardioKcal,
+        candidateEpocKcal,
+        candidateTotalBurn,
+        totalBurnDeltaFromProduction: candidateTotalBurn - current.totalBurn,
+        reflectionRate,
+        targetBurnBase: target.targetBurnBase,
+        reflectedCardioKcalForTarget: target.reflectedCardioKcalForTarget,
+        unreflectedCardioKcalForTarget: target.unreflectedCardioKcalForTarget,
+        rawTargetCal: target.rawTargetCal,
+        rawGoalDelta: target.rawGoalDelta,
+        clampedGoalDelta: target.clampedGoalDelta,
+        targetCalBeforeFloor: target.targetCalBeforeFloor,
+        goalFloor: target.goalFloor,
+        candidateTargetCal: target.targetCal,
+        targetCalDeltaFromProduction: target.targetCal - current.targetCal,
+        targetCalMinusTotalBurn: target.targetCal - candidateTotalBurn,
+        targetCalToTotalBurn: candidateTotalBurn > 0 ? target.targetCal / candidateTotalBurn : 0,
+        candidateProtein: target.protein,
+        candidateCarbs: target.carbs,
+        candidateFat: target.fat,
+        targetMacroKcalSum: macroInfo.macroKcalSum,
+        targetMacroGap: macroInfo.macroKcalGap,
+        goalClampUsed: target.goalClampUsed,
+        goalFloorUsed: target.goalFloorUsed,
+        applyExtremeDownshift: target.applyExtremeDownshift,
+        extremeDetected: target.extremeDetected,
+        extremeIterations: target.extremeIterations,
+        extremeDownshiftAvoided: target.extremeDownshiftAvoided
+      };
+    }
+
+    function calculateTargetMacroJointCase(caseConfig, conventions, targetPolicies, macroPolicies, philosophyPolicies){
+      applyCalibrationCaseToInputs(caseConfig);
+      const result = calculate();
+      const current = buildCalibrationBreakdown(result, caseConfig, { compareWeeklyXw: false });
+      const candidates = [];
+      conventions.forEach(convention => {
+        targetPolicies.forEach(targetPolicy => {
+          const targetCandidate = calculateTargetMacroJointTargetCandidate(result, current, convention, targetPolicy);
+          const targetMacroInfo = buildMacroAllocationInfo({
+            targetCal: targetCandidate.candidateTargetCal,
+            protein: targetCandidate.candidateProtein,
+            carbs: targetCandidate.candidateCarbs,
+            fat: targetCandidate.candidateFat
+          });
+          const currentForMacro = buildTargetMacroJointCurrentForMacro(current, targetCandidate, targetMacroInfo);
+          macroPolicies.forEach(macroPolicy => {
+            const philosophyPolicy = philosophyPolicies.find(policy => policy.id === macroPolicy.philosophyPolicyId) || philosophyPolicies[0];
+            const macroCandidate = estimateMacroCapPhilosophyCandidate(currentForMacro, philosophyPolicy);
+            const row = {
+              candidateId: `${convention.id}__${targetPolicy.id}__${macroPolicy.id}`,
+              cardioConventionId: convention.id,
+              targetPolicyId: targetPolicy.id,
+              macroPolicyId: macroPolicy.id,
+              philosophyPolicyId: philosophyPolicy.id,
+              goal: current.goal,
+              cardioCombo: current.cardioCombo,
+              ...targetCandidate,
+              candidateMacroKcalSum: macroCandidate.candidateMacroKcalSum,
+              candidateMacroGap: macroCandidate.candidateGap,
+              candidateMacroGapRatio: macroCandidate.candidateGapRatio,
+              candidateMacroFulfillmentRatio: macroCandidate.targetFulfillmentRatio,
+              macroGapReduction: targetMacroInfo.macroKcalGap - macroCandidate.candidateGap,
+              candidateCarbsKg: macroCandidate.candidateCarbsKg,
+              candidateFatKg: macroCandidate.candidateFatKg,
+              candidateProteinKg: macroCandidate.candidateProteinKg,
+              candidateMacroCarbs: macroCandidate.candidateCarbs,
+              candidateMacroFat: macroCandidate.candidateFat,
+              softMacroApplied: macroCandidate.affected && macroPolicy.id !== "current_hard_cap",
+              macroPolicyClassification: macroCandidate.classification
+            };
+            row.classification = classifyTargetMacroJointCandidate(row);
+            candidates.push(row);
+          });
+        });
+      });
+      return {
+        caseId: caseConfig.caseId,
+        statId: current.statId,
+        mode: current.mode,
+        goal: current.goal,
+        activityCombo: current.activityCombo,
+        weightCombo: current.weightCombo,
+        cardioCombo: current.cardioCombo,
+        current: {
+          bmr: current.bmr,
+          weight: current.weight,
+          baseDaily: current.baseDaily,
+          trainingBaselineKcal: current.trainingBaselineKcal,
+          weightKcal: current.weightKcal,
+          cardioKcal: current.cardioKcal,
+          epocRate: current.epocRate,
+          epocKcal: current.epocKcal,
+          totalBurn: current.totalBurn,
+          targetBurnBase: current.targetBurnBase,
+          cardioTargetReflectionRate: current.cardioTargetReflectionRate,
+          targetCal: current.targetCal,
+          targetCalMinusTotalBurn: current.targetCal - current.totalBurn,
+          targetCalToTotalBurn: current.totalBurn > 0 ? current.targetCal / current.totalBurn : 0,
+          protein: current.protein,
+          carbs: current.carbs,
+          fat: current.fat,
+          macroKcalSum: current.macroKcalSum,
+          macroKcalGap: current.macroKcalGap
+        },
+        candidates
+      };
+    }
+
+    function flattenTargetMacroJointRows(cases){
+      return cases.flatMap(item => item.candidates.map(candidate => ({
+        caseId: item.caseId,
+        statId: item.statId,
+        mode: item.mode,
+        goal: item.goal,
+        activityCombo: item.activityCombo,
+        weightCombo: item.weightCombo,
+        cardioCombo: item.cardioCombo,
+        ...candidate
+      })));
+    }
+
+    function summarizeTargetMacroJointRows(rows){
+      return {
+        count: rows.length,
+        targetCal: summarizeCalibrationValues(rows.map(item => item.candidateTargetCal)),
+        totalBurn: summarizeCalibrationValues(rows.map(item => item.candidateTotalBurn)),
+        targetCalMinusTotalBurn: summarizeCalibrationValues(rows.map(item => item.targetCalMinusTotalBurn)),
+        targetCalToTotalBurn: summarizeCalibrationValues(rows.map(item => item.targetCalToTotalBurn)),
+        macroGap: summarizeCalibrationValues(rows.map(item => item.candidateMacroGap)),
+        macroFulfillmentRatio: summarizeCalibrationValues(rows.map(item => item.candidateMacroFulfillmentRatio)),
+        candidateCarbsKg: summarizeCalibrationValues(rows.map(item => item.candidateCarbsKg)),
+        candidateFatKg: summarizeCalibrationValues(rows.map(item => item.candidateFatKg)),
+        macroGapOver250: rows.filter(item => item.candidateMacroGap > 250).length,
+        macroGapOver500: rows.filter(item => item.candidateMacroGap > 500).length,
+        macroGapOver1000: rows.filter(item => item.candidateMacroGap > 1000).length,
+        targetGoalConflictCount: rows.filter(item => item.classification.includes("target_goal_conflict")).length,
+        highCardioConflictCount: rows.filter(item => (item.cardioCombo === "C4" || item.cardioCombo === "C5") && item.classification.includes("target_goal_conflict")).length,
+        softMacroAppliedCount: rows.filter(item => item.softMacroApplied).length,
+        extremeDownshiftDetectedCount: rows.filter(item => item.extremeIterations > 0).length,
+        extremeDownshiftAvoidedCount: rows.filter(item => item.extremeDownshiftAvoided).length,
+        explanationStillNeededCount: rows.filter(item => item.classification.includes("explanation_still_needed")).length,
+        bulkTargetAtOrAboveBurnCount: rows.filter(item => item.goal === "bulk" && item.targetCalMinusTotalBurn >= -1e-6).length,
+        leanBulkConflictCount: rows.filter(item => item.goal === "lean_bulk" && item.classification.includes("target_goal_conflict")).length,
+        bulkConflictCount: rows.filter(item => item.goal === "bulk" && item.classification.includes("target_goal_conflict")).length,
+        dietDeficitTooSmallCount: rows.filter(item => item.classification.includes("diet_recovery_too_high")).length,
+        carbsOver8: rows.filter(item => item.candidateCarbsKg > 8).length,
+        carbsOver9: rows.filter(item => item.candidateCarbsKg > 9).length,
+        carbsOver10: rows.filter(item => item.candidateCarbsKg > 10).length,
+        carbsOver12: rows.filter(item => item.candidateCarbsKg > 12).length,
+        fatOver1_5: rows.filter(item => item.candidateFatKg > 1.5).length,
+        fatOver1_75: rows.filter(item => item.candidateFatKg > 1.75).length,
+        fatOver2: rows.filter(item => item.candidateFatKg > 2).length,
+        fatOver2_5: rows.filter(item => item.candidateFatKg > 2.5).length,
+        possibleProductionCandidateCount: rows.filter(item => item.classification.includes("possible_production_candidate")).length,
+        notProductionReadyCount: rows.filter(item => item.classification.includes("not_production_ready")).length
+      };
+    }
+
+    function summarizeTargetMacroJointGroups(rows, keyFn){
+      const groups = summarizeCalibrationGroups(rows, keyFn);
+      return Object.fromEntries(Object.entries(groups).map(([key, groupRows]) => [key, summarizeTargetMacroJointRows(groupRows)]));
+    }
+
+    function buildTargetMacroJointClassifications(rows){
+      const buckets = Object.fromEntries(TARGET_MACRO_JOINT_CLASSIFICATIONS.map(key => [key, []]));
+      rows.forEach(item => {
+        item.classification.forEach(key => {
+          if (!buckets[key]) buckets[key] = [];
+          buckets[key].push({
+            caseId: item.caseId,
+            statId: item.statId,
+            goal: item.goal,
+            activityCombo: item.activityCombo,
+            weightCombo: item.weightCombo,
+            cardioCombo: item.cardioCombo,
+            cardioConventionId: item.cardioConventionId,
+            targetPolicyId: item.targetPolicyId,
+            macroPolicyId: item.macroPolicyId,
+            targetCalMinusTotalBurn: item.targetCalMinusTotalBurn,
+            candidateMacroGap: item.candidateMacroGap,
+            candidateCarbsKg: item.candidateCarbsKg,
+            candidateFatKg: item.candidateFatKg
+          });
+        });
+      });
+      return buckets;
+    }
+
+    function compactTargetMacroJointCase(item){
+      return {
+        caseId: item.caseId,
+        statId: item.statId,
+        mode: item.mode,
+        goal: item.goal,
+        activityCombo: item.activityCombo,
+        weightCombo: item.weightCombo,
+        cardioCombo: item.cardioCombo,
+        current: item.current,
+        candidates: item.candidates.map(candidate => ({
+          candidateId: candidate.candidateId,
+          cardioConventionId: candidate.cardioConventionId,
+          targetPolicyId: candidate.targetPolicyId,
+          macroPolicyId: candidate.macroPolicyId,
+          candidateTotalBurn: candidate.candidateTotalBurn,
+          candidateTargetCal: candidate.candidateTargetCal,
+          targetCalMinusTotalBurn: candidate.targetCalMinusTotalBurn,
+          candidateMacroKcalSum: candidate.candidateMacroKcalSum,
+          candidateMacroGap: candidate.candidateMacroGap,
+          candidateCarbsKg: candidate.candidateCarbsKg,
+          candidateFatKg: candidate.candidateFatKg,
+          extremeIterations: candidate.extremeIterations,
+          extremeDownshiftAvoided: candidate.extremeDownshiftAvoided,
+          softMacroApplied: candidate.softMacroApplied,
+          classification: candidate.classification
+        }))
+      };
+    }
+
+    function runTargetMacroJointPolicyReview(options = {}){
+      return withCalibrationReportSandbox(() => {
+        const mode = normalizeCalibrationMode(options.mode);
+        const full = options.full === true;
+        const includeCases = options.includeCases === true;
+        const conventions = buildCardioKcalConventionCandidates();
+        const targetPolicies = buildTargetMacroJointTargetPolicies();
+        const macroPolicies = buildTargetMacroJointMacroPolicies();
+        const philosophyPolicies = buildMacroCapPhilosophyPolicies();
+        const configs = buildFormulaBenchmarkCaseConfigs({ ...options, mode });
+        const cases = configs.map(config => calculateTargetMacroJointCase(config, conventions, targetPolicies, macroPolicies, philosophyPolicies));
+        const rows = flattenTargetMacroJointRows(cases);
+        const report = {
+          meta: {
+            version: CALIBRATION_QA_VERSION,
+            stage: CALIBRATION_QA_STAGE,
+            generatedAt: new Date().toISOString(),
+            mode,
+            full,
+            includeCases,
+            reportOnly: true,
+            conventionCount: conventions.length,
+            targetPolicyCount: targetPolicies.length,
+            macroPolicyCount: macroPolicies.length,
+            matrixCount: conventions.length * targetPolicies.length * macroPolicies.length,
+            caseCount: cases.length,
+            candidateCount: rows.length,
+            notes: [
+              "A5.7 report-only joint review. Production targetCal, totalBurn, cardioKcal, macros, CARDIO_TARGET_REFLECTION_RATES, GOALS, and EXTREME_CASE_ADJUST are not changed.",
+              "Candidate target policies test whether reflection rate, goal floor, and macro extreme downshift interact in lean_bulk/bulk high-cardio conflicts.",
+              "Candidate macro policies reuse A5.4 report-only soft range estimates; production macro caps are unchanged."
+            ]
+          },
+          conventions,
+          targetPolicies,
+          macroPolicies,
+          summary: {
+            overall: summarizeTargetMacroJointRows(rows),
+            byMatrix: summarizeTargetMacroJointGroups(rows, item => item.candidateId),
+            byConvention: summarizeTargetMacroJointGroups(rows, item => item.cardioConventionId),
+            byTargetPolicy: summarizeTargetMacroJointGroups(rows, item => item.targetPolicyId),
+            byMacroPolicy: summarizeTargetMacroJointGroups(rows, item => item.macroPolicyId),
+            byTargetMacroPolicy: summarizeTargetMacroJointGroups(rows, item => `${item.targetPolicyId}__${item.macroPolicyId}`),
+            byGoal: summarizeTargetMacroJointGroups(rows, item => item.goal),
+            byGoalTargetPolicy: summarizeTargetMacroJointGroups(rows, item => `${item.goal}__${item.targetPolicyId}`),
+            byCardioCombo: summarizeTargetMacroJointGroups(rows, item => item.cardioCombo)
+          },
+          classifications: buildTargetMacroJointClassifications(rows),
+          representativeCases: cases
+            .filter(item => ["M20", "F20", "F10", "M09"].includes(item.statId))
+            .map(compactTargetMacroJointCase),
+          cases: includeCases ? cases.map(compactTargetMacroJointCase) : [],
+          nextCandidates: [
+            "If reflection-only policies still leave lean_bulk/bulk conflicts, goal floor or goal delta clamp review is needed.",
+            "If goal floors raise targetCal but current hard caps leave large macro gaps, macro soft range must move with target policy.",
+            "If soft range creates broad carbs/fat extremes, the candidate is not production-ready despite fixing target conflicts."
+          ]
+        };
+        if (options.log === true) {
+          console.log("Target policy x macro soft range joint review", report.meta);
+          console.table(Object.entries(report.summary.byTargetMacroPolicy).map(([id, summary]) => ({
+            id,
+            targetConflict: summary.targetGoalConflictCount,
+            macroGapOver500: summary.macroGapOver500,
+            carbsP95: summary.candidateCarbsKg.p95,
+            fatP95: summary.candidateFatKg.p95,
+            possible: summary.possibleProductionCandidateCount
+          })));
+        }
+        return report;
+      });
+    }
+
     function buildCalibrationManualReview(options = {}){
       const mode = normalizeCalibrationMode(options.mode);
       const representativeScenario = {
@@ -26550,6 +27084,8 @@ Notes:
           assertTest(typeof window.runFormulaBenchmarkReviewTests === "function", "runFormulaBenchmarkReviewTests should be exported");
           assertTest(typeof window.runCardioConventionReflectionReview === "function", "runCardioConventionReflectionReview should be exported");
           assertTest(typeof window.runCardioConventionReflectionReviewTests === "function", "runCardioConventionReflectionReviewTests should be exported");
+          assertTest(typeof window.runTargetMacroJointPolicyReview === "function", "runTargetMacroJointPolicyReview should be exported");
+          assertTest(typeof window.runTargetMacroJointPolicyReviewTests === "function", "runTargetMacroJointPolicyReviewTests should be exported");
           assertTest(typeof window.runMacroAllocationExplanationTests === "function", "runMacroAllocationExplanationTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
@@ -27379,6 +27915,118 @@ Notes:
         results.push(runNamedTest("A5.6 previous formula benchmark tests remain intact", () => {
           const benchmarkResults = runFormulaBenchmarkReviewTests();
           assertTest(benchmarkResults.every(item => item.pass), "A5.5 formula benchmark tests should still pass");
+        }));
+
+        return results;
+      });
+    }
+
+    function runTargetMacroJointPolicyReviewTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        results.push(runNamedTest("A5.7 target macro joint review returns 2x9x4 matrix", () => {
+          const report = runTargetMacroJointPolicyReview({ statIds: ["M09", "M20"], limitCases: 4 });
+          assertTest(report && typeof report === "object", "target macro joint report should return an object");
+          assertTest(report.meta.reportOnly === true, "target macro joint report should be report-only");
+          assertTest(report.meta.full === false, "target macro joint report should not run full scan by default");
+          assertTest(report.meta.conventionCount === 2, "report should include app and strict cardio conventions");
+          assertTest(report.meta.targetPolicyCount === 9, "report should include nine target policies");
+          assertTest(report.meta.macroPolicyCount === 4, "report should include four macro policies");
+          assertTest(report.meta.matrixCount === 72, "report should include a 2 x 9 x 4 matrix");
+          assertTest(report.meta.candidateCount === report.meta.caseCount * 72, "candidate count should match case x matrix");
+          assertTest(findInvalidCalibrationNumber(report).length === 0, "target macro joint report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("A5.7 required conventions, target policies, and macro policies exist", () => {
+          const conventionIds = buildCardioKcalConventionCandidates().map(item => item.id);
+          const targetPolicyIds = buildTargetMacroJointTargetPolicies().map(item => item.id);
+          const macroPolicyIds = buildTargetMacroJointMacroPolicies().map(item => item.id);
+          ["app_met_kcal_1_00", "acsm_strict_kcal_1_05"].forEach(id => {
+            assertTest(conventionIds.includes(id), `${id} convention should exist`);
+          });
+          ["current_a4_policy", "goal_floor_plus_soft_macro", "higher_reflection_plus_goal_floor_plus_soft_macro", "bulk_only_floor_soft_macro", "lean_bulk_bulk_floor_soft_macro"].forEach(id => {
+            assertTest(targetPolicyIds.includes(id), `${id} target policy should exist`);
+          });
+          ["current_hard_cap", "goal_aware_soft_range", "targeted_soft_range", "no_upper_cap_fill_reference"].forEach(id => {
+            assertTest(macroPolicyIds.includes(id), `${id} macro policy should exist`);
+          });
+        }));
+
+        results.push(runNamedTest("A5.7 representative high and C2/C3 cases are included", () => {
+          const report = runTargetMacroJointPolicyReview({ includeCases: true });
+          const highCase = report.representativeCases.find(item => item.statId === "M20" && item.goal === "bulk" && item.activityCombo === "A5" && item.weightCombo === "W5" && item.cardioCombo === "C5");
+          const c2Case = report.representativeCases.find(item => item.statId === "M09" && item.goal === "lean_bulk" && item.activityCombo === "A2" && item.weightCombo === "W2" && item.cardioCombo === "C2");
+          const c3Case = report.representativeCases.find(item => item.statId === "M09" && item.goal === "lean_bulk" && item.activityCombo === "A2" && item.weightCombo === "W2" && item.cardioCombo === "C3");
+          assertTest(!!highCase, "M20 bulk A5 W5 C5 high case should be included");
+          assertTest(!!c2Case, "M09 lean C2 case should be included");
+          assertTest(!!c3Case, "M09 lean C3 case should be included");
+          assertTest(highCase.candidates.length === 72, "representative high case should include all 72 candidates");
+        }));
+
+        results.push(runNamedTest("A5.7 joint candidate matrix keeps production calculation unchanged", () => {
+          const stat = buildCalibrationManualStats().find(item => item.id === "M20");
+          applyCalibrationCaseToInputs({
+            mode: "athlete",
+            stat,
+            goalCombo: getCalibrationGoalComboByGoal("bulk"),
+            activityCombo: getCalibrationComboById(getCalibrationActivityCombos(), "A5"),
+            weightCombo: getCalibrationComboById(getCalibrationWeightCombos(), "W5"),
+            cardioCombo: getCalibrationComboById(getCalibrationCardioCombos(), "C5")
+          });
+          const before = calculate();
+          const beforeRecords = JSON.stringify(recordsState.items);
+          runTargetMacroJointPolicyReview({
+            statIds: ["M20"],
+            goals: ["bulk"],
+            activityCombos: ["A5"],
+            weightCombos: ["W5"],
+            cardioCombos: ["C5"]
+          });
+          const after = calculate();
+          ["targetCal", "totalBurn", "protein", "carbs", "fat", "weightKcal", "trainingBaselineKcal"].forEach(key => {
+            assertClose(after[key], before[key], 0.0001, `target macro joint review should not change ${key}`);
+          });
+          assertClose(after.cardio.kcal, before.cardio.kcal, 0.0001, "target macro joint review should not change production cardioKcal");
+          assertTest(JSON.stringify(recordsState.items) === beforeRecords, "target macro joint review should not mutate records");
+        }));
+
+        results.push(runNamedTest("A5.7 soft macro candidates stay finite", () => {
+          const report = runTargetMacroJointPolicyReview({
+            statIds: ["M20"],
+            goals: ["bulk"],
+            activityCombos: ["A5"],
+            weightCombos: ["W5"],
+            cardioCombos: ["C5"],
+            includeCases: true
+          });
+          const highCase = report.cases[0];
+          const softRows = highCase.candidates.filter(item => item.macroPolicyId === "goal_aware_soft_range" || item.macroPolicyId === "targeted_soft_range");
+          assertTest(softRows.length > 0, "soft macro rows should exist");
+          softRows.forEach(item => {
+            assertTest(Number.isFinite(item.candidateCarbsKg), "candidate carbs g/kg should be finite");
+            assertTest(Number.isFinite(item.candidateFatKg), "candidate fat g/kg should be finite");
+          });
+        }));
+
+        results.push(runNamedTest("A5.7 classifications, exports, and protected constants exist", () => {
+          const report = runTargetMacroJointPolicyReview({
+            statIds: ["M09"],
+            includeCases: false,
+            limitCases: 2
+          });
+          TARGET_MACRO_JOINT_CLASSIFICATIONS.forEach(key => {
+            assertTest(Array.isArray(report.classifications[key]), `${key} classification bucket should exist`);
+          });
+          assertTest(typeof window.runTargetMacroJointPolicyReview === "function", "runTargetMacroJointPolicyReview should be exported");
+          assertTest(typeof window.runTargetMacroJointPolicyReviewTests === "function", "runTargetMacroJointPolicyReviewTests should be exported");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+        }));
+
+        results.push(runNamedTest("A5.7 previous cardio convention tests remain intact", () => {
+          const conventionResults = runCardioConventionReflectionReviewTests();
+          assertTest(conventionResults.every(item => item.pass), "A5.6 cardio convention reflection tests should still pass");
         }));
 
         return results;
@@ -30295,6 +30943,7 @@ Notes:
     window.runMacroCapPhilosophyReview = runMacroCapPhilosophyReview;
     window.runFormulaBenchmarkReview = runFormulaBenchmarkReview;
     window.runCardioConventionReflectionReview = runCardioConventionReflectionReview;
+    window.runTargetMacroJointPolicyReview = runTargetMacroJointPolicyReview;
     window.runCalibrationScanReportTests = runCalibrationScanReportTests;
     window.runCalibrationPhysiologyReviewTests = runCalibrationPhysiologyReviewTests;
     window.runCalibrationWeeklyBudgetReviewTests = runCalibrationWeeklyBudgetReviewTests;
@@ -30303,6 +30952,7 @@ Notes:
     window.runMacroCapPhilosophyReviewTests = runMacroCapPhilosophyReviewTests;
     window.runFormulaBenchmarkReviewTests = runFormulaBenchmarkReviewTests;
     window.runCardioConventionReflectionReviewTests = runCardioConventionReflectionReviewTests;
+    window.runTargetMacroJointPolicyReviewTests = runTargetMacroJointPolicyReviewTests;
     window.runMacroAllocationExplanationTests = runMacroAllocationExplanationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
