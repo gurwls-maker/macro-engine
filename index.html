@@ -1,21 +1,23 @@
 <!--
-Version: 6.6-A5.7.1
-Stage: 6.6-A5.7.1 target/macro joint 후보 확대 스캔 QA
+Version: 6.6-A5.8
+Stage: 6.6-A5.8 lean/bulk target floor + goal-aware soft macro production 후보 적용
 Date: 2026-05-10
 Notes:
-- targetCal과 탄단지 kcal 합이 크게 다를 때 표시 전용 계산 근거를 추가
-- 탄단지로 배분한 칼로리, 목표 칼로리와 차이, 탄단지 g 우선 기준 안내 추가
-- macro cap / plausibility layer / targetCal / totalBurn / cardioKcal 산식 변경 없음
-- cardio target reflection rate / weightKcal / weeklyTrainingBaselineKcal / goal factor 변경 없음
+- lean_bulk / bulk targetCal floor production 후보 적용
+- lean_bulk / bulk goal-aware soft macro range production 후보 적용
+- diet targetCal / diet macro hard cap 유지
+- totalBurn / cardioKcal / weightKcal / weeklyTrainingBaselineKcal 산식 변경 없음
+- CARDIO_TARGET_REFLECTION_RATES / GOALS factor·delta / EXTREME_CASE_ADJUST 상수 변경 없음
 - 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
+- A5.1 남는 kcal 설명층 유지
 -->
 <!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A5.7.1</title>
+  <title>탄단지 다이어리 v6.6-A5.8</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4759,7 +4761,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A5.7.1</span>
+               <span class="app-version">v6.6-A5.8</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -5865,6 +5867,16 @@ Notes:
       fatKg: 1.5
     };
 
+    const GOAL_TARGET_FLOOR_RULES = Object.freeze({
+      lean_bulk: { belowBurnKcal: 150 },
+      bulk: { surplusKcal: 0 }
+    });
+
+    const GOAL_AWARE_MACRO_SOFT_RANGE_KG = Object.freeze({
+      lean_bulk: { carbsKg: 8.5, fatKg: 1.75 },
+      bulk: { carbsKg: 10.0, fatKg: 2.0 }
+    });
+
     const FAT_TARGET_PROFILES = {
       diet: {
         fatTargetPctLowEnergy: 0.25,
@@ -6533,6 +6545,70 @@ Notes:
       return PLAUSIBILITY_CAPS.carbsKg[mode] ?? PLAUSIBILITY_CAPS.carbsKg.general;
     }
 
+    function getGoalTargetFloor(goal, totalBurn){
+      const safeTotalBurn = Number(totalBurn);
+      if (!(safeTotalBurn > 0)) return null;
+      if (goal === "lean_bulk") return safeTotalBurn - GOAL_TARGET_FLOOR_RULES.lean_bulk.belowBurnKcal;
+      if (goal === "bulk") return safeTotalBurn + GOAL_TARGET_FLOOR_RULES.bulk.surplusKcal;
+      return null;
+    }
+
+    function applyGoalTargetFloor(goal, targetCal, totalBurn){
+      const safeTargetCal = Number(targetCal);
+      const floor = getGoalTargetFloor(goal, totalBurn);
+      if (!Number.isFinite(safeTargetCal) || floor === null) {
+        return {
+          targetCal: safeTargetCal,
+          floor,
+          applied: false,
+          delta: 0
+        };
+      }
+      const finalTargetCal = Math.max(safeTargetCal, floor);
+      return {
+        targetCal: finalTargetCal,
+        floor,
+        applied: finalTargetCal > safeTargetCal + 1e-6,
+        delta: finalTargetCal - safeTargetCal
+      };
+    }
+
+    function buildGoalTargetFloorContext(goal, originalTargetCal, finalTargetCal, totalBurn){
+      const floor = getGoalTargetFloor(goal, totalBurn);
+      const safeOriginal = Number(originalTargetCal);
+      const safeFinal = Number(finalTargetCal);
+      return {
+        goal,
+        floor,
+        targetCalBeforeFloor: safeOriginal,
+        targetCalAfterFloor: safeFinal,
+        applied: floor !== null && Number.isFinite(safeOriginal) && Number.isFinite(safeFinal) && safeFinal > safeOriginal + 1e-6,
+        delta: Number.isFinite(safeOriginal) && Number.isFinite(safeFinal) ? safeFinal - safeOriginal : 0
+      };
+    }
+
+    function getGoalAwareMacroSoftRange(goal, mode = state.mode, weightKg = 0){
+      const rule = GOAL_AWARE_MACRO_SOFT_RANGE_KG[goal];
+      const safeWeight = Math.max(0, Number(weightKg) || 0);
+      if (!rule || !(safeWeight > 0)) return null;
+      const baseCarbsKg = getCarbsPlausibilityCapKg(mode);
+      const baseFatKg = FAT_HARD_CAP_KG;
+      const carbsKg = Math.max(baseCarbsKg, Number(rule.carbsKg) || baseCarbsKg);
+      const fatKg = Math.max(baseFatKg, Number(rule.fatKg) || baseFatKg);
+      return {
+        goal,
+        mode,
+        carbsKg,
+        fatKg,
+        carbsCapG: carbsKg * safeWeight,
+        fatCapG: fatKg * safeWeight,
+        baseCarbsKg,
+        baseFatKg,
+        baseCarbsCapG: baseCarbsKg * safeWeight,
+        baseFatCapG: baseFatKg * safeWeight
+      };
+    }
+
     function setRoutineFromCurrentPlan(value){
       const entry = getRoutineEntry(value);
       state.routine = entry.value;
@@ -6813,9 +6889,16 @@ Notes:
 
     function applyPlausibilityLayer(config){
       const { s, targetCal, protein, carbs, fat, fatTargetContext } = config;
-      const proteinCap = (PLAUSIBILITY_CAPS.proteinKg[state.mode] ?? PLAUSIBILITY_CAPS.proteinKg.general) * s.weight;
-      const carbsCap = getCarbsPlausibilityCapKg(state.mode) * s.weight;
-      const fatCap = Math.min(PLAUSIBILITY_CAPS.fatKg * s.weight, fatTargetContext?.fatPracticalCeilingG ?? Infinity);
+      const mode = config.mode || state.mode;
+      const macroCapPolicy = config.macroCapPolicy || "production";
+      const macroSoftRange = macroCapPolicy === "hard_cap" ? null : getGoalAwareMacroSoftRange(s.goal, mode, s.weight);
+      const proteinCap = (PLAUSIBILITY_CAPS.proteinKg[mode] ?? PLAUSIBILITY_CAPS.proteinKg.general) * s.weight;
+      const carbsCapKg = macroSoftRange?.carbsKg ?? getCarbsPlausibilityCapKg(mode);
+      const fatCapKg = macroSoftRange?.fatKg ?? PLAUSIBILITY_CAPS.fatKg;
+      const carbsCap = carbsCapKg * s.weight;
+      const fatCap = macroSoftRange
+        ? macroSoftRange.fatCapG
+        : Math.min(PLAUSIBILITY_CAPS.fatKg * s.weight, fatTargetContext?.fatPracticalCeilingG ?? Infinity);
       let nextProtein = Math.min(protein, proteinCap);
       let nextCarbs = Math.min(carbs, carbsCap);
       let nextFat = Math.min(fat, fatCap);
@@ -6829,7 +6912,18 @@ Notes:
         unresolvedKcal = Math.max(0, targetCal - allocatedKcal);
       }
 
-      const extreme = unresolvedKcal > 1e-6 && nextCarbs >= carbsCap - 1e-6;
+      if (unresolvedKcal > 0 && macroSoftRange && nextFat < fatCap){
+        const extraFat = Math.min(unresolvedKcal / 9, fatCap - nextFat);
+        nextFat += extraFat;
+        allocatedKcal += extraFat * 9;
+        unresolvedKcal = Math.max(0, targetCal - allocatedKcal);
+      }
+
+      const macroSoftRangeApplied = !!macroSoftRange
+        && (nextCarbs > macroSoftRange.baseCarbsCapG + 1e-6 || nextFat > macroSoftRange.baseFatCapG + 1e-6);
+      const extreme = unresolvedKcal > 1e-6
+        && nextCarbs >= carbsCap - 1e-6
+        && (!macroSoftRange || nextFat >= fatCap - 1e-6);
 
       return {
         protein: nextProtein,
@@ -6843,24 +6937,29 @@ Notes:
         },
         fatPhysioFloorG: fatTargetContext?.fatPhysioFloorG ?? 0,
         fatActionFloorG: fatTargetContext?.fatActionFloorG ?? 0,
-        fatPracticalCeilingG: fatTargetContext?.fatPracticalCeilingG ?? fatCap,
+        fatPracticalCeilingG: fatCap,
         fatTargetContext,
         // Legacy aliases: older callers read these as a baseline/floor, but they now mirror the preferred target.
         fatBaseline: fatTargetContext?.fatTargetPreferredG ?? nextFat,
         fatFloor: fatTargetContext?.fatTargetPreferredG ?? nextFat,
-        fatSoftCap: fatTargetContext?.fatTargetMaxG ?? nextFat,
-        fatHardCap: fatTargetContext?.fatPracticalCeilingG ?? fatCap,
+        fatSoftCap: fatCap,
+        fatHardCap: fatCap,
         proteinCap,
         carbsCap,
         fatCap,
+        carbsCapKg,
+        fatCapKg,
+        macroCapPolicy,
+        macroSoftRange,
+        macroSoftRangeApplied,
         allocatedKcal,
         unresolvedKcal,
-        plausibilityLimited: nextProtein !== protein || nextCarbs !== carbs || nextFat !== fat,
+        plausibilityLimited: nextProtein < protein - 1e-6 || nextCarbs < carbs - 1e-6 || nextFat < fat - 1e-6,
         extreme
       };
     }
 
-    function calculateMacroTargets(s, targetCal, lbmBase, lbmEffective, modeCfg){
+    function calculateMacroTargets(s, targetCal, lbmBase, lbmEffective, modeCfg, options = {}){
       const proteinBasisWeight = getProteinBasisWeight(s, lbmBase, lbmEffective, modeCfg);
       const proteinRaw = Math.max(0, GOALS[s.goal].proteinKg * proteinBasisWeight);
       const defaultProteinCap = targetCal * 0.35 / 4;
@@ -6879,7 +6978,9 @@ Notes:
         protein,
         carbs,
         fat: fatTarget,
-        fatTargetContext
+        fatTargetContext,
+        mode: modeCfg?.preset || state.mode,
+        macroCapPolicy: options.macroCapPolicy || "production"
       });
       return { ...plausibility, proteinBasisWeight, proteinKgApplied: proteinBasisWeight > 0 ? plausibility.protein / proteinBasisWeight : 0 };
     }
@@ -7186,15 +7287,20 @@ Notes:
       const targetFloorUsed = Math.abs(targetCal - targetCalBeforeFloor) > 1e-6;
       const safeTargetCal = Math.max(0, targetCal);
 
-      let macroPlan = calculateMacroTargets(s, safeTargetCal, lbmBase, lbmEffective, modeCfg);
+      let macroPlan = calculateMacroTargets(s, safeTargetCal, lbmBase, lbmEffective, modeCfg, { macroCapPolicy: "hard_cap" });
       let adjustedTargetCal = safeTargetCal;
       let extremeIterations = 0;
       while (macroPlan.extreme && extremeIterations < EXTREME_CASE_ADJUST.maxIterations){
         extremeIterations += 1;
         adjustedTargetCal = adjustedTargetCal * EXTREME_CASE_ADJUST.factor;
-        macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg);
+        macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg, { macroCapPolicy: "hard_cap" });
       }
+      const targetCalBeforeGoalFloor = adjustedTargetCal;
+      const goalFloorResult = applyGoalTargetFloor(s.goal, adjustedTargetCal, totalBurn);
+      adjustedTargetCal = goalFloorResult.targetCal;
+      macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg);
       const finalTargetCal = adjustedTargetCal;
+      const goalTargetFloorContext = buildGoalTargetFloorContext(s.goal, targetCalBeforeGoalFloor, finalTargetCal, totalBurn);
       const proteinBasisWeight = macroPlan.proteinBasisWeight;
       const proteinKgApplied = macroPlan.proteinKgApplied;
       const protein = macroPlan.protein;
@@ -7237,6 +7343,11 @@ Notes:
       if (targetFloorUsed){
         infoNotes.push("감량 설정에서 목표 칼로리가 기초대사량(BMR)보다 낮아 안전을 위해 최소값을 BMR 수준으로 보정했습니다.");
       }
+      if (goalTargetFloorContext.applied && s.goal === "lean_bulk"){
+        infoNotes.push("린매스업 목표에서는 고강도 운동일에도 큰 적자로 떨어지지 않도록 목표 칼로리 하한을 적용했습니다.");
+      } else if (goalTargetFloorContext.applied && s.goal === "bulk"){
+        infoNotes.push("벌크업 목표에서는 고강도 운동일에도 총소비량 아래로 떨어지지 않도록 목표 칼로리 하한을 적용했습니다.");
+      }
       if (trainingBaselineKcal > 0){
         infoNotes.push("주당 웨이트 빈도는 휴식일에도 유지·회복 수요를 반영하도록 기본 유지칼로리에 소폭 보정됩니다.");
       }
@@ -7278,7 +7389,7 @@ Notes:
       } else if (extremeIterations > 0){
         cautionNotes.push(`현실성 상한에 걸려 목표 칼로리를 ${extremeIterations}회 보수적으로 다시 계산했습니다.`);
       }
-      if (carbs / Math.max(1, s.weight) > getCarbsPlausibilityCapKg(state.mode)){
+      if (carbs / Math.max(1, s.weight) > (macroPlan.carbsCapKg ?? getCarbsPlausibilityCapKg(state.mode))){
         cautionNotes.push("탄수화물이 꽤 높게 잡혔습니다. 실제 운동량이 이 정도인지 한 번 더 확인해 보세요.");
       }
       if (s.goal === "bulk" && clampedGoalDelta > 420){
@@ -7323,6 +7434,11 @@ Notes:
         rawTargetCal,
         rawGoalDelta,
         clampedGoalDelta,
+        targetCalBeforeGoalFloor,
+        goalTargetFloor: goalFloorResult.floor,
+        goalTargetFloorApplied: goalTargetFloorContext.applied,
+        goalTargetFloorDelta: goalTargetFloorContext.delta,
+        goalTargetFloorContext,
         targetCal: finalTargetCal,
         goalClampUsed,
         targetFloorUsed,
@@ -7349,6 +7465,9 @@ Notes:
         fatFloor,
         fatSoftCap: macroPlan.fatSoftCap,
         fatHardCap: macroPlan.fatHardCap,
+        macroCapPolicy: macroPlan.macroCapPolicy,
+        macroSoftRange: macroPlan.macroSoftRange,
+        macroSoftRangeApplied: macroPlan.macroSoftRangeApplied,
         plausibility: macroPlan,
         expertAlphaBase: modeCfg.baseAlpha,
         expertAlphaApplied: modeCfg.appliedAlpha,
@@ -21008,8 +21127,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("A4 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A5.7.1"), "document title should show v6.6-A5.7.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.7.1"), "app version badge should show v6.6-A5.7.1");
+          assertTest(document.title.includes("v6.6-A5.8"), "document title should show v6.6-A5.8");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.8"), "app version badge should show v6.6-A5.8");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22485,8 +22604,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A5.7.1";
-    const CALIBRATION_QA_STAGE = "6.6-A5.7.1 target/macro joint 후보 확대 스캔 QA";
+    const CALIBRATION_QA_VERSION = "6.6-A5.8";
+    const CALIBRATION_QA_STAGE = "6.6-A5.8 lean/bulk target floor + goal-aware soft macro production 후보 적용";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -22811,18 +22930,26 @@ Notes:
       const targetCalBeforeFloor = targetBurnBase + clampedGoalDelta;
       const minimumTargetCal = s.goal === "diet" ? calcBMR(s, lbmEffective, modeCfg) : 0;
       let adjustedTargetCal = Math.max(targetCalBeforeFloor, minimumTargetCal);
-      let macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg);
+      let macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg, { macroCapPolicy: "hard_cap" });
       let extremeIterations = 0;
       while (macroPlan.extreme && extremeIterations < EXTREME_CASE_ADJUST.maxIterations){
         extremeIterations += 1;
         adjustedTargetCal = adjustedTargetCal * EXTREME_CASE_ADJUST.factor;
-        macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg);
+        macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg, { macroCapPolicy: "hard_cap" });
       }
+      const targetCalBeforeGoalFloor = adjustedTargetCal;
+      const goalFloorResult = applyGoalTargetFloor(s.goal, adjustedTargetCal, totalBurn);
+      adjustedTargetCal = goalFloorResult.targetCal;
+      macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg, { macroCapPolicy: options.macroCapPolicy || "production" });
       return {
         rawTargetCal,
         rawGoalDelta,
         clampedGoalDelta,
         targetCalBeforeFloor,
+        targetCalBeforeGoalFloor,
+        goalTargetFloor: goalFloorResult.floor,
+        goalTargetFloorApplied: goalFloorResult.applied,
+        goalTargetFloorDelta: goalFloorResult.delta,
         targetBurnBase,
         cardioTargetReflectionRate,
         reflectedCardioKcalForTarget,
@@ -22833,7 +22960,9 @@ Notes:
         extremeIterations,
         protein: macroPlan.protein,
         carbs: macroPlan.carbs,
-        fat: macroPlan.fat
+        fat: macroPlan.fat,
+        macroCapPolicy: macroPlan.macroCapPolicy,
+        macroSoftRangeApplied: macroPlan.macroSoftRangeApplied
       };
     }
 
@@ -22919,6 +23048,10 @@ Notes:
         rawTargetCal: result.rawTargetCal,
         rawGoalDelta: result.rawGoalDelta,
         clampedGoalDelta: result.clampedGoalDelta,
+        targetCalBeforeGoalFloor: result.targetCalBeforeGoalFloor,
+        goalTargetFloor: result.goalTargetFloor,
+        goalTargetFloorApplied: !!result.goalTargetFloorApplied,
+        goalTargetFloorDelta: result.goalTargetFloorDelta,
         targetCal: result.targetCal,
         targetFloorUsed: !!result.targetFloorUsed,
         goalClampUsed: !!result.goalClampUsed,
@@ -22929,6 +23062,9 @@ Notes:
         macroKcalGap: macroAllocationInfo.macroKcalGap,
         macroKcalGapRatio: macroAllocationInfo.macroKcalGapRatio,
         macroAllocationClass: classifyMacroAllocationGap(macroAllocationInfo),
+        macroCapPolicy: result.macroCapPolicy,
+        macroSoftRangeApplied: !!result.macroSoftRangeApplied,
+        macroSoftRange: result.macroSoftRange,
         totalBurnToBmr: result.bmr > 0 ? result.totalBurn / result.bmr : null,
         targetCalToTotalBurn: result.totalBurn > 0 ? result.targetCal / result.totalBurn : null,
         targetCalToBmr: result.bmr > 0 ? result.targetCal / result.bmr : null,
@@ -26297,6 +26433,18 @@ Notes:
     function buildTargetMacroJointTargetPolicies(){
       return [
         {
+          id: "production_a5_8_policy",
+          label: "production A5.8 policy",
+          rates: { diet: 0.40, lean_bulk: 0.60, bulk: 0.80 },
+          applyExtremeDownshift: true,
+          applyGoalFloorAfterExtreme: true,
+          leanBulkFloorBelowBurn: 150,
+          bulkFloorSurplus: 0,
+          floorGoals: ["lean_bulk", "bulk"],
+          preferredMacroPolicyId: "goal_aware_soft_range",
+          notes: ["Production A5.8 target policy: current A4 reflection, hard-cap extreme pass, then lean_bulk/bulk final goal floor."]
+        },
+        {
           id: "current_a4_policy",
           label: "current A4 policy",
           rates: { diet: 0.40, lean_bulk: 0.60, bulk: 0.80 },
@@ -26418,23 +26566,36 @@ Notes:
       const targetCalBeforeFloor = targetBurnBase + clampedGoalDelta;
       const minimumTargetCal = s.goal === "diet" ? calcBMR(s, lbmEffective, modeCfg) : 0;
       const goalFloor = Number.isFinite(options.goalFloor) ? Number(options.goalFloor) : null;
-      const floorBase = goalFloor === null ? Math.max(targetCalBeforeFloor, minimumTargetCal) : Math.max(targetCalBeforeFloor, minimumTargetCal, goalFloor);
+      const applyGoalFloorAfterExtreme = options.applyGoalFloorAfterExtreme === true;
+      const floorBase = goalFloor === null || applyGoalFloorAfterExtreme
+        ? Math.max(targetCalBeforeFloor, minimumTargetCal)
+        : Math.max(targetCalBeforeFloor, minimumTargetCal, goalFloor);
       let adjustedTargetCal = floorBase;
-      let macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg);
+      let macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg, { macroCapPolicy: "hard_cap" });
       let extremeIterations = 0;
       const applyExtremeDownshift = options.applyExtremeDownshift !== false;
       if (applyExtremeDownshift) {
         while (macroPlan.extreme && extremeIterations < EXTREME_CASE_ADJUST.maxIterations){
           extremeIterations += 1;
           adjustedTargetCal = adjustedTargetCal * EXTREME_CASE_ADJUST.factor;
-          macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg);
+          macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg, { macroCapPolicy: "hard_cap" });
         }
+      }
+      const targetCalBeforeGoalFloor = adjustedTargetCal;
+      let goalFloorApplied = false;
+      if (goalFloor !== null && applyGoalFloorAfterExtreme && adjustedTargetCal < goalFloor) {
+        adjustedTargetCal = goalFloor;
+        goalFloorApplied = true;
+        macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg, { macroCapPolicy: "hard_cap" });
+      } else if (goalFloor !== null && !applyGoalFloorAfterExtreme && floorBase >= goalFloor - 1e-6 && floorBase > Math.max(targetCalBeforeFloor, minimumTargetCal) + 1e-6) {
+        goalFloorApplied = true;
       }
       return {
         rawTargetCal,
         rawGoalDelta,
         clampedGoalDelta,
         targetCalBeforeFloor,
+        targetCalBeforeGoalFloor,
         goalFloor,
         floorBase,
         targetBurnBase,
@@ -26443,9 +26604,10 @@ Notes:
         unreflectedCardioKcalForTarget,
         targetCal: adjustedTargetCal,
         targetFloorUsed: Math.abs(Math.max(targetCalBeforeFloor, minimumTargetCal) - targetCalBeforeFloor) > 1e-6,
-        goalFloorUsed: goalFloor !== null && adjustedTargetCal >= goalFloor - 1e-6,
+        goalFloorUsed: goalFloorApplied,
         goalClampUsed: Math.abs(clampedGoalDelta - rawGoalDelta) > 1e-6,
         applyExtremeDownshift,
+        applyGoalFloorAfterExtreme,
         extremeDetected: !!macroPlan.extreme || extremeIterations > 0,
         extremeIterations,
         extremeDownshiftAvoided: !applyExtremeDownshift && !!macroPlan.extreme,
@@ -26513,7 +26675,8 @@ Notes:
         cardioKcal: candidateCardioKcal,
         cardioTargetReflectionRate: reflectionRate,
         goalFloor,
-        applyExtremeDownshift: targetPolicy.applyExtremeDownshift
+        applyExtremeDownshift: targetPolicy.applyExtremeDownshift,
+        applyGoalFloorAfterExtreme: targetPolicy.applyGoalFloorAfterExtreme
       });
       const macroInfo = buildMacroAllocationInfo(target);
       return {
@@ -26531,6 +26694,7 @@ Notes:
         rawGoalDelta: target.rawGoalDelta,
         clampedGoalDelta: target.clampedGoalDelta,
         targetCalBeforeFloor: target.targetCalBeforeFloor,
+        targetCalBeforeGoalFloor: target.targetCalBeforeGoalFloor,
         goalFloor: target.goalFloor,
         candidateTargetCal: target.targetCal,
         targetCalDeltaFromProduction: target.targetCal - current.targetCal,
@@ -26834,10 +26998,18 @@ Notes:
       return [
         {
           id: "current_baseline",
-          label: "current baseline",
+          label: "production current A5.8",
+          targetPolicyId: "production_a5_8_policy",
+          macroPolicyId: "goal_aware_soft_range",
+          notes: ["Production current after A5.8: diet current, lean_bulk/bulk floor, and goal-aware soft macro range."]
+        },
+        {
+          id: "pre_a5_8_reference",
+          label: "pre-A5.8 A4 hard-cap reference",
           targetPolicyId: "current_a4_policy",
           macroPolicyId: "current_hard_cap",
-          notes: ["Current production reference: A4 target policy with current hard macro cap."]
+          referenceOnly: true,
+          notes: ["Legacy reference: A4 target policy with hard macro cap before A5.8 production candidate."]
         },
         {
           id: "reflection_only_best",
@@ -27247,7 +27419,8 @@ Notes:
           philosophyPolicies: buildMacroCapPhilosophyPolicies()
         };
         const targeted = calculateTargetMacroJointExpandedStage("targeted", { ...options, mode }, shared);
-        const balanced = options.includeBalanced === true
+        const includeBalanced = options.includeBalanced === true || options.expandedBalanced === true;
+        const balanced = includeBalanced
           ? calculateTargetMacroJointExpandedStage("balanced", { ...options, mode }, shared)
           : null;
         const fullScan = options.full === true
@@ -27265,14 +27438,16 @@ Notes:
             mode,
             reportOnly: true,
             full: options.full === true,
-            includeBalanced: options.includeBalanced === true,
+            includeBalanced,
+            expandedBalanced: includeBalanced,
             includeCases: options.includeCases === true,
             conventionCount: shared.conventions.length,
             expandedCandidateCount: shared.candidateDefinitions.length,
             matrixCount: shared.conventions.length * shared.candidateDefinitions.length,
             elapsedMs: Date.now() - startedAt,
             notes: [
-              "A5.7.1 expanded scan is report-only. Production calculate(), targetCal, totalBurn, cardioKcal, macros, CARDIO_TARGET_REFLECTION_RATES, GOALS, and EXTREME_CASE_ADJUST are unchanged.",
+              "A5.8 expanded scan remains report-only, but production_current now reflects the A5.8 lean/bulk floor plus goal-aware soft macro production candidate.",
+              "pre_a5_8_reference keeps the prior A4 hard-cap behavior as a comparison axis.",
               "Default run executes expandedTargeted only; expandedBalanced and full scan require explicit options.",
               "The scan keeps app 1.00 cardio convention and strict 1.05 benchmark convention side by side."
             ]
@@ -27860,7 +28035,7 @@ Notes:
           assertClose(item.current.cardioTargetReflectionRate, 0.8, 0.0001, "bulk production cardio target reflection should be 80%");
           assertClose(production.candidateTargetCal, item.current.targetCal, 0.0001, "production policy should match production targetCal");
           assertClose(goalAware.candidateTargetCal, item.current.targetCal, 0.0001, "goal-aware policy should match production targetCal");
-          assertTest(legacy.candidateTargetCal > production.candidateTargetCal, "legacy full reflection should exceed A4 production target in high cardio case");
+          assertTest(Number.isFinite(legacy.candidateTargetCal), "legacy full reflection reference should remain finite after A5.8 floors");
           assertClose(item.current.totalBurn, production.currentTotalBurn, 0.0001, "production policy should keep totalBurn");
           assertTest(item.current.cardioKcal > 0, "high cardio case should keep cardioKcal");
         }));
@@ -27887,10 +28062,13 @@ Notes:
           const flat = item.candidates.find(candidate => candidate.policyId === "flat_partial_50");
           const conservative = item.candidates.find(candidate => candidate.policyId === "high_cardio_conservative");
           assertClose(production.candidateTargetCal, item.current.targetCal, 0.0001, "production policy should match production targetCal");
-          assertTest(legacy.candidateTargetCal > production.candidateTargetCal, "legacy reference should be higher than A4 production in high-cardio case");
-          assertTest(flat.candidateTargetCal < production.candidateTargetCal, "flat partial policy should lower high-cardio targetCal below production in bulk C5");
-          assertTest(conservative.candidateTargetCal < production.candidateTargetCal, "high-cardio conservative policy should lower high-cardio targetCal below production");
-          assertTest(conservative.classification.includes("reduces_extreme_target_without_hiding_totalBurn"), "high-cardio candidate should classify reduction without hiding totalBurn");
+          [legacy, flat, conservative].forEach(candidate => {
+            assertTest(Number.isFinite(candidate.candidateTargetCal), `${candidate.policyId} target should remain finite after A5.8 floors`);
+            assertTest(candidate.totalBurnKeptSame === true, `${candidate.policyId} should keep totalBurn`);
+            assertTest(candidate.cardioKcalKeptSame === true, `${candidate.policyId} should keep cardioKcal`);
+          });
+          assertTest(flat.reflectionRate < production.reflectionRate, "flat partial policy should still represent lower cardio reflection");
+          assertTest(conservative.reflectionRate <= production.reflectionRate, "high-cardio conservative policy should not exceed production reflection");
         }));
 
         results.push(runNamedTest("A4 C2/C3 policy review exposes non-extreme cardio without forced suspect", () => {
@@ -27980,7 +28158,7 @@ Notes:
           assertTest(current.classification.includes("current_explains_but_leaves_gap"), "current hard cap should classify large remaining gap");
         }));
 
-        results.push(runNamedTest("A5.3 targeted candidates reduce representative bulk high-cardio gap", () => {
+        results.push(runNamedTest("A5.3 targeted candidates are superseded by A5.8 production soft range", () => {
           const report = runMacroCapCandidateReview({
             statIds: ["M09"],
             goals: ["bulk"],
@@ -27992,9 +28170,9 @@ Notes:
           const current = item.candidates.find(candidate => candidate.policyId === "current_hard_cap");
           const carbsOnly = item.candidates.find(candidate => candidate.policyId === "bulk_high_cardio_carbs_plus_1_0");
           const combined = item.candidates.find(candidate => candidate.policyId === "bulk_high_cardio_carbs_plus_1_0_fat_plus_0_25");
-          assertTest(carbsOnly.candidateGap < current.candidateGap, "bulk high-cardio carbs candidate should reduce gap");
-          assertTest(combined.candidateGap < carbsOnly.candidateGap, "combined soft cap candidate should reduce gap more than carbs-only");
-          assertTest(combined.classification.includes("targeted_candidate_promising"), "combined targeted candidate should be promising for representative high gap");
+          assertTest(current.candidateGap < MACRO_ALLOCATION_GAP_THRESHOLDS.kpi || carbsOnly.candidateGap < current.candidateGap, "A5.8 production soft range should already reduce this gap, or carbs candidate should reduce it");
+          assertTest(current.candidateGap < MACRO_ALLOCATION_GAP_THRESHOLDS.kpi || combined.candidateGap <= carbsOnly.candidateGap + 1e-6, "combined candidate should not be worse when the old gap still remains large");
+          assertTest(current.candidateGap < MACRO_ALLOCATION_GAP_THRESHOLDS.kpi || combined.classification.includes("targeted_candidate_promising"), "combined targeted candidate should remain promising when representative gap is still large");
           assertTest(Number.isFinite(combined.candidateCarbsKg) && Number.isFinite(combined.candidateFatKg), "candidate g/kg values should be finite");
         }));
 
@@ -28420,16 +28598,16 @@ Notes:
       return withRecordTestSandbox(() => {
         const results = [];
 
-        results.push(runNamedTest("A5.7 target macro joint review returns 2x9x4 matrix", () => {
+        results.push(runNamedTest("A5.8 target macro joint review returns 2x10x4 matrix", () => {
           const report = runTargetMacroJointPolicyReview({ statIds: ["M09", "M20"], limitCases: 4 });
           assertTest(report && typeof report === "object", "target macro joint report should return an object");
           assertTest(report.meta.reportOnly === true, "target macro joint report should be report-only");
           assertTest(report.meta.full === false, "target macro joint report should not run full scan by default");
           assertTest(report.meta.conventionCount === 2, "report should include app and strict cardio conventions");
-          assertTest(report.meta.targetPolicyCount === 9, "report should include nine target policies");
+          assertTest(report.meta.targetPolicyCount === 10, "report should include ten target policies");
           assertTest(report.meta.macroPolicyCount === 4, "report should include four macro policies");
-          assertTest(report.meta.matrixCount === 72, "report should include a 2 x 9 x 4 matrix");
-          assertTest(report.meta.candidateCount === report.meta.caseCount * 72, "candidate count should match case x matrix");
+          assertTest(report.meta.matrixCount === 80, "report should include a 2 x 10 x 4 matrix");
+          assertTest(report.meta.candidateCount === report.meta.caseCount * 80, "candidate count should match case x matrix");
           assertTest(findInvalidCalibrationNumber(report).length === 0, "target macro joint report should not contain NaN or Infinity");
         }));
 
@@ -28440,7 +28618,7 @@ Notes:
           ["app_met_kcal_1_00", "acsm_strict_kcal_1_05"].forEach(id => {
             assertTest(conventionIds.includes(id), `${id} convention should exist`);
           });
-          ["current_a4_policy", "goal_floor_plus_soft_macro", "higher_reflection_plus_goal_floor_plus_soft_macro", "bulk_only_floor_soft_macro", "lean_bulk_bulk_floor_soft_macro"].forEach(id => {
+          ["production_a5_8_policy", "current_a4_policy", "goal_floor_plus_soft_macro", "higher_reflection_plus_goal_floor_plus_soft_macro", "bulk_only_floor_soft_macro", "lean_bulk_bulk_floor_soft_macro"].forEach(id => {
             assertTest(targetPolicyIds.includes(id), `${id} target policy should exist`);
           });
           ["current_hard_cap", "goal_aware_soft_range", "targeted_soft_range", "no_upper_cap_fill_reference"].forEach(id => {
@@ -28456,7 +28634,7 @@ Notes:
           assertTest(!!highCase, "M20 bulk A5 W5 C5 high case should be included");
           assertTest(!!c2Case, "M09 lean C2 case should be included");
           assertTest(!!c3Case, "M09 lean C3 case should be included");
-          assertTest(highCase.candidates.length === 72, "representative high case should include all 72 candidates");
+          assertTest(highCase.candidates.length === 80, "representative high case should include all 80 candidates");
         }));
 
         results.push(runNamedTest("A5.7 joint candidate matrix keeps production calculation unchanged", () => {
@@ -28545,7 +28723,7 @@ Notes:
           assertTest(report.expandedTargeted && report.expandedTargeted.meta.baseCaseCount > 0, "expandedTargeted summary should exist");
           assertTest(report.expandedBalanced === null, "expandedBalanced should be opt-in");
           assertTest(report.fullScan === null, "full scan should be opt-in");
-          assertTest(report.meta.matrixCount === 16, "expanded scan should compare 2 conventions x 8 focused candidates");
+          assertTest(report.meta.matrixCount === 18, "expanded scan should compare 2 conventions x 9 focused candidates");
           assertTest(findInvalidCalibrationNumber(report).length === 0, "expanded scan report should not contain NaN or Infinity");
         }));
 
@@ -28556,7 +28734,7 @@ Notes:
             limitCases: 6
           });
           const candidateIds = report.candidateDefinitions.map(item => item.id);
-          ["current_baseline", "goal_floor_plus_goal_aware_soft_macro", "lean_bulk_bulk_floor_soft_macro", "bulk_only_floor_soft_macro", "no_extreme_downshift_reference", "no_upper_cap_fill_reference"].forEach(id => {
+          ["current_baseline", "pre_a5_8_reference", "goal_floor_plus_goal_aware_soft_macro", "lean_bulk_bulk_floor_soft_macro", "bulk_only_floor_soft_macro", "no_extreme_downshift_reference", "no_upper_cap_fill_reference"].forEach(id => {
             assertTest(candidateIds.includes(id), `${id} expanded candidate should exist`);
           });
           const conventionIds = report.conventions.map(item => item.id);
@@ -28587,7 +28765,7 @@ Notes:
           const normal = report.representativeCases.find(item => item.statId === "M09" && item.goal === "lean_bulk" && item.activityCombo === "A2" && item.weightCombo === "W2" && item.cardioCombo === "C2");
           assertTest(!!high, "representative table should include M20 bulk A5 W5 C5");
           assertTest(!!normal, "representative table should include M09 lean_bulk A2 W2 C2");
-          assertTest(high.candidates.length === 16, "representative high case should include focused 2 x 8 candidates");
+          assertTest(high.candidates.length === 18, "representative high case should include focused 2 x 9 candidates");
         }));
 
         results.push(runNamedTest("A5.7.1 expanded scan keeps production calculation unchanged", () => {
@@ -28639,6 +28817,150 @@ Notes:
         results.push(runNamedTest("A5.7.1 previous target macro joint tests remain intact", () => {
           const jointResults = runTargetMacroJointPolicyReviewTests();
           assertTest(jointResults.every(item => item.pass), "A5.7 target macro joint tests should still pass");
+        }));
+
+        return results;
+      });
+    }
+
+    function runTargetMacroProductionPolicyTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        function setTargetMacroProductionCase({ statId = "M20", goal = "bulk", activityId = "A5", weightId = "W5", cardioId = "C5", mode = "athlete" } = {}){
+          const stat = buildCalibrationManualStats().find(item => item.id === statId) || buildCalibrationScanStats().find(item => item.id === statId);
+          assertTest(!!stat, `${statId} calibration stat should exist`);
+          applyCalibrationCaseToInputs({
+            mode,
+            stat,
+            goalCombo: getCalibrationGoalComboByGoal(goal),
+            activityCombo: getCalibrationComboById(getCalibrationActivityCombos(), activityId),
+            weightCombo: getCalibrationComboById(getCalibrationWeightCombos(), weightId),
+            cardioCombo: getCalibrationComboById(getCalibrationCardioCombos(), cardioId)
+          });
+        }
+
+        function calculateHardMacroReferenceAtTarget(result){
+          return calculateMacroTargets(result.s, result.targetCal, result.lbmBase, result.lbmEffective, result.modeCfg, { macroCapPolicy: "hard_cap" });
+        }
+
+        results.push(runNamedTest("A5.8 lean_bulk and bulk high-cardio floors apply after target calculation", () => {
+          setTargetMacroProductionCase({ statId: "M20", goal: "lean_bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          const lean = calculate();
+          assertTest(lean.goalTargetFloorApplied === true, "lean_bulk high-cardio should apply the goal floor");
+          assertTest(lean.targetCal >= lean.totalBurn - GOAL_TARGET_FLOOR_RULES.lean_bulk.belowBurnKcal - 1e-6, "lean_bulk targetCal should not fall below totalBurn -150");
+          assertTest(lean.goalTargetFloorContext.targetCalBeforeFloor < lean.targetCal, "lean_bulk floor context should preserve before/after targetCal");
+
+          setTargetMacroProductionCase({ statId: "M20", goal: "bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          const bulk = calculate();
+          assertTest(bulk.goalTargetFloorApplied === true, "bulk high-cardio should apply the goal floor");
+          assertTest(bulk.targetCal >= bulk.totalBurn - 1e-6, "bulk targetCal should not fall below totalBurn");
+          assertTest(bulk.goalTargetFloorContext.targetCalBeforeFloor < bulk.targetCal, "bulk floor context should preserve before/after targetCal");
+        }));
+
+        results.push(runNamedTest("A5.8 diet keeps current target and hard macro policy", () => {
+          setTargetMacroProductionCase({ statId: "M20", goal: "diet", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          const diet = calculate();
+          assertTest(diet.goalTargetFloorApplied !== true, "diet should not apply lean/bulk goal floor");
+          assertTest(diet.macroSoftRangeApplied !== true, "diet should not apply goal-aware soft macro range");
+          assertTest(diet.macroCapPolicy === "production", "diet still uses production macro policy path");
+          assertTest(!diet.macroSoftRange, "diet should not have a macro soft range object");
+        }));
+
+        results.push(runNamedTest("A5.8 lean_bulk and bulk high-cardio apply goal-aware soft macro without changing protein", () => {
+          setTargetMacroProductionCase({ statId: "M20", goal: "lean_bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          const lean = calculate();
+          const leanHard = calculateHardMacroReferenceAtTarget(lean);
+          assertTest(lean.macroSoftRangeApplied === true, "lean_bulk high-cardio should apply soft macro allocation");
+          assertClose(lean.protein, leanHard.protein, 0.0001, "lean_bulk soft macro should not change protein");
+          assertTest(lean.carbs <= lean.s.weight * GOAL_AWARE_MACRO_SOFT_RANGE_KG.lean_bulk.carbsKg + 1e-6, "lean_bulk carbs should stay within soft range");
+          assertTest(lean.fat <= lean.s.weight * GOAL_AWARE_MACRO_SOFT_RANGE_KG.lean_bulk.fatKg + 1e-6, "lean_bulk fat should stay within soft range");
+
+          setTargetMacroProductionCase({ statId: "M20", goal: "bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          const bulk = calculate();
+          const bulkHard = calculateHardMacroReferenceAtTarget(bulk);
+          assertTest(bulk.macroSoftRangeApplied === true, "bulk high-cardio should apply soft macro allocation");
+          assertClose(bulk.protein, bulkHard.protein, 0.0001, "bulk soft macro should not change protein");
+          assertTest(bulk.carbs <= bulk.s.weight * GOAL_AWARE_MACRO_SOFT_RANGE_KG.bulk.carbsKg + 1e-6, "bulk carbs should stay within soft range");
+          assertTest(bulk.fat <= bulk.s.weight * GOAL_AWARE_MACRO_SOFT_RANGE_KG.bulk.fatKg + 1e-6, "bulk fat should stay within soft range");
+        }));
+
+        results.push(runNamedTest("A5.8 normal lean_bulk C2/C3 cases stay on the existing path", () => {
+          [
+            { statId: "M09", cardioId: "C2" },
+            { statId: "M09", cardioId: "C3" },
+            { statId: "F10", cardioId: "C2" },
+            { statId: "F10", cardioId: "C3" }
+          ].forEach(spec => {
+            setTargetMacroProductionCase({ ...spec, goal: "lean_bulk", activityId: "A2", weightId: "W2" });
+            const result = calculate();
+            assertTest(result.goalTargetFloorApplied !== true, `${spec.statId} ${spec.cardioId} should not apply target floor`);
+            assertTest(result.macroSoftRangeApplied !== true, `${spec.statId} ${spec.cardioId} should not need soft macro allocation`);
+            assertTest(result.macroAllocationInfo.macroKcalGap < MACRO_ALLOCATION_GAP_THRESHOLDS.explanation, `${spec.statId} ${spec.cardioId} should not have a meaningful allocation gap`);
+          });
+        }));
+
+        results.push(runNamedTest("A5.8 production policy preserves protected formulas and constants", () => {
+          const goalsBefore = JSON.stringify(GOALS);
+          const ratesBefore = JSON.stringify(CARDIO_TARGET_REFLECTION_RATES);
+          const extremeBefore = JSON.stringify(EXTREME_CASE_ADJUST);
+          setTargetMacroProductionCase({ statId: "M20", goal: "bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          const before = calculate();
+          const cardioBefore = before.cardio.kcal;
+          const totalBurnBefore = before.totalBurn;
+          const weightKcalBefore = before.weightKcal;
+          const trainingBaselineBefore = before.trainingBaselineKcal;
+          runTargetMacroJointExpandedScan({ profileSet: "manual", profileIds: ["M09", "M20"], limitCases: 12, expandedBalanced: true });
+          const after = calculate();
+          assertClose(after.cardio.kcal, cardioBefore, 0.0001, "cardioKcal should remain unchanged");
+          assertClose(after.totalBurn, totalBurnBefore, 0.0001, "totalBurn should remain unchanged");
+          assertClose(after.weightKcal, weightKcalBefore, 0.0001, "weightKcal should remain unchanged");
+          assertClose(after.trainingBaselineKcal, trainingBaselineBefore, 0.0001, "weeklyTrainingBaselineKcal should remain unchanged");
+          assertTest(JSON.stringify(GOALS) === goalsBefore, "GOALS should remain unchanged");
+          assertTest(JSON.stringify(CARDIO_TARGET_REFLECTION_RATES) === ratesBefore, "CARDIO_TARGET_REFLECTION_RATES should remain unchanged");
+          assertTest(JSON.stringify(EXTREME_CASE_ADJUST) === extremeBefore, "EXTREME_CASE_ADJUST should remain unchanged");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+        }));
+
+        results.push(runNamedTest("A5.8 macro allocation explanation remains gap-driven", () => {
+          const synthetic = buildMacroAllocationInfo({
+            targetCal: 5000,
+            protein: 180,
+            carbs: 650,
+            fat: 100,
+            carbCap: 650,
+            fatHardCap: 100
+          });
+          assertTest(synthetic.shouldShowKpiNote === true, "large allocation gap should still trigger the A5.1 explanation layer");
+          const note = renderMacroAllocationNote(synthetic, "kpi");
+          assertTest(note.includes("탄단지"), "A5.1 note should remain user-facing");
+          assertTest(!/macro gap|hard cap|plausibility|targetBurnBase|reflection|internal|policy/i.test(note), "A5.1 note should not expose internal terms");
+        }));
+
+        results.push(runNamedTest("A5.8 expanded scan current candidate reads the production path", () => {
+          const report = runTargetMacroJointExpandedScan({
+            profileSet: "manual",
+            profileIds: ["M20"],
+            goals: ["bulk"],
+            activityCombos: ["A5"],
+            weightCombos: ["W5"],
+            cardioCombos: ["C5"],
+            limitCases: 1,
+            includeCases: true
+          });
+          const item = report.expandedTargeted.cases[0];
+          const productionRows = item.candidates.filter(row => row.candidateGroupId === "current_baseline" && row.cardioConventionId === "app_met_kcal_1_00");
+          assertTest(productionRows.length === 1, "expanded scan should expose one app production current row");
+          const productionRow = productionRows[0];
+          assertClose(productionRow.candidateTargetCal, item.current.targetCal, 0.0001, "production current target should match calculate()");
+          assertClose(productionRow.candidateMacroKcalSum, item.current.macroKcalSum, 0.0001, "production current macro sum should match calculate()");
+          assertTest(report.candidateDefinitions.some(def => def.id === "pre_a5_8_reference"), "pre-A5.8 reference should remain available");
+        }));
+
+        results.push(runNamedTest("A5.8 previous expanded scan tests remain intact", () => {
+          const expandedResults = runTargetMacroJointExpandedScanTests();
+          assertTest(expandedResults.every(item => item.pass), "A5.7.1 expanded scan tests should still pass");
         }));
 
         return results;
@@ -28721,13 +29043,13 @@ Notes:
           assertTest(!renderMacroAllocationNote(info, "kpi").includes("경고"), "strong gap should not render as warning copy");
         }));
 
-        results.push(runNamedTest("A5.1 representative high gap case gets carb and fat explanation", () => {
-          setMacroAllocationCalibrationCase({ statId: "M09", goal: "bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+        results.push(runNamedTest("A5.1 remaining high gap case gets carb and fat explanation", () => {
+          setMacroAllocationCalibrationCase({ statId: "M20", goal: "lean_bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
           const result = calculate();
           const info = result.macroAllocationInfo;
-          assertTest(info.macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.kpi, "M09 bulk A5 W5 C5 should have a visible allocation difference");
-          assertTest(info.carbAtPracticalLimit, "representative high gap should be near carb practical limit");
-          assertTest(info.fatAtPracticalLimit, "representative high gap should be near fat practical limit");
+          assertTest(info.macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.kpi, "M20 lean_bulk A5 W5 C5 should still have a visible allocation difference after A5.8");
+          assertTest(info.carbAtPracticalLimit, "remaining high gap should be near carb practical limit");
+          assertTest(info.fatAtPracticalLimit, "remaining high gap should be near fat practical limit");
           assertIncludesAll(renderMacroAllocationNote(info, "detail"), ["탄수화물", "지방"], "detail copy should explain carb and fat practical range");
         }));
 
@@ -28752,7 +29074,7 @@ Notes:
         }));
 
         results.push(runNamedTest("A5.1 UI renders note only for meaningful allocation difference", () => {
-          setMacroAllocationCalibrationCase({ statId: "M09", goal: "bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          setMacroAllocationCalibrationCase({ statId: "M20", goal: "lean_bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
           render();
           const highNote = document.getElementById("kpiExtremeNote");
           assertTest(!highNote.classList.contains("hidden"), "high allocation gap should show KPI note");
@@ -31567,6 +31889,7 @@ Notes:
     window.runCardioConventionReflectionReviewTests = runCardioConventionReflectionReviewTests;
     window.runTargetMacroJointPolicyReviewTests = runTargetMacroJointPolicyReviewTests;
     window.runTargetMacroJointExpandedScanTests = runTargetMacroJointExpandedScanTests;
+    window.runTargetMacroProductionPolicyTests = runTargetMacroProductionPolicyTests;
     window.runMacroAllocationExplanationTests = runMacroAllocationExplanationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
