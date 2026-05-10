@@ -1,6 +1,6 @@
 <!--
-Version: 6.6-A5.1
-Stage: 6.6-A5.1 계산 근거 / 남는 kcal 설명 1차 구현
+Version: 6.6-A5.3
+Stage: 6.6-A5.3 macro hard cap 철학 재검토 / soft cap 후보 리포트 QA
 Date: 2026-05-10
 Notes:
 - targetCal과 탄단지 kcal 합이 크게 다를 때 표시 전용 계산 근거를 추가
@@ -15,7 +15,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A5.1</title>
+  <title>탄단지 다이어리 v6.6-A5.3</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4759,7 +4759,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A5.1</span>
+               <span class="app-version">v6.6-A5.3</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -21008,8 +21008,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("A4 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A5.1"), "document title should show v6.6-A5.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.1"), "app version badge should show v6.6-A5.1");
+          assertTest(document.title.includes("v6.6-A5.3"), "document title should show v6.6-A5.3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.3"), "app version badge should show v6.6-A5.3");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22485,8 +22485,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A5.1";
-    const CALIBRATION_QA_STAGE = "6.6-A5.1 계산 근거 / 남는 kcal 설명 1차 구현";
+    const CALIBRATION_QA_VERSION = "6.6-A5.3";
+    const CALIBRATION_QA_STAGE = "6.6-A5.3 macro hard cap 철학 재검토 / soft cap 후보 리포트 QA";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -24523,6 +24523,465 @@ Notes:
       });
     }
 
+    const MACRO_CAP_CANDIDATE_CLASSIFICATIONS = [
+      "current_explains_but_leaves_gap",
+      "reduces_gap_with_reasonable_carbs",
+      "reduces_gap_but_high_carbs",
+      "reduces_gap_but_high_fat",
+      "broad_impact_too_large",
+      "targeted_candidate_promising",
+      "explanation_still_needed",
+      "not_production_ready",
+      "possible_next_formula_candidate"
+    ];
+
+    function buildMacroCapCandidatePolicies(){
+      return [
+        {
+          id: "current_hard_cap",
+          label: "current hard cap",
+          scope: "current",
+          notes: [
+            "Production baseline. Current macro hard caps are kept unchanged.",
+            "Large remaining gaps are handled by the A5.1 explanation layer."
+          ]
+        },
+        {
+          id: "global_carbs_plus_0_5",
+          label: "global carbs +0.5g/kg",
+          scope: "global",
+          extraCarbsKg: 0.5,
+          notes: ["Report-only broad relaxation. Not a production recommendation by itself."]
+        },
+        {
+          id: "global_carbs_plus_1_0",
+          label: "global carbs +1.0g/kg",
+          scope: "global",
+          extraCarbsKg: 1.0,
+          notes: ["Report-only broad relaxation. Useful for measuring gap reduction and broad impact."]
+        },
+        {
+          id: "global_fat_plus_0_25",
+          label: "global fat +0.25g/kg",
+          scope: "global",
+          allowCarbs: false,
+          allowFat: true,
+          extraFatKg: 0.25,
+          notes: ["Report-only fat cap relaxation. Fat above 1.5g/kg is not assumed to be a formula error."]
+        },
+        {
+          id: "global_carbs_plus_1_0_fat_plus_0_25",
+          label: "global carbs +1.0g/kg and fat +0.25g/kg",
+          scope: "global",
+          extraCarbsKg: 1.0,
+          allowFat: true,
+          extraFatKg: 0.25,
+          notes: ["Report-only broad combined relaxation. A5.2 showed this reduces gaps strongly but affects many cases."]
+        },
+        {
+          id: "bulk_high_cardio_carbs_plus_0_5",
+          label: "bulk high-cardio carbs +0.5g/kg",
+          scope: "targeted",
+          goal: "bulk",
+          highCardioOnly: true,
+          minGap: 500,
+          extraCarbsKg: 0.5,
+          notes: ["Applies only to bulk high-cardio cases with a meaningful remaining macro allocation gap."]
+        },
+        {
+          id: "bulk_high_cardio_carbs_plus_1_0",
+          label: "bulk high-cardio carbs +1.0g/kg",
+          scope: "targeted",
+          goal: "bulk",
+          highCardioOnly: true,
+          minGap: 500,
+          extraCarbsKg: 1.0,
+          notes: ["Applies only to bulk high-cardio cases with a meaningful remaining macro allocation gap."]
+        },
+        {
+          id: "bulk_high_cardio_carbs_plus_0_5_fat_plus_0_25",
+          label: "bulk high-cardio carbs +0.5g/kg and fat +0.25g/kg",
+          scope: "targeted",
+          goal: "bulk",
+          highCardioOnly: true,
+          minGap: 500,
+          extraCarbsKg: 0.5,
+          allowFat: true,
+          extraFatKg: 0.25,
+          notes: ["Targeted combined soft-cap candidate for bulk high-cardio cases."]
+        },
+        {
+          id: "bulk_high_cardio_carbs_plus_1_0_fat_plus_0_25",
+          label: "bulk high-cardio carbs +1.0g/kg and fat +0.25g/kg",
+          scope: "targeted",
+          goal: "bulk",
+          highCardioOnly: true,
+          minGap: 500,
+          extraCarbsKg: 1.0,
+          allowFat: true,
+          extraFatKg: 0.25,
+          notes: ["Targeted combined soft-cap candidate for bulk high-cardio cases."]
+        },
+        {
+          id: "lean_high_cardio_cautious_carbs_plus_0_5",
+          label: "lean high-cardio cautious carbs +0.5g/kg",
+          scope: "targeted",
+          goal: "lean_bulk",
+          highCardioOnly: true,
+          minGap: 500,
+          extraCarbsKg: 0.5,
+          notes: ["Cautious lean-bulk high-cardio candidate. Fat cap remains unchanged."]
+        }
+      ];
+    }
+
+    function getMacroCapReviewCaps(current){
+      const mode = normalizeCalibrationMode(current.mode || "athlete");
+      const currentCarbsCapKg = getCarbsPlausibilityCapKg(mode);
+      return {
+        proteinCapKg: PLAUSIBILITY_CAPS.proteinKg[mode] ?? PLAUSIBILITY_CAPS.proteinKg.general,
+        carbsCapKg: currentCarbsCapKg,
+        fatCapKg: FAT_HARD_CAP_KG,
+        carbsCapG: currentCarbsCapKg * current.weight,
+        fatCapG: FAT_HARD_CAP_KG * current.weight
+      };
+    }
+
+    function isMacroCapHighCardioCase(current){
+      const cardioToBmr = current.bmr > 0 ? current.cardioKcal / current.bmr : 0;
+      return ["C4", "C5"].includes(current.cardioCombo) || cardioToBmr >= 0.8;
+    }
+
+    function doesMacroCapCandidateApply(policy, current){
+      if (!policy || policy.id === "current_hard_cap") return false;
+      if (policy.goal && current.goal !== policy.goal) return false;
+      if (policy.highCardioOnly && !isMacroCapHighCardioCase(current)) return false;
+      if (Number.isFinite(policy.minGap) && current.macroKcalGap < policy.minGap) return false;
+      return true;
+    }
+
+    function classifyMacroCapCandidate(candidate, current, policy){
+      const classes = [];
+      if (policy.id === "current_hard_cap" && current.macroKcalGap > MACRO_ALLOCATION_GAP_THRESHOLDS.explanation) {
+        classes.push("current_explains_but_leaves_gap");
+      }
+      if (candidate.gapReduction > 100 && candidate.candidateCarbsKg <= 8.5 && candidate.candidateFatKg <= 1.75) {
+        classes.push("reduces_gap_with_reasonable_carbs");
+      }
+      if (candidate.gapReduction > 100 && candidate.candidateCarbsKg > 8.5) {
+        classes.push("reduces_gap_but_high_carbs");
+      }
+      if (candidate.gapReduction > 100 && candidate.candidateFatKg > 1.75) {
+        classes.push("reduces_gap_but_high_fat");
+      }
+      if (policy.scope === "global" && candidate.affected) {
+        classes.push("broad_impact_too_large");
+        classes.push("not_production_ready");
+      }
+      if (policy.scope === "targeted" && candidate.affected && candidate.candidateCarbsKg <= 8.5 && candidate.candidateFatKg <= 1.75) {
+        classes.push("targeted_candidate_promising");
+        classes.push("possible_next_formula_candidate");
+      }
+      if (candidate.candidateGap > MACRO_ALLOCATION_GAP_THRESHOLDS.explanation) {
+        classes.push("explanation_still_needed");
+      }
+      if (!classes.length) classes.push("not_production_ready");
+      return [...new Set(classes)];
+    }
+
+    function estimateMacroCapCandidate(current, policy){
+      const caps = getMacroCapReviewCaps(current);
+      const applies = doesMacroCapCandidateApply(policy, current);
+      const productionProtein = Math.max(0, Number(current.protein) || 0);
+      const productionCarbs = Math.max(0, Number(current.carbs) || 0);
+      const productionFat = Math.max(0, Number(current.fat) || 0);
+      let candidateCarbs = productionCarbs;
+      let candidateFat = productionFat;
+      let remainingGap = Math.max(0, Number(current.macroKcalGap) || 0);
+      const candidateCarbsCapKg = caps.carbsCapKg + (applies ? (Number(policy.extraCarbsKg) || 0) : 0);
+      const candidateFatCapKg = caps.fatCapKg + (applies ? (Number(policy.extraFatKg) || 0) : 0);
+      const candidateCarbsCapG = candidateCarbsCapKg * current.weight;
+      const candidateFatCapG = candidateFatCapKg * current.weight;
+
+      if (applies && remainingGap > 0 && policy.allowCarbs !== false) {
+        const addCarbs = Math.max(0, Math.min(remainingGap / 4, candidateCarbsCapG - candidateCarbs));
+        candidateCarbs += addCarbs;
+        remainingGap = Math.max(0, remainingGap - addCarbs * 4);
+      }
+      if (applies && remainingGap > 0 && policy.allowFat === true) {
+        const addFat = Math.max(0, Math.min(remainingGap / 9, candidateFatCapG - candidateFat));
+        candidateFat += addFat;
+        remainingGap = Math.max(0, remainingGap - addFat * 9);
+      }
+
+      const candidateMacroKcalSum = calculateMacroKcalSum({
+        protein: productionProtein,
+        carbs: candidateCarbs,
+        fat: candidateFat
+      });
+      const candidateGap = Math.max(0, current.targetCal - candidateMacroKcalSum);
+      const candidate = {
+        policyId: policy.id,
+        policyLabel: policy.label,
+        scope: policy.scope,
+        applies,
+        affected: candidateMacroKcalSum > current.macroKcalSum + 1e-6,
+        productionTargetCal: current.targetCal,
+        productionTotalBurn: current.totalBurn,
+        productionCardioKcal: current.cardioKcal,
+        productionMacroKcalSum: current.macroKcalSum,
+        productionGap: current.macroKcalGap,
+        candidateProtein: productionProtein,
+        candidateCarbs,
+        candidateFat,
+        candidateMacroKcalSum,
+        candidateGap,
+        candidateGapRatio: current.targetCal > 0 ? candidateGap / current.targetCal : 0,
+        gapReduction: current.macroKcalGap - candidateGap,
+        candidateCarbsKg: current.weight > 0 ? candidateCarbs / current.weight : 0,
+        candidateFatKg: current.weight > 0 ? candidateFat / current.weight : 0,
+        candidateProteinKg: current.weight > 0 ? productionProtein / current.weight : 0,
+        candidateCarbsCapKg,
+        candidateFatCapKg,
+        notes: [
+          "Report-only macro cap candidate.",
+          "Carbs are allocated before fat; protein and production targetCal are kept unchanged.",
+          "Carbs above 8g/kg or fat above 1.5g/kg are review signals, not automatic formula errors."
+        ]
+      };
+      candidate.classification = classifyMacroCapCandidate(candidate, current, policy);
+      return candidate;
+    }
+
+    function buildMacroCapCandidateCaseConfigs(options = {}){
+      const full = options.full === true;
+      const mode = normalizeCalibrationMode(options.mode);
+      const profileSet = options.profileSet || (full ? "scan" : "manual");
+      const statIds = Array.isArray(options.statIds) && options.statIds.length
+        ? new Set(options.statIds)
+        : (full ? null : new Set(["M09", "M20", "F10", "F20"]));
+      const stats = getCalibrationStatsByProfileSet(profileSet).filter(stat => !statIds || statIds.has(stat.id));
+      const goalSet = Array.isArray(options.goals) && options.goals.length ? new Set(options.goals) : null;
+      const activitySet = Array.isArray(options.activityCombos) && options.activityCombos.length ? new Set(options.activityCombos) : null;
+      const weightSet = Array.isArray(options.weightCombos) && options.weightCombos.length ? new Set(options.weightCombos) : null;
+      const cardioSet = Array.isArray(options.cardioCombos) && options.cardioCombos.length ? new Set(options.cardioCombos) : null;
+      const goals = getCalibrationGoalCombos().filter(item => goalSet ? goalSet.has(item.goal) || goalSet.has(item.id) : true);
+      const activities = getCalibrationActivityCombos().filter(item => activitySet ? activitySet.has(item.id) : (full || ["A2", "A5"].includes(item.id)));
+      const weights = getCalibrationWeightCombos().filter(item => weightSet ? weightSet.has(item.id) : (full || ["W0", "W2", "W5"].includes(item.id)));
+      const cardios = getCalibrationCardioCombos().filter(item => cardioSet ? cardioSet.has(item.id) : (full || ["C0", "C2", "C3", "C4", "C5"].includes(item.id)));
+      const configs = [];
+      let sequence = 0;
+      stats.forEach(stat => {
+        goals.forEach(goalCombo => {
+          activities.forEach(activityCombo => {
+            weights.forEach(weightCombo => {
+              cardios.forEach(cardioCombo => {
+                configs.push(buildCalibrationCaseConfig(stat, {
+                  goalCombo,
+                  activityCombo,
+                  weightCombo,
+                  cardioCombo
+                }, sequence, "macroCapCandidate", mode));
+                sequence += 1;
+              });
+            });
+          });
+        });
+      });
+      const limit = Number(options.limitCases);
+      return Number.isFinite(limit) && limit > 0 ? configs.slice(0, Math.floor(limit)) : configs;
+    }
+
+    function calculateMacroCapCandidateCase(caseConfig, policies){
+      applyCalibrationCaseToInputs(caseConfig);
+      const result = calculate();
+      const current = buildCalibrationBreakdown(result, caseConfig, { compareWeeklyXw: false });
+      const currentInfo = result.macroAllocationInfo || buildMacroAllocationInfo(result);
+      const enrichedCurrent = {
+        ...current,
+        macroKcalSum: currentInfo.macroKcalSum,
+        macroKcalGap: currentInfo.macroKcalGap,
+        macroKcalGapRatio: currentInfo.macroKcalGapRatio,
+        macroAllocationClass: classifyMacroAllocationGap(currentInfo)
+      };
+      return {
+        caseId: enrichedCurrent.caseId,
+        statId: enrichedCurrent.statId,
+        mode: enrichedCurrent.mode,
+        goal: enrichedCurrent.goal,
+        activityCombo: enrichedCurrent.activityCombo,
+        weightCombo: enrichedCurrent.weightCombo,
+        cardioCombo: enrichedCurrent.cardioCombo,
+        current: {
+          targetCal: enrichedCurrent.targetCal,
+          totalBurn: enrichedCurrent.totalBurn,
+          cardioKcal: enrichedCurrent.cardioKcal,
+          weightKcal: enrichedCurrent.weightKcal,
+          bmr: enrichedCurrent.bmr,
+          protein: enrichedCurrent.protein,
+          carbs: enrichedCurrent.carbs,
+          fat: enrichedCurrent.fat,
+          macroKcalSum: enrichedCurrent.macroKcalSum,
+          macroKcalGap: enrichedCurrent.macroKcalGap,
+          macroKcalGapRatio: enrichedCurrent.macroKcalGapRatio,
+          macroAllocationClass: enrichedCurrent.macroAllocationClass
+        },
+        candidates: policies.map(policy => estimateMacroCapCandidate(enrichedCurrent, policy))
+      };
+    }
+
+    function flattenMacroCapCandidateRows(cases){
+      return cases.flatMap(item => item.candidates.map(candidate => ({
+        ...candidate,
+        caseId: item.caseId,
+        statId: item.statId,
+        mode: item.mode,
+        goal: item.goal,
+        activityCombo: item.activityCombo,
+        weightCombo: item.weightCombo,
+        cardioCombo: item.cardioCombo,
+        current: item.current
+      })));
+    }
+
+    function summarizeMacroCapCandidateRows(rows){
+      return {
+        count: rows.length,
+        affectedCount: rows.filter(item => item.affected).length,
+        currentGap: summarizeCalibrationValues(rows.map(item => item.productionGap)),
+        candidateGap: summarizeCalibrationValues(rows.map(item => item.candidateGap)),
+        gapReduction: summarizeCalibrationValues(rows.map(item => item.gapReduction)),
+        candidateCarbsKg: summarizeCalibrationValues(rows.map(item => item.candidateCarbsKg)),
+        candidateFatKg: summarizeCalibrationValues(rows.map(item => item.candidateFatKg)),
+        gt250: rows.filter(item => item.candidateGap > 250).length,
+        gt500: rows.filter(item => item.candidateGap > 500).length,
+        gt1000: rows.filter(item => item.candidateGap > 1000).length,
+        carbsOver8: rows.filter(item => item.candidateCarbsKg > 8).length,
+        carbsOver9: rows.filter(item => item.candidateCarbsKg > 9).length,
+        carbsOver10: rows.filter(item => item.candidateCarbsKg > 10).length,
+        fatOver1_5: rows.filter(item => item.candidateFatKg > 1.5).length,
+        fatOver1_75: rows.filter(item => item.candidateFatKg > 1.75).length,
+        fatOver2: rows.filter(item => item.candidateFatKg > 2).length,
+        classificationCounts: rows.reduce((acc, item) => {
+          item.classification.forEach(key => {
+            acc[key] = (acc[key] || 0) + 1;
+          });
+          return acc;
+        }, {})
+      };
+    }
+
+    function summarizeMacroCapCandidateGroups(rows, keyFn){
+      const groups = summarizeCalibrationGroups(rows, keyFn);
+      return Object.fromEntries(Object.entries(groups).map(([key, groupRows]) => [key, summarizeMacroCapCandidateRows(groupRows)]));
+    }
+
+    function compactMacroCapCandidateCase(item){
+      return {
+        caseId: item.caseId,
+        statId: item.statId,
+        mode: item.mode,
+        goal: item.goal,
+        activityCombo: item.activityCombo,
+        weightCombo: item.weightCombo,
+        cardioCombo: item.cardioCombo,
+        current: item.current,
+        candidates: item.candidates.map(candidate => ({
+          policyId: candidate.policyId,
+          candidateMacroKcalSum: candidate.candidateMacroKcalSum,
+          candidateGap: candidate.candidateGap,
+          gapReduction: candidate.gapReduction,
+          candidateCarbsKg: candidate.candidateCarbsKg,
+          candidateFatKg: candidate.candidateFatKg,
+          affected: candidate.affected,
+          classification: candidate.classification
+        }))
+      };
+    }
+
+    function buildMacroCapCandidateClassificationBuckets(rows){
+      const buckets = Object.fromEntries(MACRO_CAP_CANDIDATE_CLASSIFICATIONS.map(key => [key, []]));
+      rows.forEach(row => {
+        row.classification.forEach(key => {
+          if (!buckets[key]) buckets[key] = [];
+          buckets[key].push({
+            caseId: row.caseId,
+            statId: row.statId,
+            goal: row.goal,
+            activityCombo: row.activityCombo,
+            weightCombo: row.weightCombo,
+            cardioCombo: row.cardioCombo,
+            policyId: row.policyId,
+            productionGap: row.productionGap,
+            candidateGap: row.candidateGap,
+            gapReduction: row.gapReduction,
+            candidateCarbsKg: row.candidateCarbsKg,
+            candidateFatKg: row.candidateFatKg
+          });
+        });
+      });
+      return buckets;
+    }
+
+    function runMacroCapCandidateReview(options = {}){
+      return withCalibrationReportSandbox(() => {
+        const policies = buildMacroCapCandidatePolicies();
+        const configs = buildMacroCapCandidateCaseConfigs(options);
+        const cases = configs.map(config => calculateMacroCapCandidateCase(config, policies));
+        const rows = flattenMacroCapCandidateRows(cases);
+        const includeCases = options.includeCases !== false;
+        const report = {
+          meta: {
+            version: CALIBRATION_QA_VERSION,
+            stage: CALIBRATION_QA_STAGE,
+            generatedAt: new Date().toISOString(),
+            mode: normalizeCalibrationMode(options.mode),
+            profileSet: options.profileSet || (options.full === true ? "scan" : "manual"),
+            full: options.full === true,
+            caseCount: cases.length,
+            policyCount: policies.length,
+            includeCases,
+            reportOnly: true,
+            notes: [
+              "A5.3 report-only review. Production macro caps and calculate() output are not changed.",
+              "Carbs above 8g/kg and fat above 1.5g/kg are not treated as automatic physiological errors.",
+              "Candidates estimate extra allocation after production macros, with protein fixed and carbs allocated before fat.",
+              "Hard cap means never exceeding the current production cap; soft cap candidates allow specific report-only exceptions."
+            ]
+          },
+          policies,
+          summary: {
+            byPolicy: summarizeMacroCapCandidateGroups(rows, item => item.policyId),
+            byGoal: summarizeMacroCapCandidateGroups(rows, item => `${item.policyId}:${item.goal}`),
+            byCardioCombo: summarizeMacroCapCandidateGroups(rows, item => `${item.policyId}:${item.cardioCombo}`),
+            byActivityCombo: summarizeMacroCapCandidateGroups(rows, item => `${item.policyId}:${item.activityCombo}`),
+            byWeightCombo: summarizeMacroCapCandidateGroups(rows, item => `${item.policyId}:${item.weightCombo}`)
+          },
+          classifications: buildMacroCapCandidateClassificationBuckets(rows),
+          cases: includeCases ? cases.map(compactMacroCapCandidateCase) : [],
+          notes: [
+            "A5.1 explanation remains a first explanation layer for current production output.",
+            "If a soft cap becomes production later, A5.1 copy should be reviewed again.",
+            "Lower candidateGap is not automatically better; digestive burden and practical food composition still matter."
+          ]
+        };
+        if (options.log === true) {
+          console.log("Macro cap candidate review", report.meta);
+          console.table(Object.entries(report.summary.byPolicy).map(([policyId, item]) => ({
+            policyId,
+            affected: item.affectedCount,
+            gapP95: item.candidateGap.p95,
+            gapMax: item.candidateGap.max,
+            carbsP95: item.candidateCarbsKg.p95,
+            fatP95: item.candidateFatKg.p95,
+            carbsOver8: item.carbsOver8,
+            fatOver1_75: item.fatOver1_75
+          })));
+        }
+        return report;
+      });
+    }
+
     function buildCalibrationManualReview(options = {}){
       const mode = normalizeCalibrationMode(options.mode);
       const representativeScenario = {
@@ -24788,6 +25247,8 @@ Notes:
           assertTest(typeof window.runCalibrationWeeklyBudgetReviewTests === "function", "runCalibrationWeeklyBudgetReviewTests should be exported");
           assertTest(typeof window.runCalibrationCardioTargetPolicyReview === "function", "runCalibrationCardioTargetPolicyReview should be exported");
           assertTest(typeof window.runCalibrationCardioTargetPolicyReviewTests === "function", "runCalibrationCardioTargetPolicyReviewTests should be exported");
+          assertTest(typeof window.runMacroCapCandidateReview === "function", "runMacroCapCandidateReview should be exported");
+          assertTest(typeof window.runMacroCapCandidateReviewTests === "function", "runMacroCapCandidateReviewTests should be exported");
           assertTest(typeof window.runMacroAllocationExplanationTests === "function", "runMacroAllocationExplanationTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
@@ -25138,6 +25599,138 @@ Notes:
           assertTest(weekly.reviews.length === 1, "weekly budget review should still run");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+        }));
+
+        return results;
+      });
+    }
+
+    function runMacroCapCandidateReviewTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        results.push(runNamedTest("A5.3 macro cap candidate review returns report object", () => {
+          const report = runMacroCapCandidateReview({
+            statIds: ["M09"],
+            goals: ["bulk"],
+            activityCombos: ["A5"],
+            weightCombos: ["W5"],
+            cardioCombos: ["C5"]
+          });
+          assertTest(report && typeof report === "object", "macro cap candidate report should return an object");
+          assertTest(report.meta.reportOnly === true, "macro cap candidate report should be report-only");
+          assertTest(report.meta.full === false, "macro cap candidate report should not run full scan by default");
+          assertTest(report.policies.length >= 10, "macro cap candidate report should include all A5.3 policies");
+          assertTest(findInvalidCalibrationNumber(report).length === 0, "macro cap candidate report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("A5.3 macro cap policies include current and targeted candidates", () => {
+          const policies = buildMacroCapCandidatePolicies();
+          const ids = policies.map(policy => policy.id);
+          assertTest(ids.includes("current_hard_cap"), "current hard cap policy should exist");
+          assertTest(ids.includes("bulk_high_cardio_carbs_plus_0_5"), "bulk high-cardio carbs +0.5 policy should exist");
+          assertTest(ids.includes("bulk_high_cardio_carbs_plus_1_0_fat_plus_0_25"), "bulk high-cardio combined policy should exist");
+          assertTest(ids.includes("lean_high_cardio_cautious_carbs_plus_0_5"), "lean high-cardio cautious policy should exist");
+        }));
+
+        results.push(runNamedTest("A5.3 current hard cap matches production macro gap", () => {
+          const report = runMacroCapCandidateReview({
+            statIds: ["M09"],
+            goals: ["bulk"],
+            activityCombos: ["A5"],
+            weightCombos: ["W5"],
+            cardioCombos: ["C5"]
+          });
+          const item = report.cases[0];
+          const current = item.candidates.find(candidate => candidate.policyId === "current_hard_cap");
+          assertClose(current.candidateGap, item.current.macroKcalGap, 0.0001, "current hard cap gap should match production gap");
+          assertClose(current.candidateMacroKcalSum, item.current.macroKcalSum, 0.0001, "current hard cap macro kcal should match production macro kcal");
+          assertTest(current.classification.includes("current_explains_but_leaves_gap"), "current hard cap should classify large remaining gap");
+        }));
+
+        results.push(runNamedTest("A5.3 targeted candidates reduce representative bulk high-cardio gap", () => {
+          const report = runMacroCapCandidateReview({
+            statIds: ["M09"],
+            goals: ["bulk"],
+            activityCombos: ["A5"],
+            weightCombos: ["W5"],
+            cardioCombos: ["C5"]
+          });
+          const item = report.cases[0];
+          const current = item.candidates.find(candidate => candidate.policyId === "current_hard_cap");
+          const carbsOnly = item.candidates.find(candidate => candidate.policyId === "bulk_high_cardio_carbs_plus_1_0");
+          const combined = item.candidates.find(candidate => candidate.policyId === "bulk_high_cardio_carbs_plus_1_0_fat_plus_0_25");
+          assertTest(carbsOnly.candidateGap < current.candidateGap, "bulk high-cardio carbs candidate should reduce gap");
+          assertTest(combined.candidateGap < carbsOnly.candidateGap, "combined soft cap candidate should reduce gap more than carbs-only");
+          assertTest(combined.classification.includes("targeted_candidate_promising"), "combined targeted candidate should be promising for representative high gap");
+          assertTest(Number.isFinite(combined.candidateCarbsKg) && Number.isFinite(combined.candidateFatKg), "candidate g/kg values should be finite");
+        }));
+
+        results.push(runNamedTest("A5.3 targeted candidates do not touch normal C2/C3 lean cases", () => {
+          const report = runMacroCapCandidateReview({
+            statIds: ["M09", "F10"],
+            goals: ["lean_bulk"],
+            activityCombos: ["A2"],
+            weightCombos: ["W2"],
+            cardioCombos: ["C2", "C3"]
+          });
+          report.cases.forEach(item => {
+            item.candidates.filter(candidate => candidate.policyId.includes("bulk_high_cardio")).forEach(candidate => {
+              assertTest(candidate.affected === false, "bulk targeted candidates should not affect lean C2/C3 cases");
+              assertClose(candidate.candidateGap, item.current.macroKcalGap, 0.0001, "bulk targeted candidate should leave normal case gap unchanged");
+            });
+          });
+        }));
+
+        results.push(runNamedTest("A5.3 macro cap candidate review keeps production calculation unchanged", () => {
+          const stat = buildCalibrationManualStats().find(item => item.id === "M20");
+          applyCalibrationCaseToInputs({
+            mode: "athlete",
+            stat,
+            goalCombo: getCalibrationGoalComboByGoal("bulk"),
+            activityCombo: getCalibrationComboById(getCalibrationActivityCombos(), "A5"),
+            weightCombo: getCalibrationComboById(getCalibrationWeightCombos(), "W5"),
+            cardioCombo: getCalibrationComboById(getCalibrationCardioCombos(), "C5")
+          });
+          const before = calculate();
+          const beforeRecords = JSON.stringify(recordsState.items);
+          runMacroCapCandidateReview({
+            statIds: ["M20"],
+            goals: ["bulk"],
+            activityCombos: ["A5"],
+            weightCombos: ["W5"],
+            cardioCombos: ["C5"]
+          });
+          const after = calculate();
+          ["targetCal", "protein", "carbs", "fat", "totalBurn", "weightKcal", "trainingBaselineKcal"].forEach(key => {
+            assertClose(after[key], before[key], 0.0001, `macro cap candidate review should not change ${key}`);
+          });
+          assertClose(after.cardio.kcal, before.cardio.kcal, 0.0001, "macro cap candidate review should not change cardioKcal");
+          assertTest(JSON.stringify(recordsState.items) === beforeRecords, "macro cap candidate review should not mutate records");
+        }));
+
+        results.push(runNamedTest("A5.3 classification buckets and exports exist", () => {
+          const report = runMacroCapCandidateReview({
+            statIds: ["M09"],
+            goals: ["bulk"],
+            activityCombos: ["A5"],
+            weightCombos: ["W5"],
+            cardioCombos: ["C5"],
+            includeCases: false
+          });
+          MACRO_CAP_CANDIDATE_CLASSIFICATIONS.forEach(key => {
+            assertTest(Array.isArray(report.classifications[key]), `${key} classification bucket should exist`);
+          });
+          assertTest(Array.isArray(report.cases) && report.cases.length === 0, "includeCases false should omit detailed cases");
+          assertTest(typeof window.runMacroCapCandidateReview === "function", "runMacroCapCandidateReview should be exported");
+          assertTest(typeof window.runMacroCapCandidateReviewTests === "function", "runMacroCapCandidateReviewTests should be exported");
+        }));
+
+        results.push(runNamedTest("A5.3 protected constants and prior explanation tests remain intact", () => {
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+          const explanationResults = runMacroAllocationExplanationTests();
+          assertTest(explanationResults.every(item => item.pass), "A5.1 explanation tests should still pass");
         }));
 
         return results;
@@ -28050,10 +28643,12 @@ Notes:
     window.runCalibrationPhysiologyReview = runCalibrationPhysiologyReview;
     window.runCalibrationWeeklyBudgetReview = runCalibrationWeeklyBudgetReview;
     window.runCalibrationCardioTargetPolicyReview = runCalibrationCardioTargetPolicyReview;
+    window.runMacroCapCandidateReview = runMacroCapCandidateReview;
     window.runCalibrationScanReportTests = runCalibrationScanReportTests;
     window.runCalibrationPhysiologyReviewTests = runCalibrationPhysiologyReviewTests;
     window.runCalibrationWeeklyBudgetReviewTests = runCalibrationWeeklyBudgetReviewTests;
     window.runCalibrationCardioTargetPolicyReviewTests = runCalibrationCardioTargetPolicyReviewTests;
+    window.runMacroCapCandidateReviewTests = runMacroCapCandidateReviewTests;
     window.runMacroAllocationExplanationTests = runMacroAllocationExplanationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
