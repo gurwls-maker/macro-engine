@@ -1,6 +1,6 @@
 <!--
-Version: 6.6-A5.4
-Stage: 6.6-A5.4 macro 상한 철학 acceptance QA
+Version: 6.6-A5.5
+Stage: 6.6-A5.5 외부 기준식 벤치마크 QA
 Date: 2026-05-10
 Notes:
 - targetCal과 탄단지 kcal 합이 크게 다를 때 표시 전용 계산 근거를 추가
@@ -15,7 +15,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A5.4</title>
+  <title>탄단지 다이어리 v6.6-A5.5</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4759,7 +4759,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A5.4</span>
+               <span class="app-version">v6.6-A5.5</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -21008,8 +21008,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("A4 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A5.4"), "document title should show v6.6-A5.4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.4"), "app version badge should show v6.6-A5.4");
+          assertTest(document.title.includes("v6.6-A5.5"), "document title should show v6.6-A5.5");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.5"), "app version badge should show v6.6-A5.5");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22485,8 +22485,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A5.4";
-    const CALIBRATION_QA_STAGE = "6.6-A5.4 macro 상한 철학 acceptance QA";
+    const CALIBRATION_QA_VERSION = "6.6-A5.5";
+    const CALIBRATION_QA_STAGE = "6.6-A5.5 외부 기준식 벤치마크 QA";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -25451,6 +25451,491 @@ Notes:
       });
     }
 
+    const FORMULA_BENCHMARK_CLASSIFICATIONS = [
+      "bmr_within_reference_band",
+      "bmr_low_vs_lbm_reference",
+      "bmr_high_vs_weight_reference",
+      "tdee_within_pal_range",
+      "tdee_high_but_plausible",
+      "tdee_overlap_suspect",
+      "cardio_formula_consistent",
+      "cardio_policy_review_needed",
+      "weight_kcal_low_vs_met_reference",
+      "weight_kcal_high_vs_met_reference",
+      "target_goal_consistent",
+      "target_goal_conflict",
+      "macro_within_sports_range",
+      "macro_high_but_contextual",
+      "macro_too_aggressive",
+      "macro_hard_cap_too_restrictive",
+      "soft_range_supported",
+      "production_formula_review_needed"
+    ];
+
+    function safeBenchmarkValue(value){
+      return Number.isFinite(value) ? value : null;
+    }
+
+    function buildFormulaBenchmarkProfiles(options = {}){
+      const profileSet = options.profileSet || (options.full === true ? "scan" : "manual");
+      const defaultIds = new Set(["M09", "F10", "M20", "F20", "M01", "F01"]);
+      const selectedIds = Array.isArray(options.statIds) && options.statIds.length ? new Set(options.statIds) : (options.full === true ? null : defaultIds);
+      return getCalibrationStatsByProfileSet(profileSet).filter(stat => !selectedIds || selectedIds.has(stat.id));
+    }
+
+    function buildFormulaBenchmarkScenarios(options = {}){
+      if (options.full === true) return buildCalibrationScenarioGrid({ full: true });
+      const goal = id => getCalibrationGoalCombos().find(item => item.id === id || item.goal === id);
+      const activity = id => getCalibrationComboById(getCalibrationActivityCombos(), id);
+      const weight = id => getCalibrationComboById(getCalibrationWeightCombos(), id);
+      const cardio = id => getCalibrationComboById(getCalibrationCardioCombos(), id);
+      return [
+        { goalCombo: goal("lean"), activityCombo: activity("A2"), weightCombo: weight("W2"), cardioCombo: cardio("C2"), id: "lean_A2_W2_C2" },
+        { goalCombo: goal("lean"), activityCombo: activity("A2"), weightCombo: weight("W2"), cardioCombo: cardio("C3"), id: "lean_A2_W2_C3" },
+        { goalCombo: goal("lean"), activityCombo: activity("A2"), weightCombo: weight("W2"), cardioCombo: cardio("C5"), id: "lean_A2_W2_C5" },
+        { goalCombo: goal("bulk"), activityCombo: activity("A5"), weightCombo: weight("W5"), cardioCombo: cardio("C5"), id: "bulk_A5_W5_C5" },
+        { goalCombo: goal("lean"), activityCombo: activity("A5"), weightCombo: weight("W5"), cardioCombo: cardio("C5"), id: "lean_A5_W5_C5" },
+        { goalCombo: goal("diet"), activityCombo: activity("A5"), weightCombo: weight("W5"), cardioCombo: cardio("C5"), id: "diet_A5_W5_C5" },
+        { goalCombo: goal("bulk"), activityCombo: activity("A5"), weightCombo: weight("W5"), cardioCombo: cardio("C4"), id: "bulk_A5_W5_C4" },
+        { goalCombo: goal("bulk"), activityCombo: activity("A5"), weightCombo: weight("W2"), cardioCombo: cardio("C5"), id: "bulk_A5_W2_C5" },
+        { goalCombo: goal("lean"), activityCombo: activity("A2"), weightCombo: weight("W0"), cardioCombo: cardio("C0"), id: "lean_A2_W0_C0" }
+      ];
+    }
+
+    function buildReferenceBmrSet(stat){
+      const weight = Number(stat.weight);
+      const height = Number(stat.height);
+      const age = Number(stat.age);
+      const isMale = stat.gender === "male";
+      const bodyFat = Number(stat.bodyFat);
+      const lbm = Number.isFinite(bodyFat) && bodyFat > 0 && bodyFat < 100 ? weight * (1 - bodyFat / 100) : null;
+      const refs = {
+        mifflin: {
+          label: "Mifflin-St Jeor",
+          value: 10 * weight + 6.25 * height - 5 * age + (isMale ? 5 : -161),
+          available: true
+        },
+        revisedHarrisBenedict: {
+          label: "Revised Harris-Benedict",
+          value: isMale
+            ? 88.362 + 13.397 * weight + 4.799 * height - 5.677 * age
+            : 447.593 + 9.247 * weight + 3.098 * height - 4.330 * age,
+          available: true
+        },
+        katchMcArdle: {
+          label: "Katch-McArdle",
+          value: lbm ? 370 + 21.6 * lbm : null,
+          available: !!lbm
+        },
+        cunningham: {
+          label: "Cunningham",
+          value: lbm ? 500 + 22 * lbm : null,
+          available: !!lbm
+        }
+      };
+      const values = Object.values(refs).filter(item => item.available).map(item => item.value);
+      return {
+        refs,
+        lbmKg: lbm,
+        min: values.length ? Math.min(...values) : null,
+        max: values.length ? Math.max(...values) : null,
+        median: values.length ? summarizeCalibrationValues(values).median : null,
+        notes: [
+          "BMR/RMR/REE prediction equations have different assumptions; this benchmark compares ranges, not a single truth.",
+          "LBM-based references are unavailable when body fat is missing or invalid."
+        ]
+      };
+    }
+
+    function buildReferenceTdeeSet(bmrRefs){
+      const palValues = [1.2, 1.4, 1.6, 1.8, 2.0, 2.2];
+      const availableBmr = Object.entries(bmrRefs.refs)
+        .filter(([, item]) => item.available && Number.isFinite(item.value))
+        .map(([id, item]) => ({ id, bmr: item.value }));
+      const values = [];
+      const byFormula = {};
+      availableBmr.forEach(item => {
+        byFormula[item.id] = {};
+        palValues.forEach(pal => {
+          const value = item.bmr * pal;
+          byFormula[item.id][pal] = value;
+          values.push(value);
+        });
+      });
+      return {
+        palValues,
+        byFormula,
+        min: values.length ? Math.min(...values) : null,
+        max: values.length ? Math.max(...values) : null,
+        p95: values.length ? summarizeCalibrationValues(values).p95 : null
+      };
+    }
+
+    function buildReferenceCardioSet(current, caseConfig){
+      const cardio = caseConfig.cardioCombo;
+      const duration = Number(cardio.cardioDuration) || 0;
+      const speedKmh = Number(cardio.cardioSpeed) || 0;
+      const speedMMin = speedKmh * 1000 / 60;
+      const gradeDecimal = (Number(cardio.cardioIncline) || 0) / 100;
+      const isRunning = cardio.cardioType === "treadmill_run" || speedKmh >= 8;
+      const vo2 = duration > 0
+        ? (isRunning ? 0.2 * speedMMin + 0.9 * speedMMin * gradeDecimal + 3.5 : 0.1 * speedMMin + 1.8 * speedMMin * gradeDecimal + 3.5)
+        : 0;
+      const met = duration > 0 ? vo2 / 3.5 : 0;
+      const kcal = duration > 0 ? met * 3.5 * current.weight / 200 * duration : 0;
+      const kcalDiff = current.cardioKcal - kcal;
+      const kcalConventionExpectedRatio = 200 / 210;
+      const kcalConventionRatio = kcal > 0 ? current.cardioKcal / kcal : null;
+      return {
+        formula: isRunning ? "ACSM treadmill running" : "ACSM treadmill walking",
+        appKcalConvention: "MET * kg * hours",
+        strictAcsmKcalConvention: "MET * 3.5 * kg / 200 * minutes",
+        durationMin: duration,
+        speedKmh,
+        speedMMin,
+        gradeDecimal,
+        vo2,
+        met,
+        kcal,
+        appMet: current.cardioMet,
+        appKcal: current.cardioKcal,
+        metDiff: current.cardioMet - met,
+        kcalDiff,
+        kcalDiffPct: kcal > 0 ? kcalDiff / kcal : 0,
+        kcalConventionExpectedRatio,
+        kcalConventionRatio,
+        kcalConventionNote: "MET formulas can match while kcal differs because the app uses the common 1 MET = 1 kcal/kg/hour convention; strict ACSM oxygen-cost kcal is about 4.76% higher for the same MET."
+      };
+    }
+
+    function buildReferenceWeightTrainingSet(current, caseConfig){
+      const duration = Number(caseConfig.weightCombo.weightDuration) || 0;
+      const refs = [3.5, 5.0, 6.0].map(met => ({
+        met,
+        kcal: duration > 0 ? met * 3.5 * current.weight / 200 * duration : 0
+      }));
+      const appMet = duration > 0 && current.weight > 0
+        ? current.weightKcal * 200 / (3.5 * current.weight * duration)
+        : 0;
+      return {
+        durationMin: duration,
+        appMet,
+        appKcal: current.weightKcal,
+        refs,
+        minKcal: refs[0].kcal,
+        maxKcal: refs[2].kcal
+      };
+    }
+
+    function buildReferenceMacroRangeSet(current, philosophyCase){
+      const currentPolicy = philosophyCase?.candidates?.find(item => item.policyId === "current_hard_cap");
+      const goalAwarePolicy = philosophyCase?.candidates?.find(item => item.policyId === "goal_aware_soft_range");
+      const noCapPolicy = philosophyCase?.candidates?.find(item => item.policyId === "no_upper_cap_fill");
+      const toRange = (protein, carbs, fat) => ({
+        proteinKg: current.weight > 0 ? protein / current.weight : 0,
+        carbsKg: current.weight > 0 ? carbs / current.weight : 0,
+        fatKg: current.weight > 0 ? fat / current.weight : 0
+      });
+      return {
+        referenceRanges: {
+          protein: { hypertrophyGeneral: [1.6, 2.2], highMarker: 2.4 },
+          carbs: { moderate: [3, 5], high: [5, 7], veryHigh: [7, 10], extremeMarker: 12 },
+          fat: { offseason: [0.5, 1.5], high: [1.5, 2.0], veryHighMarker: 2.0 }
+        },
+        production: toRange(current.protein, current.carbs, current.fat),
+        currentHardCap: currentPolicy ? {
+          carbsKg: currentPolicy.candidateCarbsKg,
+          fatKg: currentPolicy.candidateFatKg,
+          gap: currentPolicy.candidateGap
+        } : null,
+        goalAwareSoftRange: goalAwarePolicy ? {
+          carbsKg: goalAwarePolicy.candidateCarbsKg,
+          fatKg: goalAwarePolicy.candidateFatKg,
+          gap: goalAwarePolicy.candidateGap
+        } : null,
+        noUpperCapFill: noCapPolicy ? {
+          carbsKg: noCapPolicy.candidateCarbsKg,
+          fatKg: noCapPolicy.candidateFatKg,
+          gap: noCapPolicy.candidateGap
+        } : null
+      };
+    }
+
+    function classifyFormulaBenchmarkCase(item){
+      const classes = [];
+      const bmrMin = item.bmrReference.min;
+      const bmrMax = item.bmrReference.max;
+      if (Number.isFinite(bmrMin) && Number.isFinite(bmrMax) && item.current.bmr >= bmrMin * 0.9 && item.current.bmr <= bmrMax * 1.1) {
+        classes.push("bmr_within_reference_band");
+      } else if (Number.isFinite(bmrMin) && item.current.bmr < bmrMin * 0.9) {
+        classes.push("bmr_low_vs_lbm_reference");
+      } else if (Number.isFinite(bmrMax) && item.current.bmr > bmrMax * 1.1) {
+        classes.push("bmr_high_vs_weight_reference");
+      }
+
+      if (item.current.totalBurnToBmr <= 2.2) {
+        classes.push("tdee_within_pal_range");
+      } else if (item.current.totalBurnToBmr <= 3.6 && item.current.cardioKcal > 0) {
+        classes.push("tdee_high_but_plausible");
+      } else {
+        classes.push("tdee_overlap_suspect");
+      }
+
+      if (Math.abs(item.cardioReference.kcalDiffPct || 0) <= 0.05) {
+        classes.push("cardio_formula_consistent");
+      } else {
+        classes.push("production_formula_review_needed");
+      }
+      if (item.current.cardioKcal > item.current.bmr * 0.8 && item.current.targetCal < item.current.totalBurn) {
+        classes.push("cardio_policy_review_needed");
+      }
+
+      if (item.weightReference.durationMin > 0 && item.current.weightKcal < item.weightReference.minKcal * 0.8) {
+        classes.push("weight_kcal_low_vs_met_reference");
+      } else if (item.weightReference.durationMin > 0 && item.current.weightKcal > item.weightReference.maxKcal * 1.2) {
+        classes.push("weight_kcal_high_vs_met_reference");
+      }
+
+      if (item.current.goal === "diet" && item.current.targetDeltaFromBurn <= 0) classes.push("target_goal_consistent");
+      if (item.current.goal === "lean_bulk" && item.current.cardioCombo !== "C5" && item.current.targetDeltaFromBurn >= -150) classes.push("target_goal_consistent");
+      if (item.current.goal === "bulk" && item.current.targetDeltaFromBurn >= -100) classes.push("target_goal_consistent");
+      if ((item.current.goal === "lean_bulk" || item.current.goal === "bulk") && item.current.targetDeltaFromBurn < -300) {
+        classes.push("target_goal_conflict");
+      }
+
+      const macro = item.macroReference.production;
+      if (macro.proteinKg >= 1.6 && macro.proteinKg <= 2.5 && macro.carbsKg <= 10 && macro.fatKg <= 2) {
+        classes.push("macro_within_sports_range");
+      }
+      if (macro.carbsKg > 7 || macro.fatKg > 1.5) classes.push("macro_high_but_contextual");
+      if (item.macroReference.noUpperCapFill && (item.macroReference.noUpperCapFill.carbsKg > 12 || item.macroReference.noUpperCapFill.fatKg > 3)) {
+        classes.push("macro_too_aggressive");
+      }
+      if (item.current.macroKcalGap > MACRO_ALLOCATION_GAP_THRESHOLDS.kpi) {
+        classes.push("macro_hard_cap_too_restrictive");
+      }
+      if (item.macroReference.goalAwareSoftRange && item.macroReference.goalAwareSoftRange.gap < item.current.macroKcalGap - 100) {
+        classes.push("soft_range_supported");
+      }
+      return [...new Set(classes)];
+    }
+
+    function buildFormulaBenchmarkCase(caseConfig){
+      applyCalibrationCaseToInputs(caseConfig);
+      const result = calculate();
+      const current = buildCalibrationBreakdown(result, caseConfig, { compareWeeklyXw: false });
+      const philosophyPolicies = buildMacroCapPhilosophyPolicies();
+      const philosophyCase = calculateMacroCapPhilosophyCase(caseConfig, philosophyPolicies);
+      const bmrReference = buildReferenceBmrSet(caseConfig.stat);
+      const tdeeReference = buildReferenceTdeeSet(bmrReference);
+      const cardioReference = buildReferenceCardioSet(current, caseConfig);
+      const weightReference = buildReferenceWeightTrainingSet(current, caseConfig);
+      const macroReference = buildReferenceMacroRangeSet(current, philosophyCase);
+      const item = {
+        caseId: caseConfig.caseId,
+        statId: current.statId,
+        mode: current.mode,
+        goal: current.goal,
+        activityCombo: current.activityCombo,
+        weightCombo: current.weightCombo,
+        cardioCombo: current.cardioCombo,
+        current: {
+          goal: current.goal,
+          activityCombo: current.activityCombo,
+          weightCombo: current.weightCombo,
+          cardioCombo: current.cardioCombo,
+          bmr: current.bmr,
+          baseDaily: current.baseDaily,
+          totalBurn: current.totalBurn,
+          targetCal: current.targetCal,
+          targetDeltaFromBurn: current.targetCal - current.totalBurn,
+          targetCalToTotalBurn: current.totalBurn > 0 ? current.targetCal / current.totalBurn : 0,
+          totalBurnToBmr: current.bmr > 0 ? current.totalBurn / current.bmr : 0,
+          baseDailyToBmr: current.bmr > 0 ? current.baseDaily / current.bmr : 0,
+          cardioKcal: current.cardioKcal,
+          cardioMet: current.cardioMet,
+          weightKcal: current.weightKcal,
+          trainingBaselineKcal: current.trainingBaselineKcal,
+          protein: current.protein,
+          carbs: current.carbs,
+          fat: current.fat,
+          macroKcalSum: current.macroKcalSum,
+          macroKcalGap: current.macroKcalGap
+        },
+        bmrReference,
+        tdeeReference,
+        cardioReference,
+        weightReference,
+        macroReference
+      };
+      item.classification = classifyFormulaBenchmarkCase(item);
+      return item;
+    }
+
+    function buildFormulaBenchmarkCaseConfigs(options = {}){
+      const mode = normalizeCalibrationMode(options.mode);
+      const profiles = buildFormulaBenchmarkProfiles(options);
+      const scenarioSet = buildFormulaBenchmarkScenarios(options);
+      const caseConfigs = buildCalibrationCaseConfigs(profiles, scenarioSet, "formulaBenchmark", mode);
+      const limit = Number(options.limitCases);
+      return Number.isFinite(limit) && limit > 0 ? caseConfigs.slice(0, Math.floor(limit)) : caseConfigs;
+    }
+
+    function summarizeFormulaBenchmarkCases(cases){
+      return {
+        bmr: {
+          appToReferenceMedian: summarizeCalibrationValues(cases.map(item => item.bmrReference.median ? item.current.bmr / item.bmrReference.median : null).filter(Number.isFinite)),
+          appMinusReferenceMedian: summarizeCalibrationValues(cases.map(item => item.bmrReference.median ? item.current.bmr - item.bmrReference.median : null).filter(Number.isFinite))
+        },
+        tdee: {
+          totalBurnToBmr: summarizeCalibrationValues(cases.map(item => item.current.totalBurnToBmr)),
+          baseDailyToBmr: summarizeCalibrationValues(cases.map(item => item.current.baseDailyToBmr)),
+          highPalCount: cases.filter(item => item.current.totalBurnToBmr > 2.2).length
+        },
+        cardio: {
+          appMinusAcsmKcal: summarizeCalibrationValues(cases.map(item => item.cardioReference.kcalDiff)),
+          appMinusAcsmMet: summarizeCalibrationValues(cases.map(item => item.cardioReference.metDiff)),
+          appToAcsmStrictKcalRatio: summarizeCalibrationValues(cases.map(item => item.cardioReference.kcalConventionRatio).filter(Number.isFinite)),
+          highCardioCount: cases.filter(item => item.current.cardioKcal > item.current.bmr * 0.8).length
+        },
+        weightTraining: {
+          appMet: summarizeCalibrationValues(cases.map(item => item.weightReference.appMet)),
+          belowMetRangeCount: cases.filter(item => item.weightReference.durationMin > 0 && item.current.weightKcal < item.weightReference.minKcal * 0.8).length,
+          aboveMetRangeCount: cases.filter(item => item.weightReference.durationMin > 0 && item.current.weightKcal > item.weightReference.maxKcal * 1.2).length
+        },
+        targetCal: {
+          targetDeltaFromBurn: summarizeCalibrationValues(cases.map(item => item.current.targetDeltaFromBurn)),
+          targetCalToTotalBurn: summarizeCalibrationValues(cases.map(item => item.current.targetCalToTotalBurn)),
+          goalConflictCount: cases.filter(item => item.classification.includes("target_goal_conflict")).length
+        },
+        macro: {
+          proteinKg: summarizeCalibrationValues(cases.map(item => item.macroReference.production.proteinKg)),
+          carbsKg: summarizeCalibrationValues(cases.map(item => item.macroReference.production.carbsKg)),
+          fatKg: summarizeCalibrationValues(cases.map(item => item.macroReference.production.fatKg)),
+          hardCapRestrictiveCount: cases.filter(item => item.classification.includes("macro_hard_cap_too_restrictive")).length,
+          softRangeSupportedCount: cases.filter(item => item.classification.includes("soft_range_supported")).length
+        }
+      };
+    }
+
+    function summarizeFormulaBenchmarkGroups(cases, keyFn){
+      const groups = summarizeCalibrationGroups(cases, keyFn);
+      return Object.fromEntries(Object.entries(groups).map(([key, groupCases]) => [key, summarizeFormulaBenchmarkCases(groupCases)]));
+    }
+
+    function buildFormulaBenchmarkClassifications(cases){
+      const buckets = Object.fromEntries(FORMULA_BENCHMARK_CLASSIFICATIONS.map(key => [key, []]));
+      cases.forEach(item => {
+        item.classification.forEach(key => {
+          if (!buckets[key]) buckets[key] = [];
+          buckets[key].push({
+            caseId: item.caseId,
+            statId: item.statId,
+            goal: item.goal,
+            activityCombo: item.activityCombo,
+            weightCombo: item.weightCombo,
+            cardioCombo: item.cardioCombo,
+            totalBurnToBmr: item.current.totalBurnToBmr,
+            targetDeltaFromBurn: item.current.targetDeltaFromBurn,
+            macroKcalGap: item.current.macroKcalGap
+          });
+        });
+      });
+      return buckets;
+    }
+
+    function compactFormulaBenchmarkCase(item){
+      return {
+        caseId: item.caseId,
+        statId: item.statId,
+        mode: item.mode,
+        goal: item.goal,
+        activityCombo: item.activityCombo,
+        weightCombo: item.weightCombo,
+        cardioCombo: item.cardioCombo,
+        current: item.current,
+        bmrReference: {
+          appBmr: item.current.bmr,
+          min: item.bmrReference.min,
+          median: item.bmrReference.median,
+          max: item.bmrReference.max,
+          refs: Object.fromEntries(Object.entries(item.bmrReference.refs).map(([key, ref]) => [key, { available: ref.available, value: safeBenchmarkValue(ref.value) }]))
+        },
+        tdeeReference: {
+          palValues: item.tdeeReference.palValues,
+          min: item.tdeeReference.min,
+          max: item.tdeeReference.max
+        },
+        cardioReference: item.cardioReference,
+        weightReference: item.weightReference,
+        macroReference: item.macroReference,
+        classification: item.classification
+      };
+    }
+
+    function runFormulaBenchmarkReview(options = {}){
+      return withCalibrationReportSandbox(() => {
+        const full = options.full === true;
+        const includeCases = options.includeCases === true;
+        const mode = normalizeCalibrationMode(options.mode);
+        const configs = buildFormulaBenchmarkCaseConfigs({ ...options, mode });
+        const cases = configs.map(buildFormulaBenchmarkCase);
+        const report = {
+          meta: {
+            version: CALIBRATION_QA_VERSION,
+            stage: CALIBRATION_QA_STAGE,
+            generatedAt: new Date().toISOString(),
+            mode,
+            full,
+            includeCases,
+            profileCount: buildFormulaBenchmarkProfiles(options).length,
+            scenarioCount: buildFormulaBenchmarkScenarios(options).length,
+            caseCount: cases.length,
+            reportOnly: true
+          },
+          formulas: {
+            bmr: ["appBmr", "Mifflin-St Jeor", "Revised Harris-Benedict", "Katch-McArdle", "Cunningham"],
+            tdee: ["BMR x PAL 1.2", "BMR x PAL 1.4", "BMR x PAL 1.6", "BMR x PAL 1.8", "BMR x PAL 2.0", "BMR x PAL 2.2"],
+            cardio: ["appCardioKcal", "ACSM treadmill walking/running equation"],
+            weightTraining: ["appWeightKcal", "MET 3.5", "MET 5.0", "MET 6.0"],
+            macro: ["production macro", "A5.4 current hard cap", "A5.4 goal-aware soft range", "A5.4 no upper cap fill"]
+          },
+          referenceNotes: [
+            "References are benchmarks only and are not applied to production calculate().",
+            "BMR/RMR/REE equations differ by population and assumption; repeated out-of-band patterns matter more than one formula mismatch.",
+            "PAL and exercise kcal are not one-to-one because the app separates activity/work and exercise.",
+            "Cardio MET can match ACSM exactly while kcal is lower: production cardio uses MET * kg * hours, while strict ACSM oxygen-cost kcal uses MET * 3.5 * kg / 200 * minutes, which is about 4.76% higher for the same MET."
+          ],
+          bmrSummary: summarizeFormulaBenchmarkGroups(cases, item => item.goal),
+          tdeeSummary: summarizeFormulaBenchmarkGroups(cases, item => item.activityCombo),
+          cardioSummary: summarizeFormulaBenchmarkGroups(cases, item => item.cardioCombo),
+          weightTrainingSummary: summarizeFormulaBenchmarkGroups(cases, item => item.weightCombo),
+          targetCalSummary: summarizeFormulaBenchmarkGroups(cases, item => item.goal),
+          macroSummary: summarizeFormulaBenchmarkGroups(cases, item => item.goal),
+          overall: summarizeFormulaBenchmarkCases(cases),
+          classifications: buildFormulaBenchmarkClassifications(cases),
+          representativeCases: cases
+            .filter(item => ["M09", "F10", "M20", "F20", "M01", "F01"].includes(item.statId))
+            .map(compactFormulaBenchmarkCase),
+          outliers: cases
+            .filter(item => item.classification.includes("production_formula_review_needed") || item.classification.includes("target_goal_conflict") || item.classification.includes("macro_too_aggressive"))
+            .slice(0, Number(options.limitOutliers) || 50)
+            .map(compactFormulaBenchmarkCase),
+          nextCandidates: [
+            "If BMR/TDEE/cardio/weight references stay mostly within benchmark ranges, macro soft range remains the next candidate.",
+            "If target_goal_conflict repeats outside high-cardio cases, A4 target reflection should be revisited before macro production changes.",
+            "If cardio formulas are consistent but high target gaps remain, macro cap philosophy remains the likely bottleneck."
+          ],
+          cases: includeCases ? cases.map(compactFormulaBenchmarkCase) : []
+        };
+        if (options.log === true) {
+          console.log("Formula benchmark review", report.meta);
+          console.table(Object.entries(report.overall).map(([key, value]) => ({ section: key, summary: JSON.stringify(value).slice(0, 120) })));
+        }
+        return report;
+      });
+    }
+
     function buildCalibrationManualReview(options = {}){
       const mode = normalizeCalibrationMode(options.mode);
       const representativeScenario = {
@@ -25720,6 +26205,8 @@ Notes:
           assertTest(typeof window.runMacroCapCandidateReviewTests === "function", "runMacroCapCandidateReviewTests should be exported");
           assertTest(typeof window.runMacroCapPhilosophyReview === "function", "runMacroCapPhilosophyReview should be exported");
           assertTest(typeof window.runMacroCapPhilosophyReviewTests === "function", "runMacroCapPhilosophyReviewTests should be exported");
+          assertTest(typeof window.runFormulaBenchmarkReview === "function", "runFormulaBenchmarkReview should be exported");
+          assertTest(typeof window.runFormulaBenchmarkReviewTests === "function", "runFormulaBenchmarkReviewTests should be exported");
           assertTest(typeof window.runMacroAllocationExplanationTests === "function", "runMacroAllocationExplanationTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
@@ -26314,6 +26801,126 @@ Notes:
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
           const candidateResults = runMacroCapCandidateReviewTests();
           assertTest(candidateResults.every(item => item.pass), "A5.3 candidate review tests should still pass");
+        }));
+
+        return results;
+      });
+    }
+
+    function runFormulaBenchmarkReviewTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        results.push(runNamedTest("A5.5 formula benchmark review returns report object without full scan", () => {
+          const report = runFormulaBenchmarkReview({ statIds: ["M09", "F10"], limitCases: 8 });
+          assertTest(report && typeof report === "object", "formula benchmark report should return an object");
+          assertTest(report.meta.reportOnly === true, "formula benchmark report should be report-only");
+          assertTest(report.meta.full === false, "formula benchmark report should not run full scan by default");
+          assertTest(report.meta.caseCount === 8, "limitCases should keep formula benchmark lightweight");
+          assertTest(Array.isArray(report.cases) && report.cases.length === 0, "cases should be omitted unless includeCases is true");
+          assertTest(findInvalidCalibrationNumber(report).length === 0, "formula benchmark report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("A5.5 BMR reference set includes required equations and safe unavailable LBM handling", () => {
+          const stat = buildCalibrationManualStats().find(item => item.id === "M09");
+          const refs = buildReferenceBmrSet(stat);
+          ["mifflin", "revisedHarrisBenedict", "katchMcArdle", "cunningham"].forEach(key => {
+            assertTest(Object.prototype.hasOwnProperty.call(refs.refs, key), `${key} BMR reference should exist`);
+            assertTest(refs.refs[key].available === true, `${key} should be available for bodyFat profile`);
+            assertTest(Number.isFinite(refs.refs[key].value), `${key} value should be finite`);
+          });
+          const unavailable = buildReferenceBmrSet({ ...stat, bodyFat: null });
+          assertTest(unavailable.refs.katchMcArdle.available === false, "Katch-McArdle should be unavailable without valid bodyFat");
+          assertTest(unavailable.refs.cunningham.available === false, "Cunningham should be unavailable without valid bodyFat");
+          assertTest(unavailable.refs.katchMcArdle.value === null, "Katch-McArdle unavailable value should be null");
+        }));
+
+        results.push(runNamedTest("A5.5 cardio and weight references are finite for representative C5/W5 case", () => {
+          const report = runFormulaBenchmarkReview({
+            statIds: ["M20"],
+            includeCases: true,
+            limitCases: 1,
+            mode: "athlete"
+          });
+          const item = report.cases[0];
+          assertTest(Number.isFinite(item.cardioReference.met), "ACSM cardio MET should be finite");
+          assertTest(Number.isFinite(item.cardioReference.kcal), "ACSM cardio kcal should be finite");
+          assertTest(Number.isFinite(item.weightReference.appMet), "app weight MET estimate should be finite");
+          assertTest(item.weightReference.refs.every(ref => Number.isFinite(ref.kcal)), "weight MET references should be finite");
+        }));
+
+        results.push(runNamedTest("A5.5 cardio benchmark separates MET match from kcal convention difference", () => {
+          const report = runFormulaBenchmarkReview({
+            statIds: ["M20"],
+            includeCases: true,
+            limitCases: 1,
+            mode: "athlete"
+          });
+          const item = report.cases[0];
+          assertClose(item.cardioReference.metDiff, 0, 0.0001, "cardio MET should match ACSM reference");
+          assertClose(item.cardioReference.kcalConventionExpectedRatio, 200 / 210, 0.0001, "expected kcal convention ratio should be 200/210");
+          assertClose(item.cardioReference.kcalConventionRatio, 200 / 210, 0.0001, "app cardio kcal should be about 4.76% below strict ACSM kcal for matching MET");
+          assertTest(Number.isFinite(report.overall.cardio.appToAcsmStrictKcalRatio.median), "cardio convention ratio summary should be finite");
+          assertTest(report.referenceNotes.some(note => note.includes("MET * kg * hours") && note.includes("4.76%")), "report notes should explain MET/kcal convention difference");
+        }));
+
+        results.push(runNamedTest("A5.5 macro reference range and required cases are included", () => {
+          const report = runFormulaBenchmarkReview({ includeCases: true });
+          const highCase = report.representativeCases.find(item => item.statId === "M20" && item.goal === "bulk" && item.activityCombo === "A5" && item.weightCombo === "W5" && item.cardioCombo === "C5");
+          const c2Case = report.representativeCases.find(item => item.statId === "M09" && item.goal === "lean_bulk" && item.activityCombo === "A2" && item.weightCombo === "W2" && item.cardioCombo === "C2");
+          const c3Case = report.representativeCases.find(item => item.statId === "M09" && item.goal === "lean_bulk" && item.activityCombo === "A2" && item.weightCombo === "W2" && item.cardioCombo === "C3");
+          assertTest(!!highCase, "representative high bulk A5/W5/C5 case should be included");
+          assertTest(!!c2Case, "representative C2 lean case should be included");
+          assertTest(!!c3Case, "representative C3 lean case should be included");
+          assertTest(!!highCase.macroReference.referenceRanges.protein, "macro protein reference range should exist");
+          assertTest(!!highCase.macroReference.referenceRanges.carbs, "macro carbs reference range should exist");
+          assertTest(!!highCase.macroReference.referenceRanges.fat, "macro fat reference range should exist");
+        }));
+
+        results.push(runNamedTest("A5.5 formula benchmark keeps production calculation unchanged", () => {
+          const stat = buildCalibrationManualStats().find(item => item.id === "M20");
+          applyCalibrationCaseToInputs({
+            mode: "athlete",
+            stat,
+            goalCombo: getCalibrationGoalComboByGoal("bulk"),
+            activityCombo: getCalibrationComboById(getCalibrationActivityCombos(), "A5"),
+            weightCombo: getCalibrationComboById(getCalibrationWeightCombos(), "W5"),
+            cardioCombo: getCalibrationComboById(getCalibrationCardioCombos(), "C5")
+          });
+          const before = calculate();
+          const beforeRecords = JSON.stringify(recordsState.items);
+          runFormulaBenchmarkReview({
+            statIds: ["M20"],
+            mode: "athlete",
+            limitCases: 4
+          });
+          const after = calculate();
+          ["targetCal", "totalBurn", "protein", "carbs", "fat", "weightKcal", "trainingBaselineKcal"].forEach(key => {
+            assertClose(after[key], before[key], 0.0001, `formula benchmark should not change ${key}`);
+          });
+          assertClose(after.cardio.kcal, before.cardio.kcal, 0.0001, "formula benchmark should not change cardioKcal");
+          assertTest(JSON.stringify(recordsState.items) === beforeRecords, "formula benchmark should not mutate records");
+        }));
+
+        results.push(runNamedTest("A5.5 classifications, exports, and protected constants exist", () => {
+          const report = runFormulaBenchmarkReview({
+            statIds: ["M09"],
+            includeCases: false,
+            limitCases: 4
+          });
+          FORMULA_BENCHMARK_CLASSIFICATIONS.forEach(key => {
+            assertTest(Array.isArray(report.classifications[key]), `${key} classification bucket should exist`);
+          });
+          assertTest(typeof window.runFormulaBenchmarkReview === "function", "runFormulaBenchmarkReview should be exported");
+          assertTest(typeof window.runFormulaBenchmarkReviewTests === "function", "runFormulaBenchmarkReviewTests should be exported");
+          assertTest(typeof window.runDailyCoachTestCases === "function", "runDailyCoachTestCases should remain exported");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+        }));
+
+        results.push(runNamedTest("A5.5 previous macro cap philosophy tests remain intact", () => {
+          const philosophyResults = runMacroCapPhilosophyReviewTests();
+          assertTest(philosophyResults.every(item => item.pass), "A5.4 philosophy review tests should still pass");
         }));
 
         return results;
@@ -29228,12 +29835,14 @@ Notes:
     window.runCalibrationCardioTargetPolicyReview = runCalibrationCardioTargetPolicyReview;
     window.runMacroCapCandidateReview = runMacroCapCandidateReview;
     window.runMacroCapPhilosophyReview = runMacroCapPhilosophyReview;
+    window.runFormulaBenchmarkReview = runFormulaBenchmarkReview;
     window.runCalibrationScanReportTests = runCalibrationScanReportTests;
     window.runCalibrationPhysiologyReviewTests = runCalibrationPhysiologyReviewTests;
     window.runCalibrationWeeklyBudgetReviewTests = runCalibrationWeeklyBudgetReviewTests;
     window.runCalibrationCardioTargetPolicyReviewTests = runCalibrationCardioTargetPolicyReviewTests;
     window.runMacroCapCandidateReviewTests = runMacroCapCandidateReviewTests;
     window.runMacroCapPhilosophyReviewTests = runMacroCapPhilosophyReviewTests;
+    window.runFormulaBenchmarkReviewTests = runFormulaBenchmarkReviewTests;
     window.runMacroAllocationExplanationTests = runMacroAllocationExplanationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
