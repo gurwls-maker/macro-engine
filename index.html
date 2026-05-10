@@ -1,13 +1,12 @@
 <!--
-Version: 6.6-A4
-Stage: 6.6-A4 goal-aware cardio target 반영 산식 후보 적용 / 재검증
+Version: 6.6-A5.1
+Stage: 6.6-A5.1 계산 근거 / 남는 kcal 설명 1차 구현
 Date: 2026-05-10
 Notes:
-- A3/A3.1 QA에서 1순위 후보로 압축한 goal-aware cardio target reflection을 production 후보로 적용
-- totalBurn과 cardioKcal은 그대로 유지하고 targetCal 계산 기준에만 목표별 cardio 반영률 적용
-- diet 40% / lean_bulk 60% / bulk 80% cardio target reflection 적용
-- legacy full reflection은 QA 리포트의 비교 기준으로 분리
-- cardio 공식 / weightKcal / weeklyTrainingBaselineKcal / goal factor / macro cap 변경 없음
+- targetCal과 탄단지 kcal 합이 크게 다를 때 표시 전용 계산 근거를 추가
+- 탄단지로 배분한 칼로리, 목표 칼로리와 차이, 탄단지 g 우선 기준 안내 추가
+- macro cap / plausibility layer / targetCal / totalBurn / cardioKcal 산식 변경 없음
+- cardio target reflection rate / weightKcal / weeklyTrainingBaselineKcal / goal factor 변경 없음
 - 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
@@ -16,7 +15,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A4</title>
+  <title>탄단지 다이어리 v6.6-A5.1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4760,7 +4759,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A4</span>
+               <span class="app-version">v6.6-A5.1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -4885,7 +4884,7 @@ Notes:
                 </label>
               </div>
             </div>
-            <div class="kpi-panel-note hidden" id="kpiExtremeNote">목표 칼로리가 현실적인 탄단지 상한을 넘어 일부 낮춰 반영되었습니다.</div>
+            <div class="kpi-panel-note hidden" id="kpiExtremeNote">목표 칼로리가 매우 높아 탄단지는 현실적인 범위까지만 표시했습니다. 식단은 아래 탄단지 g을 우선 기준으로 보세요.</div>
             <div class="kpi-grid">
               <div class="kpi target">
                 <div class="big" id="targetCal">0</div>
@@ -6885,6 +6884,113 @@ Notes:
       return { ...plausibility, proteinBasisWeight, proteinKgApplied: proteinBasisWeight > 0 ? plausibility.protein / proteinBasisWeight : 0 };
     }
 
+    const MACRO_ALLOCATION_GAP_THRESHOLDS = Object.freeze({
+      detail: 100,
+      explanation: 250,
+      kpi: 500,
+      strong: 1000
+    });
+
+    function calculateMacroKcalSum(macros){
+      const protein = Math.max(0, Number(macros?.protein) || 0);
+      const carbs = Math.max(0, Number(macros?.carbs) || 0);
+      const fat = Math.max(0, Number(macros?.fat) || 0);
+      return protein * 4 + carbs * 4 + fat * 9;
+    }
+
+    function buildMacroAllocationInfo(source){
+      const targetCal = Number(source?.targetCal);
+      const protein = Number(source?.protein);
+      const carbs = Number(source?.carbs);
+      const fat = Number(source?.fat);
+      if (![targetCal, protein, carbs, fat].every(Number.isFinite) || targetCal <= 0) {
+        return {
+          isAvailable: false,
+          macroKcalSum: 0,
+          macroKcalGap: 0,
+          macroKcalGapRatio: 0,
+          level: "none",
+          shouldShowDetail: false,
+          shouldShowExplanation: false,
+          shouldShowKpiNote: false,
+          carbAtPracticalLimit: false,
+          fatAtPracticalLimit: false,
+          proteinAtPracticalLimit: false
+        };
+      }
+      const macroKcalSum = calculateMacroKcalSum({ protein, carbs, fat });
+      const macroKcalGap = Math.max(0, targetCal - macroKcalSum);
+      const macroKcalGapRatio = macroKcalGap / targetCal;
+      const carbLimit = Number(source?.carbCap ?? source?.carbsCap ?? source?.plausibility?.carbsCap);
+      const fatLimit = Number(source?.fatHardCap ?? source?.fatCap ?? source?.fatPracticalCeilingG ?? source?.plausibility?.fatHardCap ?? source?.plausibility?.fatCap);
+      const proteinLimit = Number(source?.proteinCap ?? source?.plausibility?.proteinCap);
+      const carbAtPracticalLimit = Number.isFinite(carbLimit) && carbs >= carbLimit - 1;
+      const fatAtPracticalLimit = Number.isFinite(fatLimit) && fat >= fatLimit - 1;
+      const proteinAtPracticalLimit = Number.isFinite(proteinLimit) && protein >= proteinLimit - 1;
+      const level = macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.strong
+        ? "strong"
+        : macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.kpi
+          ? "high"
+          : macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.explanation
+            ? "medium"
+            : macroKcalGap > MACRO_ALLOCATION_GAP_THRESHOLDS.detail
+              ? "low"
+              : "none";
+      return {
+        isAvailable: true,
+        targetCal,
+        protein,
+        carbs,
+        fat,
+        macroKcalSum,
+        macroKcalGap,
+        macroKcalGapRatio,
+        level,
+        shouldShowDetail: macroKcalGap > MACRO_ALLOCATION_GAP_THRESHOLDS.detail,
+        shouldShowExplanation: macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.explanation,
+        shouldShowKpiNote: macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.kpi,
+        carbAtPracticalLimit,
+        fatAtPracticalLimit,
+        proteinAtPracticalLimit
+      };
+    }
+
+    function classifyMacroAllocationGap(info){
+      if (!info?.isAvailable || !(info.macroKcalGap > MACRO_ALLOCATION_GAP_THRESHOLDS.detail)) return "none";
+      if (info.macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.strong) return "large_allocation_difference";
+      if (info.macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.kpi) return "allocation_difference";
+      if (info.macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.explanation) return "explain_in_details";
+      return "details_only";
+    }
+
+    function getMacroAllocationReasonText(info){
+      if (!info?.shouldShowExplanation) return "목표 칼로리와 탄단지 합이 조금 다릅니다.";
+      if (info.carbAtPracticalLimit && info.fatAtPracticalLimit) {
+        return "탄수화물과 지방을 무리하게 늘리지 않기 위해 일부 칼로리는 탄단지 목표에 넣지 않았습니다.";
+      }
+      if (info.carbAtPracticalLimit) {
+        return "탄수화물을 무리하게 늘리지 않기 위해 일부 칼로리는 탄단지 목표에 넣지 않았습니다.";
+      }
+      if (info.fatAtPracticalLimit) {
+        return "지방을 무리하게 늘리지 않기 위해 일부 칼로리는 탄단지 목표에 넣지 않았습니다.";
+      }
+      return "탄단지를 현실적인 범위로 배분해 목표 칼로리와 차이가 날 수 있습니다.";
+    }
+
+    function renderMacroAllocationNote(info, context = "detail"){
+      if (!info?.isAvailable || !info.shouldShowDetail) return "";
+      if (context === "kpi") {
+        if (info.macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.strong) {
+          return "목표 칼로리가 높아 탄단지는 현실적인 범위까지만 배분했습니다. 식단은 아래 탄단지 g을 우선 기준으로 보세요.";
+        }
+        return "목표 칼로리와 탄단지 합에 차이가 있습니다. 식단은 아래 탄단지 g을 우선 기준으로 보세요.";
+      }
+      const target = Math.round(info.targetCal).toLocaleString();
+      const allocated = Math.round(info.macroKcalSum).toLocaleString();
+      const gap = Math.round(info.macroKcalGap).toLocaleString();
+      return `목표 칼로리 ${target}kcal, 탄단지로 배분한 칼로리 ${allocated}kcal, 목표 칼로리와 차이 ${gap}kcal입니다. ${getMacroAllocationReasonText(info)} 식단 구성은 아래 탄단지 g을 우선 기준으로 보세요.`;
+    }
+
     function collectState(){
       const workAdjBounds = getWorkAdjBounds();
       return {
@@ -6988,6 +7094,7 @@ Notes:
         pctProtein: 0,
         pctCarb: 0,
         pctFat: 0,
+        macroAllocationInfo: buildMacroAllocationInfo({ targetCal: 0, protein: 0, carbs: 0, fat: 0 }),
         carbCap: 0,
         fatTargetG: 0,
         fatTargetRange: { min: 0, max: 0 },
@@ -7107,6 +7214,18 @@ Notes:
       const pctProtein = finalTargetCal > 0 ? round(protein * 4 / finalTargetCal * 100) : 0;
       const pctCarb = finalTargetCal > 0 ? round(carbs * 4 / finalTargetCal * 100) : 0;
       const pctFat = finalTargetCal > 0 ? round(fat * 9 / finalTargetCal * 100) : 0;
+      const macroAllocationInfo = buildMacroAllocationInfo({
+        targetCal: finalTargetCal,
+        protein,
+        carbs,
+        fat,
+        carbCap,
+        fatHardCap: macroPlan.fatHardCap,
+        fatCap: macroPlan.fatCap,
+        fatPracticalCeilingG,
+        proteinCap: macroPlan.proteinCap,
+        plausibility: macroPlan
+      });
 
       const infoNotes = [];
       const cautionNotes = [];
@@ -7219,6 +7338,7 @@ Notes:
         pctProtein,
         pctCarb,
         pctFat,
+        macroAllocationInfo,
         carbCap,
         fatTargetG,
         fatTargetRange,
@@ -12964,6 +13084,14 @@ Notes:
         ["7. 총 소비", "오늘 기준 유지 소비와 운동 소모를 합친 총 에너지입니다.", `${Math.round(r.totalBurn).toLocaleString()} kcal`],
         ["8. 목표 보정", goalText, `${Math.round(r.targetCal).toLocaleString()} kcal`]
       ];
+      const macroAllocationInfo = r.macroAllocationInfo || buildMacroAllocationInfo(r);
+      if (macroAllocationInfo.shouldShowDetail) {
+        rows.push([
+          "9. 탄단지 배분",
+          renderMacroAllocationNote(macroAllocationInfo, "detail"),
+          `차이 ${Math.round(macroAllocationInfo.macroKcalGap).toLocaleString()} kcal`
+        ]);
+      }
       document.getElementById("flowList").innerHTML = rows.map(([title, text, num]) => `
         <div class="step">
           <div>
@@ -13007,6 +13135,11 @@ Notes:
         ["지방 현실 상한", `${round(r.fatPracticalCeilingG, 1)} g/day`],
         ["탄수 현실 상한", `${Math.round(r.carbCap)} g/day`]
       ];
+      const macroAllocationInfo = r.macroAllocationInfo || buildMacroAllocationInfo(r);
+      if (macroAllocationInfo.shouldShowDetail) {
+        rows.push(["탄단지 배분 kcal", `${Math.round(macroAllocationInfo.macroKcalSum).toLocaleString()} kcal`]);
+        rows.push(["목표와 차이", `${Math.round(macroAllocationInfo.macroKcalGap).toLocaleString()} kcal`]);
+      }
       if (state.mode === "expert"){
         rows.splice(4, 0, ["최종 적용 배율", `${round(r.effectiveGoalFactor, 3)}`]);
       }
@@ -16732,7 +16865,15 @@ Notes:
         ? 0
         : Math.round(result.fat * 9 / displayedTargetCal * 100);
       const kpiExtremeNote = document.getElementById("kpiExtremeNote");
-      kpiExtremeNote.classList.toggle("hidden", showPlaceholder || !result.extremeCase);
+      const macroAllocationInfo = result.macroAllocationInfo || buildMacroAllocationInfo(result);
+      const macroAllocationKpiNote = renderMacroAllocationNote(macroAllocationInfo, "kpi");
+      if (!showPlaceholder && macroAllocationInfo.shouldShowKpiNote && macroAllocationKpiNote) {
+        kpiExtremeNote.textContent = macroAllocationKpiNote;
+        kpiExtremeNote.classList.remove("hidden");
+      } else {
+        kpiExtremeNote.textContent = "목표 칼로리가 매우 높아 탄단지는 현실적인 범위까지만 표시했습니다. 식단은 아래 탄단지 g을 우선 기준으로 보세요.";
+        kpiExtremeNote.classList.toggle("hidden", showPlaceholder || !result.extremeCase);
+      }
 
       document.getElementById("targetCal").textContent = showPlaceholder ? "—" : displayedTargetCal.toLocaleString();
       document.getElementById("targetCal").title = showPlaceholder ? "유효한 입력이 필요합니다." : `${displayedTargetCal.toLocaleString()} kcal`;
@@ -20867,8 +21008,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("A4 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A4"), "document title should show v6.6-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A4"), "app version badge should show v6.6-A4");
+          assertTest(document.title.includes("v6.6-A5.1"), "document title should show v6.6-A5.1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.1"), "app version badge should show v6.6-A5.1");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22344,8 +22485,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A4";
-    const CALIBRATION_QA_STAGE = "6.6-A4 goal-aware cardio target 반영 산식 후보 적용 / 재검증";
+    const CALIBRATION_QA_VERSION = "6.6-A5.1";
+    const CALIBRATION_QA_STAGE = "6.6-A5.1 계산 근거 / 남는 kcal 설명 1차 구현";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -22716,6 +22857,7 @@ Notes:
       const baseActivityCoeff = ACTIVITY_COEFF[result.s.activityLevel] ?? 1.22;
       const activityKcalEstimate = result.bmr * Math.max(0, baseActivityCoeff - 1);
       const workKcalEstimate = result.baseDaily - result.bmr * baseActivityCoeff;
+      const macroAllocationInfo = result.macroAllocationInfo || buildMacroAllocationInfo(result);
       const candidate = options.compareWeeklyXw === false ? null : buildNoWeeklyXwCandidate(result);
       const currentVsCandidateDelta = candidate ? {
         targetCal: result.targetCal - candidate.targetCal,
@@ -22783,6 +22925,10 @@ Notes:
         carbs: result.carbs,
         protein: result.protein,
         fat: result.fat,
+        macroKcalSum: macroAllocationInfo.macroKcalSum,
+        macroKcalGap: macroAllocationInfo.macroKcalGap,
+        macroKcalGapRatio: macroAllocationInfo.macroKcalGapRatio,
+        macroAllocationClass: classifyMacroAllocationGap(macroAllocationInfo),
         totalBurnToBmr: result.bmr > 0 ? result.totalBurn / result.bmr : null,
         targetCalToTotalBurn: result.totalBurn > 0 ? result.targetCal / result.totalBurn : null,
         targetCalToBmr: result.bmr > 0 ? result.targetCal / result.bmr : null,
@@ -24642,6 +24788,7 @@ Notes:
           assertTest(typeof window.runCalibrationWeeklyBudgetReviewTests === "function", "runCalibrationWeeklyBudgetReviewTests should be exported");
           assertTest(typeof window.runCalibrationCardioTargetPolicyReview === "function", "runCalibrationCardioTargetPolicyReview should be exported");
           assertTest(typeof window.runCalibrationCardioTargetPolicyReviewTests === "function", "runCalibrationCardioTargetPolicyReviewTests should be exported");
+          assertTest(typeof window.runMacroAllocationExplanationTests === "function", "runMacroAllocationExplanationTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
         }));
@@ -24989,6 +25136,137 @@ Notes:
           assertTest(scan.meta.caseCount === 40, "existing scan report should still run");
           assertTest(physiology.physiologyReview.cardioFormula.items.length === 6, "physiology review should still run");
           assertTest(weekly.reviews.length === 1, "weekly budget review should still run");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+        }));
+
+        return results;
+      });
+    }
+
+    function runMacroAllocationExplanationTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        function setMacroAllocationCalibrationCase({ statId = "M09", goal = "bulk", activityId = "A5", weightId = "W5", cardioId = "C5" } = {}){
+          const stat = buildCalibrationManualStats().find(item => item.id === statId);
+          assertTest(!!stat, `${statId} calibration stat should exist`);
+          applyCalibrationCaseToInputs({
+            mode: "athlete",
+            stat,
+            goalCombo: getCalibrationGoalComboByGoal(goal),
+            activityCombo: getCalibrationComboById(getCalibrationActivityCombos(), activityId),
+            weightCombo: getCalibrationComboById(getCalibrationWeightCombos(), weightId),
+            cardioCombo: getCalibrationComboById(getCalibrationCardioCombos(), cardioId)
+          });
+        }
+
+        const forbiddenUserFacingTerms = [
+          "macro gap",
+          "cap",
+          "hard cap",
+          "plausibility",
+          "targetBurnBase",
+          "reflection",
+          "candidate",
+          "formula_consistent",
+          "unallocated",
+          "kcal gap",
+          "internal",
+          "policy",
+          "helper"
+        ];
+
+        results.push(runNamedTest("A5.1 macro kcal sum follows protein carbs fat energy", () => {
+          const sum = calculateMacroKcalSum({ protein: 100, carbs: 250, fat: 70 });
+          assertClose(sum, 100 * 4 + 250 * 4 + 70 * 9, 0.0001, "macro kcal sum should use 4/4/9");
+        }));
+
+        results.push(runNamedTest("A5.1 small allocation difference stays quiet", () => {
+          const info = buildMacroAllocationInfo({ targetCal: 2000, protein: 150, carbs: 220, fat: 57 });
+          assertTest(info.macroKcalGap <= MACRO_ALLOCATION_GAP_THRESHOLDS.detail, "small gap fixture should stay under quiet threshold");
+          assertTest(!info.shouldShowDetail, "small gap should not show detail");
+          assertTest(!info.shouldShowKpiNote, "small gap should not show KPI note");
+          assertTest(renderMacroAllocationNote(info, "kpi") === "", "small gap should render no note");
+        }));
+
+        results.push(runNamedTest("A5.1 high allocation difference explains without warning copy", () => {
+          const info = buildMacroAllocationInfo({
+            targetCal: 4300,
+            protein: 140,
+            carbs: 560,
+            fat: 110,
+            carbCap: 560,
+            fatHardCap: 110
+          });
+          assertTest(info.shouldShowKpiNote, "500kcal+ gap should show KPI note");
+          assertTest(classifyMacroAllocationGap(info) === "allocation_difference", "500kcal+ gap should classify as allocation difference");
+          const copy = `${renderMacroAllocationNote(info, "kpi")} ${renderMacroAllocationNote(info, "detail")}`;
+          assertIncludesAll(copy, ["탄단지", "우선 기준"], "copy should tell the user which target to follow");
+          assertExcludesAll(copy, forbiddenUserFacingTerms, "user-facing macro allocation copy should avoid internal terms");
+        }));
+
+        results.push(runNamedTest("A5.1 very high allocation difference remains explanation only", () => {
+          const info = buildMacroAllocationInfo({
+            targetCal: 6600,
+            protein: 180,
+            carbs: 850,
+            fat: 150,
+            carbCap: 850,
+            fatHardCap: 150
+          });
+          assertTest(info.macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.strong, "fixture should be a 1000kcal+ gap");
+          assertTest(renderMacroAllocationNote(info, "kpi").includes("현실적인 범위"), "strong gap should explain the practical range");
+          assertTest(!renderMacroAllocationNote(info, "kpi").includes("경고"), "strong gap should not render as warning copy");
+        }));
+
+        results.push(runNamedTest("A5.1 representative high gap case gets carb and fat explanation", () => {
+          setMacroAllocationCalibrationCase({ statId: "M09", goal: "bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          const result = calculate();
+          const info = result.macroAllocationInfo;
+          assertTest(info.macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.kpi, "M09 bulk A5 W5 C5 should have a visible allocation difference");
+          assertTest(info.carbAtPracticalLimit, "representative high gap should be near carb practical limit");
+          assertTest(info.fatAtPracticalLimit, "representative high gap should be near fat practical limit");
+          assertIncludesAll(renderMacroAllocationNote(info, "detail"), ["탄수화물", "지방"], "detail copy should explain carb and fat practical range");
+        }));
+
+        results.push(runNamedTest("A5.1 normal lean bulk cardio case stays quiet", () => {
+          setMacroAllocationCalibrationCase({ statId: "M09", goal: "lean_bulk", activityId: "A2", weightId: "W2", cardioId: "C2" });
+          const result = calculate();
+          const info = result.macroAllocationInfo;
+          assertTest(info.macroKcalGap <= MACRO_ALLOCATION_GAP_THRESHOLDS.detail, "normal lean bulk C2 case should not need allocation explanation");
+          assertTest(!info.shouldShowDetail, "normal case should not show detail");
+        }));
+
+        results.push(runNamedTest("A5.1 helper does not change production targets", () => {
+          setMacroAllocationCalibrationCase({ statId: "M20", goal: "bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          const before = calculate();
+          buildMacroAllocationInfo(before);
+          renderMacroAllocationNote(before.macroAllocationInfo, "detail");
+          const after = calculate();
+          ["targetCal", "protein", "carbs", "fat", "totalBurn", "weightKcal", "epocKcal"].forEach(key => {
+            assertClose(after[key], before[key], 0.0001, `macro allocation helpers should not change ${key}`);
+          });
+          assertClose(after.cardio.kcal, before.cardio.kcal, 0.0001, "macro allocation helpers should not change cardioKcal");
+        }));
+
+        results.push(runNamedTest("A5.1 UI renders note only for meaningful allocation difference", () => {
+          setMacroAllocationCalibrationCase({ statId: "M09", goal: "bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          render();
+          const highNote = document.getElementById("kpiExtremeNote");
+          assertTest(!highNote.classList.contains("hidden"), "high allocation gap should show KPI note");
+          assertIncludesAll(highNote.textContent, ["탄단지", "우선 기준"], "KPI note should guide toward macro grams");
+          assertExcludesAll(highNote.textContent, forbiddenUserFacingTerms, "KPI note should avoid internal terms");
+          assertIncludesAll(document.getElementById("flowList").textContent, ["탄단지로 배분한 칼로리", "목표 칼로리와 차이"], "details should include allocation numbers");
+
+          setMacroAllocationCalibrationCase({ statId: "F10", goal: "lean_bulk", activityId: "A2", weightId: "W2", cardioId: "C2" });
+          render();
+          assertTest(document.getElementById("kpiExtremeNote").classList.contains("hidden"), "normal case should hide allocation KPI note");
+          assertTest(!document.getElementById("flowList").textContent.includes("목표 칼로리와 차이"), "normal case should not show allocation detail row");
+        }));
+
+        results.push(runNamedTest("A5.1 protected constants and export remain intact", () => {
+          assertTest(typeof window.runMacroAllocationExplanationTests === "function", "runMacroAllocationExplanationTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
         }));
@@ -27776,6 +28054,7 @@ Notes:
     window.runCalibrationPhysiologyReviewTests = runCalibrationPhysiologyReviewTests;
     window.runCalibrationWeeklyBudgetReviewTests = runCalibrationWeeklyBudgetReviewTests;
     window.runCalibrationCardioTargetPolicyReviewTests = runCalibrationCardioTargetPolicyReviewTests;
+    window.runMacroAllocationExplanationTests = runMacroAllocationExplanationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
     window.runInbodyTrendContextTests = runInbodyTrendContextTests;
