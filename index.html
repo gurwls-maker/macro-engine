@@ -1,13 +1,13 @@
 <!--
-Version: 6.6-A2
-Stage: 6.6-A2 주간 운동 baseline 운동일 감쇠 / QA 재검증
+Version: 6.6-A3
+Stage: 6.6-A3 고강도 유산소 targetCal 반영 정책 QA
 Date: 2026-05-10
 Notes:
-- weeklyTrainingDays baseline을 작은 회복 / 생활 보정으로 축소
-- 오늘 웨이트 kcal가 입력된 날에는 weekly baseline을 감쇠
-- 휴식일에는 주간 훈련 빈도에 따른 baseline 일부 유지
-- weekly budget QA 리포트로 S5_60 / S5_90 baseline-direct overlap 재검증
-- direct weightKcal / cardioKcal / Xw / goal factor / macro target 산식 변경 없음
+- 고강도 유산소 kcal의 targetCal 반영 정책을 report-only 후보로 비교
+- cardioKcal과 totalBurn은 그대로 유지하고 candidateTargetCal만 별도 산출
+- current / flat 50% / goal-aware / high-cardio conservative 정책 후보 비교
+- 대표 C5 케이스에서 목표별 targetCal / 탄단지 변화 확인
+- production calculate() / cardio 공식 / totalBurn / macro target 산식 변경 없음
 - 사용자 화면 노출 없이 개발자용 window QA 함수로만 검증
 - 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
@@ -17,7 +17,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A2</title>
+  <title>탄단지 다이어리 v6.6-A3</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4761,7 +4761,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A2</span>
+               <span class="app-version">v6.6-A3</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -20829,9 +20829,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("A2 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A2"), "document title should show v6.6-A2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A2"), "app version badge should show v6.6-A2");
+        results.push(runNamedTest("A3 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-A3"), "document title should show v6.6-A3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A3"), "app version badge should show v6.6-A3");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22307,8 +22307,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A2";
-    const CALIBRATION_QA_STAGE = "6.6-A2 주간 운동 baseline 운동일 감쇠 / QA 재검증";
+    const CALIBRATION_QA_VERSION = "6.6-A3";
+    const CALIBRATION_QA_STAGE = "6.6-A3 고강도 유산소 targetCal 반영 정책 QA";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -23957,6 +23957,338 @@ Notes:
       });
     }
 
+    const CALIBRATION_CARDIO_TARGET_POLICY_CLASSIFICATIONS = [
+      "target_policy_consistent",
+      "reduces_extreme_target_without_hiding_totalBurn",
+      "protein_or_fat_floor_issue",
+      "goal_policy_review_needed",
+      "over_restrictive_candidate",
+      "needs_manual_review"
+    ];
+
+    function buildCalibrationCardioTargetPolicies(){
+      return [
+        {
+          id: "current_full_reflection",
+          label: "current / full reflection",
+          type: "current",
+          defaultRate: 1,
+          notes: ["Production-equivalent targetCal reflection baseline."]
+        },
+        {
+          id: "flat_partial_50",
+          label: "flat partial 50%",
+          type: "flat",
+          defaultRate: 0.5,
+          notes: ["Report-only candidate: cardioKcal remains in totalBurn, but targetCal uses 50% cardio reflection."]
+        },
+        {
+          id: "goal_aware_reflection",
+          label: "goal-aware reflection",
+          type: "goal-aware",
+          goalRates: { diet: 0.4, lean_bulk: 0.6, bulk: 0.8 },
+          notes: ["Report-only candidate with different cardio target reflection by goal."]
+        },
+        {
+          id: "high_cardio_conservative",
+          label: "high-cardio conservative",
+          type: "high-cardio-conservative",
+          goalRates: { diet: 0.4, lean_bulk: 0.6, bulk: 0.8 },
+          tierRules: [
+            { minCardioToBmr: 1.2, multiplier: 0.65, minRate: { diet: 0.25, lean_bulk: 0.35, bulk: 0.45 } },
+            { minCardioToBmr: 0.8, multiplier: 0.78, minRate: { diet: 0.30, lean_bulk: 0.42, bulk: 0.55 } },
+            { minCardioToBmr: 0.5, multiplier: 0.90, minRate: { diet: 0.35, lean_bulk: 0.50, bulk: 0.65 } }
+          ],
+          notes: [
+            "Report-only candidate: high cardio output is not capped or hidden.",
+            "Only the targetCal reflection rate becomes more conservative when cardioKcal/BMR is high."
+          ]
+        }
+      ];
+    }
+
+    function getCardioTargetPolicyReflectionRate(policy, current){
+      if (!policy || policy.type === "current") return 1;
+      if (policy.type === "flat") return clamp(Number(policy.defaultRate) || 0, 0, 1);
+      const goal = current.goal || "lean_bulk";
+      const baseRate = clamp(Number(policy.goalRates?.[goal] ?? policy.defaultRate ?? 1), 0, 1);
+      if (policy.type !== "high-cardio-conservative") return baseRate;
+      const cardioToBmr = current.bmr > 0 ? current.cardioKcal / current.bmr : 0;
+      const matchedRule = (policy.tierRules || []).find(rule => cardioToBmr >= rule.minCardioToBmr);
+      if (!matchedRule) return baseRate;
+      const minRate = Number(matchedRule.minRate?.[goal] ?? 0);
+      return clamp(Math.max(minRate, baseRate * matchedRule.multiplier), 0, 1);
+    }
+
+    function classifyCardioTargetPolicyCandidate(candidate, current, policy){
+      const classes = [];
+      const finiteFields = [
+        candidate.candidateTargetCal,
+        candidate.candidateCarbs,
+        candidate.candidateProtein,
+        candidate.candidateFat,
+        candidate.reflectedCardioKcalForTarget
+      ];
+      if (finiteFields.every(Number.isFinite) && candidate.totalBurnKeptSame && candidate.cardioKcalKeptSame) {
+        classes.push("target_policy_consistent");
+      } else {
+        classes.push("needs_manual_review");
+      }
+
+      const cardioToBmr = current.bmr > 0 ? current.cardioKcal / current.bmr : 0;
+      const isHighCardio = current.cardioCombo === "C5" || cardioToBmr >= 0.8;
+      if (policy.id !== "current_full_reflection" && isHighCardio && candidate.targetDeltaFromCurrent < -250 && candidate.totalBurnKeptSame && candidate.cardioKcalKeptSame) {
+        classes.push("reduces_extreme_target_without_hiding_totalBurn");
+      }
+      if (policy.type === "goal-aware" || policy.type === "high-cardio-conservative") {
+        classes.push("goal_policy_review_needed");
+      }
+      if (candidate.candidateFat < Math.max(0, Number(current.fatPhysioFloorG) || 0) - 1) {
+        classes.push("protein_or_fat_floor_issue");
+      }
+      if (current.cardioKcal > 1200 && candidate.reflectionRate < 0.35 && candidate.targetDeltaFromCurrent < -1000) {
+        classes.push("over_restrictive_candidate");
+      }
+      if (isHighCardio && Math.abs(candidate.targetDeltaFromCurrent) > 800) {
+        classes.push("needs_manual_review");
+      }
+      return [...new Set(classes)];
+    }
+
+    function estimateTargetWithCardioReflection(result, current, policy){
+      const reflectionRate = getCardioTargetPolicyReflectionRate(policy, current);
+      const currentCardioKcal = Math.max(0, Number(current.cardioKcal) || 0);
+      const reflectedCardioKcalForTarget = currentCardioKcal * reflectionRate;
+      const unreflectedCardioKcalForTarget = currentCardioKcal - reflectedCardioKcalForTarget;
+      const adjustedTotalBurnForTarget = current.totalBurn - currentCardioKcal + reflectedCardioKcalForTarget;
+      const target = calculateTargetAndMacrosForCalibration(result.s, adjustedTotalBurnForTarget, result.lbmBase, result.lbmEffective, result.modeCfg);
+      const candidate = {
+        policyId: policy.id,
+        policyLabel: policy.label,
+        policyType: policy.type,
+        reflectionRate,
+        currentTotalBurn: current.totalBurn,
+        totalBurnKeptSame: true,
+        currentCardioKcal,
+        cardioKcalKeptSame: true,
+        reflectedCardioKcalForTarget,
+        unreflectedCardioKcalForTarget,
+        adjustedTotalBurnForTarget,
+        currentTargetCal: current.targetCal,
+        candidateTargetCal: target.targetCal,
+        targetDeltaFromCurrent: target.targetCal - current.targetCal,
+        candidateCarbs: target.carbs,
+        candidateProtein: target.protein,
+        candidateFat: target.fat,
+        macroShiftFromCurrent: {
+          carbs: target.carbs - current.carbs,
+          protein: target.protein - current.protein,
+          fat: target.fat - current.fat
+        },
+        targetFloorUsed: target.targetFloorUsed,
+        goalClampUsed: target.goalClampUsed,
+        extremeIterations: target.extremeIterations,
+        notes: [
+          "Report-only targetCal candidate.",
+          "totalBurn and cardioKcal remain unchanged; only cardio reflection into targetCal is adjusted."
+        ]
+      };
+      candidate.classification = classifyCardioTargetPolicyCandidate(candidate, current, policy);
+      return candidate;
+    }
+
+    function getCalibrationItemsByIds(items, ids, fallbackIds){
+      const selectedIds = Array.isArray(ids) && ids.length ? ids : fallbackIds;
+      const set = new Set(selectedIds);
+      return items.filter(item => set.has(item.id));
+    }
+
+    function buildCardioTargetPolicyCases(options = {}){
+      const modes = getCalibrationReviewModes(options);
+      const goals = Array.isArray(options.goals) && options.goals.length ? options.goals : ["diet", "lean_bulk", "bulk"];
+      const stats = buildCalibrationManualStats().filter(stat => new Set(options.statIds || ["M09", "M20", "F10", "F20"]).has(stat.id));
+      const activityCombos = getCalibrationItemsByIds(getCalibrationActivityCombos(), options.activityCombos, ["A2", "A5"]);
+      const weightCombos = getCalibrationItemsByIds(getCalibrationWeightCombos(), options.weightCombos, ["W0", "W2", "W5"]);
+      const cardioCombos = getCalibrationItemsByIds(getCalibrationCardioCombos(), options.cardioCombos, ["C0", "C2", "C3", "C4", "C5"]);
+      const configs = [];
+      let sequence = 0;
+      modes.forEach(mode => {
+        goals.forEach(goal => {
+          const goalCombo = getCalibrationGoalComboByGoal(goal);
+          stats.forEach(stat => {
+            activityCombos.forEach(activityCombo => {
+              weightCombos.forEach(weightCombo => {
+                cardioCombos.forEach(cardioCombo => {
+                  configs.push(buildCalibrationCaseConfig(stat, {
+                    goalCombo,
+                    activityCombo,
+                    weightCombo,
+                    cardioCombo
+                  }, sequence, "cardioTargetPolicy", mode));
+                  sequence += 1;
+                });
+              });
+            });
+          });
+        });
+      });
+      return configs;
+    }
+
+    function calculateCardioTargetPolicyCase(caseConfig, policies, options = {}){
+      applyCalibrationCaseToInputs(caseConfig);
+      const result = calculate();
+      const current = buildCalibrationBreakdown(result, caseConfig, { compareWeeklyXw: options.compareWeeklyXw !== false });
+      current.fatPhysioFloorG = result.fatPhysioFloorG;
+      current.fatActionFloorG = result.fatActionFloorG;
+      const candidates = policies.map(policy => estimateTargetWithCardioReflection(result, current, policy));
+      return {
+        caseId: current.caseId,
+        statId: current.statId,
+        mode: current.mode,
+        goal: current.goal,
+        activityCombo: current.activityCombo,
+        weightCombo: current.weightCombo,
+        cardioCombo: current.cardioCombo,
+        current: {
+          totalBurn: current.totalBurn,
+          targetCal: current.targetCal,
+          bmr: current.bmr,
+          cardioKcal: current.cardioKcal,
+          epocKcal: current.epocKcal,
+          weightKcal: current.weightKcal,
+          trainingBaselineKcal: current.trainingBaselineKcal,
+          carbs: current.carbs,
+          protein: current.protein,
+          fat: current.fat,
+          totalBurnToBmr: current.totalBurnToBmr,
+          targetCalToBmr: current.targetCalToBmr,
+          targetCalToTotalBurn: current.targetCalToTotalBurn
+        },
+        candidates
+      };
+    }
+
+    function flattenCardioTargetPolicyCandidates(cases){
+      return cases.flatMap(item => item.candidates.map(candidate => ({
+        ...candidate,
+        caseId: item.caseId,
+        statId: item.statId,
+        mode: item.mode,
+        goal: item.goal,
+        activityCombo: item.activityCombo,
+        weightCombo: item.weightCombo,
+        cardioCombo: item.cardioCombo,
+        currentTargetCal: item.current.targetCal,
+        currentTotalBurn: item.current.totalBurn,
+        currentCardioKcal: item.current.cardioKcal,
+        bmr: item.current.bmr
+      })));
+    }
+
+    function summarizeCardioTargetPolicyRows(rows){
+      return {
+        count: rows.length,
+        candidateTargetCal: summarizeCalibrationValues(rows.map(item => item.candidateTargetCal)),
+        targetDeltaFromCurrent: summarizeCalibrationValues(rows.map(item => item.targetDeltaFromCurrent)),
+        targetCalToBmr: summarizeCalibrationValues(rows.map(item => item.bmr > 0 ? item.candidateTargetCal / item.bmr : null)),
+        targetCalToTotalBurn: summarizeCalibrationValues(rows.map(item => item.currentTotalBurn > 0 ? item.candidateTargetCal / item.currentTotalBurn : null)),
+        reflectionRate: summarizeCalibrationValues(rows.map(item => item.reflectionRate)),
+        reflectedCardioKcalForTarget: summarizeCalibrationValues(rows.map(item => item.reflectedCardioKcalForTarget))
+      };
+    }
+
+    function mapCardioTargetPolicyGroupSummaries(rows, keyFn){
+      const groups = summarizeCalibrationGroups(rows, keyFn);
+      return Object.fromEntries(Object.entries(groups).map(([key, groupRows]) => [key, summarizeCardioTargetPolicyRows(groupRows)]));
+    }
+
+    function buildCardioTargetPolicySummary(cases){
+      const rows = flattenCardioTargetPolicyCandidates(cases);
+      return {
+        byPolicy: mapCardioTargetPolicyGroupSummaries(rows, item => item.policyId),
+        byGoal: mapCardioTargetPolicyGroupSummaries(rows, item => `${item.policyId}:${item.goal}`),
+        byCardioCombo: mapCardioTargetPolicyGroupSummaries(rows, item => `${item.policyId}:${item.cardioCombo}`),
+        byCaseGroup: mapCardioTargetPolicyGroupSummaries(rows, item => `${item.policyId}:${item.statId}:${item.activityCombo}:${item.weightCombo}:${item.cardioCombo}`)
+      };
+    }
+
+    function compactCardioTargetPolicyClassifiedItem(item){
+      return {
+        caseId: item.caseId,
+        statId: item.statId,
+        mode: item.mode,
+        goal: item.goal,
+        activityCombo: item.activityCombo,
+        weightCombo: item.weightCombo,
+        cardioCombo: item.cardioCombo,
+        policyId: item.policyId,
+        reflectionRate: item.reflectionRate,
+        currentTargetCal: item.currentTargetCal,
+        candidateTargetCal: item.candidateTargetCal,
+        targetDeltaFromCurrent: item.targetDeltaFromCurrent,
+        classification: item.classification
+      };
+    }
+
+    function buildCardioTargetPolicyClassificationBuckets(cases){
+      const buckets = Object.fromEntries(CALIBRATION_CARDIO_TARGET_POLICY_CLASSIFICATIONS.map(key => [key, []]));
+      flattenCardioTargetPolicyCandidates(cases).forEach(candidate => {
+        (candidate.classification || ["target_policy_consistent"]).forEach(key => {
+          if (!buckets[key]) buckets[key] = [];
+          buckets[key].push(compactCardioTargetPolicyClassifiedItem(candidate));
+        });
+      });
+      return buckets;
+    }
+
+    function runCalibrationCardioTargetPolicyReview(options = {}){
+      return withCalibrationReportSandbox(() => {
+        const policies = buildCalibrationCardioTargetPolicies();
+        const configs = buildCardioTargetPolicyCases(options);
+        const cases = configs.map(config => calculateCardioTargetPolicyCase(config, policies, options));
+        const includeCases = options.includeCases !== false;
+        const report = {
+          meta: {
+            version: CALIBRATION_QA_VERSION,
+            stage: CALIBRATION_QA_STAGE,
+            generatedAt: new Date().toISOString(),
+            modes: getCalibrationReviewModes(options),
+            caseCount: cases.length,
+            policyCount: policies.length,
+            includeCases,
+            full: false,
+            reportOnly: true,
+            notes: [
+              "A3 compares report-only targetCal reflection policies for cardioKcal.",
+              "Production calculate(), cardioKcal, totalBurn, and user-facing output are not changed.",
+              "High C4/C5 cardio values remain formula-reviewed as actual performed work, not cap or warning candidates."
+            ]
+          },
+          policies,
+          summary: buildCardioTargetPolicySummary(cases),
+          classifications: buildCardioTargetPolicyClassificationBuckets(cases),
+          cases: includeCases ? cases : [],
+          notes: [
+            "current_full_reflection is the production-equivalent baseline.",
+            "Candidate policies adjust only reflectedCardioKcalForTarget.",
+            "Lower candidateTargetCal is not automatically better; over-restrictive candidates need manual review."
+          ]
+        };
+        if (options.log === true) {
+          console.log("Calibration cardio target policy review", report.meta);
+          console.table(Object.entries(report.summary.byPolicy).map(([policyId, item]) => ({
+            policyId,
+            targetMedian: item.candidateTargetCal.median,
+            targetP95: item.candidateTargetCal.p95,
+            deltaMedian: item.targetDeltaFromCurrent.median,
+            reflectionMedian: item.reflectionRate.median
+          })));
+        }
+        return report;
+      });
+    }
+
     function buildCalibrationManualReview(options = {}){
       const mode = normalizeCalibrationMode(options.mode);
       const representativeScenario = {
@@ -24220,6 +24552,8 @@ Notes:
           assertTest(typeof window.runCalibrationPhysiologyReviewTests === "function", "runCalibrationPhysiologyReviewTests should be exported");
           assertTest(typeof window.runCalibrationWeeklyBudgetReview === "function", "runCalibrationWeeklyBudgetReview should be exported");
           assertTest(typeof window.runCalibrationWeeklyBudgetReviewTests === "function", "runCalibrationWeeklyBudgetReviewTests should be exported");
+          assertTest(typeof window.runCalibrationCardioTargetPolicyReview === "function", "runCalibrationCardioTargetPolicyReview should be exported");
+          assertTest(typeof window.runCalibrationCardioTargetPolicyReviewTests === "function", "runCalibrationCardioTargetPolicyReviewTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
         }));
@@ -24443,6 +24777,111 @@ Notes:
           assertClose(after.targetCal, before.targetCal, 0.0001, "weekly budget report should not change production targetCal");
           assertClose(after.totalBurn, before.totalBurn, 0.0001, "weekly budget report should not change production totalBurn");
           assertTest(JSON.stringify(recordsState.items) === beforeRecords, "weekly budget report should not mutate records");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+        }));
+
+        return results;
+      });
+    }
+
+    function runCalibrationCardioTargetPolicyReviewTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        results.push(runNamedTest("A3 cardio target policy review returns lightweight report", () => {
+          const report = runCalibrationCardioTargetPolicyReview({ statIds: ["M09"], activityCombos: ["A2"], weightCombos: ["W2"], cardioCombos: ["C0", "C5"] });
+          assertTest(report && typeof report === "object", "cardio target policy report should return an object");
+          assertTest(report.meta.reportOnly === true, "cardio target policy review should be report-only");
+          assertTest(report.meta.full === false, "cardio target policy review should not run a full scan by default");
+          assertTest(report.meta.policyCount === 4, "four cardio target policies should be compared");
+          assertTest(findInvalidCalibrationNumber(report).length === 0, "cardio target policy report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("A3 cardio target policies include required candidates", () => {
+          const policies = buildCalibrationCardioTargetPolicies();
+          const ids = policies.map(item => item.id);
+          ["current_full_reflection", "flat_partial_50", "goal_aware_reflection", "high_cardio_conservative"].forEach(id => {
+            assertTest(ids.includes(id), `${id} policy should exist`);
+          });
+          const goalAware = policies.find(item => item.id === "goal_aware_reflection");
+          assertTest(goalAware.goalRates.diet < goalAware.goalRates.lean_bulk && goalAware.goalRates.lean_bulk < goalAware.goalRates.bulk, "goal-aware rates should increase from diet to bulk");
+        }));
+
+        results.push(runNamedTest("A3 representative report includes C5 and preserves case size", () => {
+          const report = runCalibrationCardioTargetPolicyReview({
+            statIds: ["M09"],
+            activityCombos: ["A2"],
+            weightCombos: ["W0", "W2"],
+            cardioCombos: ["C0", "C2", "C3", "C4", "C5"]
+          });
+          assertTest(report.cases.some(item => item.cardioCombo === "C5"), "representative report should include C5 cases");
+          assertTest(report.cases.length > 0 && report.cases.length <= 300, "default-like representative report should stay reasonably small");
+          report.cases.forEach(item => assertTest(item.candidates.length === 4, "each case should include four policy candidates"));
+        }));
+
+        results.push(runNamedTest("A3 candidate policies keep totalBurn and cardioKcal unchanged", () => {
+          const report = runCalibrationCardioTargetPolicyReview({ statIds: ["M20"], goals: ["bulk"], activityCombos: ["A5"], weightCombos: ["W5"], cardioCombos: ["C5"] });
+          const item = report.cases[0];
+          assertTest(item.current.cardioKcal > 0, "high cardio case should have cardioKcal");
+          item.candidates.forEach(candidate => {
+            assertTest(candidate.totalBurnKeptSame === true, `${candidate.policyId} should keep totalBurn`);
+            assertTest(candidate.cardioKcalKeptSame === true, `${candidate.policyId} should keep cardioKcal`);
+            assertClose(candidate.currentTotalBurn, item.current.totalBurn, 0.0001, `${candidate.policyId} totalBurn should match current`);
+            assertClose(candidate.currentCardioKcal, item.current.cardioKcal, 0.0001, `${candidate.policyId} cardioKcal should match current`);
+            assertTest(Number.isFinite(candidate.candidateTargetCal), `${candidate.policyId} candidate target should be finite`);
+            assertTest(Number.isFinite(candidate.candidateCarbs) && Number.isFinite(candidate.candidateProtein) && Number.isFinite(candidate.candidateFat), `${candidate.policyId} candidate macros should be finite`);
+          });
+        }));
+
+        results.push(runNamedTest("A3 high-cardio candidates lower targetCal without hiding totalBurn", () => {
+          const report = runCalibrationCardioTargetPolicyReview({ statIds: ["M20"], goals: ["bulk"], activityCombos: ["A5"], weightCombos: ["W5"], cardioCombos: ["C5"] });
+          const item = report.cases[0];
+          const current = item.candidates.find(candidate => candidate.policyId === "current_full_reflection");
+          const flat = item.candidates.find(candidate => candidate.policyId === "flat_partial_50");
+          const conservative = item.candidates.find(candidate => candidate.policyId === "high_cardio_conservative");
+          assertClose(current.candidateTargetCal, item.current.targetCal, 0.0001, "current policy should match production targetCal");
+          assertTest(flat.candidateTargetCal < current.candidateTargetCal, "flat partial policy should lower high-cardio targetCal");
+          assertTest(conservative.candidateTargetCal < current.candidateTargetCal, "high-cardio conservative policy should lower high-cardio targetCal");
+          assertTest(conservative.classification.includes("reduces_extreme_target_without_hiding_totalBurn"), "high-cardio candidate should classify reduction without hiding totalBurn");
+        }));
+
+        results.push(runNamedTest("A3 C2/C3 policy review exposes non-extreme cardio without forced suspect", () => {
+          const report = runCalibrationCardioTargetPolicyReview({ statIds: ["M09"], goals: ["lean_bulk"], activityCombos: ["A2"], weightCombos: ["W2"], cardioCombos: ["C2", "C3"] });
+          report.cases.forEach(item => {
+            item.candidates.forEach(candidate => {
+              assertTest(!candidate.classification.includes("formula_suspect"), "C2/C3 target policy candidates should not become formula_suspect");
+              assertTest(candidate.reflectionRate >= 0 && candidate.reflectionRate <= 1, "reflection rate should stay within 0-1");
+            });
+          });
+        }));
+
+        results.push(runNamedTest("A3 cardio policy classifications and exports exist", () => {
+          const report = runCalibrationCardioTargetPolicyReview({ statIds: ["M20"], goals: ["bulk"], activityCombos: ["A5"], weightCombos: ["W5"], cardioCombos: ["C5"], includeCases: false });
+          CALIBRATION_CARDIO_TARGET_POLICY_CLASSIFICATIONS.forEach(key => {
+            assertTest(Array.isArray(report.classifications[key]), `${key} classification bucket should exist`);
+          });
+          assertTest(Array.isArray(report.cases) && report.cases.length === 0, "includeCases false should omit full cases");
+          assertTest(typeof window.runCalibrationCardioTargetPolicyReview === "function", "runCalibrationCardioTargetPolicyReview should be exported");
+          assertTest(typeof window.runCalibrationCardioTargetPolicyReviewTests === "function", "runCalibrationCardioTargetPolicyReviewTests should be exported");
+        }));
+
+        results.push(runNamedTest("A3 cardio policy review keeps production calculation and prior reports intact", () => {
+          setMacroCalibrationInputs("lean_bulk");
+          state.weeklyTrainingDaysManual = true;
+          const before = calculate();
+          const beforeRecords = JSON.stringify(recordsState.items);
+          runCalibrationCardioTargetPolicyReview({ mode: "athlete", statIds: ["M09"], activityCombos: ["A2"], weightCombos: ["W2"], cardioCombos: ["C5"] });
+          const after = calculate();
+          assertClose(after.targetCal, before.targetCal, 0.0001, "cardio target policy review should not change production targetCal");
+          assertClose(after.totalBurn, before.totalBurn, 0.0001, "cardio target policy review should not change production totalBurn");
+          assertTest(JSON.stringify(recordsState.items) === beforeRecords, "cardio target policy review should not mutate records");
+          const scan = runCalibrationScanReport({ profileSet: "manual", limitScenarios: 1 });
+          const physiology = runCalibrationPhysiologyReview({ mode: "athlete", statIds: ["M09"] });
+          const weekly = runCalibrationWeeklyBudgetReview({ statIds: ["M09"], scheduleIds: ["S5_60"] });
+          assertTest(scan.meta.caseCount === 40, "existing scan report should still run");
+          assertTest(physiology.physiologyReview.cardioFormula.items.length === 6, "physiology review should still run");
+          assertTest(weekly.reviews.length === 1, "weekly budget review should still run");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
         }));
@@ -27225,9 +27664,11 @@ Notes:
     window.runCalibrationModeCoverageReport = runCalibrationModeCoverageReport;
     window.runCalibrationPhysiologyReview = runCalibrationPhysiologyReview;
     window.runCalibrationWeeklyBudgetReview = runCalibrationWeeklyBudgetReview;
+    window.runCalibrationCardioTargetPolicyReview = runCalibrationCardioTargetPolicyReview;
     window.runCalibrationScanReportTests = runCalibrationScanReportTests;
     window.runCalibrationPhysiologyReviewTests = runCalibrationPhysiologyReviewTests;
     window.runCalibrationWeeklyBudgetReviewTests = runCalibrationWeeklyBudgetReviewTests;
+    window.runCalibrationCardioTargetPolicyReviewTests = runCalibrationCardioTargetPolicyReviewTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
     window.runInbodyTrendContextTests = runInbodyTrendContextTests;
