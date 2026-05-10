@@ -1,6 +1,6 @@
 <!--
-Version: 6.6-A5.7
-Stage: 6.6-A5.7 targetCal goal policy + macro soft range joint QA
+Version: 6.6-A5.7.1
+Stage: 6.6-A5.7.1 target/macro joint 후보 확대 스캔 QA
 Date: 2026-05-10
 Notes:
 - targetCal과 탄단지 kcal 합이 크게 다를 때 표시 전용 계산 근거를 추가
@@ -15,7 +15,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A5.7</title>
+  <title>탄단지 다이어리 v6.6-A5.7.1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4759,7 +4759,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A5.7</span>
+               <span class="app-version">v6.6-A5.7.1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -21008,8 +21008,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("A4 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A5.7"), "document title should show v6.6-A5.7");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.7"), "app version badge should show v6.6-A5.7");
+          assertTest(document.title.includes("v6.6-A5.7.1"), "document title should show v6.6-A5.7.1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.7.1"), "app version badge should show v6.6-A5.7.1");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22485,8 +22485,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A5.7";
-    const CALIBRATION_QA_STAGE = "6.6-A5.7 targetCal goal policy + macro soft range joint QA";
+    const CALIBRATION_QA_VERSION = "6.6-A5.7.1";
+    const CALIBRATION_QA_STAGE = "6.6-A5.7.1 target/macro joint 후보 확대 스캔 QA";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -26811,6 +26811,499 @@ Notes:
       });
     }
 
+    const TARGET_MACRO_EXPANDED_CLASSIFICATIONS = [
+      "target_goal_consistent",
+      "target_goal_conflict",
+      "lean_bulk_too_deficit_like",
+      "bulk_too_deficit_like",
+      "goal_floor_supported",
+      "goal_floor_too_aggressive",
+      "hard_cap_too_restrictive",
+      "soft_range_supported",
+      "soft_range_too_aggressive",
+      "macro_gap_remaining",
+      "carbs_too_high_wide",
+      "fat_too_high_wide",
+      "diet_recovery_too_high",
+      "possible_production_candidate",
+      "not_production_ready",
+      "explanation_still_needed"
+    ];
+
+    function buildTargetMacroJointExpandedCandidateDefinitions(){
+      return [
+        {
+          id: "current_baseline",
+          label: "current baseline",
+          targetPolicyId: "current_a4_policy",
+          macroPolicyId: "current_hard_cap",
+          notes: ["Current production reference: A4 target policy with current hard macro cap."]
+        },
+        {
+          id: "reflection_only_best",
+          label: "reflection only best",
+          targetPolicyId: "higher_reflection_50_80_100",
+          macroPolicyId: "current_hard_cap",
+          notes: ["Checks whether reflection-rate adjustment alone can fix target conflict."]
+        },
+        {
+          id: "goal_floor_current_macro",
+          label: "goal floor with current macro",
+          targetPolicyId: "goal_floor_policy",
+          macroPolicyId: "current_hard_cap",
+          notes: ["Checks whether target goal floor alone creates unresolved macro gaps."]
+        },
+        {
+          id: "goal_floor_plus_goal_aware_soft_macro",
+          label: "goal floor plus goal-aware soft macro",
+          targetPolicyId: "goal_floor_plus_soft_macro",
+          macroPolicyId: "goal_aware_soft_range",
+          notes: ["A5.7 primary candidate: diet current, lean_bulk/bulk floor, and goal-aware soft macro range."]
+        },
+        {
+          id: "lean_bulk_bulk_floor_soft_macro",
+          label: "lean_bulk/bulk floor soft macro",
+          targetPolicyId: "lean_bulk_bulk_floor_soft_macro",
+          macroPolicyId: "goal_aware_soft_range",
+          notes: ["Directly validates the A5.7 F conclusion: lean_bulk and bulk need floor plus soft macro."]
+        },
+        {
+          id: "bulk_only_floor_soft_macro",
+          label: "bulk-only floor soft macro",
+          targetPolicyId: "bulk_only_floor_soft_macro",
+          macroPolicyId: "goal_aware_soft_range",
+          notes: ["Fallback candidate to check whether lean_bulk really needs the floor."]
+        },
+        {
+          id: "no_extreme_downshift_reference",
+          label: "no extreme downshift reference",
+          targetPolicyId: "current_reflection_no_extreme_downshift",
+          macroPolicyId: "current_hard_cap",
+          referenceOnly: true,
+          notes: ["Reference-only axis for isolating macro extreme downshift impact."]
+        },
+        {
+          id: "no_upper_cap_fill_reference",
+          label: "no upper cap fill reference",
+          targetPolicyId: "goal_floor_plus_soft_macro",
+          macroPolicyId: "no_upper_cap_fill_reference",
+          referenceOnly: true,
+          notes: ["Reference-only axis for checking how far carbs/fat go if targetCal is fully filled."]
+        }
+      ];
+    }
+
+    function filterTargetMacroJointExpandedCandidates(options = {}){
+      const definitions = buildTargetMacroJointExpandedCandidateDefinitions();
+      const requested = Array.isArray(options.candidateIds) && options.candidateIds.length
+        ? new Set(options.candidateIds)
+        : null;
+      return requested ? definitions.filter(item => requested.has(item.id)) : definitions;
+    }
+
+    function buildTargetMacroJointExpandedProfiles(options = {}){
+      const mode = normalizeCalibrationMode(options.mode);
+      const profileSet = options.profileSet || "scan";
+      const stats = getCalibrationStatsByProfileSet(profileSet);
+      const profileIds = Array.isArray(options.profileIds) && options.profileIds.length
+        ? new Set(options.profileIds)
+        : (Array.isArray(options.statIds) && options.statIds.length ? new Set(options.statIds) : null);
+      const filtered = profileIds ? stats.filter(stat => profileIds.has(stat.id)) : stats;
+      const limitProfiles = Number(options.limitProfiles);
+      return {
+        mode,
+        profileSet,
+        profiles: Number.isFinite(limitProfiles) && limitProfiles > 0 ? filtered.slice(0, Math.floor(limitProfiles)) : filtered
+      };
+    }
+
+    function buildTargetMacroJointScenarioGrid(stage, options = {}){
+      if (stage === "full") {
+        return buildCalibrationScenarioGrid({ ...options, full: true });
+      }
+      const goalIds = stage === "targeted" ? ["lean", "bulk"] : ["diet", "lean", "bulk"];
+      const activityIds = stage === "targeted" ? ["A3", "A4", "A5"] : ["A1", "A2", "A3", "A4", "A5"];
+      const weightIds = stage === "targeted" ? ["W2", "W3", "W4", "W5"] : ["W0", "W2", "W5"];
+      const cardioIds = stage === "targeted" ? ["C4", "C5"] : ["C0", "C2", "C3", "C4", "C5"];
+      const goals = getCalibrationGoalCombos().filter(item => goalIds.includes(item.id));
+      const activities = getCalibrationActivityCombos().filter(item => activityIds.includes(item.id));
+      const weights = getCalibrationWeightCombos().filter(item => weightIds.includes(item.id));
+      const cardios = getCalibrationCardioCombos().filter(item => cardioIds.includes(item.id));
+      const scenarios = [];
+      goals.forEach(goalCombo => {
+        activities.forEach(activityCombo => {
+          weights.forEach(weightCombo => {
+            cardios.forEach(cardioCombo => {
+              scenarios.push({ goalCombo, activityCombo, weightCombo, cardioCombo });
+            });
+          });
+        });
+      });
+      return scenarios;
+    }
+
+    function buildTargetMacroJointExpandedCaseConfigs(stage, options = {}){
+      const { mode, profileSet, profiles } = buildTargetMacroJointExpandedProfiles(options);
+      const scenarios = buildTargetMacroJointScenarioGrid(stage, options);
+      const caseConfigs = buildCalibrationCaseConfigs(profiles, scenarios, `targetMacroExpanded-${stage}`, mode);
+      const limitCases = Number(options.limitCases);
+      return {
+        mode,
+        profileSet,
+        profileCount: profiles.length,
+        scenarioCount: scenarios.length,
+        caseConfigs: Number.isFinite(limitCases) && limitCases > 0 ? caseConfigs.slice(0, Math.floor(limitCases)) : caseConfigs
+      };
+    }
+
+    function calculateTargetMacroJointExpandedCase(caseConfig, conventions, candidateDefinitions, targetPolicies, macroPolicies, philosophyPolicies){
+      const targetPolicyById = Object.fromEntries(targetPolicies.map(policy => [policy.id, policy]));
+      const macroPolicyById = Object.fromEntries(macroPolicies.map(policy => [policy.id, policy]));
+      applyCalibrationCaseToInputs(caseConfig);
+      const result = calculate();
+      const current = buildCalibrationBreakdown(result, caseConfig, { compareWeeklyXw: false });
+      const candidates = [];
+      conventions.forEach(convention => {
+        candidateDefinitions.forEach(definition => {
+          const targetPolicy = targetPolicyById[definition.targetPolicyId];
+          const macroPolicy = macroPolicyById[definition.macroPolicyId];
+          if (!targetPolicy || !macroPolicy) return;
+          const targetCandidate = calculateTargetMacroJointTargetCandidate(result, current, convention, targetPolicy);
+          const targetMacroInfo = buildMacroAllocationInfo({
+            targetCal: targetCandidate.candidateTargetCal,
+            protein: targetCandidate.candidateProtein,
+            carbs: targetCandidate.candidateCarbs,
+            fat: targetCandidate.candidateFat
+          });
+          const currentForMacro = buildTargetMacroJointCurrentForMacro(current, targetCandidate, targetMacroInfo);
+          const philosophyPolicy = philosophyPolicies.find(policy => policy.id === macroPolicy.philosophyPolicyId) || philosophyPolicies[0];
+          const macroCandidate = estimateMacroCapPhilosophyCandidate(currentForMacro, philosophyPolicy);
+          const row = {
+            expandedCandidateId: `${convention.id}__${definition.id}`,
+            candidateGroupId: definition.id,
+            candidateGroupLabel: definition.label,
+            candidateReferenceOnly: !!definition.referenceOnly,
+            candidateId: `${convention.id}__${targetPolicy.id}__${macroPolicy.id}`,
+            cardioConventionId: convention.id,
+            targetPolicyId: targetPolicy.id,
+            macroPolicyId: macroPolicy.id,
+            philosophyPolicyId: philosophyPolicy.id,
+            goal: current.goal,
+            cardioCombo: current.cardioCombo,
+            ...targetCandidate,
+            candidateMacroKcalSum: macroCandidate.candidateMacroKcalSum,
+            candidateMacroGap: macroCandidate.candidateGap,
+            candidateMacroGapRatio: macroCandidate.candidateGapRatio,
+            candidateMacroFulfillmentRatio: macroCandidate.targetFulfillmentRatio,
+            macroGapReduction: targetMacroInfo.macroKcalGap - macroCandidate.candidateGap,
+            candidateCarbsKg: macroCandidate.candidateCarbsKg,
+            candidateFatKg: macroCandidate.candidateFatKg,
+            candidateProteinKg: macroCandidate.candidateProteinKg,
+            candidateMacroCarbs: macroCandidate.candidateCarbs,
+            candidateMacroFat: macroCandidate.candidateFat,
+            softMacroApplied: macroCandidate.affected && macroPolicy.id !== "current_hard_cap",
+            macroPolicyClassification: macroCandidate.classification
+          };
+          row.classification = classifyTargetMacroJointExpandedCandidate(row);
+          candidates.push(row);
+        });
+      });
+      return {
+        caseId: caseConfig.caseId,
+        statId: current.statId,
+        gender: current.gender,
+        mode: current.mode,
+        goal: current.goal,
+        activityCombo: current.activityCombo,
+        weightCombo: current.weightCombo,
+        cardioCombo: current.cardioCombo,
+        current: {
+          bmr: current.bmr,
+          weight: current.weight,
+          targetCal: current.targetCal,
+          totalBurn: current.totalBurn,
+          cardioKcal: current.cardioKcal,
+          weightKcal: current.weightKcal,
+          protein: current.protein,
+          carbs: current.carbs,
+          fat: current.fat,
+          macroKcalSum: current.macroKcalSum,
+          macroKcalGap: current.macroKcalGap,
+          targetCalMinusTotalBurn: current.targetCal - current.totalBurn,
+          targetCalToTotalBurn: current.totalBurn > 0 ? current.targetCal / current.totalBurn : 0
+        },
+        candidates
+      };
+    }
+
+    function classifyTargetMacroJointExpandedCandidate(row){
+      const classes = classifyTargetMacroJointCandidate(row);
+      if (row.goalFloorUsed && !classes.includes("target_goal_conflict")) classes.push("goal_floor_supported");
+      if (row.goal === "diet" && row.goalFloorUsed) classes.push("goal_floor_too_aggressive");
+      if (row.candidateMacroGap > MACRO_ALLOCATION_GAP_THRESHOLDS.explanation) classes.push("macro_gap_remaining");
+      if (row.candidateCarbsKg > 10) classes.push("carbs_too_high_wide");
+      if (row.candidateFatKg > 2) classes.push("fat_too_high_wide");
+      return [...new Set(classes)];
+    }
+
+    function flattenTargetMacroJointExpandedRows(cases){
+      return cases.flatMap(item => item.candidates.map(candidate => ({
+        caseId: item.caseId,
+        statId: item.statId,
+        gender: item.gender,
+        mode: item.mode,
+        goal: item.goal,
+        activityCombo: item.activityCombo,
+        weightCombo: item.weightCombo,
+        cardioCombo: item.cardioCombo,
+        currentTargetCal: item.current.targetCal,
+        currentTotalBurn: item.current.totalBurn,
+        currentMacroKcalSum: item.current.macroKcalSum,
+        currentMacroGap: item.current.macroKcalGap,
+        ...candidate
+      })));
+    }
+
+    function summarizeTargetMacroJointExpandedRows(rows){
+      const base = summarizeTargetMacroJointRows(rows);
+      return {
+        ...base,
+        candidateChangedCount: rows.filter(item =>
+          Math.abs(item.candidateTargetCal - item.currentTargetCal) > 1e-6
+          || Math.abs(item.candidateMacroKcalSum - item.currentMacroKcalSum) > 1e-6
+        ).length,
+        leanBulkSevereDeficitCount: rows.filter(item => item.goal === "lean_bulk" && item.targetCalMinusTotalBurn < -500).length,
+        bulkSevereDeficitCount: rows.filter(item => item.goal === "bulk" && item.targetCalMinusTotalBurn < -300).length,
+        leanBulkStableC2C3Count: rows.filter(item => item.goal === "lean_bulk" && ["C2", "C3"].includes(item.cardioCombo) && !item.classification.includes("target_goal_conflict")).length,
+        bulkHighCardioResolvedCount: rows.filter(item => item.goal === "bulk" && ["C4", "C5"].includes(item.cardioCombo) && !item.classification.includes("target_goal_conflict")).length,
+        byClassification: rows.reduce((acc, item) => {
+          item.classification.forEach(key => {
+            acc[key] = (acc[key] || 0) + 1;
+          });
+          return acc;
+        }, {})
+      };
+    }
+
+    function summarizeTargetMacroJointExpandedGroups(rows, keyFn){
+      const groups = summarizeCalibrationGroups(rows, keyFn);
+      return Object.fromEntries(Object.entries(groups).map(([key, groupRows]) => [key, summarizeTargetMacroJointExpandedRows(groupRows)]));
+    }
+
+    function buildTargetMacroJointExpandedClassificationBuckets(rows){
+      const buckets = Object.fromEntries(TARGET_MACRO_EXPANDED_CLASSIFICATIONS.map(key => [key, []]));
+      rows.forEach(item => {
+        item.classification.forEach(key => {
+          if (!buckets[key]) buckets[key] = [];
+          buckets[key].push({
+            caseId: item.caseId,
+            statId: item.statId,
+            gender: item.gender,
+            goal: item.goal,
+            activityCombo: item.activityCombo,
+            weightCombo: item.weightCombo,
+            cardioCombo: item.cardioCombo,
+            cardioConventionId: item.cardioConventionId,
+            candidateGroupId: item.candidateGroupId,
+            targetPolicyId: item.targetPolicyId,
+            macroPolicyId: item.macroPolicyId,
+            targetCalMinusTotalBurn: item.targetCalMinusTotalBurn,
+            candidateMacroGap: item.candidateMacroGap,
+            candidateCarbsKg: item.candidateCarbsKg,
+            candidateFatKg: item.candidateFatKg
+          });
+        });
+      });
+      return buckets;
+    }
+
+    function compactTargetMacroJointExpandedCase(item){
+      return {
+        caseId: item.caseId,
+        statId: item.statId,
+        gender: item.gender,
+        mode: item.mode,
+        goal: item.goal,
+        activityCombo: item.activityCombo,
+        weightCombo: item.weightCombo,
+        cardioCombo: item.cardioCombo,
+        current: item.current,
+        candidates: item.candidates.map(candidate => ({
+          expandedCandidateId: candidate.expandedCandidateId,
+          candidateGroupId: candidate.candidateGroupId,
+          cardioConventionId: candidate.cardioConventionId,
+          targetPolicyId: candidate.targetPolicyId,
+          macroPolicyId: candidate.macroPolicyId,
+          candidateTargetCal: candidate.candidateTargetCal,
+          candidateTotalBurn: candidate.candidateTotalBurn,
+          targetCalMinusTotalBurn: candidate.targetCalMinusTotalBurn,
+          candidateMacroKcalSum: candidate.candidateMacroKcalSum,
+          candidateMacroGap: candidate.candidateMacroGap,
+          candidateCarbsKg: candidate.candidateCarbsKg,
+          candidateFatKg: candidate.candidateFatKg,
+          classification: candidate.classification
+        }))
+      };
+    }
+
+    function buildTargetMacroJointExpandedRepresentativeCaseConfigs(mode){
+      const specs = [
+        ["M20", "bulk", "A5", "W5", "C5"],
+        ["M20", "lean_bulk", "A5", "W5", "C5"],
+        ["M20", "diet", "A5", "W5", "C5"],
+        ["F20", "bulk", "A5", "W5", "C5"],
+        ["F10", "bulk", "A5", "W5", "C5"],
+        ["M09", "lean_bulk", "A2", "W2", "C2"],
+        ["M09", "lean_bulk", "A2", "W2", "C3"],
+        ["M09", "lean_bulk", "A2", "W2", "C5"],
+        ["F10", "lean_bulk", "A2", "W2", "C2"],
+        ["F10", "lean_bulk", "A2", "W2", "C3"],
+        ["F10", "lean_bulk", "A2", "W2", "C5"],
+        ["M01", "bulk", "A5", "W5", "C5"],
+        ["F01", "bulk", "A5", "W5", "C5"],
+        ["M20", "lean_bulk", "A5", "W5", "C5"],
+        ["F20", "lean_bulk", "A5", "W5", "C5"]
+      ];
+      const stats = getCalibrationStatsByProfileSet("scan");
+      return specs.map((spec, index) => {
+        const [statId, goal, activityId, weightId, cardioId] = spec;
+        const stat = stats.find(item => item.id === statId) || buildCalibrationManualStats().find(item => item.id === statId);
+        if (!stat) return null;
+        return buildCalibrationCaseConfig(stat, {
+          goalCombo: getCalibrationGoalComboByGoal(goal),
+          activityCombo: getCalibrationComboById(getCalibrationActivityCombos(), activityId),
+          weightCombo: getCalibrationComboById(getCalibrationWeightCombos(), weightId),
+          cardioCombo: getCalibrationComboById(getCalibrationCardioCombos(), cardioId)
+        }, index, "targetMacroExpandedRepresentative", mode);
+      }).filter(Boolean);
+    }
+
+    function calculateTargetMacroJointExpandedStage(stage, options, shared){
+      const startedAt = Date.now();
+      const configSet = buildTargetMacroJointExpandedCaseConfigs(stage, options);
+      const cases = configSet.caseConfigs.map(config => calculateTargetMacroJointExpandedCase(
+        config,
+        shared.conventions,
+        shared.candidateDefinitions,
+        shared.targetPolicies,
+        shared.macroPolicies,
+        shared.philosophyPolicies
+      ));
+      const rows = flattenTargetMacroJointExpandedRows(cases);
+      return {
+        meta: {
+          stage,
+          profileSet: configSet.profileSet,
+          profileCount: configSet.profileCount,
+          scenarioCount: configSet.scenarioCount,
+          baseCaseCount: cases.length,
+          candidateCount: rows.length,
+          elapsedMs: Date.now() - startedAt
+        },
+        summary: {
+          overall: summarizeTargetMacroJointExpandedRows(rows),
+          byExpandedCandidate: summarizeTargetMacroJointExpandedGroups(rows, item => item.expandedCandidateId),
+          byCandidateGroup: summarizeTargetMacroJointExpandedGroups(rows, item => item.candidateGroupId),
+          byConvention: summarizeTargetMacroJointExpandedGroups(rows, item => item.cardioConventionId),
+          byGoal: summarizeTargetMacroJointExpandedGroups(rows, item => item.goal),
+          byGender: summarizeTargetMacroJointExpandedGroups(rows, item => item.gender || "unknown"),
+          byCardioCombo: summarizeTargetMacroJointExpandedGroups(rows, item => item.cardioCombo),
+          byActivityCombo: summarizeTargetMacroJointExpandedGroups(rows, item => item.activityCombo),
+          byWeightCombo: summarizeTargetMacroJointExpandedGroups(rows, item => item.weightCombo)
+        },
+        classifications: buildTargetMacroJointExpandedClassificationBuckets(rows),
+        outliers: rows
+          .filter(item => item.classification.includes("not_production_ready") || item.candidateMacroGap > MACRO_ALLOCATION_GAP_THRESHOLDS.strong)
+          .sort((a, b) => (b.candidateMacroGap + Math.abs(b.targetCalMinusTotalBurn)) - (a.candidateMacroGap + Math.abs(a.targetCalMinusTotalBurn)))
+          .slice(0, Number(options.limitOutliers) || 50)
+          .map(item => ({
+            caseId: item.caseId,
+            statId: item.statId,
+            gender: item.gender,
+            goal: item.goal,
+            activityCombo: item.activityCombo,
+            weightCombo: item.weightCombo,
+            cardioCombo: item.cardioCombo,
+            expandedCandidateId: item.expandedCandidateId,
+            targetCalMinusTotalBurn: item.targetCalMinusTotalBurn,
+            candidateMacroGap: item.candidateMacroGap,
+            candidateCarbsKg: item.candidateCarbsKg,
+            candidateFatKg: item.candidateFatKg,
+            classification: item.classification
+          })),
+        cases: options.includeCases === true ? cases.map(compactTargetMacroJointExpandedCase) : []
+      };
+    }
+
+    function runTargetMacroJointExpandedScan(options = {}){
+      return withCalibrationReportSandbox(() => {
+        const mode = normalizeCalibrationMode(options.mode);
+        const startedAt = Date.now();
+        const shared = {
+          conventions: buildCardioKcalConventionCandidates(),
+          candidateDefinitions: filterTargetMacroJointExpandedCandidates(options),
+          targetPolicies: buildTargetMacroJointTargetPolicies(),
+          macroPolicies: buildTargetMacroJointMacroPolicies(),
+          philosophyPolicies: buildMacroCapPhilosophyPolicies()
+        };
+        const targeted = calculateTargetMacroJointExpandedStage("targeted", { ...options, mode }, shared);
+        const balanced = options.includeBalanced === true
+          ? calculateTargetMacroJointExpandedStage("balanced", { ...options, mode }, shared)
+          : null;
+        const fullScan = options.full === true
+          ? calculateTargetMacroJointExpandedStage("full", { ...options, mode, includeCases: false }, shared)
+          : null;
+        const representativeConfigs = buildTargetMacroJointExpandedRepresentativeCaseConfigs(mode);
+        const representativeCases = representativeConfigs
+          .map(config => calculateTargetMacroJointExpandedCase(config, shared.conventions, shared.candidateDefinitions, shared.targetPolicies, shared.macroPolicies, shared.philosophyPolicies))
+          .map(compactTargetMacroJointExpandedCase);
+        const report = {
+          meta: {
+            version: CALIBRATION_QA_VERSION,
+            stage: CALIBRATION_QA_STAGE,
+            generatedAt: new Date().toISOString(),
+            mode,
+            reportOnly: true,
+            full: options.full === true,
+            includeBalanced: options.includeBalanced === true,
+            includeCases: options.includeCases === true,
+            conventionCount: shared.conventions.length,
+            expandedCandidateCount: shared.candidateDefinitions.length,
+            matrixCount: shared.conventions.length * shared.candidateDefinitions.length,
+            elapsedMs: Date.now() - startedAt,
+            notes: [
+              "A5.7.1 expanded scan is report-only. Production calculate(), targetCal, totalBurn, cardioKcal, macros, CARDIO_TARGET_REFLECTION_RATES, GOALS, and EXTREME_CASE_ADJUST are unchanged.",
+              "Default run executes expandedTargeted only; expandedBalanced and full scan require explicit options.",
+              "The scan keeps app 1.00 cardio convention and strict 1.05 benchmark convention side by side."
+            ]
+          },
+          conventions: shared.conventions,
+          candidateDefinitions: shared.candidateDefinitions,
+          expandedTargeted: targeted,
+          expandedBalanced: balanced,
+          fullScan,
+          representativeCases,
+          nextCandidates: [
+            "If goal_floor_plus_goal_aware_soft_macro stays stable in targeted and balanced scans, A5.8 production candidate design can focus there.",
+            "If lean_bulk remains unstable while bulk is stable, tune lean_bulk floor before production.",
+            "If carbs/fat >10g/kg or >2g/kg repeat broadly, soft range width must be reduced before production."
+          ]
+        };
+        if (options.log === true) {
+          console.log("Target/macro joint expanded scan", report.meta);
+          console.table(Object.entries(report.expandedTargeted.summary.byCandidateGroup).map(([id, summary]) => ({
+            id,
+            conflicts: summary.targetGoalConflictCount,
+            macroGapOver500: summary.macroGapOver500,
+            carbsP95: summary.candidateCarbsKg.p95,
+            fatP95: summary.candidateFatKg.p95,
+            possible: summary.possibleProductionCandidateCount
+          })));
+        }
+        return report;
+      });
+    }
+
     function buildCalibrationManualReview(options = {}){
       const mode = normalizeCalibrationMode(options.mode);
       const representativeScenario = {
@@ -27086,6 +27579,8 @@ Notes:
           assertTest(typeof window.runCardioConventionReflectionReviewTests === "function", "runCardioConventionReflectionReviewTests should be exported");
           assertTest(typeof window.runTargetMacroJointPolicyReview === "function", "runTargetMacroJointPolicyReview should be exported");
           assertTest(typeof window.runTargetMacroJointPolicyReviewTests === "function", "runTargetMacroJointPolicyReviewTests should be exported");
+          assertTest(typeof window.runTargetMacroJointExpandedScan === "function", "runTargetMacroJointExpandedScan should be exported");
+          assertTest(typeof window.runTargetMacroJointExpandedScanTests === "function", "runTargetMacroJointExpandedScanTests should be exported");
           assertTest(typeof window.runMacroAllocationExplanationTests === "function", "runMacroAllocationExplanationTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
@@ -28027,6 +28522,123 @@ Notes:
         results.push(runNamedTest("A5.7 previous cardio convention tests remain intact", () => {
           const conventionResults = runCardioConventionReflectionReviewTests();
           assertTest(conventionResults.every(item => item.pass), "A5.6 cardio convention reflection tests should still pass");
+        }));
+
+        return results;
+      });
+    }
+
+    function runTargetMacroJointExpandedScanTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        results.push(runNamedTest("A5.7.1 expanded scan returns targeted report without default full scan", () => {
+          const report = runTargetMacroJointExpandedScan({
+            profileSet: "manual",
+            profileIds: ["M09", "M20"],
+            limitCases: 12,
+            includeBalanced: false
+          });
+          assertTest(report && typeof report === "object", "expanded scan report should return an object");
+          assertTest(report.meta.reportOnly === true, "expanded scan should be report-only");
+          assertTest(report.meta.full === false, "expanded scan should not run full scan by default");
+          assertTest(report.expandedTargeted && report.expandedTargeted.meta.baseCaseCount > 0, "expandedTargeted summary should exist");
+          assertTest(report.expandedBalanced === null, "expandedBalanced should be opt-in");
+          assertTest(report.fullScan === null, "full scan should be opt-in");
+          assertTest(report.meta.matrixCount === 16, "expanded scan should compare 2 conventions x 8 focused candidates");
+          assertTest(findInvalidCalibrationNumber(report).length === 0, "expanded scan report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("A5.7.1 focused candidates and conventions exist", () => {
+          const report = runTargetMacroJointExpandedScan({
+            profileSet: "manual",
+            profileIds: ["M09"],
+            limitCases: 6
+          });
+          const candidateIds = report.candidateDefinitions.map(item => item.id);
+          ["current_baseline", "goal_floor_plus_goal_aware_soft_macro", "lean_bulk_bulk_floor_soft_macro", "bulk_only_floor_soft_macro", "no_extreme_downshift_reference", "no_upper_cap_fill_reference"].forEach(id => {
+            assertTest(candidateIds.includes(id), `${id} expanded candidate should exist`);
+          });
+          const conventionIds = report.conventions.map(item => item.id);
+          assertTest(conventionIds.includes("app_met_kcal_1_00"), "app 1.00 convention should exist");
+          assertTest(conventionIds.includes("acsm_strict_kcal_1_05"), "strict 1.05 convention should exist");
+        }));
+
+        results.push(runNamedTest("A5.7.1 balanced scan is optional and includes C2/C3 and C4/C5", () => {
+          const report = runTargetMacroJointExpandedScan({
+            profileSet: "manual",
+            profileIds: ["M09"],
+            limitCases: 30,
+            includeBalanced: true
+          });
+          assertTest(report.expandedBalanced && report.expandedBalanced.meta.baseCaseCount > 0, "expandedBalanced should run when requested");
+          const cardioKeys = Object.keys(report.expandedBalanced.summary.byCardioCombo);
+          assertTest(cardioKeys.includes("C2") || cardioKeys.includes("C3"), "balanced scan should include C2/C3 general cardio");
+          assertTest(cardioKeys.includes("C4") || cardioKeys.includes("C5"), "balanced scan should include C4/C5 high cardio");
+        }));
+
+        results.push(runNamedTest("A5.7.1 representative case table includes high and normal cases", () => {
+          const report = runTargetMacroJointExpandedScan({
+            profileSet: "manual",
+            profileIds: ["M09"],
+            limitCases: 6
+          });
+          const high = report.representativeCases.find(item => item.statId === "M20" && item.goal === "bulk" && item.activityCombo === "A5" && item.weightCombo === "W5" && item.cardioCombo === "C5");
+          const normal = report.representativeCases.find(item => item.statId === "M09" && item.goal === "lean_bulk" && item.activityCombo === "A2" && item.weightCombo === "W2" && item.cardioCombo === "C2");
+          assertTest(!!high, "representative table should include M20 bulk A5 W5 C5");
+          assertTest(!!normal, "representative table should include M09 lean_bulk A2 W2 C2");
+          assertTest(high.candidates.length === 16, "representative high case should include focused 2 x 8 candidates");
+        }));
+
+        results.push(runNamedTest("A5.7.1 expanded scan keeps production calculation unchanged", () => {
+          const stat = buildCalibrationManualStats().find(item => item.id === "M20");
+          const goalsBefore = JSON.stringify(GOALS);
+          const ratesBefore = JSON.stringify(CARDIO_TARGET_REFLECTION_RATES);
+          const extremeBefore = JSON.stringify(EXTREME_CASE_ADJUST);
+          applyCalibrationCaseToInputs({
+            mode: "athlete",
+            stat,
+            goalCombo: getCalibrationGoalComboByGoal("bulk"),
+            activityCombo: getCalibrationComboById(getCalibrationActivityCombos(), "A5"),
+            weightCombo: getCalibrationComboById(getCalibrationWeightCombos(), "W5"),
+            cardioCombo: getCalibrationComboById(getCalibrationCardioCombos(), "C5")
+          });
+          const before = calculate();
+          const beforeRecords = JSON.stringify(recordsState.items);
+          runTargetMacroJointExpandedScan({
+            profileSet: "manual",
+            profileIds: ["M09", "M20"],
+            limitCases: 12
+          });
+          const after = calculate();
+          ["targetCal", "totalBurn", "protein", "carbs", "fat", "weightKcal", "trainingBaselineKcal"].forEach(key => {
+            assertClose(after[key], before[key], 0.0001, `expanded scan should not change ${key}`);
+          });
+          assertClose(after.cardio.kcal, before.cardio.kcal, 0.0001, "expanded scan should not change production cardioKcal");
+          assertTest(JSON.stringify(recordsState.items) === beforeRecords, "expanded scan should not mutate records");
+          assertTest(JSON.stringify(GOALS) === goalsBefore, "GOALS should remain unchanged");
+          assertTest(JSON.stringify(CARDIO_TARGET_REFLECTION_RATES) === ratesBefore, "CARDIO_TARGET_REFLECTION_RATES should remain unchanged");
+          assertTest(JSON.stringify(EXTREME_CASE_ADJUST) === extremeBefore, "EXTREME_CASE_ADJUST should remain unchanged");
+        }));
+
+        results.push(runNamedTest("A5.7.1 classifications, exports, and protected constants exist", () => {
+          const report = runTargetMacroJointExpandedScan({
+            profileSet: "manual",
+            profileIds: ["M09"],
+            limitCases: 6
+          });
+          TARGET_MACRO_EXPANDED_CLASSIFICATIONS.forEach(key => {
+            assertTest(Array.isArray(report.expandedTargeted.classifications[key]), `${key} expanded classification bucket should exist`);
+          });
+          assertTest(typeof window.runTargetMacroJointExpandedScan === "function", "runTargetMacroJointExpandedScan should be exported");
+          assertTest(typeof window.runTargetMacroJointExpandedScanTests === "function", "runTargetMacroJointExpandedScanTests should be exported");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+        }));
+
+        results.push(runNamedTest("A5.7.1 previous target macro joint tests remain intact", () => {
+          const jointResults = runTargetMacroJointPolicyReviewTests();
+          assertTest(jointResults.every(item => item.pass), "A5.7 target macro joint tests should still pass");
         }));
 
         return results;
@@ -30944,6 +31556,7 @@ Notes:
     window.runFormulaBenchmarkReview = runFormulaBenchmarkReview;
     window.runCardioConventionReflectionReview = runCardioConventionReflectionReview;
     window.runTargetMacroJointPolicyReview = runTargetMacroJointPolicyReview;
+    window.runTargetMacroJointExpandedScan = runTargetMacroJointExpandedScan;
     window.runCalibrationScanReportTests = runCalibrationScanReportTests;
     window.runCalibrationPhysiologyReviewTests = runCalibrationPhysiologyReviewTests;
     window.runCalibrationWeeklyBudgetReviewTests = runCalibrationWeeklyBudgetReviewTests;
@@ -30953,6 +31566,7 @@ Notes:
     window.runFormulaBenchmarkReviewTests = runFormulaBenchmarkReviewTests;
     window.runCardioConventionReflectionReviewTests = runCardioConventionReflectionReviewTests;
     window.runTargetMacroJointPolicyReviewTests = runTargetMacroJointPolicyReviewTests;
+    window.runTargetMacroJointExpandedScanTests = runTargetMacroJointExpandedScanTests;
     window.runMacroAllocationExplanationTests = runMacroAllocationExplanationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
     window.runTodayInputActionTests = runTodayInputActionTests;
