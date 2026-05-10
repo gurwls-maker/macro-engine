@@ -1,14 +1,13 @@
 <!--
-Version: 6.6-A3
-Stage: 6.6-A3 고강도 유산소 targetCal 반영 정책 QA
+Version: 6.6-A4
+Stage: 6.6-A4 goal-aware cardio target 반영 산식 후보 적용 / 재검증
 Date: 2026-05-10
 Notes:
-- 고강도 유산소 kcal의 targetCal 반영 정책을 report-only 후보로 비교
-- cardioKcal과 totalBurn은 그대로 유지하고 candidateTargetCal만 별도 산출
-- current / flat 50% / goal-aware / high-cardio conservative 정책 후보 비교
-- 대표 C5 케이스에서 목표별 targetCal / 탄단지 변화 확인
-- production calculate() / cardio 공식 / totalBurn / macro target 산식 변경 없음
-- 사용자 화면 노출 없이 개발자용 window QA 함수로만 검증
+- A3/A3.1 QA에서 1순위 후보로 압축한 goal-aware cardio target reflection을 production 후보로 적용
+- totalBurn과 cardioKcal은 그대로 유지하고 targetCal 계산 기준에만 목표별 cardio 반영률 적용
+- diet 40% / lean_bulk 60% / bulk 80% cardio target reflection 적용
+- legacy full reflection은 QA 리포트의 비교 기준으로 분리
+- cardio 공식 / weightKcal / weeklyTrainingBaselineKcal / goal factor / macro cap 변경 없음
 - 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
 - ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
 -->
@@ -17,7 +16,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A3</title>
+  <title>탄단지 다이어리 v6.6-A4</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4761,7 +4760,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A3</span>
+               <span class="app-version">v6.6-A4</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -5820,6 +5819,30 @@ Notes:
         fatPct: 0.24
       }
     };
+
+    const CARDIO_TARGET_REFLECTION_RATES = {
+      diet: 0.40,
+      lean_bulk: 0.60,
+      bulk: 0.80
+    };
+
+    function getCardioTargetReflectionRate(goal){
+      return clamp(Number(CARDIO_TARGET_REFLECTION_RATES[goal] ?? 1), 0, 1);
+    }
+
+    function buildCardioTargetReflectionContext(goal, totalBurn, cardioKcal){
+      const safeTotalBurn = Number(totalBurn) || 0;
+      const safeCardioKcal = Math.max(0, Number(cardioKcal) || 0);
+      const cardioTargetReflectionRate = getCardioTargetReflectionRate(goal);
+      const reflectedCardioKcalForTarget = safeCardioKcal * cardioTargetReflectionRate;
+      const unreflectedCardioKcalForTarget = safeCardioKcal - reflectedCardioKcalForTarget;
+      return {
+        cardioTargetReflectionRate,
+        reflectedCardioKcalForTarget,
+        unreflectedCardioKcalForTarget,
+        targetBurnBase: safeTotalBurn - safeCardioKcal + reflectedCardioKcalForTarget
+      };
+    }
 
     const MODE_LBM_ALPHA = {
       general: 0.00,
@@ -6943,6 +6966,10 @@ Notes:
         epocRate: 0,
         epocKcal: 0,
         totalBurn: 0,
+        targetBurnBase: 0,
+        cardioTargetReflectionRate: getCardioTargetReflectionRate(s.goal),
+        reflectedCardioKcalForTarget: 0,
+        unreflectedCardioKcalForTarget: 0,
         rawTargetCal: 0,
         rawGoalDelta: 0,
         clampedGoalDelta: 0,
@@ -7029,19 +7056,25 @@ Notes:
         return createInvalidCalculationResult(s, ["총 소비 칼로리가 0 이하로 계산됩니다. 입력값을 다시 확인해 주세요."]);
       }
 
+      const cardioTargetContext = buildCardioTargetReflectionContext(s.goal, totalBurn, cardio.kcal);
+      const targetBurnBase = cardioTargetContext.targetBurnBase;
+      const cardioTargetReflectionRate = cardioTargetContext.cardioTargetReflectionRate;
+      const reflectedCardioKcalForTarget = cardioTargetContext.reflectedCardioKcalForTarget;
+      const unreflectedCardioKcalForTarget = cardioTargetContext.unreflectedCardioKcalForTarget;
+
       const baseGoalFactor = GOALS[s.goal].factor;
       const goalFactorAdjustment = 0;
       const appliedGoalFactor = baseGoalFactor + goalFactorAdjustment;
-      const rawTargetCal = totalBurn * appliedGoalFactor;
-      const rawGoalDelta = rawTargetCal - totalBurn;
+      const rawTargetCal = targetBurnBase * appliedGoalFactor;
+      const rawGoalDelta = rawTargetCal - targetBurnBase;
       const clampedGoalDelta = clamp(rawGoalDelta, GOALS[s.goal].deltaMin, GOALS[s.goal].deltaMax);
-      const targetCalBeforeFloor = totalBurn + clampedGoalDelta;
+      const targetCalBeforeFloor = targetBurnBase + clampedGoalDelta;
       const minimumTargetCal = s.goal === "diet" ? bmr : 0;
       const targetCal = Math.max(targetCalBeforeFloor, minimumTargetCal);
       if (!Number.isFinite(targetCal) || targetCal <= 0) {
         return createInvalidCalculationResult(s, ["목표 칼로리가 0 이하로 계산됩니다. 입력값 또는 목표 설정을 다시 확인해 주세요."]);
       }
-      const effectiveGoalFactor = totalBurn > 0 ? targetCal / totalBurn : appliedGoalFactor;
+      const effectiveGoalFactor = targetBurnBase > 0 ? targetCal / targetBurnBase : appliedGoalFactor;
       const goalClampUsed = Math.abs(clampedGoalDelta - rawGoalDelta) > 1e-6;
       const targetFloorUsed = Math.abs(targetCal - targetCalBeforeFloor) > 1e-6;
       const safeTargetCal = Math.max(0, targetCal);
@@ -7069,7 +7102,7 @@ Notes:
       const fatTargetContext = macroPlan.fatTargetContext;
       // Legacy alias for older UI/tests; this is the preferred target, not a true floor.
       const fatFloor = macroPlan.fatBaseline;
-      const finalEffectiveGoalFactor = totalBurn > 0 ? finalTargetCal / totalBurn : appliedGoalFactor;
+      const finalEffectiveGoalFactor = targetBurnBase > 0 ? finalTargetCal / targetBurnBase : appliedGoalFactor;
 
       const pctProtein = finalTargetCal > 0 ? round(protein * 4 / finalTargetCal * 100) : 0;
       const pctCarb = finalTargetCal > 0 ? round(carbs * 4 / finalTargetCal * 100) : 0;
@@ -7164,6 +7197,10 @@ Notes:
         epocRate,
         epocKcal,
         totalBurn,
+        targetBurnBase,
+        cardioTargetReflectionRate,
+        reflectedCardioKcalForTarget,
+        unreflectedCardioKcalForTarget,
         rawTargetCal,
         rawGoalDelta,
         clampedGoalDelta,
@@ -20829,9 +20866,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("A3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A3"), "document title should show v6.6-A3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A3"), "app version badge should show v6.6-A3");
+        results.push(runNamedTest("A4 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-A4"), "document title should show v6.6-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A4"), "app version badge should show v6.6-A4");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22307,8 +22344,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A3";
-    const CALIBRATION_QA_STAGE = "6.6-A3 고강도 유산소 targetCal 반영 정책 QA";
+    const CALIBRATION_QA_VERSION = "6.6-A4";
+    const CALIBRATION_QA_STAGE = "6.6-A4 goal-aware cardio target 반영 산식 후보 적용 / 재검증";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -22609,12 +22646,28 @@ Notes:
       return baseXw <= 0 ? 0 : clamp(baseXw, 0, 1);
     }
 
-    function calculateTargetAndMacrosForCalibration(s, totalBurn, lbmBase, lbmEffective, modeCfg){
+    function calculateTargetAndMacrosForCalibration(s, totalBurn, lbmBase, lbmEffective, modeCfg, options = {}){
+      const cardioKcalForTarget = Number.isFinite(options.cardioKcal)
+        ? Math.max(0, Number(options.cardioKcal))
+        : calcCardio(s).kcal;
+      const cardioTargetContext = buildCardioTargetReflectionContext(s.goal, totalBurn, cardioKcalForTarget);
+      if (Number.isFinite(options.cardioTargetReflectionRate)) {
+        const overrideRate = clamp(Number(options.cardioTargetReflectionRate), 0, 1);
+        cardioTargetContext.cardioTargetReflectionRate = overrideRate;
+        cardioTargetContext.reflectedCardioKcalForTarget = cardioKcalForTarget * overrideRate;
+        cardioTargetContext.unreflectedCardioKcalForTarget = cardioKcalForTarget - cardioTargetContext.reflectedCardioKcalForTarget;
+        cardioTargetContext.targetBurnBase = totalBurn - cardioKcalForTarget + cardioTargetContext.reflectedCardioKcalForTarget;
+      }
+      const targetBurnBase = cardioTargetContext.targetBurnBase;
+      const cardioTargetReflectionRate = cardioTargetContext.cardioTargetReflectionRate;
+      const reflectedCardioKcalForTarget = cardioTargetContext.reflectedCardioKcalForTarget;
+      const unreflectedCardioKcalForTarget = cardioTargetContext.unreflectedCardioKcalForTarget;
+
       const baseGoalFactor = GOALS[s.goal].factor;
-      const rawTargetCal = totalBurn * baseGoalFactor;
-      const rawGoalDelta = rawTargetCal - totalBurn;
+      const rawTargetCal = targetBurnBase * baseGoalFactor;
+      const rawGoalDelta = rawTargetCal - targetBurnBase;
       const clampedGoalDelta = clamp(rawGoalDelta, GOALS[s.goal].deltaMin, GOALS[s.goal].deltaMax);
-      const targetCalBeforeFloor = totalBurn + clampedGoalDelta;
+      const targetCalBeforeFloor = targetBurnBase + clampedGoalDelta;
       const minimumTargetCal = s.goal === "diet" ? calcBMR(s, lbmEffective, modeCfg) : 0;
       let adjustedTargetCal = Math.max(targetCalBeforeFloor, minimumTargetCal);
       let macroPlan = calculateMacroTargets(s, adjustedTargetCal, lbmBase, lbmEffective, modeCfg);
@@ -22629,6 +22682,10 @@ Notes:
         rawGoalDelta,
         clampedGoalDelta,
         targetCalBeforeFloor,
+        targetBurnBase,
+        cardioTargetReflectionRate,
+        reflectedCardioKcalForTarget,
+        unreflectedCardioKcalForTarget,
         targetCal: adjustedTargetCal,
         targetFloorUsed: Math.abs(Math.max(targetCalBeforeFloor, minimumTargetCal) - targetCalBeforeFloor) > 1e-6,
         goalClampUsed: Math.abs(clampedGoalDelta - rawGoalDelta) > 1e-6,
@@ -22644,7 +22701,7 @@ Notes:
       const candidateXw = getNoWeeklyXwValueForCalibration(result.s, result.modeCfg);
       const candidateWeightKcal = calcWeightTrainingKcal(result.s, candidateXw);
       const candidateTotalBurn = result.totalBurn - result.weightKcal + candidateWeightKcal;
-      const target = calculateTargetAndMacrosForCalibration(result.s, candidateTotalBurn, result.lbmBase, result.lbmEffective, result.modeCfg);
+      const target = calculateTargetAndMacrosForCalibration(result.s, candidateTotalBurn, result.lbmBase, result.lbmEffective, result.modeCfg, { cardioKcal: result.cardio.kcal });
       return {
         model: "candidate-no-weekly-xw",
         xw: candidateXw,
@@ -22713,6 +22770,10 @@ Notes:
         epocRate: result.epocRate,
         epocKcal: result.epocKcal,
         totalBurn: result.totalBurn,
+        targetBurnBase: result.targetBurnBase,
+        cardioTargetReflectionRate: result.cardioTargetReflectionRate,
+        reflectedCardioKcalForTarget: result.reflectedCardioKcalForTarget,
+        unreflectedCardioKcalForTarget: result.unreflectedCardioKcalForTarget,
         rawTargetCal: result.rawTargetCal,
         rawGoalDelta: result.rawGoalDelta,
         clampedGoalDelta: result.clampedGoalDelta,
@@ -22841,7 +22902,7 @@ Notes:
     }
 
     function summarizeCalibrationDistribution(cases){
-      const fields = ["bmr", "baseDaily", "trainingBaselineKcal", "weightKcal", "cardioKcal", "epocKcal", "totalBurn", "targetCal", "protein", "carbs", "fat"];
+      const fields = ["bmr", "baseDaily", "trainingBaselineKcal", "weightKcal", "cardioKcal", "epocKcal", "totalBurn", "targetBurnBase", "targetCal", "protein", "carbs", "fat"];
       return fields.reduce((acc, field) => {
         acc[field] = summarizeCalibrationValues(cases.map(item => Number(item[field])));
         return acc;
@@ -23969,11 +24030,18 @@ Notes:
     function buildCalibrationCardioTargetPolicies(){
       return [
         {
-          id: "current_full_reflection",
-          label: "current / full reflection",
-          type: "current",
+          id: "production_current",
+          label: "production current / goal-aware reflection",
+          type: "production",
+          goalRates: CARDIO_TARGET_REFLECTION_RATES,
+          notes: ["A4 production current: goal-aware cardio target reflection."]
+        },
+        {
+          id: "legacy_full_reflection",
+          label: "legacy full reflection reference",
+          type: "legacy-full",
           defaultRate: 1,
-          notes: ["Production-equivalent targetCal reflection baseline."]
+          notes: ["Report-only reference: legacy 100% cardio target reflection."]
         },
         {
           id: "flat_partial_50",
@@ -23986,14 +24054,14 @@ Notes:
           id: "goal_aware_reflection",
           label: "goal-aware reflection",
           type: "goal-aware",
-          goalRates: { diet: 0.4, lean_bulk: 0.6, bulk: 0.8 },
-          notes: ["Report-only candidate with different cardio target reflection by goal."]
+          goalRates: CARDIO_TARGET_REFLECTION_RATES,
+          notes: ["A4 production-equivalent goal-aware cardio target reflection."]
         },
         {
           id: "high_cardio_conservative",
           label: "high-cardio conservative",
           type: "high-cardio-conservative",
-          goalRates: { diet: 0.4, lean_bulk: 0.6, bulk: 0.8 },
+          goalRates: CARDIO_TARGET_REFLECTION_RATES,
           tierRules: [
             { minCardioToBmr: 1.2, multiplier: 0.65, minRate: { diet: 0.25, lean_bulk: 0.35, bulk: 0.45 } },
             { minCardioToBmr: 0.8, multiplier: 0.78, minRate: { diet: 0.30, lean_bulk: 0.42, bulk: 0.55 } },
@@ -24008,7 +24076,9 @@ Notes:
     }
 
     function getCardioTargetPolicyReflectionRate(policy, current){
-      if (!policy || policy.type === "current") return 1;
+      if (!policy) return getCardioTargetReflectionRate(current?.goal);
+      if (policy.type === "production") return clamp(Number(current?.cardioTargetReflectionRate ?? getCardioTargetReflectionRate(current?.goal)), 0, 1);
+      if (policy.type === "legacy-full") return 1;
       if (policy.type === "flat") return clamp(Number(policy.defaultRate) || 0, 0, 1);
       const goal = current.goal || "lean_bulk";
       const baseRate = clamp(Number(policy.goalRates?.[goal] ?? policy.defaultRate ?? 1), 0, 1);
@@ -24037,7 +24107,7 @@ Notes:
 
       const cardioToBmr = current.bmr > 0 ? current.cardioKcal / current.bmr : 0;
       const isHighCardio = current.cardioCombo === "C5" || cardioToBmr >= 0.8;
-      if (policy.id !== "current_full_reflection" && isHighCardio && candidate.targetDeltaFromCurrent < -250 && candidate.totalBurnKeptSame && candidate.cardioKcalKeptSame) {
+      if (!["production_current", "legacy_full_reflection", "goal_aware_reflection"].includes(policy.id) && isHighCardio && candidate.targetDeltaFromCurrent < -250 && candidate.totalBurnKeptSame && candidate.cardioKcalKeptSame) {
         classes.push("reduces_extreme_target_without_hiding_totalBurn");
       }
       if (policy.type === "goal-aware" || policy.type === "high-cardio-conservative") {
@@ -24061,7 +24131,14 @@ Notes:
       const reflectedCardioKcalForTarget = currentCardioKcal * reflectionRate;
       const unreflectedCardioKcalForTarget = currentCardioKcal - reflectedCardioKcalForTarget;
       const adjustedTotalBurnForTarget = current.totalBurn - currentCardioKcal + reflectedCardioKcalForTarget;
-      const target = calculateTargetAndMacrosForCalibration(result.s, adjustedTotalBurnForTarget, result.lbmBase, result.lbmEffective, result.modeCfg);
+      const target = calculateTargetAndMacrosForCalibration(result.s, current.totalBurn, result.lbmBase, result.lbmEffective, result.modeCfg, {
+        cardioKcal: currentCardioKcal,
+        cardioTargetReflectionRate: reflectionRate
+      });
+      const legacyFullTarget = calculateTargetAndMacrosForCalibration(result.s, current.totalBurn, result.lbmBase, result.lbmEffective, result.modeCfg, {
+        cardioKcal: currentCardioKcal,
+        cardioTargetReflectionRate: 1
+      });
       const candidate = {
         policyId: policy.id,
         policyLabel: policy.label,
@@ -24074,9 +24151,11 @@ Notes:
         reflectedCardioKcalForTarget,
         unreflectedCardioKcalForTarget,
         adjustedTotalBurnForTarget,
+        legacyFullTargetCal: legacyFullTarget.targetCal,
         currentTargetCal: current.targetCal,
         candidateTargetCal: target.targetCal,
         targetDeltaFromCurrent: target.targetCal - current.targetCal,
+        targetDeltaFromLegacyFull: target.targetCal - legacyFullTarget.targetCal,
         candidateCarbs: target.carbs,
         candidateProtein: target.protein,
         candidateFat: target.fat,
@@ -24152,6 +24231,10 @@ Notes:
         cardioCombo: current.cardioCombo,
         current: {
           totalBurn: current.totalBurn,
+          targetBurnBase: current.targetBurnBase,
+          cardioTargetReflectionRate: current.cardioTargetReflectionRate,
+          reflectedCardioKcalForTarget: current.reflectedCardioKcalForTarget,
+          unreflectedCardioKcalForTarget: current.unreflectedCardioKcalForTarget,
           targetCal: current.targetCal,
           bmr: current.bmr,
           cardioKcal: current.cardioKcal,
@@ -24182,6 +24265,7 @@ Notes:
         currentTargetCal: item.current.targetCal,
         currentTotalBurn: item.current.totalBurn,
         currentCardioKcal: item.current.cardioKcal,
+        currentCardioTargetReflectionRate: item.current.cardioTargetReflectionRate,
         bmr: item.current.bmr
       })));
     }
@@ -24191,6 +24275,7 @@ Notes:
         count: rows.length,
         candidateTargetCal: summarizeCalibrationValues(rows.map(item => item.candidateTargetCal)),
         targetDeltaFromCurrent: summarizeCalibrationValues(rows.map(item => item.targetDeltaFromCurrent)),
+        targetDeltaFromLegacyFull: summarizeCalibrationValues(rows.map(item => item.targetDeltaFromLegacyFull)),
         targetCalToBmr: summarizeCalibrationValues(rows.map(item => item.bmr > 0 ? item.candidateTargetCal / item.bmr : null)),
         targetCalToTotalBurn: summarizeCalibrationValues(rows.map(item => item.currentTotalBurn > 0 ? item.candidateTargetCal / item.currentTotalBurn : null)),
         reflectionRate: summarizeCalibrationValues(rows.map(item => item.reflectionRate)),
@@ -24225,8 +24310,10 @@ Notes:
         policyId: item.policyId,
         reflectionRate: item.reflectionRate,
         currentTargetCal: item.currentTargetCal,
+        legacyFullTargetCal: item.legacyFullTargetCal,
         candidateTargetCal: item.candidateTargetCal,
         targetDeltaFromCurrent: item.targetDeltaFromCurrent,
+        targetDeltaFromLegacyFull: item.targetDeltaFromLegacyFull,
         classification: item.classification
       };
     }
@@ -24260,8 +24347,8 @@ Notes:
             full: false,
             reportOnly: true,
             notes: [
-              "A3 compares report-only targetCal reflection policies for cardioKcal.",
-              "Production calculate(), cardioKcal, totalBurn, and user-facing output are not changed.",
+              "A4 compares cardio target reflection policies after goal-aware production application.",
+              "Production current uses goal-aware cardio target reflection; legacy full reflection is retained as a report-only reference.",
               "High C4/C5 cardio values remain formula-reviewed as actual performed work, not cap or warning candidates."
             ]
           },
@@ -24270,8 +24357,9 @@ Notes:
           classifications: buildCardioTargetPolicyClassificationBuckets(cases),
           cases: includeCases ? cases : [],
           notes: [
-            "current_full_reflection is the production-equivalent baseline.",
-            "Candidate policies adjust only reflectedCardioKcalForTarget.",
+            "production_current is the production-equivalent baseline after A4.",
+            "legacy_full_reflection is a report-only reference for the former 100% cardio target reflection.",
+            "Comparison policies adjust only reflectedCardioKcalForTarget.",
             "Lower candidateTargetCal is not automatically better; over-restrictive candidates need manual review."
           ]
         };
@@ -24353,7 +24441,7 @@ Notes:
               notes: ["A1.1 supports explicit mode scans. The default remains athlete for A1 compatibility."]
             },
             notes: [
-              "Report-only QA output. Production calculate() default path is not changed.",
+              "Report-only QA output. Calling this report does not mutate production state.",
               "candidate-no-weekly-xw keeps weeklyTrainingDays in baseline but removes the weekly adjustment from today's Xw only.",
               "Candidates are review targets, not confirmed formula defects."
             ]
@@ -24789,26 +24877,29 @@ Notes:
       return withRecordTestSandbox(() => {
         const results = [];
 
-        results.push(runNamedTest("A3 cardio target policy review returns lightweight report", () => {
+        results.push(runNamedTest("A4 cardio target policy review returns lightweight report", () => {
           const report = runCalibrationCardioTargetPolicyReview({ statIds: ["M09"], activityCombos: ["A2"], weightCombos: ["W2"], cardioCombos: ["C0", "C5"] });
           assertTest(report && typeof report === "object", "cardio target policy report should return an object");
           assertTest(report.meta.reportOnly === true, "cardio target policy review should be report-only");
           assertTest(report.meta.full === false, "cardio target policy review should not run a full scan by default");
-          assertTest(report.meta.policyCount === 4, "four cardio target policies should be compared");
+          assertTest(report.meta.policyCount === 5, "five cardio target policies should be compared after A4");
           assertTest(findInvalidCalibrationNumber(report).length === 0, "cardio target policy report should not contain NaN or Infinity");
         }));
 
-        results.push(runNamedTest("A3 cardio target policies include required candidates", () => {
+        results.push(runNamedTest("A4 cardio target policies include production and reference candidates", () => {
           const policies = buildCalibrationCardioTargetPolicies();
           const ids = policies.map(item => item.id);
-          ["current_full_reflection", "flat_partial_50", "goal_aware_reflection", "high_cardio_conservative"].forEach(id => {
+          ["production_current", "legacy_full_reflection", "flat_partial_50", "goal_aware_reflection", "high_cardio_conservative"].forEach(id => {
             assertTest(ids.includes(id), `${id} policy should exist`);
           });
+          assertClose(getCardioTargetReflectionRate("diet"), 0.4, 0.0001, "diet cardio target reflection should be 40%");
+          assertClose(getCardioTargetReflectionRate("lean_bulk"), 0.6, 0.0001, "lean bulk cardio target reflection should be 60%");
+          assertClose(getCardioTargetReflectionRate("bulk"), 0.8, 0.0001, "bulk cardio target reflection should be 80%");
           const goalAware = policies.find(item => item.id === "goal_aware_reflection");
           assertTest(goalAware.goalRates.diet < goalAware.goalRates.lean_bulk && goalAware.goalRates.lean_bulk < goalAware.goalRates.bulk, "goal-aware rates should increase from diet to bulk");
         }));
 
-        results.push(runNamedTest("A3 representative report includes C5 and preserves case size", () => {
+        results.push(runNamedTest("A4 representative report includes C5 and preserves case size", () => {
           const report = runCalibrationCardioTargetPolicyReview({
             statIds: ["M09"],
             activityCombos: ["A2"],
@@ -24817,10 +24908,24 @@ Notes:
           });
           assertTest(report.cases.some(item => item.cardioCombo === "C5"), "representative report should include C5 cases");
           assertTest(report.cases.length > 0 && report.cases.length <= 300, "default-like representative report should stay reasonably small");
-          report.cases.forEach(item => assertTest(item.candidates.length === 4, "each case should include four policy candidates"));
+          report.cases.forEach(item => assertTest(item.candidates.length === 5, "each case should include five policy candidates"));
         }));
 
-        results.push(runNamedTest("A3 candidate policies keep totalBurn and cardioKcal unchanged", () => {
+        results.push(runNamedTest("A4 production current uses goal-aware cardio target base", () => {
+          const report = runCalibrationCardioTargetPolicyReview({ statIds: ["M20"], goals: ["bulk"], activityCombos: ["A5"], weightCombos: ["W5"], cardioCombos: ["C5"] });
+          const item = report.cases[0];
+          const production = item.candidates.find(candidate => candidate.policyId === "production_current");
+          const legacy = item.candidates.find(candidate => candidate.policyId === "legacy_full_reflection");
+          const goalAware = item.candidates.find(candidate => candidate.policyId === "goal_aware_reflection");
+          assertClose(item.current.cardioTargetReflectionRate, 0.8, 0.0001, "bulk production cardio target reflection should be 80%");
+          assertClose(production.candidateTargetCal, item.current.targetCal, 0.0001, "production policy should match production targetCal");
+          assertClose(goalAware.candidateTargetCal, item.current.targetCal, 0.0001, "goal-aware policy should match production targetCal");
+          assertTest(legacy.candidateTargetCal > production.candidateTargetCal, "legacy full reflection should exceed A4 production target in high cardio case");
+          assertClose(item.current.totalBurn, production.currentTotalBurn, 0.0001, "production policy should keep totalBurn");
+          assertTest(item.current.cardioKcal > 0, "high cardio case should keep cardioKcal");
+        }));
+
+        results.push(runNamedTest("A4 candidate policies keep totalBurn and cardioKcal unchanged", () => {
           const report = runCalibrationCardioTargetPolicyReview({ statIds: ["M20"], goals: ["bulk"], activityCombos: ["A5"], weightCombos: ["W5"], cardioCombos: ["C5"] });
           const item = report.cases[0];
           assertTest(item.current.cardioKcal > 0, "high cardio case should have cardioKcal");
@@ -24834,19 +24939,21 @@ Notes:
           });
         }));
 
-        results.push(runNamedTest("A3 high-cardio candidates lower targetCal without hiding totalBurn", () => {
+        results.push(runNamedTest("A4 high-cardio references compare without hiding totalBurn", () => {
           const report = runCalibrationCardioTargetPolicyReview({ statIds: ["M20"], goals: ["bulk"], activityCombos: ["A5"], weightCombos: ["W5"], cardioCombos: ["C5"] });
           const item = report.cases[0];
-          const current = item.candidates.find(candidate => candidate.policyId === "current_full_reflection");
+          const production = item.candidates.find(candidate => candidate.policyId === "production_current");
+          const legacy = item.candidates.find(candidate => candidate.policyId === "legacy_full_reflection");
           const flat = item.candidates.find(candidate => candidate.policyId === "flat_partial_50");
           const conservative = item.candidates.find(candidate => candidate.policyId === "high_cardio_conservative");
-          assertClose(current.candidateTargetCal, item.current.targetCal, 0.0001, "current policy should match production targetCal");
-          assertTest(flat.candidateTargetCal < current.candidateTargetCal, "flat partial policy should lower high-cardio targetCal");
-          assertTest(conservative.candidateTargetCal < current.candidateTargetCal, "high-cardio conservative policy should lower high-cardio targetCal");
+          assertClose(production.candidateTargetCal, item.current.targetCal, 0.0001, "production policy should match production targetCal");
+          assertTest(legacy.candidateTargetCal > production.candidateTargetCal, "legacy reference should be higher than A4 production in high-cardio case");
+          assertTest(flat.candidateTargetCal < production.candidateTargetCal, "flat partial policy should lower high-cardio targetCal below production in bulk C5");
+          assertTest(conservative.candidateTargetCal < production.candidateTargetCal, "high-cardio conservative policy should lower high-cardio targetCal below production");
           assertTest(conservative.classification.includes("reduces_extreme_target_without_hiding_totalBurn"), "high-cardio candidate should classify reduction without hiding totalBurn");
         }));
 
-        results.push(runNamedTest("A3 C2/C3 policy review exposes non-extreme cardio without forced suspect", () => {
+        results.push(runNamedTest("A4 C2/C3 policy review exposes non-extreme cardio without forced suspect", () => {
           const report = runCalibrationCardioTargetPolicyReview({ statIds: ["M09"], goals: ["lean_bulk"], activityCombos: ["A2"], weightCombos: ["W2"], cardioCombos: ["C2", "C3"] });
           report.cases.forEach(item => {
             item.candidates.forEach(candidate => {
@@ -24856,7 +24963,7 @@ Notes:
           });
         }));
 
-        results.push(runNamedTest("A3 cardio policy classifications and exports exist", () => {
+        results.push(runNamedTest("A4 cardio policy classifications and exports exist", () => {
           const report = runCalibrationCardioTargetPolicyReview({ statIds: ["M20"], goals: ["bulk"], activityCombos: ["A5"], weightCombos: ["W5"], cardioCombos: ["C5"], includeCases: false });
           CALIBRATION_CARDIO_TARGET_POLICY_CLASSIFICATIONS.forEach(key => {
             assertTest(Array.isArray(report.classifications[key]), `${key} classification bucket should exist`);
@@ -24866,7 +24973,7 @@ Notes:
           assertTest(typeof window.runCalibrationCardioTargetPolicyReviewTests === "function", "runCalibrationCardioTargetPolicyReviewTests should be exported");
         }));
 
-        results.push(runNamedTest("A3 cardio policy review keeps production calculation and prior reports intact", () => {
+        results.push(runNamedTest("A4 cardio policy review keeps production calculation and prior reports intact", () => {
           setMacroCalibrationInputs("lean_bulk");
           state.weeklyTrainingDaysManual = true;
           const before = calculate();
