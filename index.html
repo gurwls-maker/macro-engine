@@ -1,8 +1,12 @@
 <!--
-Version: 6.6-A5.9
-Stage: 6.6-A5.9 목표별 에너지 산식 / 탄단지 배분 원칙 재검증 QA
+Version: 6.6-A5.10
+Stage: 6.6-A5.10 가이드 기준 / 활동량 기준 산식표 및 UI 설계 QA
 Date: 2026-05-11
 Notes:
+- A5.10 report-only guide/activity dual-basis 산식표 및 카드 안 mini toggle UI 설계 helper 추가
+- 가이드 기준은 스포츠 영양 권장 범위 안에서 기본으로 따라가기 좋은 탄단지로 정의
+- 활동량 기준은 오늘 입력한 활동량이 실제라면 이론적으로 맞춰야 할 총에너지로 정의
+- production calculate(), targetCal, macro, score, Coach, recentContext, InBody, schema 변경 없음
 - A5.9 report-only 목표별 energy target / macro allocation 철학 재검증 helper 추가
 - A5.8 lean/bulk target floor + goal-aware soft macro production 후보는 비교 기준으로 유지
 - totalBurn 기반 목표 산식, cardio reflection, hard cap/soft range/no cap, protein range 후보 비교
@@ -20,7 +24,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A5.9</title>
+  <title>탄단지 다이어리 v6.6-A5.10</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4764,7 +4768,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A5.9</span>
+               <span class="app-version">v6.6-A5.10</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -21130,8 +21134,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("A4 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A5.9"), "document title should show v6.6-A5.9");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.9"), "app version badge should show v6.6-A5.9");
+          assertTest(document.title.includes("v6.6-A5.10"), "document title should show v6.6-A5.10");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.10"), "app version badge should show v6.6-A5.10");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22607,8 +22611,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A5.9";
-    const CALIBRATION_QA_STAGE = "6.6-A5.9 목표별 에너지 산식 / 탄단지 배분 원칙 재검증 QA";
+    const CALIBRATION_QA_VERSION = "6.6-A5.10";
+    const CALIBRATION_QA_STAGE = "6.6-A5.10 가이드 기준 / 활동량 기준 산식표 및 UI 설계 QA";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -29754,6 +29758,839 @@ Notes:
       });
     }
 
+    const DUAL_BASIS_GUIDE_DESCRIPTION = "스포츠 영양 권장 범위 안에서 기본으로 따라가기 좋은 탄단지";
+    const DUAL_BASIS_ACTIVITY_DESCRIPTION = "오늘 입력한 활동량이 실제라면 이론적으로 맞춰야 할 총에너지";
+
+    const DUAL_BASIS_CLASSIFICATIONS = [
+      "dual_basis_suitable",
+      "guide_formula_needs_tuning",
+      "activity_formula_needs_tuning",
+      "mini_toggle_supported",
+      "single_value_supported",
+      "guide_activity_diverged",
+      "guide_activity_same_range",
+      "guide_range_exceeded",
+      "activity_carbs_high",
+      "activity_carbs_extreme",
+      "activity_fat_flexible",
+      "activity_fat_high",
+      "guide_default_supported",
+      "not_production_ready"
+    ];
+
+    function buildDualBasisEnergyCandidates(){
+      return [
+        {
+          id: "fixed_delta",
+          label: "fixed delta",
+          notes: ["diet totalBurn -400, lean_bulk totalBurn +100, bulk totalBurn +350."]
+        },
+        {
+          id: "percentage_delta",
+          label: "percentage delta",
+          notes: ["Uses midpoint of percentage ranges: diet 87.5%, lean_bulk 102.5%, bulk 107.5%."]
+        },
+        {
+          id: "hybrid_delta",
+          label: "hybrid delta",
+          notes: ["diet -clamp(15%, 300, 600), lean_bulk +clamp(3%, 0, 200), bulk +clamp(7%, 250, 500)."]
+        },
+        {
+          id: "current_a5_8_reference",
+          label: "current A5.8 reference",
+          referenceOnly: true,
+          notes: ["Production current is used as a comparison target only."]
+        }
+      ];
+    }
+
+    function buildDualBasisGuideStrategyCandidates(){
+      return [
+        {
+          id: "macro_first_guide",
+          label: "macro-first guide",
+          notes: ["Choose guide protein/fat/carbs first; guideCal is the macro kcal sum."]
+        },
+        {
+          id: "target_aware_guide",
+          label: "target-aware guide",
+          notes: ["Use the activity target as context, but stay inside the sports nutrition guide ranges."]
+        }
+      ];
+    }
+
+    function calculateDualBasisActivityTarget(current, energyCandidate){
+      const totalBurn = current.totalBurn;
+      const goal = current.goal;
+      if (energyCandidate.id === "current_a5_8_reference") return current.targetCal;
+      if (energyCandidate.id === "percentage_delta") {
+        const factor = goal === "diet" ? 0.875 : (goal === "lean_bulk" ? 1.025 : 1.075);
+        return totalBurn * factor;
+      }
+      if (energyCandidate.id === "hybrid_delta") {
+        if (goal === "diet") return totalBurn - clamp(totalBurn * 0.15, 300, 600);
+        if (goal === "lean_bulk") return totalBurn + clamp(totalBurn * 0.03, 0, 200);
+        return totalBurn + clamp(totalBurn * 0.07, 250, 500);
+      }
+      const delta = goal === "diet" ? -400 : (goal === "lean_bulk" ? 100 : 350);
+      return totalBurn + delta;
+    }
+
+    function getDualBasisProteinRange(goal, current){
+      const bodyFat = Number(current.bodyFat);
+      if (goal === "diet") {
+        const high = Number.isFinite(bodyFat) && bodyFat <= 15 ? 2.6 : 2.4;
+        return { min: 2.2, mid: high, max: 2.6 };
+      }
+      if (goal === "lean_bulk") return { min: 1.8, mid: 2.0, max: 2.2 };
+      return { min: 1.6, mid: 1.8, max: 2.0 };
+    }
+
+    function getDualBasisFatRange(goal){
+      if (goal === "diet") return { floor: 0.6, min: 0.6, mid: 0.8, max: 1.0, flexibleMax: 1.75 };
+      if (goal === "lean_bulk") return { floor: 0.7, min: 0.7, mid: 1.0, max: 1.25, flexibleMax: 1.9 };
+      return { floor: 0.8, min: 0.8, mid: 1.2, max: 1.5, flexibleMax: 2.0 };
+    }
+
+    function getDualBasisCarbRangeByLoad(current){
+      const cardio = current.cardioCombo;
+      const weights = current.weightCombo;
+      const activity = current.activityCombo;
+      if (cardio === "C5" && ["W4", "W5"].includes(weights) && ["A4", "A5"].includes(activity)) {
+        return { min: 10, mid: 11, max: 12, load: "very_high_long_duration" };
+      }
+      if (cardio === "C4" || ["W4", "W5"].includes(weights) || ["A4", "A5"].includes(activity)) {
+        return { min: 7, mid: 8.5, max: 10, load: "high" };
+      }
+      if (["C2", "C3"].includes(cardio) || ["W2", "W3"].includes(weights)) {
+        return { min: 5, mid: 6, max: 7, load: "moderate_high" };
+      }
+      return { min: 3, mid: 4, max: 5, load: "low_moderate" };
+    }
+
+    function buildGuideMacroRangeContext(current){
+      const protein = getDualBasisProteinRange(current.goal, current);
+      const fat = getDualBasisFatRange(current.goal);
+      const carbs = getDualBasisCarbRangeByLoad(current);
+      return {
+        goal: current.goal,
+        mode: current.mode,
+        load: carbs.load,
+        protein,
+        fat,
+        carbs,
+        labels: {
+          protein: `${round(protein.min, 1)}~${round(protein.max, 1)}g/kg`,
+          fat: `${round(fat.min, 1)}~${round(fat.max, 1)}g/kg`,
+          carbs: `${round(carbs.min, 1)}~${round(carbs.max, 1)}g/kg`
+        },
+        notes: [
+          "Protein is chosen by goal range, never as a remaining-kcal filler.",
+          "Fat upper is a practical guide range, not a physiological absolute ceiling.",
+          "Carbs above 12g/kg are not a default guide target and should move to activity-basis explanation."
+        ]
+      };
+    }
+
+    function calculateGuideBasisMacros(current, rangeContext, activityTargetCal, strategy){
+      const weight = Math.max(1, Number(current.weight) || 1);
+      const proteinKg = rangeContext.protein.mid;
+      let fatKg = rangeContext.fat.mid;
+      let carbsKg = rangeContext.carbs.mid;
+      if (strategy.id === "target_aware_guide") {
+        let protein = proteinKg * weight;
+        let fat = fatKg * weight;
+        let carbs = carbsKg * weight;
+        let guideCal = calculateMacroKcalSum({ protein, carbs, fat });
+        if (guideCal < activityTargetCal) {
+          const carbMaxG = rangeContext.carbs.max * weight;
+          const addCarbs = Math.max(0, Math.min((activityTargetCal - guideCal) / 4, carbMaxG - carbs));
+          carbs += addCarbs;
+          guideCal = calculateMacroKcalSum({ protein, carbs, fat });
+        }
+        if (guideCal < activityTargetCal) {
+          const fatMaxG = rangeContext.fat.max * weight;
+          const addFat = Math.max(0, Math.min((activityTargetCal - guideCal) / 9, fatMaxG - fat));
+          fat += addFat;
+          guideCal = calculateMacroKcalSum({ protein, carbs, fat });
+        }
+        if (guideCal > activityTargetCal) {
+          const carbMinG = rangeContext.carbs.min * weight;
+          const reduceCarbs = Math.max(0, Math.min((guideCal - activityTargetCal) / 4, carbs - carbMinG));
+          carbs -= reduceCarbs;
+          guideCal = calculateMacroKcalSum({ protein, carbs, fat });
+        }
+        if (guideCal > activityTargetCal) {
+          const fatMinG = rangeContext.fat.min * weight;
+          const reduceFat = Math.max(0, Math.min((guideCal - activityTargetCal) / 9, fat - fatMinG));
+          fat -= reduceFat;
+          guideCal = calculateMacroKcalSum({ protein, carbs, fat });
+        }
+        return {
+          basisId: "guide",
+          strategyId: strategy.id,
+          description: DUAL_BASIS_GUIDE_DESCRIPTION,
+          targetCal: guideCal,
+          protein,
+          carbs,
+          fat,
+          proteinKg: protein / weight,
+          carbsKg: carbs / weight,
+          fatKg: fat / weight,
+          guideRangeContext: rangeContext,
+          rangeLabels: rangeContext.labels
+        };
+      }
+      const protein = proteinKg * weight;
+      const carbs = carbsKg * weight;
+      const fat = fatKg * weight;
+      return {
+        basisId: "guide",
+        strategyId: strategy.id,
+        description: DUAL_BASIS_GUIDE_DESCRIPTION,
+        targetCal: calculateMacroKcalSum({ protein, carbs, fat }),
+        protein,
+        carbs,
+        fat,
+        proteinKg,
+        carbsKg,
+        fatKg,
+        guideRangeContext: rangeContext,
+        rangeLabels: rangeContext.labels
+      };
+    }
+
+    function calculateActivityBasisMacros(current, rangeContext, activityTargetCal, energyCandidate){
+      const weight = Math.max(1, Number(current.weight) || 1);
+      const proteinKg = rangeContext.protein.mid;
+      const protein = proteinKg * weight;
+      let fatKg = current.goal === "diet" ? 0.8 : (current.goal === "lean_bulk" ? 1.0 : 1.2);
+      fatKg = clamp(fatKg, rangeContext.fat.min, rangeContext.fat.max);
+      let fat = fatKg * weight;
+      let carbs = Math.max(0, (activityTargetCal - protein * 4 - fat * 9) / 4);
+      let carbsKg = carbs / weight;
+      if (carbsKg > rangeContext.carbs.max && fatKg < rangeContext.fat.flexibleMax) {
+        const extraFatKg = Math.min(rangeContext.fat.flexibleMax - fatKg, (carbsKg - rangeContext.carbs.max) * 4 / 9);
+        fatKg += Math.max(0, extraFatKg);
+        fat = fatKg * weight;
+        carbs = Math.max(0, (activityTargetCal - protein * 4 - fat * 9) / 4);
+        carbsKg = carbs / weight;
+      }
+      const macroCal = calculateMacroKcalSum({ protein, carbs, fat });
+      return {
+        basisId: "activity",
+        energyCandidateId: energyCandidate.id,
+        energyCandidateLabel: energyCandidate.label,
+        description: DUAL_BASIS_ACTIVITY_DESCRIPTION,
+        targetCal: activityTargetCal,
+        totalBurn: current.totalBurn,
+        targetCalMinusTotalBurn: activityTargetCal - current.totalBurn,
+        targetCalToTotalBurn: current.totalBurn > 0 ? activityTargetCal / current.totalBurn : 0,
+        protein,
+        carbs,
+        fat,
+        proteinKg,
+        carbsKg,
+        fatKg,
+        macroCal,
+        guideRangeContext: rangeContext,
+        rangeLabels: rangeContext.labels,
+        guideExceeded: carbsKg > rangeContext.carbs.max + 1e-6 || fatKg > rangeContext.fat.max + 1e-6,
+        carbsGuideExceeded: carbsKg > rangeContext.carbs.max + 1e-6,
+        carbsExtreme: carbsKg > 14,
+        fatGuideExceeded: fatKg > rangeContext.fat.max + 1e-6,
+        fatFlexibleMarker: fatKg > rangeContext.fat.max + 1e-6 && fatKg <= rangeContext.fat.flexibleMax + 1e-6,
+        macroGap: Math.max(0, activityTargetCal - macroCal)
+      };
+    }
+
+    function compareGuideAndActivityBasis(guide, activity){
+      const deltaKcal = activity.targetCal - guide.targetCal;
+      const absDeltaKcal = Math.abs(deltaKcal);
+      const deltaPct = guide.targetCal > 0 ? absDeltaKcal / guide.targetCal : 0;
+      const thresholds = {
+        absolute: absDeltaKcal >= 200,
+        percent: deltaPct >= 0.05,
+        hybrid: absDeltaKcal >= 200 || deltaPct >= 0.05
+      };
+      return {
+        guideCal: guide.targetCal,
+        activityCal: activity.targetCal,
+        deltaKcal,
+        absDeltaKcal,
+        deltaPct,
+        thresholds,
+        recommendedThreshold: "hybrid",
+        displayMode: thresholds.hybrid ? "mini_toggle" : "single_value",
+        toggleNeeded: thresholds.hybrid,
+        explanationNeeded: thresholds.hybrid || activity.guideExceeded,
+        reason: thresholds.hybrid
+          ? "guide and activity basis diverge enough to require a mini toggle"
+          : "guide and activity basis are close enough to show one value"
+      };
+    }
+
+    function buildDualBasisUiModel(compare = null){
+      return {
+        defaultBasis: "guide",
+        basisOptions: [
+          {
+            id: "guide",
+            label: "가이드 기준",
+            description: DUAL_BASIS_GUIDE_DESCRIPTION
+          },
+          {
+            id: "activity",
+            label: "활동량 기준",
+            description: DUAL_BASIS_ACTIVITY_DESCRIPTION
+          }
+        ],
+        cardBehavior: {
+          sameRange: "single_value",
+          diverged: "mini_toggle",
+          current: compare?.displayMode || "mini_toggle"
+        },
+        macroSubLabels: {
+          guide: "g/kg range 표시",
+          activity: "가이드 초과 여부 표시"
+        },
+        explanationButton: "?",
+        copyPreview: {
+          guide: {
+            title: "가이드 기준",
+            description: DUAL_BASIS_GUIDE_DESCRIPTION,
+            macroSubLabelExample: "6.0g/kg · 권장 범위 안"
+          },
+          activity: {
+            title: "활동량 기준",
+            description: DUAL_BASIS_ACTIVITY_DESCRIPTION,
+            macroSubLabelExample: "8.7g/kg · 가이드 상단 초과"
+          },
+          explanation: {
+            title: "두 기준이 다른 이유",
+            items: [
+              "가이드 기준은 스포츠 영양 권장 범위 안에서 따라가기 쉬운 값을 보여줍니다.",
+              "활동량 기준은 오늘 입력한 활동량과 운동량을 모두 칼로리로 반영한 값입니다.",
+              "운동량이 큰 날에는 활동량 기준이 더 높게 나올 수 있습니다. 이 경우 입력이 틀렸다는 뜻이 아니라, 목표 칼로리를 모두 채우려면 탄수화물이나 지방이 일반 권장 범위를 넘을 수 있다는 뜻입니다."
+            ]
+          }
+        }
+      };
+    }
+
+    function classifyDualBasisCase(row){
+      const classes = [];
+      if (row.compare.toggleNeeded) classes.push("guide_activity_diverged", "mini_toggle_supported");
+      else classes.push("guide_activity_same_range", "single_value_supported");
+      if (row.activity.guideExceeded) classes.push("guide_range_exceeded");
+      if (row.activity.carbsGuideExceeded) classes.push("activity_carbs_high");
+      if (row.activity.carbsExtreme) classes.push("activity_carbs_extreme");
+      if (row.activity.fatFlexibleMarker) classes.push("activity_fat_flexible");
+      if (row.activity.fatGuideExceeded) classes.push("activity_fat_high");
+      if (row.compare.toggleNeeded && !row.activity.carbsExtreme && row.activity.fatKg <= 2.0 + 1e-6) {
+        classes.push("dual_basis_suitable", "guide_default_supported");
+      }
+      if (row.guide.strategyId === "macro_first_guide" && row.compare.absDeltaKcal > 900) classes.push("guide_formula_needs_tuning");
+      if (row.activity.targetCalMinusTotalBurn < -700 || row.activity.targetCalMinusTotalBurn > 650) classes.push("activity_formula_needs_tuning");
+      if (!classes.includes("dual_basis_suitable")) classes.push("not_production_ready");
+      return [...new Set(classes)];
+    }
+
+    function calculateDualBasisCase(caseConfig, energyCandidates, guideStrategies){
+      applyCalibrationCaseToInputs(caseConfig);
+      const result = calculate();
+      const current = buildCalibrationBreakdown(result, caseConfig, { compareWeeklyXw: false });
+      const rangeContext = buildGuideMacroRangeContext(current);
+      const rows = [];
+      energyCandidates.forEach(energyCandidate => {
+        const activityTargetCal = calculateDualBasisActivityTarget(current, energyCandidate);
+        const activity = calculateActivityBasisMacros(current, rangeContext, activityTargetCal, energyCandidate);
+        guideStrategies.forEach(guideStrategy => {
+          const guide = calculateGuideBasisMacros(current, rangeContext, activityTargetCal, guideStrategy);
+          const compare = compareGuideAndActivityBasis(guide, activity);
+          const row = {
+            caseId: caseConfig.caseId,
+            statId: current.statId,
+            gender: current.gender,
+            mode: current.mode,
+            goal: current.goal,
+            activityCombo: current.activityCombo,
+            weightCombo: current.weightCombo,
+            cardioCombo: current.cardioCombo,
+            weight: current.weight,
+            currentTargetCal: current.targetCal,
+            currentTotalBurn: current.totalBurn,
+            currentProtein: current.protein,
+            currentCarbs: current.carbs,
+            currentFat: current.fat,
+            energyCandidateId: energyCandidate.id,
+            guideStrategyId: guideStrategy.id,
+            candidateId: `${energyCandidate.id}__${guideStrategy.id}`,
+            rangeContext,
+            guide,
+            activity,
+            compare,
+            uiModel: buildDualBasisUiModel(compare)
+          };
+          row.classification = classifyDualBasisCase(row);
+          rows.push(row);
+        });
+      });
+      return {
+        caseId: caseConfig.caseId,
+        statId: current.statId,
+        gender: current.gender,
+        mode: current.mode,
+        goal: current.goal,
+        activityCombo: current.activityCombo,
+        weightCombo: current.weightCombo,
+        cardioCombo: current.cardioCombo,
+        current: {
+          targetCal: current.targetCal,
+          totalBurn: current.totalBurn,
+          targetCalMinusTotalBurn: current.targetCal - current.totalBurn,
+          protein: current.protein,
+          carbs: current.carbs,
+          fat: current.fat
+        },
+        candidates: rows
+      };
+    }
+
+    function flattenDualBasisRows(cases){
+      return cases.flatMap(item => item.candidates);
+    }
+
+    function summarizeDualBasisRows(rows){
+      return {
+        count: rows.length,
+        baseCaseCount: new Set(rows.map(item => item.caseId)).size,
+        guideCal: summarizeCalibrationValues(rows.map(item => item.guide.targetCal)),
+        activityCal: summarizeCalibrationValues(rows.map(item => item.activity.targetCal)),
+        deltaKcal: summarizeCalibrationValues(rows.map(item => item.compare.deltaKcal)),
+        absDeltaKcal: summarizeCalibrationValues(rows.map(item => item.compare.absDeltaKcal)),
+        deltaPct: summarizeCalibrationValues(rows.map(item => item.compare.deltaPct)),
+        guideProteinKg: summarizeCalibrationValues(rows.map(item => item.guide.proteinKg)),
+        guideCarbsKg: summarizeCalibrationValues(rows.map(item => item.guide.carbsKg)),
+        guideFatKg: summarizeCalibrationValues(rows.map(item => item.guide.fatKg)),
+        activityProteinKg: summarizeCalibrationValues(rows.map(item => item.activity.proteinKg)),
+        activityCarbsKg: summarizeCalibrationValues(rows.map(item => item.activity.carbsKg)),
+        activityFatKg: summarizeCalibrationValues(rows.map(item => item.activity.fatKg)),
+        toggleNeededCount: rows.filter(item => item.compare.toggleNeeded).length,
+        explanationNeededCount: rows.filter(item => item.compare.explanationNeeded).length,
+        guideExceededCount: rows.filter(item => item.activity.guideExceeded).length,
+        activityCarbsOver10: rows.filter(item => item.activity.carbsKg > 10).length,
+        activityCarbsOver12: rows.filter(item => item.activity.carbsKg > 12).length,
+        activityCarbsOver14: rows.filter(item => item.activity.carbsKg > 14).length,
+        activityFatOver1_5: rows.filter(item => item.activity.fatKg > 1.5).length,
+        activityFatOver2: rows.filter(item => item.activity.fatKg > 2).length,
+        classificationCounts: rows.reduce((acc, item) => {
+          item.classification.forEach(key => {
+            acc[key] = (acc[key] || 0) + 1;
+          });
+          return acc;
+        }, {})
+      };
+    }
+
+    function summarizeDualBasisGroups(rows, keyFn){
+      const groups = summarizeCalibrationGroups(rows, keyFn);
+      return Object.fromEntries(Object.entries(groups).map(([key, groupRows]) => [key, summarizeDualBasisRows(groupRows)]));
+    }
+
+    function summarizeDualBasisReview(rows){
+      return {
+        overall: summarizeDualBasisRows(rows),
+        byCandidate: summarizeDualBasisGroups(rows, item => item.candidateId),
+        byEnergyCandidate: summarizeDualBasisGroups(rows, item => item.energyCandidateId),
+        byGuideStrategy: summarizeDualBasisGroups(rows, item => item.guideStrategyId),
+        byGoal: summarizeDualBasisGroups(rows, item => item.goal),
+        byGender: summarizeDualBasisGroups(rows, item => item.gender || "unknown"),
+        byMode: summarizeDualBasisGroups(rows, item => item.mode),
+        byCardioCombo: summarizeDualBasisGroups(rows, item => item.cardioCombo),
+        byActivityCombo: summarizeDualBasisGroups(rows, item => item.activityCombo),
+        byWeightCombo: summarizeDualBasisGroups(rows, item => item.weightCombo)
+      };
+    }
+
+    function buildDualBasisClassificationBuckets(rows){
+      const buckets = Object.fromEntries(DUAL_BASIS_CLASSIFICATIONS.map(key => [key, []]));
+      rows.forEach(row => {
+        row.classification.forEach(key => {
+          if (!buckets[key]) buckets[key] = [];
+          buckets[key].push({
+            caseId: row.caseId,
+            statId: row.statId,
+            gender: row.gender,
+            goal: row.goal,
+            activityCombo: row.activityCombo,
+            weightCombo: row.weightCombo,
+            cardioCombo: row.cardioCombo,
+            energyCandidateId: row.energyCandidateId,
+            guideStrategyId: row.guideStrategyId,
+            guideCal: row.guide.targetCal,
+            activityCal: row.activity.targetCal,
+            deltaKcal: row.compare.deltaKcal,
+            deltaPct: row.compare.deltaPct,
+            activityCarbsKg: row.activity.carbsKg,
+            activityFatKg: row.activity.fatKg
+          });
+        });
+      });
+      return buckets;
+    }
+
+    function compactDualBasisCase(item){
+      return {
+        caseId: item.caseId,
+        statId: item.statId,
+        gender: item.gender,
+        mode: item.mode,
+        goal: item.goal,
+        activityCombo: item.activityCombo,
+        weightCombo: item.weightCombo,
+        cardioCombo: item.cardioCombo,
+        current: item.current,
+        candidates: item.candidates.map(candidate => ({
+          candidateId: candidate.candidateId,
+          energyCandidateId: candidate.energyCandidateId,
+          guideStrategyId: candidate.guideStrategyId,
+          guideCal: candidate.guide.targetCal,
+          activityCal: candidate.activity.targetCal,
+          deltaKcal: candidate.compare.deltaKcal,
+          deltaPct: candidate.compare.deltaPct,
+          guideProtein: candidate.guide.protein,
+          guideCarbs: candidate.guide.carbs,
+          guideFat: candidate.guide.fat,
+          activityProtein: candidate.activity.protein,
+          activityCarbs: candidate.activity.carbs,
+          activityFat: candidate.activity.fat,
+          guideLabels: candidate.rangeContext.labels,
+          activityLabels: {
+            protein: `${round(candidate.activity.proteinKg, 1)}g/kg`,
+            carbs: `${round(candidate.activity.carbsKg, 1)}g/kg`,
+            fat: `${round(candidate.activity.fatKg, 1)}g/kg`
+          },
+          toggleNeeded: candidate.compare.toggleNeeded,
+          explanationNeeded: candidate.compare.explanationNeeded,
+          guideExceeded: candidate.activity.guideExceeded,
+          classification: candidate.classification
+        }))
+      };
+    }
+
+    function compactDualBasisReport(report){
+      return {
+        meta: report.meta,
+        uiModel: report.uiModel,
+        thresholdPolicy: report.thresholdPolicy,
+        todayBasisEffect: report.todayBasisEffect,
+        targeted: report.targeted ? { meta: report.targeted.meta, summary: report.targeted.summary } : null,
+        expandedBalanced: report.expandedBalanced ? { meta: report.expandedBalanced.meta, summary: report.expandedBalanced.summary } : null,
+        fullScan: report.fullScan ? { meta: report.fullScan.meta, summary: report.fullScan.summary } : null,
+        representativeCases: report.representativeCases,
+        conclusion: report.conclusion,
+        nextCandidates: report.nextCandidates
+      };
+    }
+
+    function buildDualBasisCaseConfigs(stage, options = {}){
+      if (stage === "representative") {
+        return {
+          mode: normalizeCalibrationMode(options.mode),
+          profileSet: "manual",
+          profileCount: null,
+          scenarioCount: null,
+          caseConfigs: buildGoalMacroPrincipleRepresentativeCaseConfigs(normalizeCalibrationMode(options.mode))
+        };
+      }
+      const stageName = stage === "full" ? "full" : (stage === "expandedBalanced" ? "balanced" : "targeted");
+      return buildTargetMacroJointExpandedCaseConfigs(stageName, {
+        ...options,
+        profileSet: options.profileSet || (stage === "full" ? "scan" : "manual")
+      });
+    }
+
+    function calculateDualBasisStage(stage, options, shared){
+      const startedAt = Date.now();
+      const config = buildDualBasisCaseConfigs(stage, options);
+      const cases = config.caseConfigs.map(caseConfig => calculateDualBasisCase(caseConfig, shared.energyCandidates, shared.guideStrategies));
+      const rows = flattenDualBasisRows(cases);
+      return {
+        meta: {
+          stage,
+          profileSet: config.profileSet,
+          profileCount: config.profileCount,
+          scenarioCount: config.scenarioCount,
+          baseCaseCount: cases.length,
+          candidateCount: rows.length,
+          elapsedMs: Date.now() - startedAt
+        },
+        summary: summarizeDualBasisReview(rows),
+        classifications: buildDualBasisClassificationBuckets(rows),
+        outliers: rows
+          .filter(item => item.compare.explanationNeeded || item.activity.carbsExtreme)
+          .sort((a, b) => b.compare.absDeltaKcal - a.compare.absDeltaKcal)
+          .slice(0, Number(options.limitOutliers) || 60)
+          .map(item => ({
+            caseId: item.caseId,
+            statId: item.statId,
+            gender: item.gender,
+            goal: item.goal,
+            activityCombo: item.activityCombo,
+            weightCombo: item.weightCombo,
+            cardioCombo: item.cardioCombo,
+            energyCandidateId: item.energyCandidateId,
+            guideStrategyId: item.guideStrategyId,
+            guideCal: item.guide.targetCal,
+            activityCal: item.activity.targetCal,
+            deltaKcal: item.compare.deltaKcal,
+            deltaPct: item.compare.deltaPct,
+            activityCarbsKg: item.activity.carbsKg,
+            activityFatKg: item.activity.fatKg,
+            classification: item.classification
+          })),
+        cases: options.includeCases === true ? cases.map(compactDualBasisCase) : []
+      };
+    }
+
+    function classifyDualBasisConclusion(summary){
+      const overall = summary?.overall || {};
+      const guideTuning = overall.classificationCounts?.guide_formula_needs_tuning || 0;
+      const activityTuning = overall.classificationCounts?.activity_formula_needs_tuning || 0;
+      const suitable = overall.classificationCounts?.dual_basis_suitable || 0;
+      const count = overall.count || 1;
+      if (suitable / count > 0.45 && guideTuning / count < 0.35 && activityTuning / count < 0.20) {
+        return {
+          code: "A",
+          label: "dual basis structure is suitable; A5.11 production implementation can be designed",
+          reason: "Guide default plus activity mini toggle explains high-activity divergence without hiding activity-based energy."
+        };
+      }
+      if (guideTuning > activityTuning) {
+        return {
+          code: "B",
+          label: "dual basis is suitable, but guide formula needs tuning",
+          reason: "Guide basis diverges too far in many cases before the UI concept itself fails."
+        };
+      }
+      if (activityTuning > 0) {
+        return {
+          code: "C",
+          label: "dual basis is suitable, but activity target needs tuning",
+          reason: "Some activity target candidates still create overly large deficit/surplus deltas."
+        };
+      }
+      return {
+        code: "E",
+        label: "additional target/macro benchmark is needed",
+        reason: "The matrix does not yet isolate a sufficiently stable production candidate."
+      };
+    }
+
+    function runGoalMacroDualBasisReview(options = {}){
+      return withCalibrationReportSandbox(() => {
+        const startedAt = Date.now();
+        const shared = {
+          energyCandidates: buildDualBasisEnergyCandidates(),
+          guideStrategies: buildDualBasisGuideStrategyCandidates()
+        };
+        const targeted = calculateDualBasisStage("targeted", { ...options, includeCases: options.includeCases === true }, shared);
+        const expandedBalanced = options.expandedBalanced === true || options.includeBalanced === true
+          ? calculateDualBasisStage("expandedBalanced", { ...options, includeCases: false }, shared)
+          : null;
+        const fullScan = options.full === true
+          ? calculateDualBasisStage("full", { ...options, includeCases: false }, shared)
+          : null;
+        const representative = calculateDualBasisStage("representative", { ...options, includeCases: true }, shared);
+        const conclusionBase = expandedBalanced?.summary || targeted.summary;
+        const report = {
+          meta: {
+            version: CALIBRATION_QA_VERSION,
+            stage: CALIBRATION_QA_STAGE,
+            generatedAt: new Date().toISOString(),
+            mode: normalizeCalibrationMode(options.mode),
+            reportOnly: true,
+            expandedBalanced: !!expandedBalanced,
+            full: !!fullScan,
+            includeCases: options.includeCases === true,
+            energyCandidateCount: shared.energyCandidates.length,
+            guideStrategyCount: shared.guideStrategies.length,
+            matrixCount: shared.energyCandidates.length * shared.guideStrategies.length,
+            elapsedMs: Date.now() - startedAt,
+            notes: [
+              "A5.10 is report-only. It does not change production calculate(), targetCal, macro, score, Coach, recentContext, InBody, or schema.",
+              "Guide basis and activity basis are modeled inside the existing target/macro card via a mini toggle, not as separate cards.",
+              "Guide basis is the default candidate; activity basis becomes visible when the two values diverge materially."
+            ]
+          },
+          energyCandidates: shared.energyCandidates,
+          guideStrategies: shared.guideStrategies,
+          thresholdPolicy: {
+            candidates: {
+              absolute: "200kcal 이상",
+              percent: "5% 이상",
+              hybrid: "200kcal 이상 또는 5% 이상"
+            },
+            recommended: "hybrid"
+          },
+          uiModel: buildDualBasisUiModel(),
+          todayBasisEffect: {
+            guide: "guide 기준 선택 시 Today targetCal/protein/carbs/fat, remaining, adherence 기준도 guide 기준을 사용",
+            activity: "activity 기준 선택 시 Today targetCal/protein/carbs/fat, remaining, adherence 기준도 activity 기준을 사용",
+            persistenceCandidates: {
+              none: "매번 guide 기본",
+              session: "현재 세션만 유지",
+              uiState: "앱 실행 중 사용자 선택 유지",
+              localStorage: "사용자 선호 유지 후보이나 A5.10 report-only에서는 금지"
+            },
+            recommendation: "기본값 guide, diverged일 때만 mini toggle 표시, 선택 상태는 우선 uiState/session 후보"
+          },
+          targeted,
+          expandedBalanced,
+          fullScan,
+          representativeCases: representative.cases,
+          conclusion: classifyDualBasisConclusion(conclusionBase),
+          nextCandidates: [
+            "A5.11 can implement guide default plus activity mini toggle if the user accepts the dual-basis concept.",
+            "Guide range tuning should focus on target-aware guide, not macro-first guide, for high-activity cases.",
+            "Activity target should start with hybrid_delta unless production design chooses a simpler fixed_delta."
+          ]
+        };
+        if (options.compact === true) return compactDualBasisReport(report);
+        if (options.log === true) {
+          console.log("Goal macro dual basis review", report.meta);
+          console.table(Object.entries(report.targeted.summary.byCandidate).map(([id, item]) => ({
+            id,
+            toggleNeeded: item.toggleNeededCount,
+            guideExceeded: item.guideExceededCount,
+            deltaP95: item.absDeltaKcal.p95,
+            carbsP95: item.activityCarbsKg.p95
+          })));
+        }
+        return report;
+      });
+    }
+
+    function runGoalMacroDualBasisReviewTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        results.push(runNamedTest("A5.10 dual basis review returns report and exact descriptions", () => {
+          const report = runGoalMacroDualBasisReview({
+            profileSet: "manual",
+            profileIds: ["M09", "M20"],
+            limitCases: 8
+          });
+          assertTest(report && typeof report === "object", "A5.10 report should return an object");
+          assertTest(report.meta.reportOnly === true, "A5.10 should be report-only");
+          assertTest(report.uiModel.basisOptions.some(item => item.id === "guide"), "guide basis should exist");
+          assertTest(report.uiModel.basisOptions.some(item => item.id === "activity"), "activity basis should exist");
+          assertTest(report.uiModel.basisOptions.find(item => item.id === "guide").description === DUAL_BASIS_GUIDE_DESCRIPTION, "guide description should match exactly");
+          assertTest(report.uiModel.basisOptions.find(item => item.id === "activity").description === DUAL_BASIS_ACTIVITY_DESCRIPTION, "activity description should match exactly");
+          assertTest(report.uiModel.cardBehavior.diverged === "mini_toggle", "mini toggle UI model should exist");
+          assertTest(findInvalidCalibrationNumber(report).length === 0, "A5.10 report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("A5.10 representative cases include guide labels and diverged classification", () => {
+          const report = runGoalMacroDualBasisReview({
+            profileSet: "manual",
+            profileIds: ["M09"],
+            limitCases: 4
+          });
+          const high = report.representativeCases.find(item => item.statId === "M20" && item.goal === "bulk" && item.activityCombo === "A5" && item.weightCombo === "W5" && item.cardioCombo === "C5");
+          const normal = report.representativeCases.find(item => item.statId === "M09" && item.goal === "lean_bulk" && item.activityCombo === "A2" && item.weightCombo === "W2" && item.cardioCombo === "C2");
+          assertTest(!!high, "representative cases should include M20 bulk A5 W5 C5");
+          assertTest(!!normal, "representative cases should include M09 lean_bulk A2 W2 C2");
+          assertTest(high.candidates.length === 8, "each representative case should include 4 activity targets x 2 guide strategies");
+          const sample = high.candidates[0];
+          assertTest(!!sample.guideLabels.carbs && sample.guideLabels.carbs.includes("g/kg"), "guide macro g/kg label should exist");
+          assertTest(high.candidates.some(item => item.toggleNeeded), "high-cardio case should need toggle");
+          assertTest(report.uiModel.cardBehavior.sameRange === "single_value", "non-diverged card behavior should support single value");
+        }));
+
+        results.push(runNamedTest("A5.10 activity basis uses totalBurn-based targets", () => {
+          const report = runGoalMacroDualBasisReview({
+            profileSet: "manual",
+            profileIds: ["M20"],
+            goals: ["bulk"],
+            activityCombos: ["A5"],
+            weightCombos: ["W5"],
+            cardioCombos: ["C5"],
+            limitCases: 48,
+            includeCases: true
+          });
+          const item = report.targeted.cases.find(candidate =>
+            candidate.goal === "bulk"
+            && candidate.statId === "M20"
+            && candidate.activityCombo === "A5"
+            && candidate.weightCombo === "W5"
+            && candidate.cardioCombo === "C5"
+          ) || report.targeted.cases[0];
+          const fixed = item.candidates.find(row => row.energyCandidateId === "fixed_delta" && row.guideStrategyId === "target_aware_guide");
+          const hybrid = item.candidates.find(row => row.energyCandidateId === "hybrid_delta" && row.guideStrategyId === "target_aware_guide");
+          assertClose(fixed.activityCal - item.current.totalBurn, 350, 0.0001, "fixed bulk activity basis should be totalBurn +350");
+          const expectedHybrid = clamp(item.current.totalBurn * 0.07, 250, 500);
+          assertClose(hybrid.activityCal - item.current.totalBurn, expectedHybrid, 0.0001, "hybrid bulk activity basis should use totalBurn-based clamped surplus");
+        }));
+
+        results.push(runNamedTest("A5.10 review does not mutate production calculation or state", () => {
+          const stat = buildCalibrationManualStats().find(item => item.id === "M20");
+          const goalsBefore = JSON.stringify(GOALS);
+          const ratesBefore = JSON.stringify(CARDIO_TARGET_REFLECTION_RATES);
+          const extremeBefore = JSON.stringify(EXTREME_CASE_ADJUST);
+          const recordsBefore = JSON.stringify(recordsState.items);
+          const uiStateBefore = JSON.stringify(uiState);
+          applyCalibrationCaseToInputs({
+            mode: "athlete",
+            stat,
+            goalCombo: getCalibrationGoalComboByGoal("bulk"),
+            activityCombo: getCalibrationComboById(getCalibrationActivityCombos(), "A5"),
+            weightCombo: getCalibrationComboById(getCalibrationWeightCombos(), "W5"),
+            cardioCombo: getCalibrationComboById(getCalibrationCardioCombos(), "C5")
+          });
+          const before = calculate();
+          runGoalMacroDualBasisReview({
+            profileSet: "manual",
+            profileIds: ["M09", "M20"],
+            limitCases: 8
+          });
+          const after = calculate();
+          ["targetCal", "totalBurn", "protein", "carbs", "fat", "weightKcal", "trainingBaselineKcal"].forEach(key => {
+            assertClose(after[key], before[key], 0.0001, `A5.10 review should not change ${key}`);
+          });
+          assertClose(after.cardio.kcal, before.cardio.kcal, 0.0001, "A5.10 review should not change production cardioKcal");
+          assertTest(JSON.stringify(recordsState.items) === recordsBefore, "A5.10 review should not mutate records");
+          assertTest(JSON.stringify(uiState) === uiStateBefore, "A5.10 review should not mutate uiState");
+          assertTest(JSON.stringify(GOALS) === goalsBefore, "GOALS should remain unchanged");
+          assertTest(JSON.stringify(CARDIO_TARGET_REFLECTION_RATES) === ratesBefore, "CARDIO_TARGET_REFLECTION_RATES should remain unchanged");
+          assertTest(JSON.stringify(EXTREME_CASE_ADJUST) === extremeBefore, "EXTREME_CASE_ADJUST should remain unchanged");
+        }));
+
+        results.push(runNamedTest("A5.10 classifications, exports, and protected constants exist", () => {
+          const report = runGoalMacroDualBasisReview({
+            profileSet: "manual",
+            profileIds: ["M09"],
+            limitCases: 4
+          });
+          DUAL_BASIS_CLASSIFICATIONS.forEach(key => {
+            assertTest(Array.isArray(report.targeted.classifications[key]), `${key} classification bucket should exist`);
+          });
+          assertTest(typeof window.runGoalMacroDualBasisReview === "function", "runGoalMacroDualBasisReview should be exported");
+          assertTest(typeof window.runGoalMacroDualBasisReviewTests === "function", "runGoalMacroDualBasisReviewTests should be exported");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+        }));
+
+        results.push(runNamedTest("A5.10 keeps A5.9 principle review tests intact", () => {
+          const principleResults = runGoalMacroPrincipleReviewTests();
+          assertTest(principleResults.every(item => item.pass), "A5.9 principle review tests should still pass");
+        }));
+
+        return results;
+      });
+    }
+
     function runTargetMacroProductionPolicyTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -32811,6 +33648,7 @@ Notes:
     window.runTargetMacroJointPolicyReview = runTargetMacroJointPolicyReview;
     window.runTargetMacroJointExpandedScan = runTargetMacroJointExpandedScan;
     window.runGoalMacroPrincipleReview = runGoalMacroPrincipleReview;
+    window.runGoalMacroDualBasisReview = runGoalMacroDualBasisReview;
     window.runCalibrationScanReportTests = runCalibrationScanReportTests;
     window.runCalibrationPhysiologyReviewTests = runCalibrationPhysiologyReviewTests;
     window.runCalibrationWeeklyBudgetReviewTests = runCalibrationWeeklyBudgetReviewTests;
@@ -32822,6 +33660,7 @@ Notes:
     window.runTargetMacroJointPolicyReviewTests = runTargetMacroJointPolicyReviewTests;
     window.runTargetMacroJointExpandedScanTests = runTargetMacroJointExpandedScanTests;
     window.runGoalMacroPrincipleReviewTests = runGoalMacroPrincipleReviewTests;
+    window.runGoalMacroDualBasisReviewTests = runGoalMacroDualBasisReviewTests;
     window.runTargetMacroProductionPolicyTests = runTargetMacroProductionPolicyTests;
     window.runMacroAllocationExplanationTests = runMacroAllocationExplanationTests;
     window.runDailyCoachTestCases = runDailyCoachTestCases;
