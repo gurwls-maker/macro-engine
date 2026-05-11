@@ -1,8 +1,15 @@
 <!--
-Version: 6.6-A5.11
-Stage: 6.6-A5.11 dual basis production 구현
+Version: 6.6-C2
+Stage: 6.6-C2 Today 빠른 수정 + 결과 확인 구조 구현
 Date: 2026-05-11
 Notes:
+- C2 Today 빠른 수정 + 결과 확인 구조 구현
+- Today 계산 기준 요약 카드 추가
+- 빠른 수정에 웨이트 루틴 / 세션 dropdown 추가
+- 빠른 수정은 Settings 대체가 아니라 오늘 결과 확인용 shortcut
+- Settings는 자세한 계산 기준 관리 장소로 유지
+- A5.11 guide/activity dual basis와 selected basis → target/macro/remaining/adherence 연결 유지
+- 산식 / score / Coach decision matrix / recentContext / InBody gate / 저장 schema / import-export 변경 없음
 - A5.11 dual basis production 구현
 - calculate()는 guide/activity dualBasis를 생성하고 selected basis를 active target/macro로 사용
 - 기본값은 가이드 기준이며, 카드 안 mini toggle은 항상 표시
@@ -31,7 +38,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A5.11</title>
+  <title>탄단지 다이어리 v6.6-C2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -560,10 +567,28 @@ Notes:
     }
     .today-calc-settings-card{
       display:flex;
-      align-items:center;
-      justify-content:space-between;
+      flex-direction:column;
+      align-items:stretch;
+      justify-content:flex-start;
       gap:18px;
       padding:18px 20px;
+    }
+    .today-calc-settings-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:18px;
+    }
+    .today-calc-settings-copy{
+      min-width:0;
+    }
+    .today-calc-settings-actions{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:8px;
+      flex:0 0 auto;
+      flex-wrap:wrap;
     }
     .today-calc-settings-card h3{
       margin:0 0 6px;
@@ -582,9 +607,142 @@ Notes:
       font-size:13px;
       word-break:keep-all;
     }
-    .today-calc-settings-card .primary-btn{
+    .today-calc-settings-card .primary-btn,
+    .today-calc-settings-card .secondary-btn{
       flex:0 0 auto;
-      min-width:150px;
+      min-width:116px;
+    }
+    .today-calc-summary-grid{
+      display:grid;
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      gap:8px;
+    }
+    .today-calc-summary-item{
+      min-height:62px;
+      padding:10px 12px;
+      border:1px solid color-mix(in srgb, var(--line) 78%, white 22%);
+      border-radius:12px;
+      background:color-mix(in srgb, var(--surface-soft) 86%, white 14%);
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      gap:4px;
+      min-width:0;
+    }
+    .today-calc-summary-item .summary-label{
+      font-size:11px;
+      font-weight:900;
+      color:var(--muted);
+    }
+    .today-calc-summary-item .summary-value{
+      font-size:14px;
+      font-weight:900;
+      color:var(--deep);
+      line-height:1.35;
+      overflow-wrap:anywhere;
+    }
+    .today-quick-edit-panel{
+      display:grid;
+      grid-template-columns:repeat(5,minmax(0,1fr));
+      gap:12px;
+      padding-top:16px;
+      border-top:1px dashed color-mix(in srgb, var(--line) 82%, transparent);
+    }
+    .today-quick-edit-panel.hidden{
+      display:none;
+    }
+    .today-quick-edit-fields{
+      display:grid;
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      gap:12px;
+      align-items:start;
+      grid-column:span 4;
+    }
+    .today-quick-edit-panel .field{
+      min-width:0;
+    }
+    .today-quick-edit-panel label{
+      display:block;
+      margin-bottom:6px;
+      font-size:12px;
+      font-weight:900;
+      color:var(--deep);
+    }
+    .today-quick-edit-panel input,
+    .today-quick-edit-panel select{
+      width:100%;
+      min-height:42px;
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:0 12px;
+      background:#fff;
+      color:var(--ink);
+      font:inherit;
+      font-weight:800;
+    }
+    .today-quick-edit-side{
+      align-self:start;
+      position:sticky;
+      top:12px;
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      min-width:0;
+      grid-column:span 1;
+    }
+    .today-quick-edit-result{
+      padding:10px 12px;
+      border:1px solid color-mix(in srgb, var(--accent-strong) 42%, var(--line) 58%);
+      border-radius:12px;
+      background:color-mix(in srgb, var(--accent-soft) 56%, white 44%);
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-width:0;
+    }
+    .today-quick-edit-result .basis{
+      font-size:12px;
+      font-weight:900;
+      color:var(--muted);
+    }
+    .today-quick-edit-result .macro-line{
+      font-size:13px;
+      font-weight:900;
+      color:var(--deep);
+      line-height:1.38;
+      overflow-wrap:anywhere;
+    }
+    .today-quick-edit-result .note{
+      font-size:11px;
+      color:var(--muted);
+      line-height:1.45;
+    }
+    .today-quick-edit-footer{
+      grid-column:1 / -1;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .today-quick-edit-footer .mini-note{
+      margin:0;
+      flex:1 1 260px;
+    }
+    .today-quick-routine-card{
+      align-self:stretch;
+    }
+    .today-quick-routine-selects{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:8px;
+    }
+    .today-quick-routine-card select{
+      min-height:36px;
+      padding:0 10px;
+      font-size:14px;
+      font-weight:800;
+      border-radius:10px;
     }
     .record-start-overlay{
       position:fixed;
@@ -4742,9 +4900,43 @@ Notes:
       }
       .today-calc-settings-card{
         align-items:flex-start;
-        flex-direction:column;
       }
-      .today-calc-settings-card .primary-btn{
+      .today-calc-settings-head{
+        flex-direction:column;
+        width:100%;
+      }
+      .today-calc-settings-actions{
+        width:100%;
+        justify-content:stretch;
+      }
+      .today-calc-settings-card .primary-btn,
+      .today-calc-settings-card .secondary-btn{
+        width:100%;
+        flex:1 1 0;
+      }
+      .today-calc-summary-grid{
+        width:100%;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      .today-quick-edit-panel{
+        width:100%;
+        grid-template-columns:1fr;
+      }
+      .today-quick-edit-fields{
+        grid-template-columns:1fr;
+        grid-column:auto;
+      }
+      .today-quick-routine-selects{
+        grid-template-columns:1fr;
+      }
+      .today-quick-edit-side{
+        position:static;
+        grid-column:auto;
+      }
+      .today-quick-edit-footer{
+        align-items:stretch;
+      }
+      .today-quick-edit-footer .secondary-btn{
         width:100%;
       }
       .global-bar{
@@ -4874,7 +5066,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A5.11</span>
+               <span class="app-version">v6.6-C2</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -4959,7 +5151,7 @@ Notes:
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
           <span>기록 시작하기</span>
         </button>
-        <button class="ghost-btn" id="todaySettingsBtn" type="button">계산 기준 설정</button>
+        <button class="ghost-btn" id="todaySettingsBtn" type="button">전체 설정</button>
         <div class="quick-settings-popover hidden" id="quickSettingsPanel" aria-hidden="true">
           <div class="quick-settings-head">
             <strong>빠른 설정</strong>
@@ -5141,12 +5333,83 @@ Notes:
       </section>
 
       <section class="panel today-calc-settings-card" id="todayCalcSettingsCard">
-        <div>
-          <h3>계산 기준</h3>
-          <h2>계산 기준 설정</h2>
-          <p>체중, 활동량, 운동 설정은 계산 기준에서 관리합니다. 목표와 활동량을 바꾸면 오늘 권장 탄단지가 다시 계산됩니다.</p>
+        <div class="today-calc-settings-head">
+          <div class="today-calc-settings-copy">
+            <h3>계산 기준</h3>
+            <h2>오늘 계산 기준</h2>
+            <p>오늘 결과에 바로 반영되는 핵심값만 바꿉니다. 자세한 계산 기준은 전체 설정에서 관리합니다.</p>
+          </div>
+          <div class="today-calc-settings-actions">
+            <button class="secondary-btn" id="todayQuickEditToggle" type="button" aria-expanded="false" aria-controls="todayQuickEditPanel">빠른 수정</button>
+            <button class="primary-btn" id="todayCalcSettingsBtn" type="button" data-open-calculation-settings>전체 설정</button>
+          </div>
         </div>
-        <button class="primary-btn" id="todayCalcSettingsBtn" type="button" data-open-calculation-settings>기본 입력 확인하기</button>
+        <div class="today-calc-summary-grid" id="todayCalcSummary" aria-live="polite"></div>
+        <div class="today-quick-edit-panel hidden" id="todayQuickEditPanel" aria-hidden="true">
+          <div class="today-quick-edit-fields">
+            <div class="field">
+              <label for="todayQuickWeight">계산용 체중</label>
+              <input id="todayQuickWeight" type="number" min="30" max="200" step="0.1" inputmode="decimal">
+            </div>
+            <div class="field">
+              <label for="todayQuickActivityLevel">활동량</label>
+              <select id="todayQuickActivityLevel">
+                <option value="sedentary">낮음</option>
+                <option value="moderate">보통</option>
+                <option value="active">활동 많음</option>
+                <option value="very_active">매우 활동적</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="todayQuickWorkType">업무 유형</label>
+              <select id="todayQuickWorkType">
+                <option value="office">앉아서 일함</option>
+                <option value="mixed">혼합</option>
+                <option value="active">서서 움직임</option>
+                <option value="field">현장 활동</option>
+                <option value="heavy_field">고강도 현장</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="todayQuickWeightDuration">오늘 웨이트</label>
+              <input id="todayQuickWeightDuration" type="number" min="0" max="180" step="5" inputmode="decimal">
+            </div>
+            <div class="field">
+              <label for="todayQuickCardioType">유산소 종류</label>
+              <select id="todayQuickCardioType">
+                <option value="treadmill_walk">트레드밀 워킹</option>
+                <option value="treadmill_run">트레드밀 러닝</option>
+                <option value="outdoor_run">실외 러닝</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="todayQuickCardioDuration">유산소 시간</label>
+              <input id="todayQuickCardioDuration" type="number" min="0" max="180" step="5" inputmode="decimal">
+            </div>
+            <div class="field">
+              <label for="todayQuickCardioSpeed">유산소 속도</label>
+              <input id="todayQuickCardioSpeed" type="number" min="2" max="25" step="0.5" inputmode="decimal">
+            </div>
+            <div class="field">
+              <label for="todayQuickCardioIncline">유산소 경사</label>
+              <input id="todayQuickCardioIncline" type="number" min="0" max="15" step="1" inputmode="decimal">
+            </div>
+          </div>
+          <div class="today-quick-edit-side">
+            <div class="today-quick-edit-result" id="todayQuickEditResultSummary" aria-live="polite"></div>
+            <div class="field today-quick-routine-card">
+              <label for="todayQuickRoutinePlan">루틴 / 세션</label>
+              <div class="today-quick-routine-selects">
+                <select id="todayQuickRoutinePlan" aria-label="루틴"></select>
+                <select id="todayQuickRoutineSession" aria-label="세션"></select>
+              </div>
+            </div>
+          </div>
+          <div class="today-quick-edit-footer">
+            <div class="mini-note">수정하면 위 결과 카드와 남은 양이 바로 다시 계산됩니다.</div>
+            <button class="secondary-btn" id="todayQuickEditClose" type="button">닫기</button>
+          </div>
+        </div>
       </section>
 
       <section class="panel" id="todayInputPanel">
@@ -8012,6 +8275,7 @@ Notes:
       if (quickSettingsButton) quickSettingsButton.style.display = tab === "today" ? "inline-flex" : "none";
       const todayRecordStartButton = document.getElementById("todayRecordStartBtn");
       if (todayRecordStartButton) todayRecordStartButton.style.display = tab === "today" ? "inline-flex" : "none";
+      if (tab !== "today") setTodayQuickEditOpen(false);
       if (tab === "settings") setQuickSettingsOpen(false);
     }
 
@@ -8145,6 +8409,7 @@ Notes:
 
     function openCalculationSettings(){
       setQuickSettingsOpen(false);
+      setTodayQuickEditOpen(false);
       setActiveTab("settings");
       saveState();
       const panel = document.getElementById("settingsCalculationPanel");
@@ -8228,7 +8493,206 @@ Notes:
       render();
     }
 
-    function syncQuickSettingsUI(){}
+    const TODAY_QUICK_EDIT_FIELD_MAP = [
+      { quickId: "todayQuickWeight", sourceId: "weight" },
+      { quickId: "todayQuickActivityLevel", sourceId: "activityLevel" },
+      { quickId: "todayQuickWorkType", sourceId: "workType" },
+      { quickId: "todayQuickWeightDuration", sourceId: "weightDuration" },
+      { quickId: "todayQuickCardioType", sourceId: "cardioType" },
+      { quickId: "todayQuickCardioDuration", sourceId: "cardioDuration" },
+      { quickId: "todayQuickCardioSpeed", sourceId: "cardioSpeed" },
+      { quickId: "todayQuickCardioIncline", sourceId: "cardioIncline" }
+    ];
+
+    function getBasisUiLabel(basisId){
+      return basisId === "activity" ? "활동량 기준" : "가이드 기준";
+    }
+
+    function formatTodayQuickNumber(value, digits = 0){
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return "-";
+      return digits > 0 ? round(numeric, digits).toLocaleString(undefined, { maximumFractionDigits: digits }) : Math.round(numeric).toLocaleString();
+    }
+
+    function formatTodayQuickCardioSummary(s){
+      const duration = Math.max(0, Number(s?.cardioDuration) || 0);
+      if (duration <= 0) return "없음";
+      const typeLabel = CARDIO_TYPES[s?.cardioType]?.label || "유산소";
+      const speed = Number(s?.cardioSpeed);
+      const incline = Number(s?.cardioIncline);
+      const parts = [`${typeLabel} ${Math.round(duration)}분`];
+      if (Number.isFinite(speed) && speed > 0) parts.push(`${round(speed, 1)} km/h`);
+      if (s?.cardioType !== "outdoor_run" && Number.isFinite(incline) && incline > 0) parts.push(`${round(incline, 1)}%`);
+      return parts.join(" · ");
+    }
+
+    function formatTodayQuickWeightSummary(s){
+      const routine = getRoutineEntry(s?.routine || state.routine);
+      const duration = Math.max(0, Number(s?.weightDuration) || 0);
+      if (routine?.value === "REST" || duration <= 0) return "휴식";
+      return `${routine?.label || "운동"} · ${Math.round(duration)}분`;
+    }
+
+    function syncTodayQuickEditControls(){
+      TODAY_QUICK_EDIT_FIELD_MAP.forEach(({ quickId, sourceId }) => {
+        const quick = document.getElementById(quickId);
+        const source = ids[sourceId];
+        if (!quick || !source) return;
+        if (quick.value !== source.value) quick.value = source.value;
+        quick.disabled = !!source.disabled;
+      });
+      syncTodayQuickRoutineControls();
+    }
+
+    function renderTodayQuickSelectOptions(select, items, currentValue){
+      if (!select) return;
+      const safeItems = Array.isArray(items) && items.length ? items : [{ value: "", label: "-" }];
+      const nextHtml = safeItems.map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`).join("");
+      if (select.innerHTML !== nextHtml) select.innerHTML = nextHtml;
+      const hasCurrent = safeItems.some(item => item.value === currentValue);
+      select.value = hasCurrent ? currentValue : safeItems[0].value;
+    }
+
+    function getTodayQuickRoutineItems(){
+      const modeCfg = getModeRuntimeConfig();
+      if (modeCfg.inputDepth === "basic" && !state.generalAdvancedSettings) {
+        return [
+          { value: "REST", label: "휴식" },
+          { value: "PUSH", label: "운동" }
+        ];
+      }
+      return getRoutineItems();
+    }
+
+    function syncTodayQuickRoutineControls(){
+      const planSelect = document.getElementById("todayQuickRoutinePlan");
+      const sessionSelect = document.getElementById("todayQuickRoutineSession");
+      if (!planSelect || !sessionSelect) return;
+      const modeCfg = getModeRuntimeConfig();
+      const isSimpleGeneral = modeCfg.inputDepth === "basic" && !state.generalAdvancedSettings;
+      const planItems = isSimpleGeneral
+        ? [{ value: state.routinePlan || "ppl_ul", label: "일반인 기본" }]
+        : Object.entries(ROUTINE_SCHEMES).map(([value, scheme]) => ({ value, label: scheme.label }));
+      renderTodayQuickSelectOptions(planSelect, planItems, state.routinePlan);
+      planSelect.disabled = isSimpleGeneral;
+
+      const sessionItems = getTodayQuickRoutineItems();
+      if (!sessionItems.some(item => item.value === state.routine)) {
+        const firstTraining = sessionItems.find(item => item.value !== "REST") ?? sessionItems[0];
+        setRoutineFromCurrentPlan(firstTraining.value);
+      }
+      renderTodayQuickSelectOptions(sessionSelect, sessionItems, state.routine);
+    }
+
+    function renderTodayCalculationBasisSummary(result, showPlaceholder){
+      const host = document.getElementById("todayCalcSummary");
+      if (!host) return;
+      if (showPlaceholder || !result?.s) {
+        host.innerHTML = `
+          <div class="today-calc-summary-item">
+            <div class="summary-label">오늘 계산 기준</div>
+            <div class="summary-value">입력 확인 필요</div>
+          </div>
+        `;
+        return;
+      }
+      const s = result.s;
+      const basisLabel = getBasisUiLabel(result.selectedMacroBasis || result.dualBasis?.selectedBasis);
+      const rows = [
+        ["목표", GOALS[s.goal]?.label || "-"],
+        ["모드", `${getModeRuntimeConfig().label} 모드`],
+        ["선택 기준", basisLabel],
+        ["계산용 체중", `${formatTodayQuickNumber(s.weight, 1)} kg`],
+        ["활동량", ACTIVITY_LABELS[s.activityLevel] || "-"],
+        ["업무 유형", WORK_TYPE_LABELS[s.workType] || "-"],
+        ["오늘 웨이트", formatTodayQuickWeightSummary(s)],
+        ["유산소", formatTodayQuickCardioSummary(s)]
+      ];
+      host.innerHTML = rows.map(([label, value]) => `
+        <div class="today-calc-summary-item">
+          <div class="summary-label">${escapeHtml(label)}</div>
+          <div class="summary-value">${escapeHtml(value)}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderTodayQuickEditResultSummary(result, showPlaceholder){
+      const host = document.getElementById("todayQuickEditResultSummary");
+      if (!host) return;
+      if (showPlaceholder || !result?.isCalculable) {
+        host.innerHTML = `
+          <div class="basis">현재 기준</div>
+          <div class="macro-line">입력값을 확인하면 결과가 표시됩니다.</div>
+        `;
+        return;
+      }
+      const basisLabel = getBasisUiLabel(result.selectedMacroBasis || result.dualBasis?.selectedBasis);
+      host.innerHTML = `
+        <div class="basis">현재 기준: ${escapeHtml(basisLabel)}</div>
+        <div class="macro-line">목표 ${Math.round(result.targetCal).toLocaleString()}kcal · 단백질 ${Math.round(result.protein).toLocaleString()}g · 탄수 ${Math.round(result.carbs).toLocaleString()}g · 지방 ${Math.round(result.fat).toLocaleString()}g</div>
+      `;
+    }
+
+    function renderTodayQuickEditUi(result, showPlaceholder){
+      syncTodayQuickEditControls();
+      renderTodayCalculationBasisSummary(result, showPlaceholder);
+      renderTodayQuickEditResultSummary(result, showPlaceholder);
+    }
+
+    function setTodayQuickEditOpen(open){
+      const panel = document.getElementById("todayQuickEditPanel");
+      const button = document.getElementById("todayQuickEditToggle");
+      if (!panel || !button) return;
+      panel.classList.toggle("hidden", !open);
+      panel.setAttribute("aria-hidden", String(!open));
+      button.setAttribute("aria-expanded", String(open));
+      if (open) {
+        syncTodayQuickEditControls();
+        renderTodayQuickEditResultSummary(calculate(), false);
+      }
+    }
+
+    function isTodayQuickEditOpen(){
+      const panel = document.getElementById("todayQuickEditPanel");
+      return !!panel && !panel.classList.contains("hidden");
+    }
+
+    function handleTodayQuickEditChange(event){
+      const quick = event?.currentTarget;
+      const field = TODAY_QUICK_EDIT_FIELD_MAP.find(item => item.quickId === quick?.id);
+      if (!field || !ids[field.sourceId]) return;
+      ids[field.sourceId].value = quick.value;
+      render();
+    }
+
+    function handleTodayQuickRoutinePlanChange(event){
+      const nextPlan = event?.currentTarget?.value;
+      if (!nextPlan || !ROUTINE_SCHEMES[nextPlan]) return;
+      state.routinePlan = nextPlan;
+      ids.routinePlan.value = nextPlan;
+      const firstTraining = getRoutineItems().find(item => item.value !== "REST") ?? getRoutineItems()[0];
+      setRoutineFromCurrentPlan(firstTraining.value);
+      state.renderedRoutineKey = "";
+      render();
+    }
+
+    function handleTodayQuickRoutineSessionChange(event){
+      const nextRoutine = event?.currentTarget?.value;
+      if (!nextRoutine) return;
+      setRoutineFromCurrentPlan(nextRoutine);
+      state.renderedRoutineKey = "";
+      render();
+    }
+
+    function syncQuickSettingsUI(){
+      ["general", "athlete", "expert"].forEach(mode => {
+        const button = document.getElementById(`quickMode${mode.charAt(0).toUpperCase()}${mode.slice(1)}`);
+        if (!button) return;
+        button.classList.toggle("active", state.mode === mode);
+        button.setAttribute("aria-pressed", state.mode === mode ? "true" : "false");
+      });
+      syncTodayQuickEditControls();
+    }
 
     function adherenceLabel(value){
       return { high: "상", medium: "중", low: "하" }[value] || "중";
@@ -17169,7 +17633,7 @@ Notes:
       document.getElementById("tabInbody").textContent = "InBody";
       document.getElementById("tabSettings").textContent = "기본 설정";
       document.getElementById("todayModeMini").textContent = `${getModeRuntimeConfig().label} 모드`;
-      document.getElementById("todaySettingsBtn").textContent = "계산 기준 설정";
+      document.getElementById("todaySettingsBtn").textContent = "전체 설정";
       syncGeneralModeDefaults();
       syncWorkAdjBounds();
       updateModeUI();
@@ -17194,6 +17658,7 @@ Notes:
 
       const result = calculate();
       const showPlaceholder = !result.isCalculable;
+      renderTodayQuickEditUi(result, showPlaceholder);
       const displayedTargetCal = showPlaceholder
         ? 0
         : Math.round(result.targetCal);
@@ -17393,6 +17858,18 @@ Notes:
         renderWeeklyPanel(calculate());
       });
       document.getElementById("todaySettingsBtn").addEventListener("click", openCalculationSettings);
+      document.getElementById("todayQuickEditToggle")?.addEventListener("click", () => {
+        setTodayQuickEditOpen(!isTodayQuickEditOpen());
+      });
+      document.getElementById("todayQuickEditClose")?.addEventListener("click", () => setTodayQuickEditOpen(false));
+      TODAY_QUICK_EDIT_FIELD_MAP.forEach(({ quickId }) => {
+        const quickInput = document.getElementById(quickId);
+        if (!quickInput) return;
+        quickInput.addEventListener("input", handleTodayQuickEditChange);
+        quickInput.addEventListener("change", handleTodayQuickEditChange);
+      });
+      document.getElementById("todayQuickRoutinePlan")?.addEventListener("change", handleTodayQuickRoutinePlanChange);
+      document.getElementById("todayQuickRoutineSession")?.addEventListener("change", handleTodayQuickRoutineSessionChange);
       document.addEventListener("click", event => {
         const trigger = event.target.closest("[data-open-calculation-settings]");
         if (!trigger) return;
@@ -17571,6 +18048,7 @@ Notes:
         recordsDetailDate: uiState.recordsDetailDate,
         recordsDetailEditMode: uiState.recordsDetailEditMode,
         recordsDetailDraft: uiState.recordsDetailDraft ? JSON.stringify(uiState.recordsDetailDraft) : null,
+        todayQuickEditOpen: isTodayQuickEditOpen(),
         weight: ids.weight.value,
         height: ids.height.value,
         age: ids.age.value,
@@ -17660,6 +18138,7 @@ Notes:
         document.body.classList.remove("record-start-open");
         setTodayRecordStartFeedback("", "");
         render();
+        setTodayQuickEditOpen(snapshot.todayQuickEditOpen);
       }
     }
 
@@ -21366,9 +21845,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("A4 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A5.11"), "document title should show v6.6-A5.11");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.11"), "app version badge should show v6.6-A5.11");
+        results.push(runNamedTest("C2 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C2"), "document title should show v6.6-C2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C2"), "app version badge should show v6.6-C2");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22105,7 +22584,7 @@ Notes:
           const button = document.getElementById("todayCalcSettingsBtn");
           const topButton = document.getElementById("todaySettingsBtn");
           assertTest(!!card && !!button && !!topButton, "Today calculation settings CTAs should exist");
-          assertIncludesAll(card.textContent || "", ["계산 기준 설정", "기본 입력 확인하기"], "Today should explain calculation settings");
+          assertIncludesAll(card.textContent || "", ["오늘 계산 기준", "빠른 수정", "전체 설정"], "Today should explain calculation shortcut");
           assertTest(getComputedStyle(topButton).display !== "none", "top calculation settings button should show on Today");
         }));
 
@@ -22216,6 +22695,278 @@ Notes:
         results.push(runNamedTest("calculation separation keeps fixed scoring and windows", () => {
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "calculation separation should not change scoring version");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "calculation separation should not change recent context windows");
+        }));
+
+        return results;
+      });
+    }
+
+    function runTodayQuickEditTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        function setQuickValue(id, value){
+          const input = document.getElementById(id);
+          assertTest(!!input, `${id} quick edit input should exist`);
+          input.value = String(value);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+
+        function setQuickSelectValue(id, value){
+          const input = document.getElementById(id);
+          assertTest(!!input, `${id} quick edit select should exist`);
+          input.value = String(value);
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+
+        results.push(runNamedTest("C2 Today calculation basis card and actions exist", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          render();
+          const card = document.getElementById("todayCalcSettingsCard");
+          const summary = document.getElementById("todayCalcSummary");
+          const quickButton = document.getElementById("todayQuickEditToggle");
+          const settingsButton = document.getElementById("todayCalcSettingsBtn");
+          assertTest(!!card && !!summary && !!quickButton && !!settingsButton, "Today quick edit card should render");
+          assertIncludesAll(card.textContent || "", ["오늘 계산 기준", "빠른 수정", "전체 설정", "계산용 체중", "활동량", "업무 유형", "오늘 웨이트", "유산소"], "Today quick edit card should expose the required user-facing labels");
+        }));
+
+        results.push(runNamedTest("C2 quick edit panel opens and closes", () => {
+          setActiveTab("today");
+          render();
+          setTodayQuickEditOpen(false);
+          document.getElementById("todayQuickEditToggle").click();
+          const panel = document.getElementById("todayQuickEditPanel");
+          assertTest(!panel.classList.contains("hidden"), "quick edit panel should open");
+          assertTest(document.getElementById("todayQuickEditToggle").getAttribute("aria-expanded") === "true", "quick edit toggle should expose expanded state");
+          document.getElementById("todayQuickEditClose").click();
+          assertTest(panel.classList.contains("hidden"), "quick edit panel should close");
+        }));
+
+        results.push(runNamedTest("C2 quick edit exposes only core calculation fields", () => {
+          setActiveTab("today");
+          render();
+          setTodayQuickEditOpen(true);
+          ["todayQuickWeight", "todayQuickActivityLevel", "todayQuickWorkType", "todayQuickWeightDuration", "todayQuickCardioType", "todayQuickCardioDuration", "todayQuickCardioSpeed", "todayQuickCardioIncline", "todayQuickRoutinePlan", "todayQuickRoutineSession"].forEach(id => {
+            assertTest(!!document.getElementById(id), `${id} should exist in quick edit`);
+          });
+          const panel = document.getElementById("todayQuickEditPanel");
+          assertTest(!panel.contains(ids.height), "quick edit should not include height input");
+          assertTest(!panel.contains(ids.age), "quick edit should not include age input");
+          assertTest(!panel.contains(ids.bodyFat), "quick edit should not include body composition input");
+          assertTest(!panel.contains(ids.skeletal), "quick edit should not include skeletal muscle input");
+          if (ids.expertLbmAlpha) assertTest(!panel.contains(ids.expertLbmAlpha), "quick edit should not include expert alpha input");
+        }));
+
+        results.push(runNamedTest("C2 calculation weight quick edit recalculates and syncs Settings input", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          render();
+          setTodayQuickEditOpen(true);
+          const before = calculate();
+          setQuickValue("todayQuickWeight", "82");
+          const after = calculate();
+          assertTest(ids.weight.value === "82", "quick calculation weight should sync canonical Settings input");
+          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal) && after.targetCal !== before.targetCal, "quick calculation weight should recalculate targetCal");
+          setActiveTab("settings");
+          render();
+          assertTest(document.getElementById("settingsCalculationPanel").contains(ids.weight), "Settings should still own canonical weight input");
+          assertTest(ids.weight.value === "82", "Settings weight input should show quick edit value");
+        }));
+
+        results.push(runNamedTest("C2 cardio duration quick edit recalculates selected result", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          uiState.selectedMacroBasis = "activity";
+          render();
+          setTodayQuickEditOpen(true);
+          const before = calculate();
+          setQuickValue("todayQuickCardioDuration", "90");
+          const after = calculate();
+          assertTest(ids.cardioDuration.value === "90", "quick cardio duration should sync canonical cardio duration");
+          assertTest(after.dualBasis?.selectedBasis === "activity", "selected activity basis should stay active after quick edit");
+          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal) && after.targetCal !== before.targetCal, "quick cardio duration should recalculate selected targetCal");
+        }));
+
+        results.push(runNamedTest("C2 routine plan quick edit syncs Settings and recalculates", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          state.mode = "athlete";
+          state.routinePlan = "ppl_ul";
+          ids.routinePlan.value = "ppl_ul";
+          state.routine = "PUSH";
+          render();
+          setTodayQuickEditOpen(true);
+          const before = calculate();
+          setQuickSelectValue("todayQuickRoutinePlan", "split2");
+          const after = calculate();
+          assertTest(state.routinePlan === "split2" && ids.routinePlan.value === "split2", "quick routine plan should sync canonical Settings routinePlan");
+          assertTest(ROUTINE_SCHEMES.split2.items.some(item => item.value === state.routine), "quick routine plan should choose a session from the selected plan");
+          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal), "routine plan change should keep target calculation finite");
+          setActiveTab("settings");
+          render();
+          assertTest(ids.routinePlan.value === "split2", "Settings routine plan should show quick edit value");
+        }));
+
+        results.push(runNamedTest("C2 routine session quick edit syncs canonical session", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          state.mode = "athlete";
+          state.routinePlan = "ppl_ul";
+          ids.routinePlan.value = "ppl_ul";
+          state.routine = "PUSH";
+          render();
+          setTodayQuickEditOpen(true);
+          const before = calculate();
+          setQuickSelectValue("todayQuickRoutineSession", "LEGS");
+          const after = calculate();
+          assertTest(state.routine === "LEGS", "quick routine session should sync canonical routine session");
+          assertClose(Number(ids.intensityOverride.value), 1.00, 0.0001, "LEGS session should sync canonical intensity");
+          assertTest(Number.isFinite(before.weightKcal) && Number.isFinite(after.weightKcal) && after.weightKcal !== before.weightKcal, "session change should update weight-related calculation");
+        }));
+
+        results.push(runNamedTest("C2 Settings routine edits refresh quick edit dropdowns", () => {
+          setActiveTab("settings");
+          setValidTodayBalanceTestInputs();
+          state.mode = "athlete";
+          render();
+          ids.routinePlan.value = "split3";
+          ids.routinePlan.dispatchEvent(new Event("change", { bubbles: true }));
+          setActiveTab("today");
+          render();
+          setTodayQuickEditOpen(true);
+          const planSelect = document.getElementById("todayQuickRoutinePlan");
+          const sessionSelect = document.getElementById("todayQuickRoutineSession");
+          assertTest(planSelect.value === "split3", "quick routine plan should reflect Settings routinePlan");
+          assertTest(Array.from(sessionSelect.options).some(option => option.value === state.routine), "quick session options should include current Settings session");
+        }));
+
+        results.push(runNamedTest("C2 routine quick edit supports general and expert modes", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          state.mode = "general";
+          state.generalAdvancedSettings = false;
+          render();
+          setTodayQuickEditOpen(true);
+          const generalPlan = document.getElementById("todayQuickRoutinePlan");
+          const generalSession = document.getElementById("todayQuickRoutineSession");
+          assertTest(generalPlan.disabled === true, "general basic mode should keep routine plan fixed");
+          assertTest(Array.from(generalSession.options).some(option => option.value === "REST"), "general basic mode should offer rest session");
+          assertTest(Array.from(generalSession.options).some(option => option.value === "PUSH"), "general basic mode should offer training session");
+          setQuickSelectValue("todayQuickRoutineSession", "REST");
+          assertTest(state.routine === "REST", "general session select should sync rest day");
+
+          state.mode = "expert";
+          state.generalAdvancedSettings = false;
+          state.routinePlan = "ppl_ul";
+          ids.routinePlan.value = "ppl_ul";
+          state.routine = "PUSH";
+          render();
+          setTodayQuickEditOpen(true);
+          const expertPlan = document.getElementById("todayQuickRoutinePlan");
+          const expertSession = document.getElementById("todayQuickRoutineSession");
+          assertTest(expertPlan.disabled === false, "expert mode should allow routine plan selection");
+          assertTest(expertSession.options.length >= ROUTINE_SCHEMES.ppl_ul.items.length, "expert mode should show plan session options");
+        }));
+
+        results.push(runNamedTest("C2 empty quick numeric edits do not expose NaN and recover", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          render();
+          setTodayQuickEditOpen(true);
+          ["todayQuickWeight", "todayQuickWeightDuration", "todayQuickCardioDuration", "todayQuickCardioSpeed", "todayQuickCardioIncline"].forEach(id => setQuickValue(id, ""));
+          assertExcludesAll(getRenderedBodyText(), ["NaN", "undefined"], "empty quick numeric inputs should not expose broken values");
+          setQuickValue("todayQuickWeight", "75");
+          setQuickValue("todayQuickWeightDuration", "60");
+          setQuickValue("todayQuickCardioDuration", "20");
+          setQuickValue("todayQuickCardioSpeed", "5");
+          setQuickValue("todayQuickCardioIncline", "8");
+          const recovered = calculate();
+          assertTest(recovered.isCalculable === true, "normal quick numeric values should recover calculation");
+          assertTest(document.getElementById("macroBasisRow") && !document.getElementById("macroBasisRow").classList.contains("hidden"), "guide/activity toggle should stay visible after recovery");
+        }));
+
+        results.push(runNamedTest("C2 guide activity basis stays wired to target remaining and adherence", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          uiState.selectedMacroBasis = "activity";
+          const today = getTodayDateString();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            recordMode: "detailed",
+            meals: [{
+              id: "c2-meal",
+              mealLabel: "meal",
+              carbs: 60,
+              protein: 35,
+              fat: 18,
+              alcoholKcal: 0,
+              otherKcal: 0,
+              memo: "",
+              createdAt: `${today}T08:00:00.000Z`
+            }]
+          }]);
+          render();
+          setTodayQuickEditOpen(true);
+          setQuickValue("todayQuickCardioDuration", "70");
+          const result = calculate();
+          const balance = getTodayMacroBalance(result);
+          const adherence = getTodayAdherenceScore(result);
+          assertTest(result.dualBasis?.selectedBasis === "activity", "activity basis should remain selected");
+          assertClose(balance.target.kcal, result.targetCal, 0.0001, "Today remaining target should use selected basis targetCal");
+          assertTest(adherence?.isAvailable === true, "adherence should remain available with selected basis result");
+          assertTest(document.getElementById("macroBasisRow") && !document.getElementById("macroBasisRow").classList.contains("hidden"), "guide/activity toggle should stay visible");
+        }));
+
+        results.push(runNamedTest("C2 quick edit does not touch records payload or storage schema", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          recordsState.items = normalizeRecordsCollection([{ date: "2026-05-01", weight: 75, adherence: "medium", note: "" }]);
+          const recordsBefore = JSON.stringify(recordsState.items);
+          render();
+          setTodayQuickEditOpen(true);
+          setQuickValue("todayQuickActivityLevel", "active");
+          setQuickValue("todayQuickWorkType", "mixed");
+          const recordsAfter = JSON.stringify(recordsState.items);
+          const storedRecords = readStoredValue("records") || "";
+          assertTest(recordsAfter === recordsBefore, "quick edit should not mutate records payload");
+          assertExcludesAll(recordsAfter + " " + storedRecords, ["todayQuick", "selectedMacroBasis", "uiState"], "quick edit should not add UI state to records storage");
+        }));
+
+        results.push(runNamedTest("C2 quick edit visible copy avoids internal terms", () => {
+          setActiveTab("today");
+          render();
+          setTodayQuickEditOpen(true);
+          const visibleText = [
+            document.getElementById("todayCalcSettingsCard")?.textContent || "",
+            document.getElementById("todayQuickEditPanel")?.textContent || ""
+          ].join(" ");
+          assertExcludesAll(visibleText, [
+            "routinePlan",
+            "routineSession",
+            "macro gap",
+            "hard cap",
+            "soft range",
+            "floor",
+            "reflection",
+            "policy",
+            "targetBurnBase",
+            "helper",
+            "confidence",
+            "schema",
+            "selectedBasis",
+            "uiState",
+            "source of truth"
+          ], "quick edit user-facing copy should not expose internal terms");
+        }));
+
+        results.push(runNamedTest("C2 protected calculation and context constants remain unchanged", () => {
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "quick edit should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "quick edit should not change recent context windows");
+          assertTest(JSON.stringify(CARDIO_TARGET_REFLECTION_RATES) === JSON.stringify({ diet: 0.4, lean_bulk: 0.6, bulk: 0.8 }), "quick edit should not change cardio reflection rates");
+          assertTest(typeof generateDailyCoachOutput === "function", "Coach decision path should remain available");
+          assertTest(typeof buildRecentContext === "function", "recent context should remain available");
+          assertTest(typeof buildInbodyTrendContext === "function", "InBody trend context should remain available");
         }));
 
         return results;
@@ -28031,6 +28782,7 @@ Notes:
           assertTest(typeof window.runTargetMacroJointExpandedScan === "function", "runTargetMacroJointExpandedScan should be exported");
           assertTest(typeof window.runTargetMacroJointExpandedScanTests === "function", "runTargetMacroJointExpandedScanTests should be exported");
           assertTest(typeof window.runMacroAllocationExplanationTests === "function", "runMacroAllocationExplanationTests should be exported");
+          assertTest(typeof window.runTodayQuickEditTests === "function", "runTodayQuickEditTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
         }));
@@ -34140,6 +34892,7 @@ Notes:
     window.runRecordsInlineEditTests = runRecordsInlineEditTests;
     window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runCalculationInputSeparationTests = runCalculationInputSeparationTests;
+    window.runTodayQuickEditTests = runTodayQuickEditTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
     window.runGoalAwareCopyRegressionTests = runGoalAwareCopyRegressionTests;
     window.runCoachAdherenceCopySeparationTests = runCoachAdherenceCopySeparationTests;
