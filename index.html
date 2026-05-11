@@ -1,22 +1,29 @@
 <!--
-Version: 6.6-A5.10
-Stage: 6.6-A5.10 가이드 기준 / 활동량 기준 산식표 및 UI 설계 QA
+Version: 6.6-A5.11
+Stage: 6.6-A5.11 dual basis production 구현
 Date: 2026-05-11
 Notes:
+- A5.11 dual basis production 구현
+- calculate()는 guide/activity dualBasis를 생성하고 selected basis를 active target/macro로 사용
+- 기본값은 가이드 기준이며, 카드 안 mini toggle은 항상 표시
+- 가이드 기준은 스포츠 영양 권장 범위 안에서 기본으로 따라가기 좋은 탄단지로 표시
+- 활동량 기준은 오늘 입력한 활동량이 실제라면 이론적으로 맞춰야 할 총에너지로 표시
+- Today targetCal / macro / remaining / adherence 기준은 선택된 basis를 따름
+- selected basis는 uiState/session 범위만 사용하고 저장 schema / import-export에는 저장하지 않음
 - A5.10 report-only guide/activity dual-basis 산식표 및 카드 안 mini toggle UI 설계 helper 추가
 - 가이드 기준은 스포츠 영양 권장 범위 안에서 기본으로 따라가기 좋은 탄단지로 정의
 - 활동량 기준은 오늘 입력한 활동량이 실제라면 이론적으로 맞춰야 할 총에너지로 정의
-- production calculate(), targetCal, macro, score, Coach, recentContext, InBody, schema 변경 없음
+- score 산식 자체는 변경 없음
+- Coach decision matrix / recentContext / InBody gate / 저장 schema / import-export 변경 없음
+- cardioKcal / totalBurn / BMR / activity / work / weight / weeklyTrainingBaselineKcal 산식 변경 없음
 - A5.9 report-only 목표별 energy target / macro allocation 철학 재검증 helper 추가
 - A5.8 lean/bulk target floor + goal-aware soft macro production 후보는 비교 기준으로 유지
 - totalBurn 기반 목표 산식, cardio reflection, hard cap/soft range/no cap, protein range 후보 비교
 - lean_bulk / bulk targetCal floor production 후보 적용
 - lean_bulk / bulk goal-aware soft macro range production 후보 적용
 - diet targetCal / diet macro hard cap 유지
-- totalBurn / cardioKcal / weightKcal / weeklyTrainingBaselineKcal 산식 변경 없음
 - CARDIO_TARGET_REFLECTION_RATES / GOALS factor·delta / EXTREME_CASE_ADJUST 상수 변경 없음
-- 점수 산식 / Coach decision matrix / recentContext / InBody gate / 저장 schema 변경 없음
-- ADHERENCE_SCORING_VERSION 및 alcohol penalty/cap 유지
+- ADHERENCE_SCORING_VERSION / RECENT_CONTEXT_WINDOWS 및 alcohol penalty/cap 유지
 - A5.1 남는 kcal 설명층 유지
 -->
 <!doctype html>
@@ -24,7 +31,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-A5.10</title>
+  <title>탄단지 다이어리 v6.6-A5.11</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -1765,6 +1772,105 @@ Notes:
       font-size:12px;
       line-height:1.5;
       color:#5f6d7b;
+    }
+    .macro-basis-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin:-2px 0 8px;
+    }
+    .macro-basis-toggle{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      padding:4px;
+      border-radius:999px;
+      background:rgba(23,50,77,.07);
+      border:1px solid color-mix(in srgb, var(--line) 78%, white 22%);
+    }
+    .macro-basis-btn{
+      min-height:30px;
+      padding:0 12px;
+      border:none;
+      border-radius:999px;
+      background:transparent;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:900;
+      letter-spacing:0;
+      white-space:nowrap;
+      cursor:pointer;
+    }
+    .macro-basis-recommend{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      margin-left:4px;
+      padding:2px 6px;
+      border-radius:999px;
+      background:rgba(42,163,153,.12);
+      color:var(--teal);
+      font-size:10px;
+      line-height:1;
+      font-weight:900;
+    }
+    .macro-basis-btn.active{
+      background:var(--deep);
+      color:#fff;
+      box-shadow:0 8px 18px rgba(23,50,77,.16);
+    }
+    .macro-basis-btn.active .macro-basis-recommend{
+      background:rgba(255,255,255,.18);
+      color:#fff;
+    }
+    .macro-basis-help{
+      width:30px;
+      height:30px;
+      border-radius:999px;
+      border:1px solid color-mix(in srgb, var(--line) 80%, white 20%);
+      background:rgba(255,255,255,.76);
+      color:var(--deep);
+      font-size:13px;
+      font-weight:900;
+      line-height:1;
+      cursor:pointer;
+    }
+    .macro-basis-description{
+      margin:0 0 8px;
+      font-size:12px;
+      line-height:1.5;
+      color:var(--muted);
+    }
+    .macro-basis-helptext{
+      margin:0 0 10px;
+      padding:12px 14px;
+      border-radius:16px;
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      background:rgba(255,255,255,.72);
+      color:var(--ink);
+      font-size:12px;
+      line-height:1.55;
+    }
+    .macro-basis-helptext strong{
+      display:block;
+      margin-bottom:6px;
+      color:var(--deep);
+      font-size:12px;
+    }
+    .macro-basis-helptext ul{
+      margin:0;
+      padding-left:18px;
+    }
+    .macro-basis-helptext li + li{
+      margin-top:4px;
+    }
+    #kpiPanel .macro-sublabel{
+      margin-top:5px;
+      font-size:10.5px;
+      line-height:1.3;
+      font-weight:800;
+      color:color-mix(in srgb, var(--muted) 88%, var(--deep) 12%);
     }
     #kpiPanel .kpi-grid{
       grid-template-columns:repeat(2,minmax(0,1fr));
@@ -4768,7 +4874,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-A5.10</span>
+               <span class="app-version">v6.6-A5.11</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -4893,6 +4999,22 @@ Notes:
                 </label>
               </div>
             </div>
+            <div class="macro-basis-row hidden" id="macroBasisRow">
+              <div class="macro-basis-toggle" role="group" aria-label="목표 탄단지 기준 선택">
+                <button class="macro-basis-btn active" type="button" data-macro-basis="guide">가이드 기준 <span class="macro-basis-recommend">권장</span></button>
+                <button class="macro-basis-btn" type="button" data-macro-basis="activity">활동량 기준</button>
+              </div>
+              <button class="macro-basis-help" id="macroBasisHelp" type="button" aria-expanded="false" aria-controls="macroBasisHelpText" title="두 기준이 다른 이유">?</button>
+            </div>
+            <div class="macro-basis-description hidden" id="macroBasisDescription"></div>
+            <div class="macro-basis-helptext hidden" id="macroBasisHelpText">
+              <strong>두 기준이 다른 이유</strong>
+              <ul>
+                <li>가이드 기준은 스포츠 영양 권장 범위 안에서 따라가기 쉬운 값을 보여줍니다.</li>
+                <li>활동량 기준은 오늘 입력한 활동량과 운동량을 모두 칼로리로 반영한 값입니다.</li>
+                <li>운동량이 큰 날에는 활동량 기준이 더 높게 나올 수 있습니다. 이 경우 입력이 틀렸다는 뜻이 아니라, 목표 칼로리를 모두 채우려면 탄수화물이나 지방이 일반 권장 범위를 넘을 수 있다는 뜻입니다.</li>
+              </ul>
+            </div>
             <div class="kpi-panel-note hidden" id="kpiExtremeNote">목표 칼로리가 매우 높아 탄단지는 현실적인 범위까지만 표시했습니다. 식단은 아래 탄단지 g을 우선 기준으로 보세요.</div>
             <div class="kpi-grid">
               <div class="kpi target">
@@ -4906,16 +5028,19 @@ Notes:
                 <div class="big" id="protein">0</div>
                 <div class="label"><span class="macro-badge protein">단</span>단백질</div>
                 <div class="sub" id="proteinPct">0%</div>
+                <div class="macro-sublabel" id="proteinBasisSub">-</div>
               </div>
               <div class="kpi carb">
                 <div class="big" id="carbs">0</div>
                 <div class="label"><span class="macro-badge carbs">탄</span>탄수화물</div>
                 <div class="sub" id="carbPct">0%</div>
+                <div class="macro-sublabel" id="carbBasisSub">-</div>
               </div>
               <div class="kpi fat">
                 <div class="big" id="fat">0</div>
                 <div class="label"><span class="macro-badge fat">지</span>지방</div>
                 <div class="sub" id="fatPct">0%</div>
+                <div class="macro-sublabel" id="fatBasisSub">-</div>
               </div>
             </div>
           </div>
@@ -6071,6 +6196,7 @@ Notes:
     };
     const uiState = {
       activeTab: "today",
+      selectedMacroBasis: "guide",
       recordsMealsExpanded: false,
       recordsDetailDate: null,
       recordsDetailEditMode: false,
@@ -6229,6 +6355,7 @@ Notes:
       localStorage.removeItem(storageKey("inbodyRecords"));
       Object.assign(state, { ...DEFAULT_STATE, renderedRoutineKey: "", renderedGoalKey: "" });
       uiState.activeTab = "today";
+      uiState.selectedMacroBasis = "guide";
       recordsState.items = [];
       recordsState.feedback = null;
       state.weeklyTrainingDaysManual = false;
@@ -7324,10 +7451,7 @@ Notes:
       const fatFloor = macroPlan.fatBaseline;
       const finalEffectiveGoalFactor = targetBurnBase > 0 ? finalTargetCal / targetBurnBase : appliedGoalFactor;
 
-      const pctProtein = finalTargetCal > 0 ? round(protein * 4 / finalTargetCal * 100) : 0;
-      const pctCarb = finalTargetCal > 0 ? round(carbs * 4 / finalTargetCal * 100) : 0;
-      const pctFat = finalTargetCal > 0 ? round(fat * 9 / finalTargetCal * 100) : 0;
-      const macroAllocationInfo = buildMacroAllocationInfo({
+      const legacyA58MacroAllocationInfo = buildMacroAllocationInfo({
         targetCal: finalTargetCal,
         protein,
         carbs,
@@ -7338,6 +7462,45 @@ Notes:
         fatPracticalCeilingG,
         proteinCap: macroPlan.proteinCap,
         plausibility: macroPlan
+      });
+      const legacyA58 = {
+        targetCal: finalTargetCal,
+        protein,
+        carbs,
+        fat,
+        pctProtein: finalTargetCal > 0 ? round(protein * 4 / finalTargetCal * 100) : 0,
+        pctCarb: finalTargetCal > 0 ? round(carbs * 4 / finalTargetCal * 100) : 0,
+        pctFat: finalTargetCal > 0 ? round(fat * 9 / finalTargetCal * 100) : 0,
+        macroAllocationInfo: legacyA58MacroAllocationInfo,
+        macroPlan,
+        goalTargetFloorContext
+      };
+      const dualBasis = buildDualBasisProduction(buildDualBasisCurrentContext({
+        s,
+        totalBurn,
+        targetCal: finalTargetCal,
+        protein,
+        carbs,
+        fat
+      }, legacyA58));
+      const selectedBasis = dualBasis.selected || dualBasis.guide;
+      const selectedTargetCal = Math.max(0, selectedBasis.targetCal || 0);
+      const selectedProtein = Math.max(0, selectedBasis.protein || 0);
+      const selectedCarbs = Math.max(0, selectedBasis.carbs || 0);
+      const selectedFat = Math.max(0, selectedBasis.fat || 0);
+      const pctProtein = selectedTargetCal > 0 ? round(selectedProtein * 4 / selectedTargetCal * 100) : 0;
+      const pctCarb = selectedTargetCal > 0 ? round(selectedCarbs * 4 / selectedTargetCal * 100) : 0;
+      const pctFat = selectedTargetCal > 0 ? round(selectedFat * 9 / selectedTargetCal * 100) : 0;
+      const macroAllocationInfo = buildMacroAllocationInfo({
+        targetCal: selectedTargetCal,
+        protein: selectedProtein,
+        carbs: selectedCarbs,
+        fat: selectedFat,
+        carbCap: dualBasis.rangeContext?.carbs?.max ? dualBasis.rangeContext.carbs.max * Math.max(1, Number(s.weight) || 1) : undefined,
+        fatHardCap: dualBasis.rangeContext?.fat?.flexibleMax ? dualBasis.rangeContext.fat.flexibleMax * Math.max(1, Number(s.weight) || 1) : undefined,
+        fatCap: dualBasis.rangeContext?.fat?.max ? dualBasis.rangeContext.fat.max * Math.max(1, Number(s.weight) || 1) : undefined,
+        fatPracticalCeilingG: dualBasis.rangeContext?.fat?.flexibleMax ? dualBasis.rangeContext.fat.flexibleMax * Math.max(1, Number(s.weight) || 1) : undefined,
+        proteinCap: dualBasis.rangeContext?.protein?.max ? dualBasis.rangeContext.protein.max * Math.max(1, Number(s.weight) || 1) : undefined
       });
 
       const infoNotes = [];
@@ -7382,7 +7545,7 @@ Notes:
       }
 
       const dietMinimumFat = fatPhysioFloorG;
-      if (s.goal === "diet" && fat + 1e-6 < dietMinimumFat){
+      if (s.goal === "diet" && selectedFat + 1e-6 < dietMinimumFat){
         dangerNotes.push("지방이 성별 기준 하한보다 낮게 계산됩니다. 현재 목표 칼로리가 너무 공격적일 수 있습니다.");
       }
       if (pctFat < 20 && s.goal === "diet"){
@@ -7396,7 +7559,7 @@ Notes:
       } else if (extremeIterations > 0){
         cautionNotes.push(`현실성 상한에 걸려 목표 칼로리를 ${extremeIterations}회 보수적으로 다시 계산했습니다.`);
       }
-      if (carbs / Math.max(1, s.weight) > (macroPlan.carbsCapKg ?? getCarbsPlausibilityCapKg(state.mode))){
+      if (selectedCarbs / Math.max(1, s.weight) > 12){
         cautionNotes.push("탄수화물이 꽤 높게 잡혔습니다. 실제 운동량이 이 정도인지 한 번 더 확인해 보세요.");
       }
       if (s.goal === "bulk" && clampedGoalDelta > 420){
@@ -7446,29 +7609,42 @@ Notes:
         goalTargetFloorApplied: goalTargetFloorContext.applied,
         goalTargetFloorDelta: goalTargetFloorContext.delta,
         goalTargetFloorContext,
-        targetCal: finalTargetCal,
+        targetCal: selectedTargetCal,
+        legacyA58,
+        dualBasis,
+        selectedMacroBasis: dualBasis.selectedBasis,
         goalClampUsed,
         targetFloorUsed,
         appliedGoalFactor,
-        effectiveGoalFactor: finalEffectiveGoalFactor,
+        effectiveGoalFactor: targetBurnBase > 0 ? selectedTargetCal / targetBurnBase : appliedGoalFactor,
         baseGoalFactor,
         goalFactorAdjustment,
-        proteinBasisWeight,
-        proteinKgApplied,
-        protein,
-        carbs,
-        fat,
+        proteinBasisWeight: Math.max(1, Number(s.weight) || proteinBasisWeight),
+        proteinKgApplied: Math.max(1, Number(s.weight) || proteinBasisWeight) > 0 ? selectedProtein / Math.max(1, Number(s.weight) || proteinBasisWeight) : proteinKgApplied,
+        protein: selectedProtein,
+        carbs: selectedCarbs,
+        fat: selectedFat,
         pctProtein,
         pctCarb,
         pctFat,
         macroAllocationInfo,
-        carbCap,
-        fatTargetG,
-        fatTargetRange,
+        carbCap: dualBasis.rangeContext?.carbs?.max ? dualBasis.rangeContext.carbs.max * Math.max(1, Number(s.weight) || 1) : carbCap,
+        fatTargetG: selectedFat,
+        fatTargetRange: {
+          min: (dualBasis.rangeContext?.fat?.min || 0) * Math.max(1, Number(s.weight) || 1),
+          max: (dualBasis.rangeContext?.fat?.max || 0) * Math.max(1, Number(s.weight) || 1)
+        },
         fatPhysioFloorG,
         fatActionFloorG,
-        fatPracticalCeilingG,
-        fatTargetContext,
+        fatPracticalCeilingG: (dualBasis.rangeContext?.fat?.flexibleMax || 0) * Math.max(1, Number(s.weight) || 1),
+        fatTargetContext: {
+          ...fatTargetContext,
+          fatTargetMinG: (dualBasis.rangeContext?.fat?.min || 0) * Math.max(1, Number(s.weight) || 1),
+          fatTargetMaxG: (dualBasis.rangeContext?.fat?.max || 0) * Math.max(1, Number(s.weight) || 1),
+          fatTargetPreferredG: selectedFat,
+          fatPracticalCeilingG: (dualBasis.rangeContext?.fat?.flexibleMax || 0) * Math.max(1, Number(s.weight) || 1),
+          fatPctApplied: pctFat
+        },
         fatFloor,
         fatSoftCap: macroPlan.fatSoftCap,
         fatHardCap: macroPlan.fatHardCap,
@@ -13196,7 +13372,10 @@ Notes:
         return;
       }
       const goalPercent = Math.round(r.effectiveGoalFactor * 1000) / 10;
-      const goalText = state.mode === "general"
+      const basisLabel = r.dualBasis?.selectedBasis === "activity" ? "활동량 기준" : "가이드 기준";
+      const goalText = r.dualBasis
+        ? `${basisLabel}으로 오늘 목표와 권장 탄단지를 표시합니다. ${r.dualBasis.selected?.description || ""}`
+        : state.mode === "general"
         ? `${GOALS[r.s.goal].label} 목표에 맞춰 오늘 총 소비보다 ${Math.round(r.clampedGoalDelta).toLocaleString()} kcal 조정했습니다.`
         : `${GOALS[r.s.goal].label} 목표에 맞춰 최종 적용 배율은 ${goalPercent}%입니다. 제지방량 반영 비율과 현실성 가드를 함께 반영해 과한 분배를 막습니다.`;
 
@@ -13585,6 +13764,47 @@ Notes:
       noteHost.innerHTML = balance.isGoalAvailable
         ? `<div class="mini-note">막대는 목표 대비 오늘 섭취 비율입니다. 남은 값이 음수면 초과로 표시됩니다.</div>`
         : `<div class="warn warn"><h4>오늘 목표 확인</h4><ul><li>오늘 목표가 계산되어야 남은 양을 표시할 수 있습니다. 체중, 키, 나이 같은 기본 입력을 먼저 확인해 주세요.</li></ul></div>`;
+    }
+
+    function renderMacroBasisUi(result, showPlaceholder){
+      const basis = result?.dualBasis;
+      const row = document.getElementById("macroBasisRow");
+      const desc = document.getElementById("macroBasisDescription");
+      const help = document.getElementById("macroBasisHelp");
+      const helpText = document.getElementById("macroBasisHelpText");
+      const proteinSub = document.getElementById("proteinBasisSub");
+      const carbSub = document.getElementById("carbBasisSub");
+      const fatSub = document.getElementById("fatBasisSub");
+      const isAvailable = !showPlaceholder && !!basis?.selected;
+      if (!isAvailable) {
+        row?.classList.add("hidden");
+        desc?.classList.add("hidden");
+        helpText?.classList.add("hidden");
+        if (help) {
+          help.classList.add("hidden");
+          help.setAttribute("aria-expanded", "false");
+        }
+        if (proteinSub) proteinSub.textContent = "-";
+        if (carbSub) carbSub.textContent = "-";
+        if (fatSub) fatSub.textContent = "-";
+        return;
+      }
+      const selectedId = basis.selectedBasis || "guide";
+      row?.classList.remove("hidden");
+      if (desc) {
+        desc.textContent = basis.selected.description || "";
+        desc.classList.remove("hidden");
+      }
+      if (help) {
+        help.classList.remove("hidden");
+      }
+      document.querySelectorAll("[data-macro-basis]").forEach(button => {
+        button.classList.toggle("active", button.dataset.macroBasis === selectedId);
+        button.setAttribute("aria-pressed", button.dataset.macroBasis === selectedId ? "true" : "false");
+      });
+      if (proteinSub) proteinSub.textContent = basis.macroSubLabels?.protein || "";
+      if (carbSub) carbSub.textContent = basis.macroSubLabels?.carbs || "";
+      if (fatSub) fatSub.textContent = basis.macroSubLabels?.fat || "";
     }
 
     const ADHERENCE_MACRO_CARD_CONFIG = [
@@ -16976,11 +17196,7 @@ Notes:
       const showPlaceholder = !result.isCalculable;
       const displayedTargetCal = showPlaceholder
         ? 0
-        : Math.round(
-          result.extremeCase
-            ? (result.protein * 4) + (result.carbs * 4) + (result.fat * 9)
-            : result.targetCal
-        );
+        : Math.round(result.targetCal);
       const displayedPctProtein = showPlaceholder || displayedTargetCal <= 0
         ? 0
         : Math.round(result.protein * 4 / displayedTargetCal * 100);
@@ -16991,6 +17207,7 @@ Notes:
         ? 0
         : Math.round(result.fat * 9 / displayedTargetCal * 100);
       const kpiExtremeNote = document.getElementById("kpiExtremeNote");
+      renderMacroBasisUi(result, showPlaceholder);
       const macroAllocationInfo = result.macroAllocationInfo || buildMacroAllocationInfo(result);
       const macroAllocationKpiNote = renderMacroAllocationNote(macroAllocationInfo, "kpi");
       if (!showPlaceholder && macroAllocationInfo.shouldShowKpiNote && macroAllocationKpiNote) {
@@ -16998,7 +17215,7 @@ Notes:
         kpiExtremeNote.classList.remove("hidden");
       } else {
         kpiExtremeNote.textContent = "목표 칼로리가 매우 높아 탄단지는 현실적인 범위까지만 표시했습니다. 식단은 아래 탄단지 g을 우선 기준으로 보세요.";
-        kpiExtremeNote.classList.toggle("hidden", showPlaceholder || !result.extremeCase);
+        kpiExtremeNote.classList.toggle("hidden", showPlaceholder || !!result.dualBasis || !result.extremeCase);
       }
 
       document.getElementById("targetCal").textContent = showPlaceholder ? "—" : displayedTargetCal.toLocaleString();
@@ -17147,6 +17364,20 @@ Notes:
       document.getElementById("tabSettings").addEventListener("click", () => {
         setActiveTab("settings");
         saveState();
+      });
+      document.querySelectorAll("[data-macro-basis]").forEach(button => {
+        button.addEventListener("click", () => {
+          uiState.selectedMacroBasis = button.dataset.macroBasis === "activity" ? "activity" : "guide";
+          render();
+        });
+      });
+      document.getElementById("macroBasisHelp")?.addEventListener("click", () => {
+        const helpText = document.getElementById("macroBasisHelpText");
+        const helpButton = document.getElementById("macroBasisHelp");
+        if (!helpText || !helpButton) return;
+        const willShow = helpText.classList.contains("hidden");
+        helpText.classList.toggle("hidden", !willShow);
+        helpButton.setAttribute("aria-expanded", willShow ? "true" : "false");
       });
       document.getElementById("recentFlowPreviewHost").addEventListener("click", event => {
         const problemButton = event.target.closest("[data-open-problem-date]");
@@ -17335,6 +17566,7 @@ Notes:
         items: JSON.stringify(recordsState.items),
         feedback: recordsState.feedback ? { ...recordsState.feedback } : null,
         activeTab: uiState.activeTab,
+        selectedMacroBasis: uiState.selectedMacroBasis,
         recordsMealsExpanded: uiState.recordsMealsExpanded,
         recordsDetailDate: uiState.recordsDetailDate,
         recordsDetailEditMode: uiState.recordsDetailEditMode,
@@ -17381,6 +17613,7 @@ Notes:
         recordsState.items = JSON.parse(snapshot.items);
         recordsState.feedback = snapshot.feedback;
         uiState.activeTab = snapshot.activeTab;
+        uiState.selectedMacroBasis = snapshot.selectedMacroBasis || "guide";
         uiState.recordsMealsExpanded = snapshot.recordsMealsExpanded;
         uiState.recordsDetailDate = snapshot.recordsDetailDate;
         uiState.recordsDetailEditMode = snapshot.recordsDetailEditMode;
@@ -21134,8 +21367,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("A4 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-A5.10"), "document title should show v6.6-A5.10");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.10"), "app version badge should show v6.6-A5.10");
+          assertTest(document.title.includes("v6.6-A5.11"), "document title should show v6.6-A5.11");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-A5.11"), "app version badge should show v6.6-A5.11");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22432,7 +22665,9 @@ Notes:
           const lean = calculate();
           setMacroCalibrationInputs("bulk");
           const bulk = calculate();
-          assertTest(bulk.protein >= lean.protein - 5, "bulk protein should not drop materially below lean bulk protein");
+          assertTest(bulk.dualBasis?.rangeContext?.protein?.mid === 1.8, "bulk guide protein should use the A5.11 1.8g/kg point");
+          assertTest(lean.dualBasis?.rangeContext?.protein?.mid === 2.0, "lean bulk guide protein should use the A5.11 2.0g/kg point");
+          assertTest(bulk.protein < lean.protein && bulk.protein >= lean.protein - (bulk.s.weight * 0.25), "bulk protein can sit below lean bulk within the guide range model");
         }));
 
         results.push(runNamedTest("macro calibration finite outputs", () => {
@@ -22549,9 +22784,9 @@ Notes:
 
         results.push(runNamedTest("macro target current goal acceptance ranges", () => {
           const ranges = {
-            diet: { protein: [150, 165], fat: [52, 65], carbs: [195, 225] },
-            lean_bulk: { protein: [135, 150], fat: [68, 82], carbs: [315, 350] },
-            bulk: { protein: [130, 145], fat: [78, 92], carbs: [345, 380] }
+            diet: { protein: [175, 185], fat: [44, 48], carbs: [220, 230] },
+            lean_bulk: { protein: [148, 152], fat: [51, 55], carbs: [330, 340] },
+            bulk: { protein: [133, 138], fat: [59, 64], carbs: [370, 380] }
           };
           const outputs = {};
           Object.entries(ranges).forEach(([goal, goalRanges]) => {
@@ -22611,8 +22846,8 @@ Notes:
       });
     }
 
-    const CALIBRATION_QA_VERSION = "6.6-A5.10";
-    const CALIBRATION_QA_STAGE = "6.6-A5.10 가이드 기준 / 활동량 기준 산식표 및 UI 설계 QA";
+    const CALIBRATION_QA_VERSION = "6.6-A5.11";
+    const CALIBRATION_QA_STAGE = "6.6-A5.11 dual basis production 구현";
 
     function normalizeCalibrationMode(mode){
       return Object.prototype.hasOwnProperty.call(MODE_RUNTIME_PRESETS, mode) ? mode : "athlete";
@@ -23059,6 +23294,10 @@ Notes:
         goalTargetFloor: result.goalTargetFloor,
         goalTargetFloorApplied: !!result.goalTargetFloorApplied,
         goalTargetFloorDelta: result.goalTargetFloorDelta,
+        legacyA58: result.legacyA58 || null,
+        legacyA58TargetCal: result.legacyA58?.targetCal || null,
+        dualBasis: result.dualBasis || null,
+        selectedMacroBasis: result.selectedMacroBasis || null,
         targetCal: result.targetCal,
         targetFloorUsed: !!result.targetFloorUsed,
         goalClampUsed: !!result.goalClampUsed,
@@ -23092,6 +23331,7 @@ Notes:
         items: JSON.stringify(recordsState.items),
         feedback: recordsState.feedback ? { ...recordsState.feedback } : null,
         activeTab: uiState.activeTab,
+        selectedMacroBasis: uiState.selectedMacroBasis,
         recordsMealsExpanded: uiState.recordsMealsExpanded,
         recordsDetailDate: uiState.recordsDetailDate,
         recordsDetailEditMode: uiState.recordsDetailEditMode,
@@ -23127,6 +23367,7 @@ Notes:
         recordsState.items = JSON.parse(snapshot.items);
         recordsState.feedback = snapshot.feedback;
         uiState.activeTab = snapshot.activeTab;
+        uiState.selectedMacroBasis = snapshot.selectedMacroBasis || "guide";
         uiState.recordsMealsExpanded = snapshot.recordsMealsExpanded;
         uiState.recordsDetailDate = snapshot.recordsDetailDate;
         uiState.recordsDetailEditMode = snapshot.recordsDetailEditMode;
@@ -27183,6 +27424,32 @@ Notes:
             softMacroApplied: macroCandidate.affected && macroPolicy.id !== "current_hard_cap",
             macroPolicyClassification: macroCandidate.classification
           };
+          if (definition.id === "current_baseline" && convention.id === "app_met_kcal_1_00") {
+            Object.assign(row, {
+              candidateTargetCal: current.targetCal,
+              candidateTotalBurn: current.totalBurn,
+              candidateCardioKcal: current.cardioKcal,
+              candidateEpocKcal: current.epocKcal,
+              totalBurnDeltaFromProduction: 0,
+              targetCalMinusTotalBurn: current.targetCal - current.totalBurn,
+              targetCalToTotalBurn: current.totalBurn > 0 ? current.targetCal / current.totalBurn : 0,
+              candidateProtein: current.protein,
+              candidateCarbs: current.carbs,
+              candidateFat: current.fat,
+              candidateMacroKcalSum: current.macroKcalSum,
+              candidateMacroGap: current.macroKcalGap,
+              candidateMacroGapRatio: current.macroKcalGapRatio,
+              candidateMacroFulfillmentRatio: current.targetCal > 0 ? current.macroKcalSum / current.targetCal : 0,
+              macroGapReduction: 0,
+              candidateCarbsKg: current.weight > 0 ? current.carbs / current.weight : 0,
+              candidateFatKg: current.weight > 0 ? current.fat / current.weight : 0,
+              candidateProteinKg: current.weight > 0 ? current.protein / current.weight : 0,
+              candidateMacroCarbs: current.carbs,
+              candidateMacroFat: current.fat,
+              softMacroApplied: false,
+              macroPolicyClassification: ["production_current"]
+            });
+          }
           row.classification = classifyTargetMacroJointExpandedCandidate(row);
           candidates.push(row);
         });
@@ -28040,8 +28307,9 @@ Notes:
           const legacy = item.candidates.find(candidate => candidate.policyId === "legacy_full_reflection");
           const goalAware = item.candidates.find(candidate => candidate.policyId === "goal_aware_reflection");
           assertClose(item.current.cardioTargetReflectionRate, 0.8, 0.0001, "bulk production cardio target reflection should be 80%");
-          assertClose(production.candidateTargetCal, item.current.targetCal, 0.0001, "production policy should match production targetCal");
-          assertClose(goalAware.candidateTargetCal, item.current.targetCal, 0.0001, "goal-aware policy should match production targetCal");
+          assertTest(Number.isFinite(production.candidateTargetCal), "production policy target should remain finite after A5.11 dual basis");
+          assertTest(Number.isFinite(goalAware.candidateTargetCal), "goal-aware policy target should remain finite after A5.11 dual basis");
+          assertTest(production.candidateTargetCal <= item.current.targetCal + 1e-6, "A4 cardio policy report should stay separate from the A5.11 selected guide target");
           assertTest(Number.isFinite(legacy.candidateTargetCal), "legacy full reflection reference should remain finite after A5.8 floors");
           assertClose(item.current.totalBurn, production.currentTotalBurn, 0.0001, "production policy should keep totalBurn");
           assertTest(item.current.cardioKcal > 0, "high cardio case should keep cardioKcal");
@@ -28068,7 +28336,8 @@ Notes:
           const legacy = item.candidates.find(candidate => candidate.policyId === "legacy_full_reflection");
           const flat = item.candidates.find(candidate => candidate.policyId === "flat_partial_50");
           const conservative = item.candidates.find(candidate => candidate.policyId === "high_cardio_conservative");
-          assertClose(production.candidateTargetCal, item.current.targetCal, 0.0001, "production policy should match production targetCal");
+          assertTest(Number.isFinite(production.candidateTargetCal), "production policy target should remain finite after A5.11 dual basis");
+          assertTest(production.candidateTargetCal <= item.current.targetCal + 1e-6, "A4 cardio policy report should stay separate from the A5.11 selected guide target");
           [legacy, flat, conservative].forEach(candidate => {
             assertTest(Number.isFinite(candidate.candidateTargetCal), `${candidate.policyId} target should remain finite after A5.8 floors`);
             assertTest(candidate.totalBurnKeptSame === true, `${candidate.policyId} should keep totalBurn`);
@@ -28162,7 +28431,11 @@ Notes:
           const current = item.candidates.find(candidate => candidate.policyId === "current_hard_cap");
           assertClose(current.candidateGap, item.current.macroKcalGap, 0.0001, "current hard cap gap should match production gap");
           assertClose(current.candidateMacroKcalSum, item.current.macroKcalSum, 0.0001, "current hard cap macro kcal should match production macro kcal");
-          assertTest(current.classification.includes("current_explains_but_leaves_gap"), "current hard cap should classify large remaining gap");
+          if (item.current.macroKcalGap > MACRO_ALLOCATION_GAP_THRESHOLDS.explanation) {
+            assertTest(current.classification.includes("current_explains_but_leaves_gap"), "current hard cap should classify large remaining gap");
+          } else {
+            assertTest(current.classification.includes("not_production_ready"), "dual basis production current can close the old hard-cap gap");
+          }
         }));
 
         results.push(runNamedTest("A5.3 targeted candidates are superseded by A5.8 production soft range", () => {
@@ -28291,9 +28564,14 @@ Notes:
           const item = report.cases[0];
           const current = item.candidates.find(candidate => candidate.policyId === "current_hard_cap");
           const noCap = item.candidates.find(candidate => candidate.policyId === "no_upper_cap_fill");
-          assertTest(noCap.candidateGap < current.candidateGap, "no upper cap fill should reduce the high macro gap");
-          assertTest(noCap.targetFulfillmentRatio > current.targetFulfillmentRatio, "no upper cap fill should improve target fulfillment");
-          assertTest(noCap.candidateCarbsKg > current.candidateCarbsKg || noCap.candidateFatKg > current.candidateFatKg, "no upper cap fill should expose higher carbs or fat grams");
+          if (current.candidateGap > MACRO_ALLOCATION_GAP_THRESHOLDS.detail) {
+            assertTest(noCap.candidateGap < current.candidateGap, "no upper cap fill should reduce the high macro gap");
+            assertTest(noCap.targetFulfillmentRatio > current.targetFulfillmentRatio, "no upper cap fill should improve target fulfillment");
+            assertTest(noCap.candidateCarbsKg > current.candidateCarbsKg || noCap.candidateFatKg > current.candidateFatKg, "no upper cap fill should expose higher carbs or fat grams");
+          } else {
+            assertTest(current.candidateGap <= MACRO_ALLOCATION_GAP_THRESHOLDS.detail, "dual basis production current can already close the representative gap");
+            assertTest(Number.isFinite(noCap.candidateCarbsKg) && Number.isFinite(noCap.candidateFatKg), "no upper cap fill should still expose finite grams");
+          }
         }));
 
         results.push(runNamedTest("A5.4 targeted soft leaves normal C2/C3 lean cases unchanged", () => {
@@ -29766,7 +30044,7 @@ Notes:
       "guide_formula_needs_tuning",
       "activity_formula_needs_tuning",
       "mini_toggle_supported",
-      "single_value_supported",
+      "always_toggle_supported",
       "guide_activity_diverged",
       "guide_activity_same_range",
       "guide_range_exceeded",
@@ -29822,7 +30100,7 @@ Notes:
     function calculateDualBasisActivityTarget(current, energyCandidate){
       const totalBurn = current.totalBurn;
       const goal = current.goal;
-      if (energyCandidate.id === "current_a5_8_reference") return current.targetCal;
+      if (energyCandidate.id === "current_a5_8_reference") return current.legacyA58?.targetCal || current.legacyA58TargetCal || current.targetCal;
       if (energyCandidate.id === "percentage_delta") {
         const factor = goal === "diet" ? 0.875 : (goal === "lean_bulk" ? 1.025 : 1.075);
         return totalBurn * factor;
@@ -29837,18 +30115,16 @@ Notes:
     }
 
     function getDualBasisProteinRange(goal, current){
-      const bodyFat = Number(current.bodyFat);
       if (goal === "diet") {
-        const high = Number.isFinite(bodyFat) && bodyFat <= 15 ? 2.6 : 2.4;
-        return { min: 2.2, mid: high, max: 2.6 };
+        return { min: 2.2, mid: 2.4, max: 2.6 };
       }
       if (goal === "lean_bulk") return { min: 1.8, mid: 2.0, max: 2.2 };
       return { min: 1.6, mid: 1.8, max: 2.0 };
     }
 
     function getDualBasisFatRange(goal){
-      if (goal === "diet") return { floor: 0.6, min: 0.6, mid: 0.8, max: 1.0, flexibleMax: 1.75 };
-      if (goal === "lean_bulk") return { floor: 0.7, min: 0.7, mid: 1.0, max: 1.25, flexibleMax: 1.9 };
+      if (goal === "diet") return { floor: 0.6, min: 0.6, mid: 0.8, max: 1.0, flexibleMax: 1.5 };
+      if (goal === "lean_bulk") return { floor: 0.7, min: 0.7, mid: 1.0, max: 1.25, flexibleMax: 2.0 };
       return { floor: 0.8, min: 0.8, mid: 1.2, max: 1.5, flexibleMax: 2.0 };
     }
 
@@ -29866,6 +30142,73 @@ Notes:
         return { min: 5, mid: 6, max: 7, load: "moderate_high" };
       }
       return { min: 3, mid: 4, max: 5, load: "low_moderate" };
+    }
+
+    function deriveDualBasisActivityComboId(current = {}){
+      if (current.activityCombo) return current.activityCombo;
+      const activityLevel = current.activityLevel || current.s?.activityLevel || "moderate";
+      const workType = current.workType || current.s?.workType || "office";
+      if (activityLevel === "very_active" && workType === "heavy_field") return "A5";
+      if (activityLevel === "active" || workType === "field") return "A4";
+      if (activityLevel === "moderate" && workType !== "office") return "A3";
+      if (activityLevel === "moderate") return "A2";
+      return "A1";
+    }
+
+    function deriveDualBasisWeightComboId(current = {}){
+      if (current.weightCombo) return current.weightCombo;
+      const s = current.s || current;
+      const duration = Math.max(0, Number(s.weightDuration) || 0);
+      const weeklyDays = clamp(Math.round(Number(s.weeklyTrainingDays) || 0), 0, 14);
+      const routine = s.routine || current.routine || "PUSH";
+      if (routine === "REST" || duration <= 0 || weeklyDays <= 0) return "W0";
+      if (duration < 75 || weeklyDays <= 3) return "W1";
+      if (duration < 105 && weeklyDays <= 4) return "W2";
+      if (duration < 105 || weeklyDays <= 5) return "W3";
+      if (duration < 120 || weeklyDays <= 5) return "W4";
+      return "W5";
+    }
+
+    function deriveDualBasisCardioComboId(current = {}){
+      if (current.cardioCombo) return current.cardioCombo;
+      const s = current.s || current;
+      const duration = Math.max(0, Number(s.cardioDuration) || 0);
+      const speed = Math.max(0, Number(s.cardioSpeed) || 0);
+      const incline = Math.max(0, Number(s.cardioIncline) || 0);
+      if (duration <= 0) return "C0";
+      if (duration <= 25 && speed <= 5.5 && incline <= 1) return "C1";
+      if (speed >= 14 && incline >= 10 && duration >= 50) return "C5";
+      if (speed >= 9 && incline >= 12 && duration >= 50) return "C4";
+      if (duration >= 55 || incline >= 8) return "C3";
+      return "C2";
+    }
+
+    function buildDualBasisCurrentContext(result, legacy = {}){
+      const s = result?.s || {};
+      return {
+        ...legacy,
+        s,
+        mode: state.mode,
+        goal: s.goal || state.goal,
+        weight: Number(s.weight) || Number(state.weight) || 1,
+        bodyFat: Number(s.bodyFat),
+        totalBurn: Number(result?.totalBurn) || 0,
+        targetCal: Number(legacy.targetCal ?? result?.targetCal) || 0,
+        protein: Number(legacy.protein ?? result?.protein) || 0,
+        carbs: Number(legacy.carbs ?? result?.carbs) || 0,
+        fat: Number(legacy.fat ?? result?.fat) || 0,
+        activityLevel: s.activityLevel,
+        workType: s.workType,
+        weeklyTrainingDays: s.weeklyTrainingDays,
+        routine: s.routine,
+        weightDuration: s.weightDuration,
+        cardioDuration: s.cardioDuration,
+        cardioSpeed: s.cardioSpeed,
+        cardioIncline: s.cardioIncline,
+        activityCombo: legacy.activityCombo || deriveDualBasisActivityComboId(s),
+        weightCombo: legacy.weightCombo || deriveDualBasisWeightComboId(s),
+        cardioCombo: legacy.cardioCombo || deriveDualBasisCardioComboId(s)
+      };
     }
 
     function buildGuideMacroRangeContext(current){
@@ -29899,8 +30242,8 @@ Notes:
       let carbsKg = rangeContext.carbs.mid;
       if (strategy.id === "target_aware_guide") {
         let protein = proteinKg * weight;
-        let fat = fatKg * weight;
-        let carbs = carbsKg * weight;
+        let fat = rangeContext.fat.min * weight;
+        let carbs = rangeContext.carbs.min * weight;
         let guideCal = calculateMacroKcalSum({ protein, carbs, fat });
         if (guideCal < activityTargetCal) {
           const carbMaxG = rangeContext.carbs.max * weight;
@@ -29938,7 +30281,10 @@ Notes:
           carbsKg: carbs / weight,
           fatKg: fat / weight,
           guideRangeContext: rangeContext,
-          rangeLabels: rangeContext.labels
+          rangeLabels: rangeContext.labels,
+          guideExceeded: false,
+          carbsGuideExceeded: false,
+          fatGuideExceeded: false
         };
       }
       const protein = proteinKg * weight;
@@ -30007,7 +30353,8 @@ Notes:
     function compareGuideAndActivityBasis(guide, activity){
       const deltaKcal = activity.targetCal - guide.targetCal;
       const absDeltaKcal = Math.abs(deltaKcal);
-      const deltaPct = guide.targetCal > 0 ? absDeltaKcal / guide.targetCal : 0;
+      const denominator = Math.max(activity.targetCal || 0, guide.targetCal || 0);
+      const deltaPct = denominator > 0 ? absDeltaKcal / denominator : 0;
       const thresholds = {
         absolute: absDeltaKcal >= 200,
         percent: deltaPct >= 0.05,
@@ -30021,12 +30368,14 @@ Notes:
         deltaPct,
         thresholds,
         recommendedThreshold: "hybrid",
-        displayMode: thresholds.hybrid ? "mini_toggle" : "single_value",
+        displayMode: "mini_toggle",
+        toggleVisible: true,
+        diverged: thresholds.hybrid,
         toggleNeeded: thresholds.hybrid,
         explanationNeeded: thresholds.hybrid || activity.guideExceeded,
         reason: thresholds.hybrid
-          ? "guide and activity basis diverge enough to require a mini toggle"
-          : "guide and activity basis are close enough to show one value"
+          ? "guide and activity basis diverge enough to require stronger explanation"
+          : "guide and activity basis are close; mini toggle remains available for comparison"
       };
     }
 
@@ -30046,7 +30395,7 @@ Notes:
           }
         ],
         cardBehavior: {
-          sameRange: "single_value",
+          sameRange: "mini_toggle",
           diverged: "mini_toggle",
           current: compare?.displayMode || "mini_toggle"
         },
@@ -30078,10 +30427,58 @@ Notes:
       };
     }
 
+    function getDualBasisMacroStatus(basis, key){
+      if (!basis?.guideRangeContext) return "";
+      const ranges = basis.guideRangeContext;
+      const value = key === "protein" ? basis.proteinKg : key === "carbs" ? basis.carbsKg : basis.fatKg;
+      const range = key === "protein" ? ranges.protein : key === "carbs" ? ranges.carbs : ranges.fat;
+      if (!Number.isFinite(value) || !range) return "";
+      if (basis.basisId === "guide") return `${round(value, 1)}g/kg · 권장 범위 안`;
+      if (key === "fat" && Number.isFinite(ranges.fat?.flexibleMax) && value > range.max + 1e-6 && value <= ranges.fat.flexibleMax + 1e-6) {
+        return `${round(value, 1)}g/kg · 실천 상단`;
+      }
+      if (value > range.max + 1e-6) return `${round(value, 1)}g/kg · 가이드 상단 초과`;
+      return `${round(value, 1)}g/kg · 권장 범위 안`;
+    }
+
+    function buildDualBasisProduction(current){
+      const energyCandidate = buildDualBasisEnergyCandidates().find(item => item.id === "hybrid_delta");
+      const guideStrategy = buildDualBasisGuideStrategyCandidates().find(item => item.id === "target_aware_guide");
+      const rangeContext = buildGuideMacroRangeContext(current);
+      const activityTargetCal = calculateDualBasisActivityTarget(current, energyCandidate);
+      const activity = calculateActivityBasisMacros(current, rangeContext, activityTargetCal, energyCandidate);
+      const guide = calculateGuideBasisMacros(current, rangeContext, activityTargetCal, guideStrategy);
+      const compare = compareGuideAndActivityBasis(guide, activity);
+      const requestedBasis = uiState.selectedMacroBasis === "activity" ? "activity" : "guide";
+      const selectedBasisId = requestedBasis;
+      const selected = selectedBasisId === "activity" ? activity : guide;
+      const macroSubLabels = {
+        protein: getDualBasisMacroStatus(selected, "protein"),
+        carbs: getDualBasisMacroStatus(selected, "carbs"),
+        fat: getDualBasisMacroStatus(selected, "fat")
+      };
+      return {
+        version: "6.6-A5.11",
+        production: true,
+        defaultBasis: "guide",
+        selectedBasis: selectedBasisId,
+        showToggle: true,
+        explanationNeeded: !!compare.explanationNeeded,
+        rangeContext,
+        guide,
+        activity,
+        compare,
+        uiModel: buildDualBasisUiModel(compare),
+        selected,
+        macroSubLabels
+      };
+    }
+
     function classifyDualBasisCase(row){
       const classes = [];
-      if (row.compare.toggleNeeded) classes.push("guide_activity_diverged", "mini_toggle_supported");
-      else classes.push("guide_activity_same_range", "single_value_supported");
+      classes.push("mini_toggle_supported", "always_toggle_supported");
+      if (row.compare.toggleNeeded) classes.push("guide_activity_diverged");
+      else classes.push("guide_activity_same_range");
       if (row.activity.guideExceeded) classes.push("guide_range_exceeded");
       if (row.activity.carbsGuideExceeded) classes.push("activity_carbs_high");
       if (row.activity.carbsExtreme) classes.push("activity_carbs_extreme");
@@ -30444,7 +30841,7 @@ Notes:
               uiState: "앱 실행 중 사용자 선택 유지",
               localStorage: "사용자 선호 유지 후보이나 A5.10 report-only에서는 금지"
             },
-            recommendation: "기본값 guide, diverged일 때만 mini toggle 표시, 선택 상태는 우선 uiState/session 후보"
+            recommendation: "기본값 guide, mini toggle은 항상 표시, 차이가 클 때만 설명 강도를 높임"
           },
           targeted,
           expandedBalanced,
@@ -30506,7 +30903,7 @@ Notes:
           const sample = high.candidates[0];
           assertTest(!!sample.guideLabels.carbs && sample.guideLabels.carbs.includes("g/kg"), "guide macro g/kg label should exist");
           assertTest(high.candidates.some(item => item.toggleNeeded), "high-cardio case should need toggle");
-          assertTest(report.uiModel.cardBehavior.sameRange === "single_value", "non-diverged card behavior should support single value");
+          assertTest(report.uiModel.cardBehavior.sameRange === "mini_toggle", "non-diverged card behavior should still expose mini toggle");
         }));
 
         results.push(runNamedTest("A5.10 activity basis uses totalBurn-based targets", () => {
@@ -30591,6 +30988,119 @@ Notes:
       });
     }
 
+    function runDualBasisProductionTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        function setDualBasisProductionCase({ statId = "M20", goal = "bulk", activityId = "A5", weightId = "W5", cardioId = "C5", mode = "athlete" } = {}){
+          const stat = buildCalibrationManualStats().find(item => item.id === statId) || buildCalibrationScanStats().find(item => item.id === statId);
+          assertTest(!!stat, `${statId} calibration stat should exist`);
+          applyCalibrationCaseToInputs({
+            mode,
+            stat,
+            goalCombo: getCalibrationGoalComboByGoal(goal),
+            activityCombo: getCalibrationComboById(getCalibrationActivityCombos(), activityId),
+            weightCombo: getCalibrationComboById(getCalibrationWeightCombos(), weightId),
+            cardioCombo: getCalibrationComboById(getCalibrationCardioCombos(), cardioId)
+          });
+        }
+
+        results.push(runNamedTest("A5.11 calculate exposes guide and activity basis with guide default", () => {
+          uiState.selectedMacroBasis = "guide";
+          setDualBasisProductionCase();
+          const result = calculate();
+          assertTest(!!result.dualBasis, "calculate should expose dualBasis");
+          assertTest(!!result.dualBasis.guide, "guide basis should exist");
+          assertTest(!!result.dualBasis.activity, "activity basis should exist");
+          assertTest(result.dualBasis.selectedBasis === "guide", "default selected basis should be guide");
+          assertTest(result.dualBasis.guide.description === DUAL_BASIS_GUIDE_DESCRIPTION, "guide description should match exactly");
+          assertTest(result.dualBasis.activity.description === DUAL_BASIS_ACTIVITY_DESCRIPTION, "activity description should match exactly");
+          assertClose(result.targetCal, result.dualBasis.guide.targetCal, 0.0001, "guide selected target should drive calculate targetCal");
+          assertClose(result.carbs, result.dualBasis.guide.carbs, 0.0001, "guide selected carbs should drive calculate carbs");
+        }));
+
+        results.push(runNamedTest("A5.11 diverged case shows mini toggle and activity drives targets when selected", () => {
+          uiState.selectedMacroBasis = "guide";
+          setDualBasisProductionCase({ statId: "F10", goal: "bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          const guide = calculate();
+          assertTest(guide.dualBasis.showToggle === true, "compact high-activity diverged case should show mini toggle");
+          assertTest(guide.dualBasis.compare.toggleNeeded === true, "compact high-activity case should be classified as diverged");
+          uiState.selectedMacroBasis = "activity";
+          const activity = calculate();
+          assertTest(activity.dualBasis.selectedBasis === "activity", "activity basis should be selectable in diverged case");
+          assertClose(activity.targetCal, activity.dualBasis.activity.targetCal, 0.0001, "activity target should drive calculate targetCal");
+          assertClose(activity.protein, activity.dualBasis.activity.protein, 0.0001, "activity protein should drive calculate protein");
+          assertClose(activity.carbs, activity.dualBasis.activity.carbs, 0.0001, "activity carbs should drive calculate carbs");
+          assertClose(activity.fat, activity.dualBasis.activity.fat, 0.0001, "activity fat should drive calculate fat");
+          const balance = getTodayMacroBalance(activity);
+          assertClose(balance.target.kcal, activity.targetCal, 0.0001, "remaining balance should use selected activity target");
+          const score = getTodayAdherenceScore(activity);
+          assertTest(score?.detail?.target?.kcal === activity.targetCal, "adherence target should use selected activity target");
+        }));
+
+        results.push(runNamedTest("A5.11 non-diverged case still shows toggle and allows activity", () => {
+          uiState.selectedMacroBasis = "activity";
+          setDualBasisProductionCase({ statId: "M09", goal: "lean_bulk", activityId: "A2", weightId: "W2", cardioId: "C3" });
+          const result = calculate();
+          assertTest(result.dualBasis.compare.toggleNeeded === false, "compact normal case should be classified as non-diverged");
+          assertTest(result.dualBasis.showToggle === true, "non-diverged case should still show the basis toggle");
+          assertTest(result.dualBasis.selectedBasis === "activity", "activity basis should be selectable in non-diverged case");
+          assertClose(result.targetCal, result.dualBasis.activity.targetCal, 0.0001, "non-diverged activity target should drive calculate targetCal");
+          assertTest(!!result.dualBasis.macroSubLabels.carbs && result.dualBasis.macroSubLabels.carbs.includes("g/kg"), "g/kg sublabel should exist");
+          assertTest(result.dualBasis.guide.carbsKg <= result.dualBasis.rangeContext.carbs.max + 1e-6, "guide carbs should stay inside guide range");
+        }));
+
+        results.push(runNamedTest("A5.11 card UI toggle updates target and shows explanations", () => {
+          uiState.selectedMacroBasis = "guide";
+          setDualBasisProductionCase({ statId: "F10", goal: "bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          render();
+          const guideTargetText = document.getElementById("targetCal").textContent;
+          const row = document.getElementById("macroBasisRow");
+          const desc = document.getElementById("macroBasisDescription");
+          assertTest(row && !row.classList.contains("hidden"), "diverged case should render basis toggle row");
+          assertTest((row?.textContent || "").includes("가이드 기준") && (row?.textContent || "").includes("권장"), "guide option should visibly show recommended label");
+          assertTest(desc?.textContent === DUAL_BASIS_GUIDE_DESCRIPTION, "guide description should render");
+          document.querySelector('[data-macro-basis="activity"]')?.click();
+          assertTest(uiState.selectedMacroBasis === "activity", "clicking activity should update uiState");
+          assertTest(document.getElementById("macroBasisDescription")?.textContent === DUAL_BASIS_ACTIVITY_DESCRIPTION, "activity description should render");
+          assertTest(document.getElementById("targetCal").textContent !== guideTargetText, "target display should change after activity selection");
+          assertTest((document.getElementById("carbBasisSub")?.textContent || "").includes("g/kg"), "macro sublabel should render");
+          document.getElementById("macroBasisHelp")?.click();
+          assertTest(!document.getElementById("macroBasisHelpText")?.classList.contains("hidden"), "help copy should open");
+          const helpText = document.getElementById("macroBasisHelpText")?.textContent || "";
+          assertTest(helpText.includes("두 기준이 다른 이유"), "help title should render");
+          assertExcludesAll(getRenderedBodyText(), ["macro gap", "hard cap", "soft range", "floor", "reflection", "policy", "targetBurnBase", "helper"], "dual basis visible UI should hide internal English terms");
+        }));
+
+        results.push(runNamedTest("A5.11 selected basis stays out of storage and protected surfaces", () => {
+          uiState.selectedMacroBasis = "activity";
+          setDualBasisProductionCase();
+          const beforeRecords = JSON.stringify(recordsState.items);
+          const beforeGoals = JSON.stringify(GOALS);
+          const beforeRates = JSON.stringify(CARDIO_TARGET_REFLECTION_RATES);
+          const beforeExtreme = JSON.stringify(EXTREME_CASE_ADJUST);
+          render();
+          assertTest(readStoredValue("selectedMacroBasis") === null, "selected basis should not be stored in localStorage schema");
+          assertTest(readStoredValue("macroBasis") === null, "macro basis should not be stored in localStorage schema");
+          assertTest(JSON.stringify(recordsState.items) === beforeRecords, "render should not mutate records payload for basis selection");
+          const result = calculate();
+          assertTest(!!result.legacyA58, "A5.8 reference should remain available");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+          assertTest(JSON.stringify(GOALS) === beforeGoals, "GOALS should stay unchanged");
+          assertTest(JSON.stringify(CARDIO_TARGET_REFLECTION_RATES) === beforeRates, "CARDIO_TARGET_REFLECTION_RATES should stay unchanged");
+          assertTest(JSON.stringify(EXTREME_CASE_ADJUST) === beforeExtreme, "EXTREME_CASE_ADJUST should stay unchanged");
+        }));
+
+        results.push(runNamedTest("A5.11 keeps A5.10 report helper available", () => {
+          const reviewResults = runGoalMacroDualBasisReviewTests();
+          assertTest(reviewResults.every(item => item.pass), "A5.10 dual basis review tests should still pass");
+        }));
+
+        return results;
+      });
+    }
+
     function runTargetMacroProductionPolicyTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -30609,7 +31119,8 @@ Notes:
         }
 
         function calculateHardMacroReferenceAtTarget(result){
-          return calculateMacroTargets(result.s, result.targetCal, result.lbmBase, result.lbmEffective, result.modeCfg, { macroCapPolicy: "hard_cap" });
+          const referenceTarget = result.legacyA58?.targetCal || result.targetCal;
+          return calculateMacroTargets(result.s, referenceTarget, result.lbmBase, result.lbmEffective, result.modeCfg, { macroCapPolicy: "hard_cap" });
         }
 
         results.push(runNamedTest("A5.8 lean_bulk and bulk high-cardio floors apply after target calculation", () => {
@@ -30639,18 +31150,20 @@ Notes:
           setTargetMacroProductionCase({ statId: "M20", goal: "lean_bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
           const lean = calculate();
           const leanHard = calculateHardMacroReferenceAtTarget(lean);
+          const leanLegacy = lean.legacyA58 || lean;
           assertTest(lean.macroSoftRangeApplied === true, "lean_bulk high-cardio should apply soft macro allocation");
-          assertClose(lean.protein, leanHard.protein, 0.0001, "lean_bulk soft macro should not change protein");
-          assertTest(lean.carbs <= lean.s.weight * GOAL_AWARE_MACRO_SOFT_RANGE_KG.lean_bulk.carbsKg + 1e-6, "lean_bulk carbs should stay within soft range");
-          assertTest(lean.fat <= lean.s.weight * GOAL_AWARE_MACRO_SOFT_RANGE_KG.lean_bulk.fatKg + 1e-6, "lean_bulk fat should stay within soft range");
+          assertClose(leanLegacy.protein, leanHard.protein, 0.0001, "lean_bulk A5.8 reference soft macro should not change protein");
+          assertTest(leanLegacy.carbs <= lean.s.weight * GOAL_AWARE_MACRO_SOFT_RANGE_KG.lean_bulk.carbsKg + 1e-6, "lean_bulk A5.8 reference carbs should stay within soft range");
+          assertTest(leanLegacy.fat <= lean.s.weight * GOAL_AWARE_MACRO_SOFT_RANGE_KG.lean_bulk.fatKg + 1e-6, "lean_bulk A5.8 reference fat should stay within soft range");
 
           setTargetMacroProductionCase({ statId: "M20", goal: "bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
           const bulk = calculate();
           const bulkHard = calculateHardMacroReferenceAtTarget(bulk);
+          const bulkLegacy = bulk.legacyA58 || bulk;
           assertTest(bulk.macroSoftRangeApplied === true, "bulk high-cardio should apply soft macro allocation");
-          assertClose(bulk.protein, bulkHard.protein, 0.0001, "bulk soft macro should not change protein");
-          assertTest(bulk.carbs <= bulk.s.weight * GOAL_AWARE_MACRO_SOFT_RANGE_KG.bulk.carbsKg + 1e-6, "bulk carbs should stay within soft range");
-          assertTest(bulk.fat <= bulk.s.weight * GOAL_AWARE_MACRO_SOFT_RANGE_KG.bulk.fatKg + 1e-6, "bulk fat should stay within soft range");
+          assertClose(bulkLegacy.protein, bulkHard.protein, 0.0001, "bulk A5.8 reference soft macro should not change protein");
+          assertTest(bulkLegacy.carbs <= bulk.s.weight * GOAL_AWARE_MACRO_SOFT_RANGE_KG.bulk.carbsKg + 1e-6, "bulk A5.8 reference carbs should stay within soft range");
+          assertTest(bulkLegacy.fat <= bulk.s.weight * GOAL_AWARE_MACRO_SOFT_RANGE_KG.bulk.fatKg + 1e-6, "bulk A5.8 reference fat should stay within soft range");
         }));
 
         results.push(runNamedTest("A5.8 normal lean_bulk C2/C3 cases stay on the existing path", () => {
@@ -30814,8 +31327,8 @@ Notes:
         results.push(runNamedTest("A5.1 remaining high gap case gets carb and fat explanation", () => {
           setMacroAllocationCalibrationCase({ statId: "M20", goal: "lean_bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
           const result = calculate();
-          const info = result.macroAllocationInfo;
-          assertTest(info.macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.kpi, "M20 lean_bulk A5 W5 C5 should still have a visible allocation difference after A5.8");
+          const info = result.legacyA58?.macroAllocationInfo || result.macroAllocationInfo;
+          assertTest(info.macroKcalGap >= MACRO_ALLOCATION_GAP_THRESHOLDS.kpi, "M20 lean_bulk A5 W5 C5 A5.8 reference should still have a visible allocation difference");
           assertTest(info.carbAtPracticalLimit, "remaining high gap should be near carb practical limit");
           assertTest(info.fatAtPracticalLimit, "remaining high gap should be near fat practical limit");
           assertIncludesAll(renderMacroAllocationNote(info, "detail"), ["탄수화물", "지방"], "detail copy should explain carb and fat practical range");
@@ -30841,14 +31354,15 @@ Notes:
           assertClose(after.cardio.kcal, before.cardio.kcal, 0.0001, "macro allocation helpers should not change cardioKcal");
         }));
 
-        results.push(runNamedTest("A5.1 UI renders note only for meaningful allocation difference", () => {
-          setMacroAllocationCalibrationCase({ statId: "M20", goal: "lean_bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+        results.push(runNamedTest("A5.1 UI keeps allocation note hidden when dual basis closes the production gap", () => {
+          setMacroAllocationCalibrationCase({ statId: "F10", goal: "bulk", activityId: "A5", weightId: "W5", cardioId: "C5" });
+          uiState.selectedMacroBasis = "guide";
           render();
           const highNote = document.getElementById("kpiExtremeNote");
-          assertTest(!highNote.classList.contains("hidden"), "high allocation gap should show KPI note");
-          assertIncludesAll(highNote.textContent, ["탄단지", "우선 기준"], "KPI note should guide toward macro grams");
+          assertTest(highNote.classList.contains("hidden"), "dual basis production current should not show stale macro allocation KPI note when selected macros match the selected target");
+          assertTest(!document.getElementById("macroBasisRow").classList.contains("hidden"), "diverged dual basis case should show the basis toggle instead");
+          assertTest(document.getElementById("macroBasisDescription").textContent === DUAL_BASIS_GUIDE_DESCRIPTION, "basis description should guide the user");
           assertExcludesAll(highNote.textContent, forbiddenUserFacingTerms, "KPI note should avoid internal terms");
-          assertIncludesAll(document.getElementById("flowList").textContent, ["탄단지로 배분한 칼로리", "목표 칼로리와 차이"], "details should include allocation numbers");
 
           setMacroAllocationCalibrationCase({ statId: "F10", goal: "lean_bulk", activityId: "A2", weightId: "W2", cardioId: "C2" });
           render();
@@ -33649,6 +34163,7 @@ Notes:
     window.runTargetMacroJointExpandedScan = runTargetMacroJointExpandedScan;
     window.runGoalMacroPrincipleReview = runGoalMacroPrincipleReview;
     window.runGoalMacroDualBasisReview = runGoalMacroDualBasisReview;
+    window.runDualBasisProductionTests = runDualBasisProductionTests;
     window.runCalibrationScanReportTests = runCalibrationScanReportTests;
     window.runCalibrationPhysiologyReviewTests = runCalibrationPhysiologyReviewTests;
     window.runCalibrationWeeklyBudgetReviewTests = runCalibrationWeeklyBudgetReviewTests;
