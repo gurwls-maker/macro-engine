@@ -1,8 +1,15 @@
 <!--
-Version: 6.6-C2
-Stage: 6.6-C2 Today 빠른 수정 + 결과 확인 구조 구현
-Date: 2026-05-11
+Version: 6.6-C3
+Stage: 6.6-C3 기록 시작 팝업 + 오늘 공복 체중 기록 흐름 정리
+Date: 2026-05-12
 Notes:
+- C3 기록 시작 팝업 + 오늘 공복 체중 기록 흐름 정리
+- Today 기록 시작 팝업에서 오늘 공복 체중 / 메모 선택 입력 추가
+- 오늘 공복 체중은 Records 기록값이며 계산용 체중과 분리
+- 오늘 공복 체중을 오늘 계산에도 반영하는 선택 추가
+- 체크 ON이면 오늘 공복 체중을 계산용 체중에 복사해 Settings / quick edit과 동기화하고 Today target/macro/remaining/adherence를 재계산
+- 체크 OFF이면 오늘 공복 체중은 Records 기록값으로만 저장
+- 계산용 체중 구조 / Settings 및 quick edit 구조 / dual basis 산식 / score / Coach / recentContext / InBody / schema-import-export 변경 없음
 - C2 Today 빠른 수정 + 결과 확인 구조 구현
 - Today 계산 기준 요약 카드 추가
 - 빠른 수정에 웨이트 루틴 / 세션 dropdown 추가
@@ -38,7 +45,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C2</title>
+  <title>탄단지 다이어리 v6.6-C3</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -908,6 +915,37 @@ Notes:
     .record-start-form input,
     .record-start-form select{
       min-height:46px;
+    }
+    .record-start-apply{
+      margin-top:8px;
+      display:flex;
+      align-items:flex-start;
+      gap:9px;
+      padding:10px 11px;
+      border:1px solid color-mix(in srgb, var(--line) 76%, white 24%);
+      border-radius:14px;
+      background:rgba(255,255,255,.62);
+    }
+    .record-start-form .record-start-apply input{
+      flex:0 0 auto;
+      min-height:0;
+      width:18px;
+      height:18px;
+      margin-top:1px;
+      accent-color:var(--teal);
+    }
+    .record-start-apply-copy{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:700;
+      line-height:1.45;
+    }
+    .record-start-apply-title{
+      color:var(--deep);
+      font-weight:900;
     }
     .record-start-actions{
       display:flex;
@@ -5066,7 +5104,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C2</span>
+               <span class="app-version">v6.6-C3</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -6041,6 +6079,22 @@ Notes:
                 <label>메모</label>
                 <input id="todayRecordMealMemo" type="text" maxlength="80" placeholder="외식, 보충제, 간단 메모 등">
               </div>
+              <div class="field">
+                <label for="todayRecordDetailedWeight">오늘 공복 체중</label>
+                <input id="todayRecordDetailedWeight" type="number" min="30" max="200" step="0.01" inputmode="decimal">
+                <div class="hint">기록에 남기는 체중입니다.</div>
+                <label class="record-start-apply" for="todayRecordDetailedApplyWeightToCalculation">
+                  <input id="todayRecordDetailedApplyWeightToCalculation" type="checkbox" checked>
+                  <span class="record-start-apply-copy">
+                    <span class="record-start-apply-title">오늘 계산에도 반영</span>
+                    <span>체크하면 오늘 권장 탄단지와 남은 양도 이 체중으로 다시 계산됩니다.</span>
+                  </span>
+                </label>
+              </div>
+              <div class="field wide">
+                <label for="todayRecordDetailedMemo">메모</label>
+                <input id="todayRecordDetailedMemo" type="text" maxlength="80" placeholder="외식, 컨디션, 수분 정체 등">
+              </div>
             </div>
             <div class="record-start-actions">
               <button class="secondary-btn" type="button" data-record-start-close>닫기</button>
@@ -6068,12 +6122,20 @@ Notes:
             </div>
             <div class="record-start-grid">
               <div class="field">
-                <label>체중 kg</label>
+                <label for="todayRecordSimpleWeight">오늘 공복 체중</label>
                 <input id="todayRecordSimpleWeight" type="number" min="30" max="200" step="0.01" inputmode="decimal">
+                <div class="hint">기록에 남기는 체중입니다.</div>
+                <label class="record-start-apply" for="todayRecordSimpleApplyWeightToCalculation">
+                  <input id="todayRecordSimpleApplyWeightToCalculation" type="checkbox" checked>
+                  <span class="record-start-apply-copy">
+                    <span class="record-start-apply-title">오늘 계산에도 반영</span>
+                    <span>체크하면 오늘 권장 탄단지와 남은 양도 이 체중으로 다시 계산됩니다.</span>
+                  </span>
+                </label>
               </div>
               <div class="field wide">
-                <label>메모</label>
-                <input id="todayRecordSimpleMemo" type="text" maxlength="60" placeholder="바쁜 날, 외식, 컨디션 등">
+                <label for="todayRecordSimpleMemo">메모</label>
+                <input id="todayRecordSimpleMemo" type="text" maxlength="80" placeholder="외식, 컨디션, 수분 정체 등">
               </div>
             </div>
             <div class="record-start-actions">
@@ -6094,12 +6156,20 @@ Notes:
             </div>
             <div class="record-start-grid">
               <div class="field">
-                <label>체중 kg</label>
+                <label for="todayRecordSkipWeight">오늘 공복 체중</label>
                 <input id="todayRecordSkipWeight" type="number" min="30" max="200" step="0.01" inputmode="decimal">
+                <div class="hint">기록에 남기는 체중입니다.</div>
+                <label class="record-start-apply" for="todayRecordSkipApplyWeightToCalculation">
+                  <input id="todayRecordSkipApplyWeightToCalculation" type="checkbox" checked>
+                  <span class="record-start-apply-copy">
+                    <span class="record-start-apply-title">오늘 계산에도 반영</span>
+                    <span>체크하면 오늘 권장 탄단지와 남은 양도 이 체중으로 다시 계산됩니다.</span>
+                  </span>
+                </label>
               </div>
               <div class="field wide">
-                <label>메모</label>
-                <input id="todayRecordSkipMemo" type="text" maxlength="60" placeholder="오늘 식단은 기록하지 않음">
+                <label for="todayRecordSkipMemo">메모</label>
+                <input id="todayRecordSkipMemo" type="text" maxlength="80" placeholder="외식, 컨디션, 수분 정체 등">
               </div>
             </div>
             <div class="record-start-actions">
@@ -9594,6 +9664,7 @@ Notes:
     function resetTodayRecordStartInputs(){
       const todayRecord = getRecordByDate(getTodayDateString());
       const existingWeight = Number.isFinite(todayRecord?.weight) ? todayRecord.weight.toFixed(2) : "";
+      const existingNote = todayRecord?.note || "";
       [
         "todayRecordMealCarbs",
         "todayRecordMealProtein",
@@ -9607,14 +9678,24 @@ Notes:
       });
       const mealLabel = document.getElementById("todayRecordMealLabel");
       if (mealLabel) mealLabel.value = getSuggestedMealLabel(getTodayDateString());
+      const detailedWeight = document.getElementById("todayRecordDetailedWeight");
+      const detailedMemo = document.getElementById("todayRecordDetailedMemo");
+      const detailedApply = document.getElementById("todayRecordDetailedApplyWeightToCalculation");
       const simpleWeight = document.getElementById("todayRecordSimpleWeight");
       const skipWeight = document.getElementById("todayRecordSkipWeight");
       const simpleMemo = document.getElementById("todayRecordSimpleMemo");
       const skipMemo = document.getElementById("todayRecordSkipMemo");
+      const simpleApply = document.getElementById("todayRecordSimpleApplyWeightToCalculation");
+      const skipApply = document.getElementById("todayRecordSkipApplyWeightToCalculation");
+      if (detailedWeight) detailedWeight.value = existingWeight;
+      if (detailedMemo) detailedMemo.value = existingNote;
+      if (detailedApply) detailedApply.checked = true;
       if (simpleWeight) simpleWeight.value = existingWeight;
       if (skipWeight) skipWeight.value = existingWeight;
-      if (simpleMemo) simpleMemo.value = "";
-      if (skipMemo) skipMemo.value = "";
+      if (simpleMemo) simpleMemo.value = existingNote;
+      if (skipMemo) skipMemo.value = existingNote;
+      if (simpleApply) simpleApply.checked = true;
+      if (skipApply) skipApply.checked = true;
       setTodayRecordSimpleAdherence("medium");
       setTodayRecordStartFeedback("", "");
     }
@@ -9660,6 +9741,53 @@ Notes:
       return { hasValue: true, value };
     }
 
+    function getTodayRecordStartCommonInput(weightInputId, memoInputId, applyInputId){
+      const weight = getOptionalRecordStartWeight(weightInputId);
+      if (weight.invalid) return { ok: false, reason: "invalid_weight" };
+      const memo = String(document.getElementById(memoInputId)?.value || "").trim();
+      const applyToCalculation = !!document.getElementById(applyInputId)?.checked;
+      return {
+        ok: true,
+        weight,
+        memo,
+        hasMemo: memo.length > 0,
+        applyToCalculation
+      };
+    }
+
+    function mergeTodayRecordStartCommonFields(date, commonInput){
+      if (!commonInput?.ok) return getRecordByDate(date);
+      const update = { date };
+      if (commonInput.weight?.hasValue) update.weight = commonInput.weight.value;
+      if (commonInput.hasMemo) update.note = commonInput.memo;
+      return Object.keys(update).length > 1 ? upsertRecord(update) : getRecordByDate(date);
+    }
+
+    function applyTodayRecordWeightToCalculation(commonInput){
+      if (!commonInput?.ok || !commonInput.applyToCalculation || !commonInput.weight?.hasValue) return false;
+      const value = commonInput.weight.value;
+      ids.weight.value = formatInputNumber(value, 2);
+      state.weight = value;
+      syncTodayQuickEditControls();
+      return true;
+    }
+
+    function getTodayRecordStartSavedMessages(baseMessage, commonInput){
+      const messages = [baseMessage];
+      if (!commonInput?.ok) return messages;
+      if (commonInput.weight?.hasValue && commonInput.hasMemo) {
+        messages.push("오늘 공복 체중과 메모를 함께 저장했습니다.");
+      } else if (commonInput.weight?.hasValue) {
+        messages.push("오늘 공복 체중을 함께 저장했습니다.");
+      } else if (commonInput.hasMemo) {
+        messages.push("메모를 함께 저장했습니다.");
+      }
+      if (commonInput.weight?.hasValue && commonInput.applyToCalculation) {
+        messages.push("오늘 계산에도 반영했습니다.");
+      }
+      return messages;
+    }
+
     function prepareTodayRecordMode(mode){
       const today = getTodayDateString();
       ids.recordDate.value = today;
@@ -9673,6 +9801,11 @@ Notes:
     }
 
     function saveTodayRecordStartDetailed(){
+      const commonInput = getTodayRecordStartCommonInput("todayRecordDetailedWeight", "todayRecordDetailedMemo", "todayRecordDetailedApplyWeightToCalculation");
+      if (!commonInput.ok) {
+        setTodayRecordStartFeedback("warn", "오늘 공복 체중 입력값을 확인해 주세요.");
+        return { saved: false, reason: commonInput.reason };
+      }
       const prepared = prepareTodayRecordMode("detailed");
       if (!prepared.ok) return { saved: false, reason: prepared.reason };
       ids.mealLabel.value = document.getElementById("todayRecordMealLabel")?.value || getSuggestedMealLabel(prepared.today);
@@ -9684,7 +9817,12 @@ Notes:
       ids.mealMemo.value = document.getElementById("todayRecordMealMemo")?.value || "";
       const result = saveMealEntry();
       if (result?.saved) {
-        setTodayInputFeedback("ok", "상세 기록을 저장했습니다.");
+        mergeTodayRecordStartCommonFields(prepared.today, commonInput);
+        applyTodayRecordWeightToCalculation(commonInput);
+        syncRecordInputsForDate(prepared.today);
+        render();
+        result.record = getRecordByDate(prepared.today);
+        setTodayInputFeedback("ok", getTodayRecordStartSavedMessages("상세 기록을 저장했습니다.", commonInput));
         closeTodayRecordStartDialog();
       } else {
         setTodayRecordStartFeedback("warn", recordsState.feedback?.message || "저장할 식사 내용을 입력해 주세요.");
@@ -9693,48 +9831,59 @@ Notes:
     }
 
     function saveTodayRecordStartSimple(){
-      const weight = getOptionalRecordStartWeight("todayRecordSimpleWeight");
-      if (weight.invalid) {
-        setTodayRecordStartFeedback("warn", "체중 입력값을 확인해 주세요.");
-        return { saved: false, reason: "invalid_weight" };
+      const commonInput = getTodayRecordStartCommonInput("todayRecordSimpleWeight", "todayRecordSimpleMemo", "todayRecordSimpleApplyWeightToCalculation");
+      if (!commonInput.ok) {
+        setTodayRecordStartFeedback("warn", "오늘 공복 체중 입력값을 확인해 주세요.");
+        return { saved: false, reason: commonInput.reason };
       }
       const prepared = prepareTodayRecordMode("simple");
       if (!prepared.ok) return { saved: false, reason: prepared.reason };
-      ids.recordWeight.value = weight.hasValue ? String(weight.value) : "";
-      ids.recordAdherence.value = getTodayRecordSimpleAdherence();
-      ids.recordNote.value = String(document.getElementById("todayRecordSimpleMemo")?.value || "").trim();
-      saveRecord();
+      const existing = getRecordByDate(prepared.today);
+      const update = {
+        date: prepared.today,
+        recordMode: "simple",
+        ...clearDietEvidenceForMode("simple", existing),
+        adherence: getTodayRecordSimpleAdherence(),
+        adherenceSource: "manual"
+      };
+      if (commonInput.weight.hasValue) update.weight = commonInput.weight.value;
+      if (commonInput.hasMemo) update.note = commonInput.memo;
+      const savedRecord = upsertRecord(update);
+      applyTodayRecordWeightToCalculation(commonInput);
+      setRecordFeedback("ok", `${prepared.today} ${getRecordModeLabel("simple")}을 저장했습니다.`);
+      syncRecordInputsForDate(prepared.today);
+      render();
       const record = getRecordByDate(prepared.today);
       if (record?.recordMode === "simple") {
-        setTodayInputFeedback("ok", "간단 기록을 저장했습니다.");
+        setTodayInputFeedback("ok", getTodayRecordStartSavedMessages("간단 기록을 저장했습니다.", commonInput));
         closeTodayRecordStartDialog();
-        return { saved: true, record };
+        return { saved: true, record: savedRecord || record };
       }
       setTodayRecordStartFeedback("warn", recordsState.feedback?.message || "간단 기록을 저장하지 못했습니다.");
       return { saved: false, reason: "save_failed" };
     }
 
     function saveTodayRecordStartSkip(){
-      const weight = getOptionalRecordStartWeight("todayRecordSkipWeight");
-      if (weight.invalid) {
-        setTodayRecordStartFeedback("warn", "체중 입력값을 확인해 주세요.");
-        return { saved: false, reason: "invalid_weight" };
+      const commonInput = getTodayRecordStartCommonInput("todayRecordSkipWeight", "todayRecordSkipMemo", "todayRecordSkipApplyWeightToCalculation");
+      if (!commonInput.ok) {
+        setTodayRecordStartFeedback("warn", "오늘 공복 체중 입력값을 확인해 주세요.");
+        return { saved: false, reason: commonInput.reason };
       }
       const prepared = prepareTodayRecordMode("weight_only");
       if (!prepared.ok) return { saved: false, reason: prepared.reason };
       const existing = getRecordByDate(prepared.today);
-      const memo = String(document.getElementById("todayRecordSkipMemo")?.value || "").trim();
       const update = {
         date: prepared.today,
         recordMode: "weight_only",
-        ...clearDietEvidenceForMode("weight_only", existing),
-        note: memo || existing?.note || ""
+        ...clearDietEvidenceForMode("weight_only", existing)
       };
-      if (weight.hasValue) update.weight = weight.value;
+      if (commonInput.weight.hasValue) update.weight = commonInput.weight.value;
+      if (commonInput.hasMemo) update.note = commonInput.memo;
       const record = upsertRecord(update);
+      applyTodayRecordWeightToCalculation(commonInput);
       syncRecordInputsForDate(prepared.today);
       setRecordFeedback("ok", "식단 판단 없이 오늘 기록을 저장했습니다.");
-      setTodayInputFeedback("ok", "식단 건너뛰기 기록을 저장했습니다.");
+      setTodayInputFeedback("ok", getTodayRecordStartSavedMessages("식단 건너뛰기 기록을 저장했습니다.", commonInput));
       render();
       closeTodayRecordStartDialog();
       return { saved: true, record };
@@ -21845,9 +21994,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("C2 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C2"), "document title should show v6.6-C2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C2"), "app version badge should show v6.6-C2");
+        results.push(runNamedTest("C3 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C3"), "document title should show v6.6-C3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C3"), "app version badge should show v6.6-C3");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22557,6 +22706,206 @@ Notes:
         results.push(runNamedTest("today record start keeps fixed scoring and recent windows", () => {
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "record start should not change scoring version");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "record start should not change recent context windows");
+        }));
+
+        return results;
+      });
+    }
+
+    function runRecordStartWeightFlowTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+
+        function setModalValue(id, value){
+          const input = document.getElementById(id);
+          assertTest(!!input, `${id} should exist`);
+          input.value = String(value);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+
+        function getRecordStartText(step = "detailed"){
+          openTodayRecordStartDialog(step);
+          return getTodayRecordStartOverlay()?.innerText || "";
+        }
+
+        results.push(runNamedTest("C3 record start modal exposes fasting weight and memo copy", () => {
+          const text = getRecordStartText("detailed");
+          assertTest(!!document.getElementById("todayRecordDetailedWeight"), "detailed record start should include fasting weight input");
+          assertTest(!!document.getElementById("todayRecordDetailedMemo"), "detailed record start should include record memo input");
+          assertIncludesAll(text, [
+            "오늘 공복 체중",
+            "메모",
+            "기록에 남기는 체중입니다.",
+            "오늘 계산에도 반영",
+            "체크하면 오늘 권장 탄단지와 남은 양도 이 체중으로 다시 계산됩니다."
+          ], "record start modal should explain fasting weight as a record value");
+          assertTest(document.getElementById("todayRecordDetailedApplyWeightToCalculation")?.checked === true, "apply-to-calculation checkbox should default on");
+          assertExcludesAll(text, [
+            "recordMode",
+            "weight_only",
+            "goalSnapshot",
+            "schema",
+            "source of truth",
+            "selectedBasis",
+            "uiState",
+            "autoDietAnalysis",
+            "macroPatternAllowed",
+            "confidence",
+            "helper",
+            "policy"
+          ], "record start fasting weight copy should stay user-facing");
+          closeTodayRecordStartDialog();
+        }));
+
+        results.push(runNamedTest("C3 detailed save stores fasting weight and memo without deleting meals", () => {
+          setValidTodayBalanceTestInputs();
+          const calculationWeightBefore = ids.weight.value;
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            recordMode: "detailed",
+            weight: 74.9,
+            note: "기존 메모",
+            meals: [{
+              id: "c3-existing-meal",
+              mealLabel: "아침",
+              carbs: 35,
+              protein: 24,
+              fat: 8,
+              alcoholKcal: 0,
+              otherKcal: 0,
+              memo: "",
+              createdAt: `${today}T08:00:00.000Z`
+            }]
+          }]);
+          render();
+          openTodayRecordStartDialog("detailed");
+          assertTest(document.getElementById("todayRecordDetailedWeight").value === "74.90", "detailed fasting weight should prefill existing record weight");
+          assertTest(document.getElementById("todayRecordDetailedMemo").value === "기존 메모", "detailed memo should prefill existing record note");
+          setModalValue("todayRecordDetailedWeight", "76.4");
+          setModalValue("todayRecordDetailedMemo", "상세 기록 메모");
+          setModalValue("todayRecordMealCarbs", "62");
+          setModalValue("todayRecordMealProtein", "31");
+          setModalValue("todayRecordMealFat", "12");
+          const saved = saveTodayRecordStartDetailed();
+          const record = getRecordByDate(today);
+          assertTest(saved?.saved === true, "detailed save with fasting weight should succeed");
+          assertTest(record.weight === 76.4, "detailed save should store fasting weight on today's record");
+          assertTest(record.note === "상세 기록 메모", "detailed save should store record memo");
+          assertTest(record.meals.length === 2, "detailed fasting weight save should preserve existing meals and add the new meal");
+          assertTest(ids.weight.value === "76.40" && ids.weight.value !== calculationWeightBefore, "checked detailed fasting weight should update Settings calculation weight");
+          assertTest(document.getElementById("todayQuickWeight").value === "76.40", "checked detailed fasting weight should sync Today quick edit weight");
+        }));
+
+        results.push(runNamedTest("C3 simple save stores fasting weight and memo as simple record", () => {
+          recordsState.items = [];
+          render();
+          openTodayRecordStartDialog("simple");
+          setTodayRecordSimpleAdherence("high");
+          setModalValue("todayRecordSimpleWeight", "75.3");
+          setModalValue("todayRecordSimpleMemo", "간단 기록 메모");
+          const saved = saveTodayRecordStartSimple();
+          const record = getRecordByDate(today);
+          assertTest(saved?.saved === true, "simple save with fasting weight should succeed");
+          assertTest(record.recordMode === "simple", "simple save should keep simple mode");
+          assertTest(record.weight === 75.3, "simple save should store fasting weight");
+          assertTest(record.note === "간단 기록 메모", "simple save should store memo");
+          assertTest(record.adherence === "high" && record.adherenceSource === "manual", "simple save should keep manual evaluation only");
+          assertTest(ids.weight.value === "75.30", "checked simple fasting weight should update Settings calculation weight");
+          assertTest(record.meals.length === 0, "simple save should not create meals");
+          assertTest(!record.goalSnapshot && record.adherencePercent === null, "simple save should not create detailed score metadata");
+        }));
+
+        results.push(runNamedTest("C3 skip save stores weight memo without diet judgment", () => {
+          recordsState.items = [];
+          setValidTodayBalanceTestInputs();
+          render();
+          const calculationWeightBefore = ids.weight.value;
+          const beforeTarget = calculate().targetCal;
+          openTodayRecordStartDialog("skip");
+          setModalValue("todayRecordSkipWeight", "74.6");
+          setModalValue("todayRecordSkipMemo", "식단 판단 없이 남김");
+          const saved = saveTodayRecordStartSkip();
+          const record = getRecordByDate(today);
+          const afterTarget = calculate().targetCal;
+          const entry = getStoredAdherenceEntry(record);
+          assertTest(saved?.saved === true, "skip save with fasting weight should succeed");
+          assertTest(record.recordMode === "weight_only", "skip save should keep internal weight-only mode");
+          assertTest(record.weight === 74.6, "skip save should store fasting weight");
+          assertTest(record.note === "식단 판단 없이 남김", "skip save should store memo");
+          assertTest(record.meals.length === 0, "skip save should not create meals");
+          assertTest(entry.percent === null && !record.goalSnapshot, "skip save should not create diet score or goal context");
+          assertTest(ids.weight.value === "74.60" && ids.weight.value !== calculationWeightBefore, "checked skip fasting weight should update Settings calculation weight");
+          assertTest(document.getElementById("todayQuickWeight").value === "74.60", "checked skip fasting weight should sync Today quick edit weight");
+          assertTest(Number.isFinite(beforeTarget) && Number.isFinite(afterTarget) && afterTarget !== beforeTarget, "checked skip fasting weight should recalculate targetCal or macro calculation");
+        }));
+
+        results.push(runNamedTest("C3 unchecked fasting weight stays record-only", () => {
+          recordsState.items = [];
+          setValidTodayBalanceTestInputs();
+          render();
+          const calculationWeightBefore = ids.weight.value;
+          const beforeTarget = calculate().targetCal;
+          openTodayRecordStartDialog("skip");
+          document.getElementById("todayRecordSkipApplyWeightToCalculation").checked = false;
+          setModalValue("todayRecordSkipWeight", "73.2");
+          setModalValue("todayRecordSkipMemo", "기록만 반영");
+          const saved = saveTodayRecordStartSkip();
+          const record = getRecordByDate(today);
+          const afterTarget = calculate().targetCal;
+          assertTest(saved?.saved === true, "unchecked skip fasting weight should still save record");
+          assertTest(record.weight === 73.2, "unchecked fasting weight should be saved in Records");
+          assertTest(record.note === "기록만 반영", "unchecked fasting memo should be saved in Records");
+          assertTest(ids.weight.value === calculationWeightBefore, "unchecked fasting weight should not update Settings calculation weight");
+          assertClose(afterTarget, beforeTarget, 0.0001, "unchecked fasting weight should not change targetCal or macro calculation");
+        }));
+
+        results.push(runNamedTest("C3 empty common fields preserve existing weight and memo", () => {
+          setValidTodayBalanceTestInputs();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            recordMode: "weight_only",
+            weight: 77.7,
+            note: "기존 기록 메모",
+            meals: []
+          }]);
+          render();
+          const calculationWeightBefore = ids.weight.value;
+          const beforeTarget = calculate().targetCal;
+          openTodayRecordStartDialog("skip");
+          assertTest(document.getElementById("todayRecordSkipWeight").value === "77.70", "skip fasting weight should prefill existing record weight");
+          assertTest(document.getElementById("todayRecordSkipMemo").value === "기존 기록 메모", "skip memo should prefill existing record note");
+          setModalValue("todayRecordSkipWeight", "");
+          setModalValue("todayRecordSkipMemo", "");
+          const saved = saveTodayRecordStartSkip();
+          const record = getRecordByDate(today);
+          const afterTarget = calculate().targetCal;
+          assertTest(saved?.saved === true, "blank optional fields should still save skip record");
+          assertTest(record.weight === 77.7, "blank fasting weight should not clear existing weight");
+          assertTest(record.note === "기존 기록 메모", "blank memo should not clear existing note");
+          assertTest(ids.weight.value === calculationWeightBefore, "blank fasting weight should not update Settings calculation weight");
+          assertClose(afterTarget, beforeTarget, 0.0001, "blank fasting weight should not change targetCal or macro calculation");
+          assertExcludesAll(getRenderedBodyText(), ["NaN", "undefined"], "blank fasting weight should not expose broken values");
+        }));
+
+        results.push(runNamedTest("C3 Records archive reflects fasting weight and memo", () => {
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            recordMode: "weight_only",
+            weight: 72.4,
+            note: "기록 보관함 메모",
+            meals: []
+          }]);
+          setActiveTab("records");
+          render();
+          const text = document.getElementById("recordsPanel")?.innerText || "";
+          assertIncludesAll(text, ["기록 보관함", "체중 있음", "메모 있음"], "Records should reflect fasting weight and memo chips");
+          assertExcludesAll(text, ["weight_only", "recordMode", "schema"], "Records should keep record-start fields user-facing");
+        }));
+
+        results.push(runNamedTest("C3 record-start fasting weight keeps fixed versions and windows", () => {
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "C3 should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "C3 should not change recent context windows");
         }));
 
         return results;
@@ -34891,6 +35240,7 @@ Notes:
     window.runCompactPolishTests = runCompactPolishTests;
     window.runRecordsInlineEditTests = runRecordsInlineEditTests;
     window.runTodayRecordStartTests = runTodayRecordStartTests;
+    window.runRecordStartWeightFlowTests = runRecordStartWeightFlowTests;
     window.runCalculationInputSeparationTests = runCalculationInputSeparationTests;
     window.runTodayQuickEditTests = runTodayQuickEditTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
