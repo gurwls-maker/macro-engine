@@ -1,8 +1,17 @@
 <!--
-Version: 6.6-C3
-Stage: 6.6-C3 기록 시작 팝업 + 오늘 공복 체중 기록 흐름 정리
+Version: 6.6-C4.2
+Stage: 6.6-C4.2 Today 계산값 소유 구조 구현
 Date: 2026-05-12
 Notes:
+- C4.2 Today 계산값 소유 구조 구현
+- C2 quick edit shortcut을 Today 계산값 구조로 흡수
+- Today가 계산용 체중 / 체성분 / 오늘 활동 / 오늘 업무 / 오늘 웨이트 / 오늘 유산소 실제값을 직접 소유
+- Settings는 기본값 / 프로필 / 장기 기준으로 재분류
+- 새 날짜에는 Settings 기본값에서 Today 값을 채움
+- 사용자가 Today에서 수정한 날은 그 날짜의 수정값 유지
+- guide/activity dual basis와 selected basis -> target/macro/remaining/adherence 연결 유지
+- 기록 시작 공복 체중 체크 ON은 Today 계산용 체중에 반영
+- 산식 / score / Coach / recentContext / InBody gate / schema-import-export 변경 없음
 - C3 기록 시작 팝업 + 오늘 공복 체중 기록 흐름 정리
 - Today 기록 시작 팝업에서 오늘 공복 체중 / 메모 선택 입력 추가
 - 오늘 공복 체중은 Records 기록값이며 계산용 체중과 분리
@@ -13,7 +22,7 @@ Notes:
 - C2 Today 빠른 수정 + 결과 확인 구조 구현
 - Today 계산 기준 요약 카드 추가
 - 빠른 수정에 웨이트 루틴 / 세션 dropdown 추가
-- 빠른 수정은 Settings 대체가 아니라 오늘 결과 확인용 shortcut
+- C2 빠른 수정은 C4.2에서 Today 계산값 구조로 흡수
 - Settings는 자세한 계산 기준 관리 장소로 유지
 - A5.11 guide/activity dual basis와 selected basis → target/macro/remaining/adherence 연결 유지
 - 산식 / score / Coach decision matrix / recentContext / InBody gate / 저장 schema / import-export 변경 없음
@@ -45,7 +54,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C3</title>
+  <title>탄단지 다이어리 v6.6-C4.2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -664,6 +673,13 @@ Notes:
       gap:12px;
       align-items:start;
       grid-column:span 4;
+    }
+    .today-quick-edit-section-title{
+      grid-column:1 / -1;
+      margin:2px 0 -2px;
+      font-size:12px;
+      font-weight:900;
+      color:var(--teal);
     }
     .today-quick-edit-panel .field{
       min-width:0;
@@ -5104,7 +5120,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C3</span>
+               <span class="app-version">v6.6-C4.2</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -5373,22 +5389,36 @@ Notes:
       <section class="panel today-calc-settings-card" id="todayCalcSettingsCard">
         <div class="today-calc-settings-head">
           <div class="today-calc-settings-copy">
-            <h3>계산 기준</h3>
-            <h2>오늘 계산 기준</h2>
-            <p>오늘 결과에 바로 반영되는 핵심값만 바꿉니다. 자세한 계산 기준은 전체 설정에서 관리합니다.</p>
+            <h3>Today</h3>
+            <h2>오늘 계산값</h2>
+            <p>오늘 먹을 양을 계산하는 값입니다.</p>
           </div>
           <div class="today-calc-settings-actions">
-            <button class="secondary-btn" id="todayQuickEditToggle" type="button" aria-expanded="false" aria-controls="todayQuickEditPanel">빠른 수정</button>
+            <button class="secondary-btn" id="todayQuickEditToggle" type="button" aria-expanded="true" aria-controls="todayQuickEditPanel">접기</button>
             <button class="primary-btn" id="todayCalcSettingsBtn" type="button" data-open-calculation-settings>전체 설정</button>
           </div>
         </div>
         <div class="today-calc-summary-grid" id="todayCalcSummary" aria-live="polite"></div>
-        <div class="today-quick-edit-panel hidden" id="todayQuickEditPanel" aria-hidden="true">
+        <div class="today-quick-edit-panel" id="todayQuickEditPanel" aria-hidden="false">
           <div class="today-quick-edit-fields">
+            <div class="today-quick-edit-section-title">오늘 몸 상태</div>
             <div class="field">
               <label for="todayQuickWeight">계산용 체중</label>
               <input id="todayQuickWeight" type="number" min="30" max="200" step="0.1" inputmode="decimal">
             </div>
+            <div class="field">
+              <label for="todayQuickSkeletal">골격근량</label>
+              <input id="todayQuickSkeletal" type="number" min="0" max="120" step="0.1" inputmode="decimal">
+            </div>
+            <div class="field">
+              <label for="todayQuickBodyFatMass">체지방량</label>
+              <input id="todayQuickBodyFatMass" type="number" min="0" max="120" step="0.1" inputmode="decimal">
+            </div>
+            <div class="field">
+              <label for="todayQuickBodyFat">체지방률</label>
+              <input id="todayQuickBodyFat" type="number" min="1" max="75" step="0.1" inputmode="decimal">
+            </div>
+            <div class="today-quick-edit-section-title">오늘 활동</div>
             <div class="field">
               <label for="todayQuickActivityLevel">활동량</label>
               <select id="todayQuickActivityLevel">
@@ -5408,12 +5438,13 @@ Notes:
                 <option value="heavy_field">고강도 현장</option>
               </select>
             </div>
+            <div class="today-quick-edit-section-title">오늘 운동</div>
             <div class="field">
-              <label for="todayQuickWeightDuration">오늘 웨이트</label>
+              <label for="todayQuickWeightDuration">웨이트 시간</label>
               <input id="todayQuickWeightDuration" type="number" min="0" max="180" step="5" inputmode="decimal">
             </div>
             <div class="field">
-              <label for="todayQuickCardioType">유산소 종류</label>
+              <label for="todayQuickCardioType">오늘 유산소</label>
               <select id="todayQuickCardioType">
                 <option value="treadmill_walk">트레드밀 워킹</option>
                 <option value="treadmill_run">트레드밀 러닝</option>
@@ -5444,7 +5475,7 @@ Notes:
             </div>
           </div>
           <div class="today-quick-edit-footer">
-            <div class="mini-note">수정하면 위 결과 카드와 남은 양이 바로 다시 계산됩니다.</div>
+            <div class="mini-note">오늘 수정한 값은 이 날짜의 계산에 유지됩니다.</div>
             <button class="secondary-btn" id="todayQuickEditClose" type="button">닫기</button>
           </div>
         </div>
@@ -6539,6 +6570,29 @@ Notes:
       items: [],
       feedback: null
     };
+    const TODAY_CALCULATION_DRAFT_STORAGE_KEY = "todayCalculationDrafts.v1";
+    const TODAY_CALCULATION_DRAFT_NUMBER_FIELDS = [
+      "calculationWeight",
+      "skeletalMuscle",
+      "bodyFatMass",
+      "bodyFatPercent",
+      "todayIntensityOverride",
+      "todayWeightDuration",
+      "todayCardioDuration",
+      "todayCardioSpeed",
+      "todayCardioIncline"
+    ];
+    const TODAY_CALCULATION_DRAFT_SELECT_FIELDS = [
+      "todayActivityLevel",
+      "todayWorkType",
+      "todayRoutineSession",
+      "todayCardioType"
+    ];
+    const TODAY_CALCULATION_DRAFT_FIELDS = [
+      ...TODAY_CALCULATION_DRAFT_NUMBER_FIELDS,
+      ...TODAY_CALCULATION_DRAFT_SELECT_FIELDS
+    ];
+    let todayCalculationDrafts = {};
     let suppressTodayRecordAutoSync = false;
     const ADHERENCE_SCORING_VERSION = "v6.1_alcohol_penalty_v2";
     const RECENT_CONTEXT_WINDOWS = [1, 3, 7, 14, 28];
@@ -6609,6 +6663,139 @@ Notes:
       return allowed.includes(value);
     }
 
+    function normalizeTodayCalculationNumber(raw){
+      if (raw === null || raw === undefined || String(raw).trim() === "") return null;
+      const value = Number(raw);
+      return Number.isFinite(value) ? value : null;
+    }
+
+    function normalizeTodayCalculationDraft(raw = {}){
+      const normalized = {};
+      TODAY_CALCULATION_DRAFT_NUMBER_FIELDS.forEach(field => {
+        const value = normalizeTodayCalculationNumber(raw[field]);
+        if (value !== null) normalized[field] = value;
+      });
+      const activity = raw.todayActivityLevel;
+      if (isAllowedOption(activity, Object.keys(ACTIVITY_COEFF))) normalized.todayActivityLevel = activity;
+      const workType = raw.todayWorkType;
+      if (isAllowedOption(workType, Object.keys(WORK_TYPE_Y))) normalized.todayWorkType = workType;
+      const cardioType = raw.todayCardioType;
+      if (isAllowedOption(cardioType, Object.keys(CARDIO_TYPES))) normalized.todayCardioType = cardioType;
+      const routineSession = raw.todayRoutineSession;
+      if (typeof routineSession === "string" && routineSession.trim()) normalized.todayRoutineSession = routineSession;
+      return normalized;
+    }
+
+    function loadTodayCalculationDrafts(){
+      try {
+        const parsed = JSON.parse(readStoredValue(TODAY_CALCULATION_DRAFT_STORAGE_KEY) || "{}");
+        todayCalculationDrafts = Object.entries(parsed || {}).reduce((acc, [date, draft]) => {
+          const normalizedDate = normalizeDateString(date);
+          if (!normalizedDate) return acc;
+          const normalized = normalizeTodayCalculationDraft(draft);
+          if (Object.keys(normalized).length) acc[normalizedDate] = normalized;
+          return acc;
+        }, {});
+      } catch (_error) {
+        todayCalculationDrafts = {};
+      }
+    }
+
+    function saveTodayCalculationDrafts(){
+      const entries = Object.entries(todayCalculationDrafts || {})
+        .filter(([date, draft]) => normalizeDateString(date) && draft && Object.keys(draft).length);
+      if (!entries.length) {
+        localStorage.removeItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY));
+        return;
+      }
+      localStorage.setItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY), JSON.stringify(Object.fromEntries(entries)));
+    }
+
+    function getSettingsCalculationDefaults(){
+      const weight = normalizeTodayCalculationNumber(ids.weight?.value) ?? DEFAULT_STATE.weight;
+      const bodyFatPercent = normalizeTodayCalculationNumber(ids.bodyFat?.value);
+      const bodyFatMassInput = normalizeTodayCalculationNumber(ids.bodyFatMass?.value);
+      const bodyFatMass = bodyFatMassInput ?? (Number.isFinite(weight) && Number.isFinite(bodyFatPercent) ? weight * bodyFatPercent / 100 : null);
+      const activityLevel = isAllowedOption(ids.activityLevel?.value, Object.keys(ACTIVITY_COEFF)) ? ids.activityLevel.value : DEFAULT_STATE.activityLevel;
+      const workType = isAllowedOption(ids.workType?.value, Object.keys(WORK_TYPE_Y)) ? ids.workType.value : DEFAULT_STATE.workType;
+      const cardioType = isAllowedOption(ids.cardioType?.value, Object.keys(CARDIO_TYPES)) ? ids.cardioType.value : DEFAULT_STATE.cardioType;
+      return {
+        calculationWeight: weight,
+        skeletalMuscle: normalizeTodayCalculationNumber(ids.skeletal?.value) ?? DEFAULT_STATE.skeletal,
+        bodyFatPercent: Number.isFinite(bodyFatPercent) ? bodyFatPercent : DEFAULT_STATE.bodyFat,
+        bodyFatMass,
+        todayActivityLevel: activityLevel,
+        todayWorkType: workType,
+        todayRoutineSession: state.routine || DEFAULT_STATE.routine,
+        todayIntensityOverride: normalizeTodayCalculationNumber(ids.intensityOverride?.value) ?? DEFAULT_STATE.intensityOverride,
+        todayWeightDuration: normalizeTodayCalculationNumber(ids.weightDuration?.value) ?? DEFAULT_STATE.weightDuration,
+        todayCardioType: cardioType,
+        todayCardioDuration: normalizeTodayCalculationNumber(ids.cardioDuration?.value) ?? DEFAULT_STATE.cardioDuration,
+        todayCardioSpeed: normalizeTodayCalculationNumber(ids.cardioSpeed?.value) ?? DEFAULT_STATE.cardioSpeed,
+        todayCardioIncline: normalizeTodayCalculationNumber(ids.cardioIncline?.value) ?? DEFAULT_STATE.cardioIncline
+      };
+    }
+
+    function getRoutineItemsForTodayCalculation(){
+      const modeCfg = getModeRuntimeConfig();
+      if (modeCfg.inputDepth === "basic" && !state.generalAdvancedSettings) return getGeneralRoutineItems();
+      return getRoutineItems();
+    }
+
+    function normalizeTodayRoutineSession(value){
+      const items = getRoutineItemsForTodayCalculation();
+      if (items.some(item => item.value === value)) return value;
+      return (items.find(item => item.value !== "REST") || items[0] || { value: DEFAULT_STATE.routine }).value;
+    }
+
+    function getEffectiveTodayCalculationValues(date = getTodayDateString()){
+      const targetDate = normalizeDateString(date) || getTodayDateString();
+      const defaults = getSettingsCalculationDefaults();
+      const draft = normalizeTodayCalculationDraft(todayCalculationDrafts[targetDate] || {});
+      const values = { ...defaults, ...draft };
+      values.todayRoutineSession = normalizeTodayRoutineSession(values.todayRoutineSession);
+      if (!Number.isFinite(values.bodyFatPercent) && Number.isFinite(values.bodyFatMass) && Number.isFinite(values.calculationWeight) && values.calculationWeight > 0) {
+        values.bodyFatPercent = values.bodyFatMass / values.calculationWeight * 100;
+      }
+      if (!Number.isFinite(values.bodyFatMass) && Number.isFinite(values.bodyFatPercent) && Number.isFinite(values.calculationWeight)) {
+        values.bodyFatMass = values.calculationWeight * values.bodyFatPercent / 100;
+      }
+      return values;
+    }
+
+    function getTodayCalculationDraft(date = getTodayDateString()){
+      const targetDate = normalizeDateString(date) || getTodayDateString();
+      return todayCalculationDrafts[targetDate] || null;
+    }
+
+    function setTodayCalculationDraftValues(values = {}, options = {}){
+      const targetDate = normalizeDateString(options.date) || getTodayDateString();
+      const current = { ...(todayCalculationDrafts[targetDate] || {}) };
+      TODAY_CALCULATION_DRAFT_FIELDS.forEach(field => {
+        if (!Object.prototype.hasOwnProperty.call(values, field)) return;
+        const raw = values[field];
+        if (TODAY_CALCULATION_DRAFT_NUMBER_FIELDS.includes(field)) {
+          const value = normalizeTodayCalculationNumber(raw);
+          if (value === null) delete current[field];
+          else current[field] = value;
+          return;
+        }
+        if (raw === null || raw === undefined || String(raw).trim() === "") {
+          delete current[field];
+        } else {
+          current[field] = String(raw);
+        }
+      });
+      const normalized = normalizeTodayCalculationDraft(current);
+      if (Object.keys(normalized).length) todayCalculationDrafts[targetDate] = normalized;
+      else delete todayCalculationDrafts[targetDate];
+      saveTodayCalculationDrafts();
+    }
+
+    function setTodayCalculationDraftField(field, value, options = {}){
+      setTodayCalculationDraftValues({ [field]: value }, options);
+    }
+
     function loadState(){
       const loaded = { ...DEFAULT_STATE };
       const mode = readStoredValue("mode");
@@ -6676,6 +6863,7 @@ Notes:
         loaded.inbodyRecords = [];
       }
 
+      loadTodayCalculationDrafts();
       Object.assign(state, loaded);
       applyStateToInputs();
       populateRecordInputsFromToday();
@@ -6686,6 +6874,8 @@ Notes:
       localStorage.removeItem(storageKey("activeTab"));
       localStorage.removeItem(storageKey("records"));
       localStorage.removeItem(storageKey("inbodyRecords"));
+      localStorage.removeItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY));
+      todayCalculationDrafts = {};
       Object.assign(state, { ...DEFAULT_STATE, renderedRoutineKey: "", renderedGoalKey: "" });
       uiState.activeTab = "today";
       uiState.selectedMacroBasis = "guide";
@@ -7560,28 +7750,34 @@ Notes:
     }
 
     function collectState(){
-      const workAdjBounds = getWorkAdjBounds();
+      const todayValues = getEffectiveTodayCalculationValues();
+      const modeCfg = getModeRuntimeConfig();
+      const workAdjBounds = modeCfg.inputDepth === "basic"
+        ? { min: 0, max: 0 }
+        : (todayValues.todayActivityLevel === "very_active" && todayValues.todayWorkType === "heavy_field"
+          ? { min: -0.10, max: 0.10 }
+          : { min: -0.20, max: 0.20 });
       return {
-        weight: Number(ids.weight.value),
+        weight: todayValues.calculationWeight,
         height: Number(ids.height.value),
         age: Number(ids.age.value),
-        bodyFat: Number(ids.bodyFat.value),
-        skeletal: Number(ids.skeletal.value),
+        bodyFat: todayValues.bodyFatPercent,
+        skeletal: todayValues.skeletalMuscle,
         gender: ids.gender.value,
-        activityLevel: ids.activityLevel.value,
-        workType: ids.workType.value,
+        activityLevel: todayValues.todayActivityLevel,
+        workType: todayValues.todayWorkType,
         workAdj: clamp(Number(ids.workAdj.value), workAdjBounds.min, workAdjBounds.max),
         homeInbody: !!ids.homeInbody.checked,
         weeklyTrainingDays: Number(ids.weeklyTrainingDays.value),
         routinePlan: state.routinePlan,
-        routine: state.routine,
-        intensityOverride: Number(ids.intensityOverride.value),
-        weightDuration: Number(ids.weightDuration.value),
+        routine: todayValues.todayRoutineSession,
+        intensityOverride: Number.isFinite(todayValues.todayIntensityOverride) ? todayValues.todayIntensityOverride : Number(ids.intensityOverride.value),
+        weightDuration: todayValues.todayWeightDuration,
         goal: state.goal,
-        cardioType: ids.cardioType.value,
-        cardioDuration: Number(ids.cardioDuration.value),
-        cardioSpeed: Number(ids.cardioSpeed.value),
-        cardioIncline: Number(ids.cardioIncline.value)
+        cardioType: todayValues.todayCardioType,
+        cardioDuration: todayValues.todayCardioDuration,
+        cardioSpeed: todayValues.todayCardioSpeed,
+        cardioIncline: todayValues.todayCardioIncline
       };
     }
 
@@ -8345,7 +8541,8 @@ Notes:
       if (quickSettingsButton) quickSettingsButton.style.display = tab === "today" ? "inline-flex" : "none";
       const todayRecordStartButton = document.getElementById("todayRecordStartBtn");
       if (todayRecordStartButton) todayRecordStartButton.style.display = tab === "today" ? "inline-flex" : "none";
-      if (tab !== "today") setTodayQuickEditOpen(false);
+      if (tab === "today") setTodayQuickEditOpen(true);
+      else setTodayQuickEditOpen(false);
       if (tab === "settings") setQuickSettingsOpen(false);
     }
 
@@ -8564,14 +8761,17 @@ Notes:
     }
 
     const TODAY_QUICK_EDIT_FIELD_MAP = [
-      { quickId: "todayQuickWeight", sourceId: "weight" },
-      { quickId: "todayQuickActivityLevel", sourceId: "activityLevel" },
-      { quickId: "todayQuickWorkType", sourceId: "workType" },
-      { quickId: "todayQuickWeightDuration", sourceId: "weightDuration" },
-      { quickId: "todayQuickCardioType", sourceId: "cardioType" },
-      { quickId: "todayQuickCardioDuration", sourceId: "cardioDuration" },
-      { quickId: "todayQuickCardioSpeed", sourceId: "cardioSpeed" },
-      { quickId: "todayQuickCardioIncline", sourceId: "cardioIncline" }
+      { quickId: "todayQuickWeight", draftField: "calculationWeight", digits: 2 },
+      { quickId: "todayQuickSkeletal", draftField: "skeletalMuscle", digits: 2 },
+      { quickId: "todayQuickBodyFatMass", draftField: "bodyFatMass", digits: 2 },
+      { quickId: "todayQuickBodyFat", draftField: "bodyFatPercent", digits: 2 },
+      { quickId: "todayQuickActivityLevel", draftField: "todayActivityLevel" },
+      { quickId: "todayQuickWorkType", draftField: "todayWorkType" },
+      { quickId: "todayQuickWeightDuration", draftField: "todayWeightDuration", digits: 0 },
+      { quickId: "todayQuickCardioType", draftField: "todayCardioType" },
+      { quickId: "todayQuickCardioDuration", draftField: "todayCardioDuration", digits: 0 },
+      { quickId: "todayQuickCardioSpeed", draftField: "todayCardioSpeed", digits: 1 },
+      { quickId: "todayQuickCardioIncline", draftField: "todayCardioIncline", digits: 1 }
     ];
 
     function getBasisUiLabel(basisId){
@@ -8604,14 +8804,18 @@ Notes:
     }
 
     function syncTodayQuickEditControls(){
-      TODAY_QUICK_EDIT_FIELD_MAP.forEach(({ quickId, sourceId }) => {
+      const todayValues = getEffectiveTodayCalculationValues();
+      TODAY_QUICK_EDIT_FIELD_MAP.forEach(({ quickId, draftField, digits = 0 }) => {
         const quick = document.getElementById(quickId);
-        const source = ids[sourceId];
-        if (!quick || !source) return;
-        if (quick.value !== source.value) quick.value = source.value;
-        quick.disabled = !!source.disabled;
+        if (!quick) return;
+        const value = todayValues[draftField];
+        const nextValue = quick.tagName === "SELECT"
+          ? String(value || "")
+          : (Number.isFinite(value) ? formatInputNumber(value, digits) : "");
+        if (quick.value !== nextValue) quick.value = nextValue;
+        quick.disabled = false;
       });
-      syncTodayQuickRoutineControls();
+      syncTodayQuickRoutineControls(todayValues);
     }
 
     function renderTodayQuickSelectOptions(select, items, currentValue){
@@ -8634,7 +8838,7 @@ Notes:
       return getRoutineItems();
     }
 
-    function syncTodayQuickRoutineControls(){
+    function syncTodayQuickRoutineControls(todayValues = getEffectiveTodayCalculationValues()){
       const planSelect = document.getElementById("todayQuickRoutinePlan");
       const sessionSelect = document.getElementById("todayQuickRoutineSession");
       if (!planSelect || !sessionSelect) return;
@@ -8644,14 +8848,13 @@ Notes:
         ? [{ value: state.routinePlan || "ppl_ul", label: "일반인 기본" }]
         : Object.entries(ROUTINE_SCHEMES).map(([value, scheme]) => ({ value, label: scheme.label }));
       renderTodayQuickSelectOptions(planSelect, planItems, state.routinePlan);
-      planSelect.disabled = isSimpleGeneral;
+      planSelect.disabled = true;
 
       const sessionItems = getTodayQuickRoutineItems();
-      if (!sessionItems.some(item => item.value === state.routine)) {
-        const firstTraining = sessionItems.find(item => item.value !== "REST") ?? sessionItems[0];
-        setRoutineFromCurrentPlan(firstTraining.value);
-      }
-      renderTodayQuickSelectOptions(sessionSelect, sessionItems, state.routine);
+      const session = sessionItems.some(item => item.value === todayValues.todayRoutineSession)
+        ? todayValues.todayRoutineSession
+        : (sessionItems.find(item => item.value !== "REST") ?? sessionItems[0])?.value;
+      renderTodayQuickSelectOptions(sessionSelect, sessionItems, session);
     }
 
     function renderTodayCalculationBasisSummary(result, showPlaceholder){
@@ -8660,7 +8863,7 @@ Notes:
       if (showPlaceholder || !result?.s) {
         host.innerHTML = `
           <div class="today-calc-summary-item">
-            <div class="summary-label">오늘 계산 기준</div>
+            <div class="summary-label">오늘 계산값</div>
             <div class="summary-value">입력 확인 필요</div>
           </div>
         `;
@@ -8716,6 +8919,7 @@ Notes:
       panel.classList.toggle("hidden", !open);
       panel.setAttribute("aria-hidden", String(!open));
       button.setAttribute("aria-expanded", String(open));
+      button.textContent = open ? "접기" : "펼치기";
       if (open) {
         syncTodayQuickEditControls();
         renderTodayQuickEditResultSummary(calculate(), false);
@@ -8730,27 +8934,45 @@ Notes:
     function handleTodayQuickEditChange(event){
       const quick = event?.currentTarget;
       const field = TODAY_QUICK_EDIT_FIELD_MAP.find(item => item.quickId === quick?.id);
-      if (!field || !ids[field.sourceId]) return;
-      ids[field.sourceId].value = quick.value;
+      if (!field) return;
+      const values = { [field.draftField]: quick.value };
+      if (field.draftField === "bodyFatMass") {
+        const weight = getEffectiveTodayCalculationValues().calculationWeight;
+        const mass = normalizeTodayCalculationNumber(quick.value);
+        if (Number.isFinite(weight) && weight > 0 && Number.isFinite(mass)) {
+          values.bodyFatPercent = mass / weight * 100;
+        }
+      } else if (field.draftField === "bodyFatPercent") {
+        const weight = getEffectiveTodayCalculationValues().calculationWeight;
+        const percent = normalizeTodayCalculationNumber(quick.value);
+        if (Number.isFinite(weight) && Number.isFinite(percent)) {
+          values.bodyFatMass = weight * percent / 100;
+        }
+      } else if (field.draftField === "calculationWeight") {
+        const weight = normalizeTodayCalculationNumber(quick.value);
+        const percent = getEffectiveTodayCalculationValues().bodyFatPercent;
+        if (Number.isFinite(weight) && Number.isFinite(percent)) {
+          values.bodyFatMass = weight * percent / 100;
+        }
+      }
+      setTodayCalculationDraftValues(values);
       render();
     }
 
     function handleTodayQuickRoutinePlanChange(event){
       const nextPlan = event?.currentTarget?.value;
       if (!nextPlan || !ROUTINE_SCHEMES[nextPlan]) return;
-      state.routinePlan = nextPlan;
-      ids.routinePlan.value = nextPlan;
-      const firstTraining = getRoutineItems().find(item => item.value !== "REST") ?? getRoutineItems()[0];
-      setRoutineFromCurrentPlan(firstTraining.value);
-      state.renderedRoutineKey = "";
       render();
     }
 
     function handleTodayQuickRoutineSessionChange(event){
       const nextRoutine = event?.currentTarget?.value;
       if (!nextRoutine) return;
-      setRoutineFromCurrentPlan(nextRoutine);
-      state.renderedRoutineKey = "";
+      const entry = getTodayQuickRoutineItems().find(item => item.value === nextRoutine);
+      setTodayCalculationDraftValues({
+        todayRoutineSession: nextRoutine,
+        todayIntensityOverride: Number.isFinite(Number(entry?.xw)) ? Number(entry.xw) : null
+      });
       render();
     }
 
@@ -9766,8 +9988,7 @@ Notes:
     function applyTodayRecordWeightToCalculation(commonInput){
       if (!commonInput?.ok || !commonInput.applyToCalculation || !commonInput.weight?.hasValue) return false;
       const value = commonInput.weight.value;
-      ids.weight.value = formatInputNumber(value, 2);
-      state.weight = value;
+      setTodayCalculationDraftField("calculationWeight", value);
       syncTodayQuickEditControls();
       return true;
     }
@@ -9978,6 +10199,7 @@ Notes:
 
     function buildGoalSnapshotFromCurrentState(currentResult = calculate(), snapshotSource = "saved_at_entry"){
       if (!currentResult?.isCalculable) return null;
+      const s = currentResult.s || collectState();
       return normalizeGoalSnapshot({
         targetCal: currentResult.targetCal,
         protein: currentResult.protein,
@@ -9985,24 +10207,24 @@ Notes:
         fat: currentResult.fat,
         mode: state.mode,
         goal: state.goal,
-        weight: ids.weight.value,
+        weight: s.weight,
         height: ids.height.value,
         age: ids.age.value,
         gender: ids.gender.value,
-        bodyFat: ids.bodyFat.value,
-        bodyFatMass: ids.bodyFatMass?.value,
-        skeletal: ids.skeletal.value,
-        activityLevel: ids.activityLevel.value,
-        workType: ids.workType.value,
+        bodyFat: s.bodyFat,
+        bodyFatMass: Number.isFinite(s.weight) && Number.isFinite(s.bodyFat) ? s.weight * s.bodyFat / 100 : ids.bodyFatMass?.value,
+        skeletal: s.skeletal,
+        activityLevel: s.activityLevel,
+        workType: s.workType,
         weeklyTrainingDays: ids.weeklyTrainingDays.value,
         routinePlan: state.routinePlan,
-        routine: state.routine,
+        routine: s.routine,
         intensityOverride: ids.intensityOverride.value,
-        weightDuration: ids.weightDuration.value,
-        cardioType: ids.cardioType.value,
-        cardioDuration: ids.cardioDuration.value,
-        cardioSpeed: ids.cardioSpeed.value,
-        cardioIncline: ids.cardioIncline.value,
+        weightDuration: s.weightDuration,
+        cardioType: s.cardioType,
+        cardioDuration: s.cardioDuration,
+        cardioSpeed: s.cardioSpeed,
+        cardioIncline: s.cardioIncline,
         workAdj: ids.workAdj.value,
         homeInbody: !!ids.homeInbody.checked,
         expertLbmAlpha: clamp(Number(ids.expertLbmAlpha?.value || state.expertLbmAlpha * 100) / 100, EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max),
@@ -10066,7 +10288,7 @@ Notes:
       const today = getTodayDateString();
       const record = getRecordByDate(today);
       if (!record) return { hasMismatch: false, today, record: null, inputWeight: null, recordWeight: null };
-      const inputWeight = normalizeWeightValue(ids.weight.value);
+      const inputWeight = normalizeWeightValue(getEffectiveTodayCalculationValues().calculationWeight);
       const recordWeight = normalizeWeightValue(record.weight);
       const hasMismatch = Number.isFinite(inputWeight)
         && Number.isFinite(recordWeight)
@@ -13326,7 +13548,8 @@ Notes:
     function revertTodayWeightToRecord(){
       const mismatch = getTodayRecordWeightMismatch();
       if (!mismatch.record || !Number.isFinite(mismatch.recordWeight)) return { reverted: false, reason: "unavailable" };
-      ids.weight.value = String(mismatch.recordWeight);
+      setTodayCalculationDraftField("calculationWeight", mismatch.recordWeight);
+      syncTodayQuickEditControls();
       setRecordFeedback("ok", "기록탭 체중을 입력탭에 적용했습니다.");
       render();
       return { reverted: true, weight: mismatch.recordWeight };
@@ -13372,10 +13595,13 @@ Notes:
       const bodyFatMass = Number.isFinite(latest.bodyFat)
         ? latest.bodyFat
         : (Number.isFinite(latest.weight) && Number.isFinite(bodyFatPercent) ? latest.weight * bodyFatPercent / 100 : null);
-      ids.weight.value = formatInputNumber(latest.weight, 2);
-      ids.skeletal.value = formatInputNumber(latest.skeletalMuscle, 2);
-      if (Number.isFinite(bodyFatPercent)) ids.bodyFat.value = formatInputNumber(bodyFatPercent, 2);
-      if (ids.bodyFatMass && Number.isFinite(bodyFatMass)) ids.bodyFatMass.value = formatInputNumber(bodyFatMass, 2);
+      setTodayCalculationDraftValues({
+        calculationWeight: latest.weight,
+        skeletalMuscle: latest.skeletalMuscle,
+        bodyFatPercent: bodyFatPercent,
+        bodyFatMass: bodyFatMass
+      });
+      syncTodayQuickEditControls();
       setTodayInputFeedback("ok", "최근 InBody 기록을 계산 기준 입력에 불러왔습니다. 저장은 하지 않았습니다.");
       suppressTodayRecordAutoSync = true;
       try {
@@ -13388,10 +13614,9 @@ Notes:
 
     function saveTodayInputWeightToRecord(options = {}){
       const today = getTodayDateString();
-      const weightRaw = String(ids.weight.value || "").trim();
-      const weight = Number(weightRaw);
+      const weight = normalizeWeightValue(getEffectiveTodayCalculationValues().calculationWeight);
       const shouldRender = options.render !== false;
-      if (!weightRaw || !Number.isFinite(weight) || weight <= 0) {
+      if (!Number.isFinite(weight) || weight <= 0) {
         setTodayInputFeedback("warn", "체중을 입력한 뒤 저장해 주세요.");
         if (shouldRender) render();
         return { saved: false, reason: "invalid_weight" };
@@ -13420,19 +13645,20 @@ Notes:
 
     function buildTodayInbodyRecordFromInputs(){
       const date = getTodayDateString();
-      const weightRaw = String(ids.weight.value || "").trim();
-      const skeletalRaw = String(ids.skeletal.value || "").trim();
-      const bodyFatRaw = String(ids.bodyFatMass?.value || "").trim();
-      const bodyFatPercentRaw = String(ids.bodyFat.value || "").trim();
-      const hasBodyFat = bodyFatRaw !== "";
-      const hasBodyFatPercent = bodyFatPercentRaw !== "";
-      const weight = Number(weightRaw);
-      const skeletalMuscle = Number(skeletalRaw);
-      const bodyFat = hasBodyFat ? Number(bodyFatRaw) : null;
-      const bodyFatPercent = hasBodyFatPercent ? Number(bodyFatPercentRaw) : null;
+      const todayDraft = getTodayCalculationDraft() || {};
+      const readExplicitTodayInput = (draftField, settingsInput) => {
+        if (Object.prototype.hasOwnProperty.call(todayDraft, draftField)) return normalizeTodayCalculationNumber(todayDraft[draftField]);
+        return normalizeTodayCalculationNumber(settingsInput?.value);
+      };
+      const weight = readExplicitTodayInput("calculationWeight", ids.weight);
+      const skeletalMuscle = readExplicitTodayInput("skeletalMuscle", ids.skeletal);
+      const bodyFat = readExplicitTodayInput("bodyFatMass", ids.bodyFatMass);
+      const bodyFatPercent = readExplicitTodayInput("bodyFatPercent", ids.bodyFat);
+      const hasBodyFat = Number.isFinite(bodyFat);
+      const hasBodyFatPercent = Number.isFinite(bodyFatPercent);
       const missingMessage = "InBody에 저장하려면 체중, 골격근량, 체지방률 또는 체지방량을 입력해 주세요.";
-      if (!weightRaw || !Number.isFinite(weight) || weight <= 0) return { ok: false, message: missingMessage };
-      if (!skeletalRaw || !Number.isFinite(skeletalMuscle)) return { ok: false, message: missingMessage };
+      if (!Number.isFinite(weight) || weight <= 0) return { ok: false, message: missingMessage };
+      if (!Number.isFinite(skeletalMuscle)) return { ok: false, message: missingMessage };
       if (!hasBodyFat && !hasBodyFatPercent) return { ok: false, message: missingMessage };
       if (weight < 20 || weight > 650) return { ok: false, message: "체중 입력값을 확인해 주세요." };
       if (hasBodyFat && (!Number.isFinite(bodyFat) || bodyFat < 0.2 || bodyFat > 487.5)) return { ok: false, message: "체지방량 입력값을 확인해 주세요." };
@@ -15443,9 +15669,10 @@ Notes:
     }
 
     function getRecordDetailCurrentCalculationBasis(){
-      const weight = parseRecordDetailPositiveNumber(ids.weight.value, DEFAULT_STATE.weight, DEFAULT_STATE.weight);
-      const bodyFat = parseRecordDetailNumber(ids.bodyFat.value, DEFAULT_STATE.bodyFat);
-      const bodyFatMass = parseRecordDetailNumber(ids.bodyFatMass?.value, Number.isFinite(weight) && Number.isFinite(bodyFat) ? weight * bodyFat / 100 : null);
+      const todayValues = getEffectiveTodayCalculationValues();
+      const weight = parseRecordDetailPositiveNumber(todayValues.calculationWeight, DEFAULT_STATE.weight, DEFAULT_STATE.weight);
+      const bodyFat = parseRecordDetailNumber(todayValues.bodyFatPercent, DEFAULT_STATE.bodyFat);
+      const bodyFatMass = parseRecordDetailNumber(todayValues.bodyFatMass, Number.isFinite(weight) && Number.isFinite(bodyFat) ? weight * bodyFat / 100 : null);
       return {
         mode: isAllowedOption(state.mode, Object.keys(MODE_CONFIGS)) ? state.mode : DEFAULT_STATE.mode,
         goal: isAllowedOption(state.goal, Object.keys(GOALS)) ? state.goal : DEFAULT_STATE.goal,
@@ -15455,9 +15682,9 @@ Notes:
         gender: isAllowedOption(ids.gender.value, Object.keys(GENDER_LABELS)) ? ids.gender.value : DEFAULT_STATE.gender,
         bodyFat,
         bodyFatMass,
-        skeletal: parseRecordDetailPositiveNumber(ids.skeletal.value, DEFAULT_STATE.skeletal, DEFAULT_STATE.skeletal),
-        activityLevel: isAllowedOption(ids.activityLevel.value, Object.keys(ACTIVITY_COEFF)) ? ids.activityLevel.value : DEFAULT_STATE.activityLevel,
-        workType: isAllowedOption(ids.workType.value, Object.keys(WORK_TYPE_Y)) ? ids.workType.value : DEFAULT_STATE.workType,
+        skeletal: parseRecordDetailPositiveNumber(todayValues.skeletalMuscle, DEFAULT_STATE.skeletal, DEFAULT_STATE.skeletal),
+        activityLevel: isAllowedOption(todayValues.todayActivityLevel, Object.keys(ACTIVITY_COEFF)) ? todayValues.todayActivityLevel : DEFAULT_STATE.activityLevel,
+        workType: isAllowedOption(todayValues.todayWorkType, Object.keys(WORK_TYPE_Y)) ? todayValues.todayWorkType : DEFAULT_STATE.workType,
         workAdj: parseRecordDetailNumber(ids.workAdj.value, DEFAULT_STATE.workAdj),
         homeInbody: !!ids.homeInbody.checked,
         expertLbmAlpha: clamp(parseRecordDetailNumber(ids.expertLbmAlpha?.value, DEFAULT_STATE.expertLbmAlpha * 100) / 100, EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max),
@@ -15465,13 +15692,13 @@ Notes:
         generalAdvancedSettings: !!ids.generalAdvancedSettings.checked,
         generalLowDigestCarbs: !!ids.generalLowDigestCarbs.checked,
         routinePlan: isAllowedOption(state.routinePlan, Object.keys(ROUTINE_SCHEMES)) ? state.routinePlan : DEFAULT_STATE.routinePlan,
-        routine: state.routine || DEFAULT_STATE.routine,
+        routine: todayValues.todayRoutineSession || DEFAULT_STATE.routine,
         intensityOverride: parseRecordDetailNumber(ids.intensityOverride.value, DEFAULT_STATE.intensityOverride),
-        weightDuration: parseRecordDetailNumber(ids.weightDuration.value, DEFAULT_STATE.weightDuration),
-        cardioType: isAllowedOption(ids.cardioType.value, Object.keys(CARDIO_TYPES)) ? ids.cardioType.value : DEFAULT_STATE.cardioType,
-        cardioDuration: parseRecordDetailNumber(ids.cardioDuration.value, DEFAULT_STATE.cardioDuration),
-        cardioSpeed: parseRecordDetailNumber(ids.cardioSpeed.value, DEFAULT_STATE.cardioSpeed),
-        cardioIncline: parseRecordDetailNumber(ids.cardioIncline.value, DEFAULT_STATE.cardioIncline)
+        weightDuration: parseRecordDetailNumber(todayValues.todayWeightDuration, DEFAULT_STATE.weightDuration),
+        cardioType: isAllowedOption(todayValues.todayCardioType, Object.keys(CARDIO_TYPES)) ? todayValues.todayCardioType : DEFAULT_STATE.cardioType,
+        cardioDuration: parseRecordDetailNumber(todayValues.todayCardioDuration, DEFAULT_STATE.cardioDuration),
+        cardioSpeed: parseRecordDetailNumber(todayValues.todayCardioSpeed, DEFAULT_STATE.cardioSpeed),
+        cardioIncline: parseRecordDetailNumber(todayValues.todayCardioIncline, DEFAULT_STATE.cardioIncline)
       };
     }
 
@@ -18197,6 +18424,8 @@ Notes:
         recordsDetailDate: uiState.recordsDetailDate,
         recordsDetailEditMode: uiState.recordsDetailEditMode,
         recordsDetailDraft: uiState.recordsDetailDraft ? JSON.stringify(uiState.recordsDetailDraft) : null,
+        todayCalculationDrafts: JSON.stringify(todayCalculationDrafts || {}),
+        storedTodayCalculationDrafts: readStoredValue(TODAY_CALCULATION_DRAFT_STORAGE_KEY),
         todayQuickEditOpen: isTodayQuickEditOpen(),
         weight: ids.weight.value,
         height: ids.height.value,
@@ -18245,6 +18474,12 @@ Notes:
         uiState.recordsDetailDate = snapshot.recordsDetailDate;
         uiState.recordsDetailEditMode = snapshot.recordsDetailEditMode;
         uiState.recordsDetailDraft = snapshot.recordsDetailDraft ? JSON.parse(snapshot.recordsDetailDraft) : null;
+        todayCalculationDrafts = JSON.parse(snapshot.todayCalculationDrafts || "{}");
+        if (snapshot.storedTodayCalculationDrafts === null || snapshot.storedTodayCalculationDrafts === undefined) {
+          localStorage.removeItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY));
+        } else {
+          localStorage.setItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY), snapshot.storedTodayCalculationDrafts);
+        }
         ids.weight.value = snapshot.weight;
         ids.height.value = snapshot.height;
         ids.age.value = snapshot.age;
@@ -18360,6 +18595,8 @@ Notes:
       ids.cardioDuration.value = "20";
       ids.cardioSpeed.value = "5";
       ids.cardioIncline.value = "8";
+      todayCalculationDrafts = {};
+      saveTodayCalculationDrafts();
     }
 
     function runModeRuntimeConfigTests(){
@@ -20098,7 +20335,8 @@ Notes:
           ids.weight.value = "76";
           renderRecordsPanel();
           document.querySelector("[data-revert-today-weight]").click();
-          assertClose(Number(ids.weight.value), afterApply.weight, 0.0001, "revert action should restore Today weight from today's record");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, afterApply.weight, 0.0001, "revert action should restore Today calculation weight from today's record");
+          assertClose(Number(document.getElementById("todayQuickWeight")?.value), afterApply.weight, 0.0001, "revert action should sync the Today calculation weight control");
           assertTest(!(document.getElementById("todayRecordWeightMismatchHost").textContent || "").includes("입력탭 체중"), "revert action should clear mismatch notice");
         }));
 
@@ -21995,8 +22233,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C3"), "document title should show v6.6-C3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C3"), "app version badge should show v6.6-C3");
+          assertTest(document.title.includes("v6.6-C4.2"), "document title should show v6.6-C4.2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.2"), "app version badge should show v6.6-C4.2");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22793,8 +23031,9 @@ Notes:
           assertTest(record.weight === 76.4, "detailed save should store fasting weight on today's record");
           assertTest(record.note === "상세 기록 메모", "detailed save should store record memo");
           assertTest(record.meals.length === 2, "detailed fasting weight save should preserve existing meals and add the new meal");
-          assertTest(ids.weight.value === "76.40" && ids.weight.value !== calculationWeightBefore, "checked detailed fasting weight should update Settings calculation weight");
-          assertTest(document.getElementById("todayQuickWeight").value === "76.40", "checked detailed fasting weight should sync Today quick edit weight");
+          assertTest(ids.weight.value === calculationWeightBefore, "checked detailed fasting weight should not update Settings default weight");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, 76.4, 0.0001, "checked detailed fasting weight should update Today calculation weight");
+          assertTest(document.getElementById("todayQuickWeight").value === "76.40", "checked detailed fasting weight should sync Today calculation value");
         }));
 
         results.push(runNamedTest("C3 simple save stores fasting weight and memo as simple record", () => {
@@ -22811,7 +23050,8 @@ Notes:
           assertTest(record.weight === 75.3, "simple save should store fasting weight");
           assertTest(record.note === "간단 기록 메모", "simple save should store memo");
           assertTest(record.adherence === "high" && record.adherenceSource === "manual", "simple save should keep manual evaluation only");
-          assertTest(ids.weight.value === "75.30", "checked simple fasting weight should update Settings calculation weight");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, 75.3, 0.0001, "checked simple fasting weight should update Today calculation weight");
+          assertTest(ids.weight.value !== "75.30", "checked simple fasting weight should not update Settings default weight");
           assertTest(record.meals.length === 0, "simple save should not create meals");
           assertTest(!record.goalSnapshot && record.adherencePercent === null, "simple save should not create detailed score metadata");
         }));
@@ -22835,8 +23075,9 @@ Notes:
           assertTest(record.note === "식단 판단 없이 남김", "skip save should store memo");
           assertTest(record.meals.length === 0, "skip save should not create meals");
           assertTest(entry.percent === null && !record.goalSnapshot, "skip save should not create diet score or goal context");
-          assertTest(ids.weight.value === "74.60" && ids.weight.value !== calculationWeightBefore, "checked skip fasting weight should update Settings calculation weight");
-          assertTest(document.getElementById("todayQuickWeight").value === "74.60", "checked skip fasting weight should sync Today quick edit weight");
+          assertTest(ids.weight.value === calculationWeightBefore, "checked skip fasting weight should not update Settings default weight");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, 74.6, 0.0001, "checked skip fasting weight should update Today calculation weight");
+          assertTest(document.getElementById("todayQuickWeight").value === "74.60", "checked skip fasting weight should sync Today calculation value");
           assertTest(Number.isFinite(beforeTarget) && Number.isFinite(afterTarget) && afterTarget !== beforeTarget, "checked skip fasting weight should recalculate targetCal or macro calculation");
         }));
 
@@ -22856,7 +23097,8 @@ Notes:
           assertTest(saved?.saved === true, "unchecked skip fasting weight should still save record");
           assertTest(record.weight === 73.2, "unchecked fasting weight should be saved in Records");
           assertTest(record.note === "기록만 반영", "unchecked fasting memo should be saved in Records");
-          assertTest(ids.weight.value === calculationWeightBefore, "unchecked fasting weight should not update Settings calculation weight");
+          assertTest(ids.weight.value === calculationWeightBefore, "unchecked fasting weight should not update Settings default weight");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, Number(calculationWeightBefore), 0.0001, "unchecked fasting weight should not update Today calculation weight");
           assertClose(afterTarget, beforeTarget, 0.0001, "unchecked fasting weight should not change targetCal or macro calculation");
         }));
 
@@ -22883,7 +23125,8 @@ Notes:
           assertTest(saved?.saved === true, "blank optional fields should still save skip record");
           assertTest(record.weight === 77.7, "blank fasting weight should not clear existing weight");
           assertTest(record.note === "기존 기록 메모", "blank memo should not clear existing note");
-          assertTest(ids.weight.value === calculationWeightBefore, "blank fasting weight should not update Settings calculation weight");
+          assertTest(ids.weight.value === calculationWeightBefore, "blank fasting weight should not update Settings default weight");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, Number(calculationWeightBefore), 0.0001, "blank fasting weight should not update Today calculation weight");
           assertClose(afterTarget, beforeTarget, 0.0001, "blank fasting weight should not change targetCal or macro calculation");
           assertExcludesAll(getRenderedBodyText(), ["NaN", "undefined"], "blank fasting weight should not expose broken values");
         }));
@@ -22933,7 +23176,7 @@ Notes:
           const button = document.getElementById("todayCalcSettingsBtn");
           const topButton = document.getElementById("todaySettingsBtn");
           assertTest(!!card && !!button && !!topButton, "Today calculation settings CTAs should exist");
-          assertIncludesAll(card.textContent || "", ["오늘 계산 기준", "빠른 수정", "전체 설정"], "Today should explain calculation shortcut");
+          assertIncludesAll(card.textContent || "", ["오늘 계산값", "전체 설정"], "Today should show calculation value card");
           assertTest(getComputedStyle(topButton).display !== "none", "top calculation settings button should show on Today");
         }));
 
@@ -23050,7 +23293,7 @@ Notes:
       });
     }
 
-    function runTodayQuickEditTests(){
+    function runTodayCalculationOwnershipTests(){
       return withRecordTestSandbox(() => {
         const results = [];
 
@@ -23068,7 +23311,7 @@ Notes:
           input.dispatchEvent(new Event("change", { bubbles: true }));
         }
 
-        results.push(runNamedTest("C2 Today calculation basis card and actions exist", () => {
+        results.push(runNamedTest("C4.2 Today calculation values card and actions exist", () => {
           setActiveTab("today");
           setValidTodayBalanceTestInputs();
           render();
@@ -23077,7 +23320,7 @@ Notes:
           const quickButton = document.getElementById("todayQuickEditToggle");
           const settingsButton = document.getElementById("todayCalcSettingsBtn");
           assertTest(!!card && !!summary && !!quickButton && !!settingsButton, "Today quick edit card should render");
-          assertIncludesAll(card.textContent || "", ["오늘 계산 기준", "빠른 수정", "전체 설정", "계산용 체중", "활동량", "업무 유형", "오늘 웨이트", "유산소"], "Today quick edit card should expose the required user-facing labels");
+          assertIncludesAll(card.textContent || "", ["오늘 계산값", "전체 설정", "오늘 몸 상태", "오늘 활동", "오늘 운동", "계산용 체중", "골격근량", "체지방량", "체지방률", "활동량", "업무 유형", "웨이트 시간", "오늘 유산소"], "Today calculation card should expose the required user-facing labels");
         }));
 
         results.push(runNamedTest("C2 quick edit panel opens and closes", () => {
@@ -23092,72 +23335,72 @@ Notes:
           assertTest(panel.classList.contains("hidden"), "quick edit panel should close");
         }));
 
-        results.push(runNamedTest("C2 quick edit exposes only core calculation fields", () => {
+        results.push(runNamedTest("C4.2 Today calculation exposes owned value fields", () => {
           setActiveTab("today");
           render();
           setTodayQuickEditOpen(true);
-          ["todayQuickWeight", "todayQuickActivityLevel", "todayQuickWorkType", "todayQuickWeightDuration", "todayQuickCardioType", "todayQuickCardioDuration", "todayQuickCardioSpeed", "todayQuickCardioIncline", "todayQuickRoutinePlan", "todayQuickRoutineSession"].forEach(id => {
+          ["todayQuickWeight", "todayQuickSkeletal", "todayQuickBodyFatMass", "todayQuickBodyFat", "todayQuickActivityLevel", "todayQuickWorkType", "todayQuickWeightDuration", "todayQuickCardioType", "todayQuickCardioDuration", "todayQuickCardioSpeed", "todayQuickCardioIncline", "todayQuickRoutinePlan", "todayQuickRoutineSession"].forEach(id => {
             assertTest(!!document.getElementById(id), `${id} should exist in quick edit`);
           });
           const panel = document.getElementById("todayQuickEditPanel");
           assertTest(!panel.contains(ids.height), "quick edit should not include height input");
           assertTest(!panel.contains(ids.age), "quick edit should not include age input");
-          assertTest(!panel.contains(ids.bodyFat), "quick edit should not include body composition input");
-          assertTest(!panel.contains(ids.skeletal), "quick edit should not include skeletal muscle input");
           if (ids.expertLbmAlpha) assertTest(!panel.contains(ids.expertLbmAlpha), "quick edit should not include expert alpha input");
         }));
 
-        results.push(runNamedTest("C2 calculation weight quick edit recalculates and syncs Settings input", () => {
+        results.push(runNamedTest("C4.2 calculation weight edit recalculates without changing Settings default", () => {
           setActiveTab("today");
           setValidTodayBalanceTestInputs();
           render();
           setTodayQuickEditOpen(true);
+          const settingsWeightBefore = ids.weight.value;
           const before = calculate();
           setQuickValue("todayQuickWeight", "82");
           const after = calculate();
-          assertTest(ids.weight.value === "82", "quick calculation weight should sync canonical Settings input");
-          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal) && after.targetCal !== before.targetCal, "quick calculation weight should recalculate targetCal");
-          setActiveTab("settings");
-          render();
-          assertTest(document.getElementById("settingsCalculationPanel").contains(ids.weight), "Settings should still own canonical weight input");
-          assertTest(ids.weight.value === "82", "Settings weight input should show quick edit value");
+          assertTest(ids.weight.value === settingsWeightBefore, "Today calculation weight should not sync Settings default input");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, 82, 0.0001, "Today calculation weight should be date-owned");
+          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal) && after.targetCal !== before.targetCal, "Today calculation weight should recalculate targetCal");
+          assertTest(JSON.stringify(recordsState.items).indexOf("82") === -1, "Today calculation weight should not automatically update Records");
+          assertTest(JSON.stringify(state.inbodyRecords || []).indexOf("82") === -1, "Today calculation weight should not automatically update InBody");
         }));
 
-        results.push(runNamedTest("C2 cardio duration quick edit recalculates selected result", () => {
+        results.push(runNamedTest("C4.2 activity and work type use Settings default only for new dates", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          ids.activityLevel.value = "moderate";
+          ids.workType.value = "office";
+          render();
+          setTodayQuickEditOpen(true);
+          setQuickSelectValue("todayQuickActivityLevel", "active");
+          setQuickSelectValue("todayQuickWorkType", "mixed");
+          assertTest(ids.activityLevel.value === "moderate", "Today activity should not mutate Settings default activity");
+          assertTest(ids.workType.value === "office", "Today work type should not mutate Settings default work type");
+          assertTest(getEffectiveTodayCalculationValues().todayActivityLevel === "active", "Today activity should be stored for this date");
+          assertTest(getEffectiveTodayCalculationValues().todayWorkType === "mixed", "Today work type should be stored for this date");
+          const tomorrow = shiftDateString(getTodayDateString(), 1);
+          assertTest(getEffectiveTodayCalculationValues(tomorrow).todayActivityLevel === "moderate", "new date should use Settings default activity");
+          ids.activityLevel.value = "very_active";
+          assertTest(getEffectiveTodayCalculationValues().todayActivityLevel === "active", "Settings default change should not overwrite modified Today date");
+          assertTest(getEffectiveTodayCalculationValues(tomorrow).todayActivityLevel === "very_active", "new date should pick changed Settings default activity");
+        }));
+
+        results.push(runNamedTest("C4.2 cardio duration edit recalculates selected result without Settings mutation", () => {
           setActiveTab("today");
           setValidTodayBalanceTestInputs();
           uiState.selectedMacroBasis = "activity";
           render();
           setTodayQuickEditOpen(true);
+          const settingsCardioBefore = ids.cardioDuration.value;
           const before = calculate();
           setQuickValue("todayQuickCardioDuration", "90");
           const after = calculate();
-          assertTest(ids.cardioDuration.value === "90", "quick cardio duration should sync canonical cardio duration");
+          assertTest(ids.cardioDuration.value === settingsCardioBefore, "Today cardio duration should not sync Settings cardio default");
+          assertClose(getEffectiveTodayCalculationValues().todayCardioDuration, 90, 0.0001, "Today cardio duration should be date-owned");
           assertTest(after.dualBasis?.selectedBasis === "activity", "selected activity basis should stay active after quick edit");
           assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal) && after.targetCal !== before.targetCal, "quick cardio duration should recalculate selected targetCal");
         }));
 
-        results.push(runNamedTest("C2 routine plan quick edit syncs Settings and recalculates", () => {
-          setActiveTab("today");
-          setValidTodayBalanceTestInputs();
-          state.mode = "athlete";
-          state.routinePlan = "ppl_ul";
-          ids.routinePlan.value = "ppl_ul";
-          state.routine = "PUSH";
-          render();
-          setTodayQuickEditOpen(true);
-          const before = calculate();
-          setQuickSelectValue("todayQuickRoutinePlan", "split2");
-          const after = calculate();
-          assertTest(state.routinePlan === "split2" && ids.routinePlan.value === "split2", "quick routine plan should sync canonical Settings routinePlan");
-          assertTest(ROUTINE_SCHEMES.split2.items.some(item => item.value === state.routine), "quick routine plan should choose a session from the selected plan");
-          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal), "routine plan change should keep target calculation finite");
-          setActiveTab("settings");
-          render();
-          assertTest(ids.routinePlan.value === "split2", "Settings routine plan should show quick edit value");
-        }));
-
-        results.push(runNamedTest("C2 routine session quick edit syncs canonical session", () => {
+        results.push(runNamedTest("C4.2 routine session edit is date-owned and recalculates", () => {
           setActiveTab("today");
           setValidTodayBalanceTestInputs();
           state.mode = "athlete";
@@ -23169,9 +23412,24 @@ Notes:
           const before = calculate();
           setQuickSelectValue("todayQuickRoutineSession", "LEGS");
           const after = calculate();
-          assertTest(state.routine === "LEGS", "quick routine session should sync canonical routine session");
-          assertClose(Number(ids.intensityOverride.value), 1.00, 0.0001, "LEGS session should sync canonical intensity");
+          assertTest(state.routine === "PUSH", "Today routine session should not mutate Settings routine session");
+          assertTest(getEffectiveTodayCalculationValues().todayRoutineSession === "LEGS", "Today routine session should be stored for the date");
           assertTest(Number.isFinite(before.weightKcal) && Number.isFinite(after.weightKcal) && after.weightKcal !== before.weightKcal, "session change should update weight-related calculation");
+        }));
+
+        results.push(runNamedTest("C4.2 Settings routine plan refreshes Today session options", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          state.mode = "athlete";
+          state.routinePlan = "split3";
+          ids.routinePlan.value = "split3";
+          state.routine = "PUSH";
+          render();
+          setTodayQuickEditOpen(true);
+          const planSelect = document.getElementById("todayQuickRoutinePlan");
+          const sessionSelect = document.getElementById("todayQuickRoutineSession");
+          assertTest(planSelect.value === "split3", "Today routine plan display should reflect Settings routine plan");
+          assertTest(Array.from(sessionSelect.options).some(option => option.value === "PUSH"), "Today session options should follow Settings routine plan");
         }));
 
         results.push(runNamedTest("C2 Settings routine edits refresh quick edit dropdowns", () => {
@@ -23203,7 +23461,7 @@ Notes:
           assertTest(Array.from(generalSession.options).some(option => option.value === "REST"), "general basic mode should offer rest session");
           assertTest(Array.from(generalSession.options).some(option => option.value === "PUSH"), "general basic mode should offer training session");
           setQuickSelectValue("todayQuickRoutineSession", "REST");
-          assertTest(state.routine === "REST", "general session select should sync rest day");
+          assertTest(getEffectiveTodayCalculationValues().todayRoutineSession === "REST", "general session select should set Today rest day");
 
           state.mode = "expert";
           state.generalAdvancedSettings = false;
@@ -23214,7 +23472,7 @@ Notes:
           setTodayQuickEditOpen(true);
           const expertPlan = document.getElementById("todayQuickRoutinePlan");
           const expertSession = document.getElementById("todayQuickRoutineSession");
-          assertTest(expertPlan.disabled === false, "expert mode should allow routine plan selection");
+          assertTest(expertPlan.disabled === true, "expert mode should keep routine plan as Settings default in Today");
           assertTest(expertSession.options.length >= ROUTINE_SCHEMES.ppl_ul.items.length, "expert mode should show plan session options");
         }));
 
@@ -23223,9 +23481,11 @@ Notes:
           setValidTodayBalanceTestInputs();
           render();
           setTodayQuickEditOpen(true);
-          ["todayQuickWeight", "todayQuickWeightDuration", "todayQuickCardioDuration", "todayQuickCardioSpeed", "todayQuickCardioIncline"].forEach(id => setQuickValue(id, ""));
+          ["todayQuickWeight", "todayQuickSkeletal", "todayQuickBodyFatMass", "todayQuickBodyFat", "todayQuickWeightDuration", "todayQuickCardioDuration", "todayQuickCardioSpeed", "todayQuickCardioIncline"].forEach(id => setQuickValue(id, ""));
           assertExcludesAll(getRenderedBodyText(), ["NaN", "undefined"], "empty quick numeric inputs should not expose broken values");
           setQuickValue("todayQuickWeight", "75");
+          setQuickValue("todayQuickSkeletal", "35");
+          setQuickValue("todayQuickBodyFat", "15");
           setQuickValue("todayQuickWeightDuration", "60");
           setQuickValue("todayQuickCardioDuration", "20");
           setQuickValue("todayQuickCardioSpeed", "5");
@@ -23267,7 +23527,44 @@ Notes:
           assertTest(document.getElementById("macroBasisRow") && !document.getElementById("macroBasisRow").classList.contains("hidden"), "guide/activity toggle should stay visible");
         }));
 
-        results.push(runNamedTest("C2 quick edit does not touch records payload or storage schema", () => {
+        results.push(runNamedTest("C4.2 record start checked weight updates Today calculation only", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          recordsState.items = [];
+          render();
+          const settingsWeightBefore = ids.weight.value;
+          const before = calculate().targetCal;
+          openTodayRecordStartDialog("skip");
+          document.getElementById("todayRecordSkipApplyWeightToCalculation").checked = true;
+          document.getElementById("todayRecordSkipWeight").value = "79.2";
+          const saved = saveTodayRecordStartSkip();
+          const after = calculate().targetCal;
+          assertTest(saved?.saved === true, "record start skip should save");
+          assertClose(getRecordByDate(getTodayDateString()).weight, 79.2, 0.0001, "record start should keep fasting weight in Records");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, 79.2, 0.0001, "checked record start should update Today calculation weight");
+          assertTest(ids.weight.value === settingsWeightBefore, "checked record start should not mutate Settings default weight");
+          assertTest(Number.isFinite(before) && Number.isFinite(after) && after !== before, "checked record start should recalculate Today result");
+        }));
+
+        results.push(runNamedTest("C4.2 record start unchecked weight stays record-only", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          recordsState.items = [];
+          render();
+          const beforeEffectiveWeight = getEffectiveTodayCalculationValues().calculationWeight;
+          const before = calculate().targetCal;
+          openTodayRecordStartDialog("skip");
+          document.getElementById("todayRecordSkipApplyWeightToCalculation").checked = false;
+          document.getElementById("todayRecordSkipWeight").value = "72.4";
+          const saved = saveTodayRecordStartSkip();
+          const after = calculate().targetCal;
+          assertTest(saved?.saved === true, "unchecked record start skip should save");
+          assertClose(getRecordByDate(getTodayDateString()).weight, 72.4, 0.0001, "unchecked record start should keep fasting weight in Records");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, beforeEffectiveWeight, 0.0001, "unchecked record start should not update Today calculation weight");
+          assertClose(after, before, 0.0001, "unchecked record start should not recalculate from fasting weight");
+        }));
+
+        results.push(runNamedTest("C4.2 Today calculation values do not touch records payload or storage schema", () => {
           setActiveTab("today");
           setValidTodayBalanceTestInputs();
           recordsState.items = normalizeRecordsCollection([{ date: "2026-05-01", weight: 75, adherence: "medium", note: "" }]);
@@ -23279,7 +23576,7 @@ Notes:
           const recordsAfter = JSON.stringify(recordsState.items);
           const storedRecords = readStoredValue("records") || "";
           assertTest(recordsAfter === recordsBefore, "quick edit should not mutate records payload");
-          assertExcludesAll(recordsAfter + " " + storedRecords, ["todayQuick", "selectedMacroBasis", "uiState"], "quick edit should not add UI state to records storage");
+          assertExcludesAll(recordsAfter + " " + storedRecords, ["todayQuick", "selectedMacroBasis", "uiState", "todayCalculationDraft"], "Today calculation values should not add UI state to records storage");
         }));
 
         results.push(runNamedTest("C2 quick edit visible copy avoids internal terms", () => {
@@ -23293,6 +23590,11 @@ Notes:
           assertExcludesAll(visibleText, [
             "routinePlan",
             "routineSession",
+            "draft",
+            "source of truth",
+            "selectedBasis",
+            "uiState",
+            "schema",
             "macro gap",
             "hard cap",
             "soft range",
@@ -23320,6 +23622,10 @@ Notes:
 
         return results;
       });
+    }
+
+    function runTodayQuickEditTests(){
+      return runTodayCalculationOwnershipTests();
     }
 
     function runDailyCoachRecentContextTests(){
@@ -29131,6 +29437,7 @@ Notes:
           assertTest(typeof window.runTargetMacroJointExpandedScan === "function", "runTargetMacroJointExpandedScan should be exported");
           assertTest(typeof window.runTargetMacroJointExpandedScanTests === "function", "runTargetMacroJointExpandedScanTests should be exported");
           assertTest(typeof window.runMacroAllocationExplanationTests === "function", "runMacroAllocationExplanationTests should be exported");
+          assertTest(typeof window.runTodayCalculationOwnershipTests === "function", "runTodayCalculationOwnershipTests should be exported");
           assertTest(typeof window.runTodayQuickEditTests === "function", "runTodayQuickEditTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
@@ -34534,15 +34841,18 @@ Notes:
           const beforeInbody = JSON.stringify(state.inbodyRecords);
           const loaded = loadLatestInbodyToTodayInputs();
           assertTest(loaded.loaded === true, "latest InBody should load");
-          assertClose(Number(ids.weight.value), 73.9, 0.0001, "loaded weight");
-          assertClose(Number(ids.skeletal.value), 36, 0.0001, "loaded skeletal muscle");
-          assertClose(Number(ids.bodyFatMass.value), 10.4, 0.0001, "loaded body fat mass");
-          assertClose(Number(ids.bodyFat.value), 14.1, 0.0001, "loaded body fat percent");
+          const values = getEffectiveTodayCalculationValues();
+          assertClose(values.calculationWeight, 73.9, 0.0001, "loaded Today calculation weight");
+          assertClose(values.skeletalMuscle, 36, 0.0001, "loaded Today skeletal muscle");
+          assertClose(values.bodyFatMass, 10.4, 0.0001, "loaded Today body fat mass");
+          assertClose(values.bodyFatPercent, 14.1, 0.0001, "loaded Today body fat percent");
           assertTest(!getRecordByDate(today), "load should not create today's Records record");
           assertTest(JSON.stringify(state.inbodyRecords) === beforeInbody, "load should not modify InBody records");
         }));
 
         results.push(runNamedTest("today input save stores weight while preserving meals and note", () => {
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
           const today = getTodayDateString();
           recordsState.items = normalizeRecordsCollection([{
             date: today,
@@ -34561,6 +34871,8 @@ Notes:
         }));
 
         results.push(runNamedTest("today input save creates medium manual blank record", () => {
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
           const today = getTodayDateString();
           recordsState.items = [];
           ids.weight.value = "76";
@@ -34573,6 +34885,8 @@ Notes:
         }));
 
         results.push(runNamedTest("today input with InBody keeps record save when InBody is incomplete", () => {
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
           const today = getTodayDateString();
           recordsState.items = [];
           state.inbodyRecords = [];
@@ -34587,6 +34901,8 @@ Notes:
         }));
 
         results.push(runNamedTest("today input with InBody saves complete calculated record", () => {
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
           const today = getTodayDateString();
           recordsState.items = [];
           state.inbodyRecords = [];
@@ -34603,6 +34919,8 @@ Notes:
         }));
 
         results.push(runNamedTest("today input with InBody does not silently replace same date", () => {
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
           const today = getTodayDateString();
           const originalConfirm = window.confirm;
           recordsState.items = [];
@@ -35242,6 +35560,7 @@ Notes:
     window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runRecordStartWeightFlowTests = runRecordStartWeightFlowTests;
     window.runCalculationInputSeparationTests = runCalculationInputSeparationTests;
+    window.runTodayCalculationOwnershipTests = runTodayCalculationOwnershipTests;
     window.runTodayQuickEditTests = runTodayQuickEditTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
     window.runGoalAwareCopyRegressionTests = runGoalAwareCopyRegressionTests;
