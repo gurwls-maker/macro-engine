@@ -1,8 +1,15 @@
 <!--
-Version: 6.6-C4.2
-Stage: 6.6-C4.2 Today 계산값 소유 구조 구현
+Version: 6.6-C4.3
+Stage: 6.6-C4.3 Settings 기본값 / 프로필 중심 재정리
 Date: 2026-05-12
 Notes:
+- C4.3 Settings 기본값 / 프로필 중심 재정리
+- 탭명은 기본 설정 유지
+- Settings는 목표 / 모드 / 기본 프로필 / 기본 생활 패턴 / 운동 기준 / 전문가 설정 중심으로 정리
+- Today가 소유한 계산용 체중 / 체성분 / 오늘 활동 / 오늘 업무 / 오늘 웨이트 / 오늘 유산소 actual 값은 Settings 주 입력에서 분리
+- 기존 DOM mirror / calculate 호환 유지
+- 데이터 관리 / 백업 이동은 C4.7 후속
+- 산식 / score / Coach / recentContext / InBody / schema-import-export 변경 없음
 - C4.2 Today 계산값 소유 구조 구현
 - C2 quick edit shortcut을 Today 계산값 구조로 흡수
 - Today가 계산용 체중 / 체성분 / 오늘 활동 / 오늘 업무 / 오늘 웨이트 / 오늘 유산소 실제값을 직접 소유
@@ -54,7 +61,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.2</title>
+  <title>탄단지 다이어리 v6.6-C4.3</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -1157,6 +1164,19 @@ Notes:
     .settings-block .hero-control-row{margin-top:0}
     .settings-block .hero-mode-description{margin-top:0}
     .settings-host > .panel{margin:0}
+    .settings-fields-grid{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:12px;
+    }
+    .settings-fields-grid .field{
+      margin:0;
+      min-width:0;
+    }
+    .settings-mirror-bank,
+    .settings-hidden-mirror{
+      display:none !important;
+    }
     .settings-calculation-block{
       scroll-margin-top:20px;
     }
@@ -3971,6 +3991,11 @@ Notes:
       flex-direction:column;
       gap:12px;
     }
+    .settings-host.settings-fields-grid{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:12px;
+    }
     .settings-block .settings-host > .card,
     .settings-block .settings-host > .panel,
     .settings-block .settings-host > .check-card{
@@ -5093,6 +5118,12 @@ Notes:
         align-items:stretch;
         flex-direction:column;
       }
+      .settings-fields-grid{
+        grid-template-columns:1fr;
+      }
+      .settings-host.settings-fields-grid{
+        grid-template-columns:1fr;
+      }
       .settings-compact-toggle{
         width:100%;
       }
@@ -5120,7 +5151,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.2</span>
+               <span class="app-version">v6.6-C4.3</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -5984,16 +6015,31 @@ Notes:
           </div>
         </section>
         <section class="panel settings-block settings-calculation-block" id="settingsCalculationPanel">
-          <h3>계산 기준 설정</h3>
-          <h2>신체 정보와 활동 패턴</h2>
-          <div class="mini-note">체중, 활동량, 운동 설정은 여기서 관리합니다. 목표와 활동량을 바꾸면 오늘 권장 탄단지가 다시 계산됩니다.</div>
+          <h3>기본값</h3>
+          <h2>기본 프로필과 생활 패턴</h2>
+          <div class="mini-note">새 날짜의 Today 계산값을 채우는 기본값입니다.</div>
           <div class="settings-group">
             <div class="section-group-head">
-              <h4>기본 입력 확인</h4>
-              <p>오늘 계산 화면에는 오늘 행동과 기록 시작만 보여주고, 계산 기준은 이 영역에서 관리합니다.</p>
+              <h4>기본 프로필</h4>
+              <p>키, 성별, 나이처럼 자주 바뀌지 않는 값을 둡니다.</p>
             </div>
-            <div class="settings-host" id="settingsCalculationInputHost"></div>
+            <div class="settings-host settings-fields-grid" id="settingsProfileHost"></div>
           </div>
+          <div class="settings-group">
+            <div class="section-group-head">
+              <h4>기본 생활 패턴</h4>
+              <p>새 날짜의 오늘 활동과 업무 유형을 채우는 기본값입니다.</p>
+            </div>
+            <div class="settings-host settings-fields-grid" id="settingsLifestyleHost"></div>
+          </div>
+          <div class="settings-group">
+            <div class="section-group-head">
+              <h4>운동 기준</h4>
+              <p>루틴과 주간 웨이트 기준을 둡니다. 오늘 세션과 오늘 유산소는 Today에서 관리합니다.</p>
+            </div>
+            <div class="settings-host settings-fields-grid" id="settingsTrainingDefaultsHost"></div>
+          </div>
+          <div class="settings-host settings-mirror-bank" id="settingsCalculationInputHost" aria-hidden="true"></div>
         </section>
         <section class="panel settings-block">
           <h3>고급</h3>
@@ -8626,6 +8672,44 @@ Notes:
       });
     }
 
+    function getFieldContainerForInput(inputId){
+      return ids[inputId]?.closest(".field") || null;
+    }
+
+    function moveSettingsField(hostId, inputId, labelText){
+      const host = document.getElementById(hostId);
+      const field = getFieldContainerForInput(inputId);
+      if (!host || !field) return;
+      if (field.parentElement !== host) host.appendChild(field);
+      if (labelText) {
+        const label = field.querySelector(":scope > label") || field.querySelector("label");
+        if (label) label.textContent = labelText;
+      }
+    }
+
+    function arrangeSettingsDefaultSections(){
+      const mirrorHost = document.getElementById("settingsCalculationInputHost");
+      const inputPanel = document.getElementById("todayInputPanel");
+      if (mirrorHost && inputPanel && inputPanel.parentElement !== mirrorHost) {
+        mirrorHost.appendChild(inputPanel);
+      }
+      if (inputPanel) {
+        inputPanel.classList.add("settings-hidden-mirror");
+        inputPanel.setAttribute("aria-hidden", "true");
+      }
+
+      moveSettingsField("settingsProfileHost", "height", "키 (cm)");
+      moveSettingsField("settingsProfileHost", "gender", "성별");
+      moveSettingsField("settingsProfileHost", "age", "나이");
+
+      moveSettingsField("settingsLifestyleHost", "activityLevel", "기본 활동량");
+      moveSettingsField("settingsLifestyleHost", "workType", "기본 업무 유형");
+
+      moveSettingsField("settingsTrainingDefaultsHost", "routinePlan", "루틴 종류");
+      moveSettingsField("settingsTrainingDefaultsHost", "weeklyTrainingDays", "주당 웨이트일수");
+      moveSettingsField("settingsTrainingDefaultsHost", "weightDuration", "기본 웨이트 시간 (분)");
+    }
+
     function syncSettingsLayout(){
       const modeGoalBlock = document.getElementById("settingsModeGoalBlock");
       const modeDescBlock = document.getElementById("settingsModeDescriptionBlock");
@@ -8651,8 +8735,7 @@ Notes:
       if (todayInputPanel && settingsCalculationInputHost && todayInputPanel.parentElement !== settingsCalculationInputHost) {
         settingsCalculationInputHost.appendChild(todayInputPanel);
       }
-      if (todayInputPanel) todayInputPanel.classList.remove("hidden");
-      initializeSettingsCompactGroups();
+      arrangeSettingsDefaultSections();
       if (routineChips && todayRoutineChipsHost && routineChips.parentElement !== todayRoutineChipsHost) {
         todayRoutineChipsHost.appendChild(routineChips);
       }
@@ -22233,8 +22316,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.2"), "document title should show v6.6-C4.2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.2"), "app version badge should show v6.6-C4.2");
+          assertTest(document.title.includes("v6.6-C4.3"), "document title should show v6.6-C4.3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.3"), "app version badge should show v6.6-C4.3");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22337,16 +22420,13 @@ Notes:
 
           setActiveTab("settings");
           render();
-          let compactGroups = Array.from(document.querySelectorAll("#settingsCalculationPanel #todayInputPanel .today-input-groups > .settings-compact-disclosure"));
-          compactGroups.forEach(group => delete group.dataset.settingsCompactOpen);
-          initializeSettingsCompactGroups();
-          compactGroups = Array.from(document.querySelectorAll("#settingsCalculationPanel #todayInputPanel .today-input-groups > .settings-compact-disclosure"));
-          const compactText = compactGroups.map(group => group.querySelector("h4")?.textContent || "").join(" ");
-          assertIncludesAll(compactText, ["신체 정보", "활동 / 생활", "훈련 / 운동", "유산소", "InBody / 입력값 저장"], "Settings should expose compact calculation groups");
-          assertTest(!compactGroups[0]?.classList.contains("is-collapsed"), "body information group should stay open first");
-          assertTest(compactGroups.slice(1).every(group => group.classList.contains("is-collapsed")), "secondary Settings groups should be collapsed first");
-          assertTest(document.getElementById("settingsCalculationPanel").contains(ids.activityLevel), "Settings compact layout should keep original activity input");
-          assertTest(document.getElementById("settingsCalculationPanel").contains(document.getElementById("saveTodayInputWithInbodyBtn")), "Settings compact layout should keep InBody save button");
+          const settingsText = document.getElementById("settingsCalculationPanel").textContent || "";
+          assertIncludesAll(settingsText, ["기본 프로필", "기본 생활 패턴", "운동 기준"], "Settings should expose default/profile groups");
+          assertTest(document.getElementById("settingsProfileHost").contains(ids.height), "Settings profile group should keep height input");
+          assertTest(document.getElementById("settingsLifestyleHost").contains(ids.activityLevel), "Settings lifestyle group should keep default activity input");
+          assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weightDuration), "Settings training group should keep base weight duration input");
+          assertTest(getComputedStyle(document.getElementById("settingsCalculationInputHost")).display === "none", "Today-owned mirror should stay hidden in Settings");
+          assertTest(document.getElementById("settingsCalculationInputHost").contains(document.getElementById("saveTodayInputWithInbodyBtn")), "hidden mirror should preserve InBody save button");
         }));
 
         results.push(runNamedTest("UX2-8 user-facing copy and fixed constants stay clean", () => {
@@ -22387,42 +22467,34 @@ Notes:
           editPanel.open = false;
         }));
 
-        results.push(runNamedTest("UX2-8 Settings calculation groups are compact and expandable", () => {
+        results.push(runNamedTest("C4.3 Settings default groups replace compact calculation form", () => {
           setActiveTab("settings");
           render();
-          let groups = Array.from(document.querySelectorAll("#settingsCalculationPanel #todayInputPanel .today-input-groups > .settings-compact-disclosure"));
-          groups.forEach(group => delete group.dataset.settingsCompactOpen);
-          initializeSettingsCompactGroups();
-          groups = Array.from(document.querySelectorAll("#settingsCalculationPanel #todayInputPanel .today-input-groups > .settings-compact-disclosure"));
-          const titleOf = group => group.querySelector("h4")?.textContent || "";
-          const groupByTitle = title => groups.find(group => titleOf(group) === title);
-          assertIncludesAll(groups.map(titleOf).join(" "), ["신체 정보", "활동 / 생활", "훈련 / 운동", "유산소", "InBody / 입력값 저장"], "Settings should show compact group titles");
-          assertTest(!groupByTitle("신체 정보")?.classList.contains("is-collapsed"), "body information should be open first");
-          ["활동 / 생활", "훈련 / 운동", "유산소", "InBody / 입력값 저장"].forEach(title => {
-            assertTest(groupByTitle(title)?.classList.contains("is-collapsed"), `${title} group should start collapsed`);
-          });
-          const activityGroup = groupByTitle("활동 / 생활");
-          activityGroup.querySelector(".settings-compact-toggle").click();
-          assertTest(!activityGroup.classList.contains("is-collapsed"), "activity group should expand from its summary");
-          assertTest(activityGroup.contains(ids.activityLevel) && activityGroup.contains(ids.workType), "activity inputs should remain in the expanded group");
-          const saveGroup = groupByTitle("InBody / 입력값 저장");
-          saveGroup.querySelector(".settings-compact-toggle").click();
-          assertTest(saveGroup.contains(document.getElementById("loadLatestInbodyToTodayBtn")), "latest InBody import button should remain");
-          assertTest(saveGroup.contains(document.getElementById("saveTodayInputBtn")), "today input save button should remain");
-          assertTest(saveGroup.contains(document.getElementById("saveTodayInputWithInbodyBtn")), "InBody save button should remain");
+          const panel = document.getElementById("settingsCalculationPanel");
+          assertIncludesAll(panel.textContent || "", ["기본 프로필", "기본 생활 패턴", "운동 기준", "기본 활동량", "기본 업무 유형", "기본 웨이트 시간"], "Settings should show default/profile wording");
+          assertTest(document.getElementById("settingsProfileHost").contains(ids.height), "profile group should contain height");
+          assertTest(document.getElementById("settingsProfileHost").contains(ids.gender), "profile group should contain gender");
+          assertTest(document.getElementById("settingsProfileHost").contains(ids.age), "profile group should contain age");
+          assertTest(document.getElementById("settingsLifestyleHost").contains(ids.activityLevel), "lifestyle group should contain default activity");
+          assertTest(document.getElementById("settingsLifestyleHost").contains(ids.workType), "lifestyle group should contain default work type");
+          assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.routinePlan), "training group should contain routine plan");
+          assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weeklyTrainingDays), "training group should contain weekly training days");
+          assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weightDuration), "training group should contain base weight duration");
+          assertTest(getComputedStyle(document.getElementById("settingsCalculationInputHost")).display === "none", "legacy calculation input mirror should be hidden");
         }));
 
-        results.push(runNamedTest("UX2-8 compact polish keeps Settings calculation edits active", () => {
+        results.push(runNamedTest("C4.3 Settings default edits keep draft-free calculation active", () => {
           setValidTodayBalanceTestInputs();
+          todayCalculationDrafts = {};
           setActiveTab("settings");
           render();
           const before = calculate().targetCal;
-          ids.weight.value = "82";
+          ids.activityLevel.value = "very_active";
           render();
           const after = calculate().targetCal;
-          assertTest(Number.isFinite(before) && Number.isFinite(after) && after !== before, "changing Settings inputs should still refresh calculation");
-          assertTest(document.getElementById("settingsCalculationPanel").contains(ids.cardioDuration), "cardio input id should remain in Settings");
-          assertTest(document.getElementById("settingsCalculationPanel").contains(ids.weightDuration), "training input id should remain in Settings");
+          assertTest(Number.isFinite(before) && Number.isFinite(after) && after !== before, "changing Settings default activity should still refresh draft-free calculation");
+          assertTest(document.getElementById("settingsCalculationInputHost").contains(ids.cardioDuration), "cardio actual input id should remain in hidden mirror");
+          assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weightDuration), "base training duration input should remain visible in Settings");
         }));
 
         results.push(runNamedTest("UX2-8 compact polish keeps constants and clean user-facing copy", () => {
@@ -23198,29 +23270,34 @@ Notes:
           assertTest(document.getElementById("todaySettingsBtn").style.display === "inline-flex", "top calculation settings should return on Today");
         }));
 
-        results.push(runNamedTest("Settings keeps the original calculation input ids editable", () => {
+        results.push(runNamedTest("Settings separates visible defaults from hidden Today-owned mirrors", () => {
           setActiveTab("settings");
           render();
           const section = document.getElementById("settingsCalculationPanel");
-          assertTest(section.contains(ids.weight), "Settings calculation section should contain weight input");
-          assertTest(section.contains(ids.height), "Settings calculation section should contain height input");
-          assertTest(section.contains(ids.activityLevel), "Settings calculation section should contain activity input");
-          assertTest(section.contains(ids.weightDuration), "Settings calculation section should contain training duration input");
-          assertTest(section.contains(ids.cardioDuration), "Settings calculation section should contain cardio duration input");
-          ids.weight.value = "77.5";
+          const hiddenMirror = document.getElementById("settingsCalculationInputHost");
+          assertTest(document.getElementById("settingsProfileHost").contains(ids.height), "Settings profile defaults should contain height input");
+          assertTest(document.getElementById("settingsProfileHost").contains(ids.gender), "Settings profile defaults should contain gender input");
+          assertTest(document.getElementById("settingsProfileHost").contains(ids.age), "Settings profile defaults should contain age input");
+          assertTest(document.getElementById("settingsLifestyleHost").contains(ids.activityLevel), "Settings lifestyle defaults should contain activity input");
+          assertTest(document.getElementById("settingsLifestyleHost").contains(ids.workType), "Settings lifestyle defaults should contain work type input");
+          assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weightDuration), "Settings training defaults should contain base weight duration input");
+          assertTest(hiddenMirror.contains(ids.weight), "hidden mirror should keep calculation weight id available");
+          assertTest(hiddenMirror.contains(ids.cardioDuration), "hidden mirror should keep cardio duration id available");
+          assertTest(getComputedStyle(hiddenMirror).display === "none", "hidden mirror should not be user-facing");
           ids.activityLevel.value = "active";
-          assertTest(ids.weight.value === "77.5" && ids.activityLevel.value === "active", "Settings calculation inputs should remain editable");
+          assertTest(ids.activityLevel.value === "active" && section.contains(ids.activityLevel), "Settings default activity should remain editable");
         }));
 
-        results.push(runNamedTest("Settings calculation edits refresh Today target calculation", () => {
+        results.push(runNamedTest("Settings default edits refresh draft-free Today target calculation", () => {
           setValidTodayBalanceTestInputs();
+          todayCalculationDrafts = {};
           setActiveTab("settings");
           render();
           const before = calculate().targetCal;
-          ids.weight.value = "82";
+          ids.activityLevel.value = "very_active";
           render();
           const after = calculate().targetCal;
-          assertTest(Number.isFinite(before) && Number.isFinite(after) && after !== before, "changing Settings calculation input should affect Today target calculation");
+          assertTest(Number.isFinite(before) && Number.isFinite(after) && after !== before, "changing Settings default input should affect draft-free Today target calculation");
         }));
 
         results.push(runNamedTest("record start modal does not include basic calculation inputs", () => {
@@ -23287,6 +23364,94 @@ Notes:
         results.push(runNamedTest("calculation separation keeps fixed scoring and windows", () => {
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "calculation separation should not change scoring version");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "calculation separation should not change recent context windows");
+        }));
+
+        return results;
+      });
+    }
+
+    function runSettingsDefaultsStructureTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        function isVisibleInput(input){
+          if (!input) return false;
+          const field = input.closest(".field") || input;
+          const style = window.getComputedStyle(field);
+          return style.display !== "none" && style.visibility !== "hidden" && field.getClientRects().length > 0;
+        }
+
+        results.push(runNamedTest("C4.3 Settings tab keeps default/profile structure", () => {
+          state.mode = "athlete";
+          setActiveTab("settings");
+          render();
+          const panel = document.getElementById("settingsPanel");
+          assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
+          assertIncludesAll(panel.textContent || "", ["목표 및 모드", "기본 프로필", "기본 생활 패턴", "운동 기준", "전문가 설정"], "Settings should show C4.3 section names");
+          assertTest(document.getElementById("settingsProfileHost").contains(ids.height), "기본 프로필 should contain height");
+          assertTest(document.getElementById("settingsProfileHost").contains(ids.gender), "기본 프로필 should contain gender");
+          assertTest(document.getElementById("settingsProfileHost").contains(ids.age), "기본 프로필 should contain age");
+          assertTest(document.getElementById("settingsLifestyleHost").contains(ids.activityLevel), "기본 생활 패턴 should contain default activity");
+          assertTest(document.getElementById("settingsLifestyleHost").contains(ids.workType), "기본 생활 패턴 should contain default work type");
+          assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.routinePlan), "운동 기준 should contain routine plan");
+          assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weeklyTrainingDays), "운동 기준 should contain weekly training days");
+          assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weightDuration), "운동 기준 should contain base weight duration");
+        }));
+
+        results.push(runNamedTest("C4.3 Settings hides Today-owned actual values from visible input surface", () => {
+          state.mode = "athlete";
+          setActiveTab("settings");
+          render();
+          const hiddenMirror = document.getElementById("settingsCalculationInputHost");
+          assertTest(hiddenMirror.contains(document.getElementById("todayInputPanel")), "hidden mirror should retain legacy calculation panel");
+          assertTest(getComputedStyle(hiddenMirror).display === "none", "legacy calculation panel mirror should be hidden");
+          ["weight", "skeletal", "bodyFatMass", "bodyFat", "cardioType", "cardioDuration", "cardioSpeed", "cardioIncline"].forEach(id => {
+            assertTest(!isVisibleInput(ids[id]), `${id} should not be visible as a Settings main input`);
+          });
+        }));
+
+        results.push(runNamedTest("C4.3 Settings defaults remain separate from Today date-owned values", () => {
+          setValidTodayBalanceTestInputs();
+          todayCalculationDrafts = {};
+          ids.activityLevel.value = "moderate";
+          ids.workType.value = "office";
+          setActiveTab("today");
+          render();
+          setTodayQuickEditOpen(true);
+          document.getElementById("todayQuickActivityLevel").value = "active";
+          document.getElementById("todayQuickActivityLevel").dispatchEvent(new Event("change", { bubbles: true }));
+          document.getElementById("todayQuickWorkType").value = "mixed";
+          document.getElementById("todayQuickWorkType").dispatchEvent(new Event("change", { bubbles: true }));
+          assertTest(ids.activityLevel.value === "moderate", "Today activity edit should not mutate Settings default activity");
+          assertTest(ids.workType.value === "office", "Today work type edit should not mutate Settings default work type");
+          ids.activityLevel.value = "very_active";
+          const tomorrow = shiftDateString(getTodayDateString(), 1);
+          assertTest(getEffectiveTodayCalculationValues().todayActivityLevel === "active", "Settings default should not overwrite modified Today date");
+          assertTest(getEffectiveTodayCalculationValues(tomorrow).todayActivityLevel === "very_active", "new date should use changed Settings default");
+        }));
+
+        results.push(runNamedTest("C4.3 Today calculation, record start, and dual basis surfaces remain available", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          render();
+          assertTest(!!document.getElementById("todayCalcSettingsCard"), "Today calculation values card should remain");
+          assertTest(!!document.getElementById("todayRecordStartBtn"), "record start CTA should remain");
+          assertTest(!!document.getElementById("macroBasisRow") && !document.getElementById("macroBasisRow").classList.contains("hidden"), "guide/activity toggle should remain visible");
+          const before = calculate();
+          document.getElementById("todayQuickCardioDuration").value = "80";
+          document.getElementById("todayQuickCardioDuration").dispatchEvent(new Event("input", { bubbles: true }));
+          const after = calculate();
+          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal) && after.targetCal !== before.targetCal, "Today cardio actual should still recalculate");
+        }));
+
+        results.push(runNamedTest("C4.3 Settings structure keeps protected surfaces unchanged", () => {
+          render();
+          const text = `${document.getElementById("settingsPanel")?.textContent || ""} ${document.getElementById("todayCalcSettingsCard")?.textContent || ""}`;
+          assertExcludesAll(text, ["source of truth", "draft", "schema", "selectedBasis", "uiState", "helper", "policy", "macro gap", "hard cap", "soft range", "floor"], "C4.3 visible copy should not expose internal terms");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "C4.3 should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "C4.3 should not change recent context windows");
+          const exported = JSON.stringify({ records: recordsState.items });
+          assertExcludesAll(exported, ["todayCalculationDraft", "selectedMacroBasis"], "C4.3 should not add Today draft or basis to records payload");
         }));
 
         return results;
@@ -29437,6 +29602,7 @@ Notes:
           assertTest(typeof window.runTargetMacroJointExpandedScan === "function", "runTargetMacroJointExpandedScan should be exported");
           assertTest(typeof window.runTargetMacroJointExpandedScanTests === "function", "runTargetMacroJointExpandedScanTests should be exported");
           assertTest(typeof window.runMacroAllocationExplanationTests === "function", "runMacroAllocationExplanationTests should be exported");
+          assertTest(typeof window.runSettingsDefaultsStructureTests === "function", "runSettingsDefaultsStructureTests should be exported");
           assertTest(typeof window.runTodayCalculationOwnershipTests === "function", "runTodayCalculationOwnershipTests should be exported");
           assertTest(typeof window.runTodayQuickEditTests === "function", "runTodayQuickEditTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
@@ -35560,6 +35726,7 @@ Notes:
     window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runRecordStartWeightFlowTests = runRecordStartWeightFlowTests;
     window.runCalculationInputSeparationTests = runCalculationInputSeparationTests;
+    window.runSettingsDefaultsStructureTests = runSettingsDefaultsStructureTests;
     window.runTodayCalculationOwnershipTests = runTodayCalculationOwnershipTests;
     window.runTodayQuickEditTests = runTodayQuickEditTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
