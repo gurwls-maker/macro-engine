@@ -1,8 +1,13 @@
 <!--
-Version: 6.6-C4.3
-Stage: 6.6-C4.3 Settings 기본값 / 프로필 중심 재정리
+Version: 6.6-C4.3.1
+Stage: 6.6-C4.3.1 Records 운동 기준 수정 저장 hotfix
 Date: 2026-05-12
 Notes:
+- C4.3.1 Records 운동 기준 수정 저장 hotfix
+- Records 수정하기에서 세션 / 운동시간 값이 저장 및 재계산 기준에 반영되지 않던 문제 수정
+- Records 수정폼 세션 변경 시 기본 운동강도 보정 동기화
+- REST ↔ 운동 세션 변경과 주간 웨이트일수 재계산 QA 보강
+- Records 수정폼 editable field round-trip QA 추가
 - C4.3 Settings 기본값 / 프로필 중심 재정리
 - 탭명은 기본 설정 유지
 - Settings는 목표 / 모드 / 기본 프로필 / 기본 생활 패턴 / 운동 기준 / 전문가 설정 중심으로 정리
@@ -61,7 +66,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.3</title>
+  <title>탄단지 다이어리 v6.6-C4.3.1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -5151,7 +5156,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.3</span>
+               <span class="app-version">v6.6-C4.3.1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -15861,8 +15866,75 @@ Notes:
       return normalizeRecordDetailCalculationBasis(raw, fallback);
     }
 
+    const RECORD_DETAIL_BASIS_FIELD_MAPPINGS = [
+      { label: "당시 목표", formKey: "goal", saveKey: "goal", snapshotKey: "goal" },
+      { label: "당시 계산 모드", formKey: "mode", saveKey: "mode", snapshotKey: "mode" },
+      { label: "계산용 체중", formKey: "weight", saveKey: "weight", snapshotKey: "weight" },
+      { label: "키", formKey: "height", saveKey: "height", snapshotKey: "height" },
+      { label: "나이", formKey: "age", saveKey: "age", snapshotKey: "age" },
+      { label: "성별", formKey: "gender", saveKey: "gender", snapshotKey: "gender" },
+      { label: "체지방률", formKey: "bodyFat", saveKey: "bodyFat", snapshotKey: "bodyFat" },
+      { label: "체지방량", formKey: "bodyFatMass", saveKey: "bodyFatMass", snapshotKey: "bodyFatMass" },
+      { label: "골격근량", formKey: "skeletal", saveKey: "skeletal", snapshotKey: "skeletal" },
+      { label: "활동량", formKey: "activityLevel", saveKey: "activityLevel", snapshotKey: "activityLevel" },
+      { label: "업무 유형", formKey: "workType", saveKey: "workType", snapshotKey: "workType" },
+      { label: "업무 보정", formKey: "workAdj", saveKey: "workAdj", snapshotKey: "workAdj" },
+      { label: "주당 웨이트일수", formKey: "weeklyTrainingDays", saveKey: "weeklyTrainingDays", snapshotKey: "weeklyTrainingDays" },
+      { label: "루틴", formKey: "routinePlan", saveKey: "routinePlan", snapshotKey: "routinePlan" },
+      { label: "웨이트 세션", formKey: "routine", saveKey: "routine", snapshotKey: "routine" },
+      { label: "웨이트 시간", formKey: "weightDuration", saveKey: "weightDuration", snapshotKey: "weightDuration" },
+      { label: "훈련 강도 보정", formKey: "intensityOverride", saveKey: "intensityOverride", snapshotKey: "intensityOverride" },
+      { label: "유산소 종류", formKey: "cardioType", saveKey: "cardioType", snapshotKey: "cardioType" },
+      { label: "유산소 시간", formKey: "cardioDuration", saveKey: "cardioDuration", snapshotKey: "cardioDuration" },
+      { label: "유산소 속도", formKey: "cardioSpeed", saveKey: "cardioSpeed", snapshotKey: "cardioSpeed" },
+      { label: "유산소 경사도", formKey: "cardioIncline", saveKey: "cardioIncline", snapshotKey: "cardioIncline" },
+      { label: "가정용 InBody 기준", formKey: "homeInbody", saveKey: "homeInbody", snapshotKey: "homeInbody" }
+    ];
+
+    function getRecordDetailBasisFieldMappings(){
+      return RECORD_DETAIL_BASIS_FIELD_MAPPINGS.map(item => ({ ...item }));
+    }
+
+    function getRecordDetailBasisTodayDraftValues(basis){
+      const safeBasis = normalizeRecordDetailCalculationBasis(basis);
+      return normalizeTodayCalculationDraft({
+        calculationWeight: safeBasis.weight,
+        skeletalMuscle: safeBasis.skeletal,
+        bodyFatMass: safeBasis.bodyFatMass,
+        bodyFatPercent: safeBasis.bodyFat,
+        todayActivityLevel: safeBasis.activityLevel,
+        todayWorkType: safeBasis.workType,
+        todayRoutineSession: safeBasis.routine,
+        todayIntensityOverride: safeBasis.intensityOverride,
+        todayWeightDuration: safeBasis.weightDuration,
+        todayCardioType: safeBasis.cardioType,
+        todayCardioDuration: safeBasis.cardioDuration,
+        todayCardioSpeed: safeBasis.cardioSpeed,
+        todayCardioIncline: safeBasis.cardioIncline
+      });
+    }
+
+    function getRecordDetailRoutineEntryForBasis(basis, routineValue){
+      const safeBasis = normalizeRecordDetailCalculationBasis(basis);
+      const items = getRecordDetailRoutineItemsForBasis(safeBasis);
+      return items.find(item => item.value === routineValue) || items[0] || { value: "REST", xw: 0 };
+    }
+
+    function syncRecordDetailRoutineIntensityFromForm(root){
+      if (!root) return null;
+      const routineField = root.querySelector('[data-detail-basis-field="routine"]');
+      const intensityField = root.querySelector('[data-detail-basis-field="intensityOverride"]');
+      if (!routineField || !intensityField) return null;
+      const basis = readRecordDetailBasisFromForm(root, uiState.recordsDetailDraft);
+      const entry = getRecordDetailRoutineEntryForBasis(basis, routineField.value);
+      const nextIntensity = clamp(Number(entry.xw) || 0, 0, 1);
+      intensityField.value = nextIntensity.toFixed(2);
+      return nextIntensity;
+    }
+
     function withRecordDetailTemporaryBasis(basis, callback){
       const stateSnapshot = JSON.stringify(state);
+      const todayDraftSnapshot = JSON.stringify(todayCalculationDrafts || {});
       const valueSnapshot = {
         weight: ids.weight.value,
         height: ids.height.value,
@@ -15920,9 +15992,14 @@ Notes:
         ids.cardioDuration.value = String(safeBasis.cardioDuration);
         ids.cardioSpeed.value = String(safeBasis.cardioSpeed);
         ids.cardioIncline.value = String(safeBasis.cardioIncline);
+        todayCalculationDrafts = {
+          ...(todayCalculationDrafts || {}),
+          [getTodayDateString()]: getRecordDetailBasisTodayDraftValues(safeBasis)
+        };
         return callback(safeBasis);
       } finally {
         Object.assign(state, JSON.parse(stateSnapshot));
+        todayCalculationDrafts = JSON.parse(todayDraftSnapshot || "{}");
         ids.weight.value = valueSnapshot.weight;
         ids.height.value = valueSnapshot.height;
         ids.age.value = valueSnapshot.age;
@@ -18464,7 +18541,11 @@ Notes:
         if (event.target.closest("[data-detail-basis-field]")) refreshRecordDetailBasisPreview();
       });
       document.getElementById("recordsTable").addEventListener("change", event => {
-        if (!event.target.closest("[data-record-detail-edit='true']")) return;
+        const detailRoot = event.target.closest("[data-record-detail-edit='true']");
+        if (!detailRoot) return;
+        if (event.target.closest('[data-detail-basis-field="routine"]')) {
+          syncRecordDetailRoutineIntensityFromForm(detailRoot);
+        }
         updateRecordDetailDraftFromForm();
         if (event.target.closest("[data-detail-basis-rerender='true']")) {
           renderRecordsPanel();
@@ -22316,8 +22397,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.3"), "document title should show v6.6-C4.3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.3"), "app version badge should show v6.6-C4.3");
+          assertTest(document.title.includes("v6.6-C4.3.1"), "document title should show v6.6-C4.3.1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.3.1"), "app version badge should show v6.6-C4.3.1");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -22787,6 +22868,371 @@ Notes:
           assertTest(listStyle.overflowY === "auto" && listStyle.maxHeight !== "none", "records archive scroll boundary should remain");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "inline edit should not change scoring version");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "inline edit should not change recent windows");
+        }));
+
+        return results;
+      });
+    }
+
+    function runRecordEditCalculationBasisTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const date = "2026-05-08";
+        const makeMeal = (id = "m1", overrides = {}) => ({
+          id,
+          mealLabel: "아침",
+          carbs: 80,
+          protein: 40,
+          fat: 18,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "",
+          createdAt: `${date}T08:00:00.000Z`,
+          ...overrides
+        });
+        const prepareSettings = () => {
+          setValidTodayBalanceTestInputs();
+          state.mode = "athlete";
+          state.goal = "lean_bulk";
+          state.routinePlan = "ppl_ul";
+          state.routine = "PUSH";
+          ids.routinePlan.value = "ppl_ul";
+          ids.weeklyTrainingDays.value = "4";
+          state.weeklyTrainingDays = 4;
+          state.weeklyTrainingDaysManual = true;
+          ids.weightDuration.value = "60";
+          ids.cardioDuration.value = "20";
+          ids.cardioSpeed.value = "5";
+          ids.cardioIncline.value = "3";
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
+        };
+        const makeBasis = (overrides = {}) => normalizeRecordDetailCalculationBasis({
+          mode: "athlete",
+          goal: "lean_bulk",
+          weight: 76,
+          height: 176,
+          age: 30,
+          gender: "male",
+          bodyFat: 15,
+          bodyFatMass: 11.4,
+          skeletal: 36,
+          activityLevel: "moderate",
+          workType: "office",
+          workAdj: 0,
+          homeInbody: false,
+          expertLbmAlpha: MODE_LBM_ALPHA.expert,
+          weeklyTrainingDays: 4,
+          generalAdvancedSettings: false,
+          generalLowDigestCarbs: false,
+          routinePlan: "ppl_ul",
+          routine: "PUSH",
+          intensityOverride: 0.8,
+          weightDuration: 60,
+          cardioType: "treadmill_walk",
+          cardioDuration: 20,
+          cardioSpeed: 5,
+          cardioIncline: 3,
+          ...overrides
+        }, getRecordDetailCurrentCalculationBasis());
+        const makeRecordWithBasis = (basisOverrides = {}, recordOverrides = {}) => {
+          const basis = makeBasis(basisOverrides);
+          const calculated = buildRecordDetailSnapshotFromBasis(basis, "saved_at_entry");
+          assertTest(!!calculated.snapshot, "test record should build a goal snapshot");
+          return {
+            basis,
+            record: normalizeRecord({
+              date,
+              recordMode: "detailed",
+              weight: basis.weight,
+              note: "원본 메모",
+              goalSnapshot: calculated.snapshot,
+              snapshotSource: "saved_at_entry",
+              meals: [makeMeal("m1"), makeMeal("m2", { createdAt: `${date}T12:00:00.000Z`, carbs: 70, protein: 35, fat: 16 })],
+              ...recordOverrides
+            })
+          };
+        };
+        const openDetailEdit = targetDate => {
+          uiState.recordsDetailDate = null;
+          uiState.recordsDetailEditMode = false;
+          uiState.recordsDetailDraft = null;
+          setActiveTab("records");
+          renderRecordsPanel();
+          document.querySelector(`[data-toggle-record-detail="${targetDate}"]`)?.click();
+          document.querySelector(`[data-record-detail-date="${targetDate}"] [data-edit-record-date]`)?.click();
+          const root = document.querySelector(`[data-record-detail-date="${targetDate}"][data-record-detail-edit="true"]`);
+          assertTest(!!root, `edit form should open for ${targetDate}`);
+          return root;
+        };
+        const basisField = (root, name) => root.querySelector(`[data-detail-basis-field="${name}"]`);
+        const setBasisValue = (root, name, value, options = {}) => {
+          const input = basisField(root, name);
+          assertTest(!!input, `${name} basis field should exist`);
+          if (input.type === "checkbox") input.checked = value === true;
+          else input.value = String(value);
+          if (options.dispatch) {
+            input.dispatchEvent(new Event(input.tagName === "SELECT" || input.type === "checkbox" ? "change" : "input", { bubbles: true }));
+          }
+        };
+        const setConflictingTodayDraft = () => {
+          todayCalculationDrafts = {
+            [getTodayDateString()]: normalizeTodayCalculationDraft({
+              calculationWeight: 66,
+              skeletalMuscle: 28,
+              bodyFatPercent: 24,
+              bodyFatMass: 15.84,
+              todayActivityLevel: "sedentary",
+              todayWorkType: "office",
+              todayRoutineSession: "REST",
+              todayIntensityOverride: 0,
+              todayWeightDuration: 0,
+              todayCardioType: "treadmill_walk",
+              todayCardioDuration: 0,
+              todayCardioSpeed: 0,
+              todayCardioIncline: 0
+            })
+          };
+        };
+
+        results.push(runNamedTest("C4.3.1 record detail weekly session and duration edits persist and recalculate", () => {
+          prepareSettings();
+          const { record } = makeRecordWithBasis({ weeklyTrainingDays: 3, routine: "PUSH", weightDuration: 45 });
+          recordsState.items = normalizeRecordsCollection([record]);
+          const beforeSnapshot = getRecordByDate(date).goalSnapshot;
+          const settingsBefore = {
+            routine: state.routine,
+            weightDuration: ids.weightDuration.value,
+            weeklyTrainingDays: ids.weeklyTrainingDays.value
+          };
+          setConflictingTodayDraft();
+          const todayDraftBefore = JSON.stringify(todayCalculationDrafts);
+          const root = openDetailEdit(date);
+          setBasisValue(root, "weeklyTrainingDays", 5);
+          setBasisValue(root, "routine", "LEGS");
+          setBasisValue(root, "weightDuration", 90);
+          const saved = saveRecordDetailDraft();
+          const updated = getRecordByDate(date);
+          assertTest(saved.saved === true, "detail save should succeed");
+          assertTest(updated.goalSnapshot.weeklyTrainingDays === 5, "weekly training days should persist");
+          assertTest(updated.goalSnapshot.routine === "LEGS", "routine session should persist");
+          assertClose(updated.goalSnapshot.weightDuration, 90, 0.0001, "weight duration should persist");
+          assertTest(updated.goalSnapshot.targetCal !== beforeSnapshot.targetCal, "edited exercise basis should recalculate target calories");
+          assertTest(JSON.stringify(todayCalculationDrafts) === todayDraftBefore, "record detail edit should not mutate Today calculation draft");
+          assertTest(state.routine === settingsBefore.routine, "record detail edit should not mutate Settings routine");
+          assertTest(ids.weightDuration.value === settingsBefore.weightDuration, "record detail edit should not mutate Settings weight duration");
+          assertTest(ids.weeklyTrainingDays.value === settingsBefore.weeklyTrainingDays, "record detail edit should not mutate Settings weekly days");
+          toggleRecordArchiveDetail(date);
+          toggleRecordArchiveDetail(date);
+          const viewText = document.querySelector(`[data-record-detail-date="${date}"]`)?.textContent || "";
+          assertIncludesAll(viewText, ["LEGS", "90분", "5일"], "reopened detail should render edited exercise basis");
+          const reopened = openDetailEdit(date);
+          assertTest(basisField(reopened, "routine").value === "LEGS", "reopened edit form should keep routine");
+          assertTest(basisField(reopened, "weightDuration").value === "90", "reopened edit form should keep weight duration");
+        }));
+
+        results.push(runNamedTest("C4.3.1 session-only and duration-only edits use the edited basis despite Today draft", () => {
+          prepareSettings();
+          const { record, basis } = makeRecordWithBasis({ routine: "PUSH", weightDuration: 60 });
+          recordsState.items = normalizeRecordsCollection([record]);
+          setConflictingTodayDraft();
+          let root = openDetailEdit(date);
+          setBasisValue(root, "routine", "LOWER");
+          saveRecordDetailDraft();
+          const sessionEdited = getRecordByDate(date).goalSnapshot;
+          const expectedSession = buildRecordDetailSnapshotFromBasis({ ...basis, routine: "LOWER" }, "saved_at_entry").snapshot;
+          assertTest(sessionEdited.routine === "LOWER", "session-only edit should persist");
+          assertClose(sessionEdited.targetCal, expectedSession.targetCal, 0.0001, "session-only edit should recalculate from the edited session");
+
+          const { record: durationRecord, basis: durationBasis } = makeRecordWithBasis({ routine: "PUSH", weightDuration: 30 });
+          recordsState.items = normalizeRecordsCollection([durationRecord]);
+          setConflictingTodayDraft();
+          root = openDetailEdit(date);
+          setBasisValue(root, "weightDuration", 120);
+          saveRecordDetailDraft();
+          const durationEdited = getRecordByDate(date).goalSnapshot;
+          const expectedDuration = buildRecordDetailSnapshotFromBasis({ ...durationBasis, weightDuration: 120 }, "saved_at_entry").snapshot;
+          assertClose(durationEdited.weightDuration, 120, 0.0001, "duration-only edit should persist");
+          assertClose(durationEdited.targetCal, expectedDuration.targetCal, 0.0001, "duration-only edit should recalculate from the edited duration");
+        }));
+
+        results.push(runNamedTest("C4.3.1 record detail routine changes sync default intensity and preview", () => {
+          prepareSettings();
+          const { record, basis } = makeRecordWithBasis({ weeklyTrainingDays: 4, routine: "PUSH", intensityOverride: 0.42, weightDuration: 60 });
+          recordsState.items = normalizeRecordsCollection([record]);
+          setConflictingTodayDraft();
+          const root = openDetailEdit(date);
+          assertTest(basisField(root, "intensityOverride").value === "0.42", "opening an existing edit should preserve saved intensity");
+          assertTest(basisField(root, "weeklyTrainingDays").value === "4", "weekly field should start from the saved record basis");
+
+          setBasisValue(root, "routine", "LEGS", { dispatch: true });
+          assertTest(basisField(root, "intensityOverride").value === "1.00", "LEGS should sync default intensity 1.00");
+          assertTest(basisField(root, "weeklyTrainingDays").value === "4", "training-to-training routine change should not alter weekly days");
+          let expected = buildRecordDetailSnapshotFromBasis({ ...basis, routine: "LEGS", intensityOverride: 1.00 }, "saved_at_entry").snapshot;
+          assertClose(uiState.recordsDetailDraft.goalSnapshot.targetCal, expected.targetCal, 0.0001, "LEGS change should refresh preview target from default intensity");
+
+          setBasisValue(root, "routine", "PULL", { dispatch: true });
+          assertTest(basisField(root, "intensityOverride").value === "0.85", "PULL should sync default intensity 0.85");
+          expected = buildRecordDetailSnapshotFromBasis({ ...basis, routine: "PULL", intensityOverride: 0.85 }, "saved_at_entry").snapshot;
+          assertClose(uiState.recordsDetailDraft.goalSnapshot.targetCal, expected.targetCal, 0.0001, "PULL change should refresh preview target from default intensity");
+
+          setBasisValue(root, "routine", "LOWER", { dispatch: true });
+          assertTest(basisField(root, "intensityOverride").value === "0.90", "LOWER should sync default intensity 0.90");
+
+          setBasisValue(root, "routine", "REST", { dispatch: true });
+          assertTest(basisField(root, "intensityOverride").value === "0.00", "REST should sync default intensity 0.00");
+          expected = buildRecordDetailSnapshotFromBasis({ ...basis, routine: "REST", intensityOverride: 0.00 }, "saved_at_entry").snapshot;
+          assertClose(uiState.recordsDetailDraft.goalSnapshot.targetCal, expected.targetCal, 0.0001, "REST change should recalculate as a rest day");
+
+          setBasisValue(root, "routine", "LEGS", { dispatch: true });
+          saveRecordDetailDraft();
+          const updated = getRecordByDate(date).goalSnapshot;
+          assertTest(updated.routine === "LEGS", "routine change should save the edited session");
+          assertClose(updated.intensityOverride, 1.00, 0.0001, "routine change should save the synced default intensity");
+        }));
+
+        results.push(runNamedTest("C4.3.1 weekly-only edit and auto weekly count reflect record detail changes", () => {
+          prepareSettings();
+          const { record, basis } = makeRecordWithBasis({ weeklyTrainingDays: 2, routine: "PUSH", weightDuration: 60 });
+          recordsState.items = normalizeRecordsCollection([record]);
+          setConflictingTodayDraft();
+          let root = openDetailEdit(date);
+          setBasisValue(root, "weeklyTrainingDays", 6);
+          saveRecordDetailDraft();
+          const weeklyEdited = getRecordByDate(date).goalSnapshot;
+          const expectedWeekly = buildRecordDetailSnapshotFromBasis({ ...basis, weeklyTrainingDays: 6 }, "saved_at_entry").snapshot;
+          assertTest(weeklyEdited.weeklyTrainingDays === 6, "weekly-only edit should persist");
+          assertClose(weeklyEdited.targetCal, expectedWeekly.targetCal, 0.0001, "weekly-only edit should recalculate from the edited weekly count");
+
+          const restDate = getTodayDateString();
+          const { record: restRecord } = makeRecordWithBasis({ weeklyTrainingDays: 0, routine: "REST", weightDuration: 0 }, { date: restDate });
+          recordsState.items = normalizeRecordsCollection([restRecord]);
+          state.weeklyTrainingDaysManual = false;
+          ids.weeklyTrainingDays.value = "0";
+          todayCalculationDrafts = {};
+          root = openDetailEdit(restDate);
+          setBasisValue(root, "routine", "PUSH");
+          setBasisValue(root, "weightDuration", 60);
+          saveRecordDetailDraft();
+          assertTest(getRecentWeightTrainingDayCount() === 1, "edited training record should update the automatic recent weekly count");
+          assertTest(ids.weeklyTrainingDays.value === "1", "auto weekly input should re-render from edited record history");
+          assertTest(calculate().s.weeklyTrainingDays === 1, "calculate should read the edited record-derived auto weekly count");
+
+          const { record: trainingRecord } = makeRecordWithBasis({ weeklyTrainingDays: 1, routine: "PUSH", intensityOverride: 0.8, weightDuration: 60 }, { date: restDate });
+          recordsState.items = normalizeRecordsCollection([trainingRecord]);
+          state.weeklyTrainingDaysManual = false;
+          ids.weeklyTrainingDays.value = "1";
+          root = openDetailEdit(restDate);
+          setBasisValue(root, "routine", "REST", { dispatch: true });
+          saveRecordDetailDraft();
+          assertTest(getRecentWeightTrainingDayCount() === 0, "editing a training record to REST should reduce the automatic recent weekly count");
+          assertTest(ids.weeklyTrainingDays.value === "0", "auto weekly input should show reduced recent count after REST edit");
+          assertTest(calculate().s.weeklyTrainingDays === 0, "calculate should read reduced auto weekly count after REST edit");
+        }));
+
+        results.push(runNamedTest("C4.3.1 record detail editable field mapping round-trips through snapshot and record", () => {
+          prepareSettings();
+          const { record } = makeRecordWithBasis();
+          recordsState.items = normalizeRecordsCollection([record]);
+          const root = openDetailEdit(date);
+          const renderedKeys = Array.from(root.querySelectorAll("[data-detail-basis-field]")).map(input => input.getAttribute("data-detail-basis-field"));
+          const expectedKeys = getRecordDetailBasisFieldMappings().map(item => item.formKey);
+          assertTest(JSON.stringify(renderedKeys) === JSON.stringify(expectedKeys), "rendered basis fields should match audited save mapping keys");
+
+          root.querySelector('[data-detail-field="weight"]').value = "77.5";
+          root.querySelector('[data-detail-field="note"]').value = "수정 메모";
+          setBasisValue(root, "goal", "bulk");
+          setBasisValue(root, "mode", "athlete");
+          setBasisValue(root, "weight", 78);
+          setBasisValue(root, "height", 180);
+          setBasisValue(root, "age", 31);
+          setBasisValue(root, "gender", "male");
+          setBasisValue(root, "bodyFat", 14);
+          setBasisValue(root, "bodyFatMass", 10.92);
+          setBasisValue(root, "skeletal", 38);
+          setBasisValue(root, "activityLevel", "active");
+          setBasisValue(root, "workType", "mixed");
+          setBasisValue(root, "workAdj", 0.05);
+          setBasisValue(root, "weeklyTrainingDays", 5);
+          setBasisValue(root, "routinePlan", "ppl_ul");
+          setBasisValue(root, "routine", "LOWER");
+          setBasisValue(root, "weightDuration", 75);
+          setBasisValue(root, "intensityOverride", 0.9);
+          setBasisValue(root, "cardioType", "outdoor_run");
+          setBasisValue(root, "cardioDuration", 35);
+          setBasisValue(root, "cardioSpeed", 9);
+          setBasisValue(root, "cardioIncline", 0);
+          setBasisValue(root, "homeInbody", true);
+          root.querySelector('[data-detail-meal-row="0"] [data-detail-meal-field="carbs"]').value = "121";
+          root.querySelector('[data-detail-meal-row="0"] [data-detail-meal-field="protein"]').value = "66";
+          root.querySelector('[data-detail-meal-row="0"] [data-detail-meal-field="fat"]').value = "22";
+          const readBasis = readRecordDetailBasisFromForm(root, uiState.recordsDetailDraft);
+          assertTest(readBasis.goal === "bulk" && readBasis.routine === "LOWER" && readBasis.cardioType === "outdoor_run", "readRecordDetailBasisFromForm should read edited basis values");
+          saveRecordDetailDraft();
+          const updated = getRecordByDate(date);
+          const snapshot = updated.goalSnapshot;
+          assertClose(updated.weight, 77.5, 0.0001, "record fasting weight should round-trip");
+          assertTest(updated.note === "수정 메모", "record memo should round-trip");
+          assertTest(updated.meals[0].carbs === 121 && updated.meals[0].protein === 66 && updated.meals[0].fat === 22, "meal editable fields should round-trip");
+          assertTest(snapshot.goal === "bulk" && snapshot.mode === "athlete", "goal and mode should round-trip");
+          assertClose(snapshot.weight, 78, 0.0001, "calculation weight should round-trip");
+          assertClose(snapshot.height, 180, 0.0001, "height should round-trip");
+          assertClose(snapshot.age, 31, 0.0001, "age should round-trip");
+          assertTest(snapshot.gender === "male", "gender should round-trip");
+          assertClose(snapshot.bodyFat, 14, 0.0001, "body fat percent should round-trip");
+          assertClose(snapshot.bodyFatMass, 10.92, 0.0001, "body fat mass should round-trip");
+          assertClose(snapshot.skeletal, 38, 0.0001, "skeletal muscle should round-trip");
+          assertTest(snapshot.activityLevel === "active" && snapshot.workType === "mixed", "activity and work type should round-trip");
+          assertClose(snapshot.workAdj, 0.05, 0.0001, "work adjustment should round-trip");
+          assertTest(snapshot.weeklyTrainingDays === 5, "weekly training days should round-trip");
+          assertTest(snapshot.routinePlan === "ppl_ul" && snapshot.routine === "LOWER", "routine plan and session should round-trip");
+          assertClose(snapshot.weightDuration, 75, 0.0001, "weight duration should round-trip");
+          assertClose(snapshot.intensityOverride, 0.9, 0.0001, "intensity override should round-trip");
+          assertTest(snapshot.cardioType === "outdoor_run", "cardio type should round-trip");
+          assertClose(snapshot.cardioDuration, 35, 0.0001, "cardio duration should round-trip");
+          assertClose(snapshot.cardioSpeed, 9, 0.0001, "cardio speed should round-trip");
+          assertClose(snapshot.cardioIncline, 0, 0.0001, "cardio incline should round-trip");
+          assertTest(snapshot.homeInbody === true, "home InBody flag should round-trip");
+        }));
+
+        results.push(runNamedTest("C4.3.1 record detail edits do not mutate Settings Today or InBody records", () => {
+          prepareSettings();
+          const { record } = makeRecordWithBasis({ routine: "PUSH", weightDuration: 45 });
+          recordsState.items = normalizeRecordsCollection([record]);
+          state.inbodyRecords = [{ date, weight: 76, skeletalMuscle: 36, bodyFat: 11.4, bodyFatPercent: 15, warning: "", isSuspicious: false }];
+          setTodayCalculationDraftValues({
+            calculationWeight: 70,
+            todayRoutineSession: "REST",
+            todayWeightDuration: 0,
+            todayCardioDuration: 0
+          });
+          const settingsBefore = {
+            mode: state.mode,
+            goal: state.goal,
+            routinePlan: state.routinePlan,
+            routine: state.routine,
+            weeklyTrainingDays: ids.weeklyTrainingDays.value,
+            weightDuration: ids.weightDuration.value
+          };
+          const todayDraftBefore = JSON.stringify(todayCalculationDrafts);
+          const inBodyBefore = JSON.stringify(state.inbodyRecords);
+          const root = openDetailEdit(date);
+          setBasisValue(root, "routine", "LEGS");
+          setBasisValue(root, "weightDuration", 100);
+          saveRecordDetailDraft();
+          assertTest(JSON.stringify(todayCalculationDrafts) === todayDraftBefore, "record detail save should not directly mutate Today calculation draft");
+          assertTest(JSON.stringify(state.inbodyRecords) === inBodyBefore, "record detail save should not mutate InBody records");
+          assertTest(state.mode === settingsBefore.mode && state.goal === settingsBefore.goal, "record detail save should not mutate Settings mode or goal");
+          assertTest(state.routinePlan === settingsBefore.routinePlan && state.routine === settingsBefore.routine, "record detail save should not mutate Settings routine defaults");
+          assertTest(ids.weeklyTrainingDays.value === settingsBefore.weeklyTrainingDays && ids.weightDuration.value === settingsBefore.weightDuration, "record detail save should not mutate Settings training inputs");
+        }));
+
+        results.push(runNamedTest("C4.3.1 record detail mapping test export and fixed constants remain intact", () => {
+          assertTest(typeof window.runRecordEditCalculationBasisTests === "function", "runRecordEditCalculationBasisTests should be exported");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "record edit hotfix should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "record edit hotfix should not change recent context windows");
+          const exported = JSON.stringify({ records: recordsState.items });
+          assertExcludesAll(exported, ["todayCalculationDraft", "selectedMacroBasis", "uiState"], "record edit hotfix should not add UI state to records payload");
         }));
 
         return results;
@@ -35723,6 +36169,7 @@ Notes:
     window.runMobileRegressionQaTests = runMobileRegressionQaTests;
     window.runCompactPolishTests = runCompactPolishTests;
     window.runRecordsInlineEditTests = runRecordsInlineEditTests;
+    window.runRecordEditCalculationBasisTests = runRecordEditCalculationBasisTests;
     window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runRecordStartWeightFlowTests = runRecordStartWeightFlowTests;
     window.runCalculationInputSeparationTests = runCalculationInputSeparationTests;
