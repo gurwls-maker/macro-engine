@@ -1,9 +1,12 @@
 <!--
-Version: 6.6-C4.3.1
-Stage: 6.6-C4.3.1 Records 운동 기준 수정 저장 hotfix
+Version: 6.6-C4.3.2
+Stage: 6.6-C4.3.2 Records 오늘 수정 자동 주간횟수 hotfix
 Date: 2026-05-12
 Notes:
 - C4.3.1 Records 운동 기준 수정 저장 hotfix
+- C4.3.2 오늘 날짜 Records 수정 후 자동 주간운동횟수 갱신 누락 보정
+- C4.3.2 todayCalculationDraft가 있는 상태에서도 manual=false이면 최신 Records 기반 자동 주간횟수 반영
+- C4.3.2 수동 주간운동횟수 모드는 기존 직접 입력값 유지
 - Records 수정하기에서 세션 / 운동시간 값이 저장 및 재계산 기준에 반영되지 않던 문제 수정
 - Records 수정폼 세션 변경 시 기본 운동강도 보정 동기화
 - REST ↔ 운동 세션 변경과 주간 웨이트일수 재계산 QA 보강
@@ -66,7 +69,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.3.1</title>
+  <title>탄단지 다이어리 v6.6-C4.3.2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -5156,7 +5159,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.3.1</span>
+               <span class="app-version">v6.6-C4.3.2</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -9426,22 +9429,38 @@ Notes:
       return !("routine" in snapshot) || snapshot.routine !== "REST";
     }
 
-    function getRecentWeightTrainingDayCount(days = 7){
+    function getRecentWeightTrainingDayCountFromRecords(records = getSortedRecords(), days = 7, referenceDate = getTodayDateString()){
       const windowDays = Math.max(1, Math.round(Number(days) || 7));
-      const today = getTodayDateString();
+      const today = normalizeDateString(referenceDate) || getTodayDateString();
       const startDate = shiftDateString(today, -(windowDays - 1));
       if (!today || !startDate) return 0;
       const countedDates = new Set();
-      getSortedRecords().forEach(record => {
+      (Array.isArray(records) ? records : []).forEach(record => {
+        const date = normalizeDateString(record?.date);
         if (
-          record.date >= startDate &&
-          record.date <= today &&
+          date &&
+          date >= startDate &&
+          date <= today &&
           isWeightTrainingSnapshot(record.goalSnapshot)
         ) {
-          countedDates.add(record.date);
+          countedDates.add(date);
         }
       });
       return countedDates.size;
+    }
+
+    function getRecentWeightTrainingDayCount(days = 7){
+      return getRecentWeightTrainingDayCountFromRecords(getSortedRecords(), days, getTodayDateString());
+    }
+
+    function getRecentWeightTrainingDayCountWithRecordBasis(date, basis, days = 7){
+      const normalizedDate = normalizeDateString(date);
+      if (!normalizedDate) return getRecentWeightTrainingDayCount(days);
+      const safeBasis = normalizeRecordDetailCalculationBasis(basis);
+      const provisionalRecords = getSortedRecords()
+        .filter(record => normalizeDateString(record.date) !== normalizedDate)
+        .concat([{ date: normalizedDate, goalSnapshot: { routine: safeBasis.routine, weightDuration: safeBasis.weightDuration } }]);
+      return getRecentWeightTrainingDayCountFromRecords(provisionalRecords, days, getTodayDateString());
     }
 
     function getRecentContextConfidenceMin(...levels){
@@ -16504,6 +16523,20 @@ Notes:
       return normalizeRecordDetailCalculationBasis(raw, fallback);
     }
 
+    function shouldResolveRecordDetailAutoWeeklyTrainingDays(date){
+      return !state.weeklyTrainingDaysManual && normalizeDateString(date) === getTodayDateString();
+    }
+
+    function resolveRecordDetailAutoWeeklyTrainingDays(date, basis){
+      const safeBasis = normalizeRecordDetailCalculationBasis(basis);
+      if (!shouldResolveRecordDetailAutoWeeklyTrainingDays(date)) return safeBasis;
+      const autoWeeklyTrainingDays = getRecentWeightTrainingDayCountWithRecordBasis(date, safeBasis);
+      return normalizeRecordDetailCalculationBasis({
+        ...safeBasis,
+        weeklyTrainingDays: autoWeeklyTrainingDays
+      }, safeBasis);
+    }
+
     function buildRecordDetailSnapshotFromBasis(basis, snapshotSource = "saved_at_entry"){
       return withRecordDetailTemporaryBasis(basis, () => {
         const result = calculate();
@@ -16521,7 +16554,7 @@ Notes:
       const mode = getEditableRecordMode(currentDraft);
       const weightRaw = String(root.querySelector('[data-detail-field="weight"]')?.value || "").trim();
       const note = String(root.querySelector('[data-detail-field="note"]')?.value || "").trim();
-      const basis = readRecordDetailBasisFromForm(root, currentDraft);
+      const basis = resolveRecordDetailAutoWeeklyTrainingDays(currentDraft.date, readRecordDetailBasisFromForm(root, currentDraft));
       const calculated = buildRecordDetailSnapshotFromBasis(basis, currentDraft.snapshotSource || "saved_at_entry");
       const meals = Array.from(root.querySelectorAll("[data-detail-meal-row]"))
         .filter(row => !isRecordDetailMealDraftEmpty(row))
@@ -22396,9 +22429,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("C3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.3.1"), "document title should show v6.6-C4.3.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.3.1"), "app version badge should show v6.6-C4.3.1");
+        results.push(runNamedTest("C4.3.2 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.3.2"), "document title should show v6.6-C4.3.2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.3.2"), "app version badge should show v6.6-C4.3.2");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -23233,6 +23266,248 @@ Notes:
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "record edit hotfix should not change recent context windows");
           const exported = JSON.stringify({ records: recordsState.items });
           assertExcludesAll(exported, ["todayCalculationDraft", "selectedMacroBasis", "uiState"], "record edit hotfix should not add UI state to records payload");
+        }));
+
+        return results;
+      });
+    }
+
+    function runRecordTodayAutoWeeklyCountTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const prepareSettings = () => {
+          setValidTodayBalanceTestInputs();
+          state.mode = "athlete";
+          state.goal = "lean_bulk";
+          state.routinePlan = "ppl_ul";
+          state.routine = "PUSH";
+          ids.routinePlan.value = "ppl_ul";
+          ids.weeklyTrainingDays.value = "0";
+          state.weeklyTrainingDays = 0;
+          state.weeklyTrainingDaysManual = false;
+          ids.weightDuration.value = "60";
+          ids.cardioDuration.value = "0";
+          ids.cardioSpeed.value = "0";
+          ids.cardioIncline.value = "0";
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
+        };
+        const makeBasis = (overrides = {}) => normalizeRecordDetailCalculationBasis({
+          mode: "athlete",
+          goal: "lean_bulk",
+          weight: 76,
+          height: 176,
+          age: 30,
+          gender: "male",
+          bodyFat: 15,
+          bodyFatMass: 11.4,
+          skeletal: 36,
+          activityLevel: "moderate",
+          workType: "office",
+          workAdj: 0,
+          homeInbody: false,
+          expertLbmAlpha: MODE_LBM_ALPHA.expert,
+          weeklyTrainingDays: 0,
+          generalAdvancedSettings: false,
+          generalLowDigestCarbs: false,
+          routinePlan: "ppl_ul",
+          routine: "REST",
+          intensityOverride: 0,
+          weightDuration: 0,
+          cardioType: "treadmill_walk",
+          cardioDuration: 0,
+          cardioSpeed: 0,
+          cardioIncline: 0,
+          ...overrides
+        }, getRecordDetailCurrentCalculationBasis());
+        const makeMeal = () => ({
+          id: "auto-weekly-meal",
+          mealLabel: "breakfast",
+          carbs: 80,
+          protein: 40,
+          fat: 18,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "",
+          createdAt: `${today}T08:00:00.000Z`
+        });
+        const makeRecordWithBasis = (basisOverrides = {}, recordOverrides = {}) => {
+          const basis = makeBasis(basisOverrides);
+          const calculated = buildRecordDetailSnapshotFromBasis(basis, "saved_at_entry");
+          assertTest(!!calculated.snapshot, "auto weekly test should build a goal snapshot");
+          return normalizeRecord({
+            date: today,
+            recordMode: "detailed",
+            weight: basis.weight,
+            note: "auto weekly",
+            goalSnapshot: calculated.snapshot,
+            snapshotSource: "saved_at_entry",
+            meals: [makeMeal()],
+            ...recordOverrides
+          });
+        };
+        const openTodayEdit = () => {
+          uiState.recordsDetailDate = null;
+          uiState.recordsDetailEditMode = false;
+          uiState.recordsDetailDraft = null;
+          setActiveTab("records");
+          renderRecordsPanel();
+          startRecordDetailEdit(today);
+          renderRecordsPanel();
+          const root = document.querySelector(`[data-record-detail-date="${today}"][data-record-detail-edit="true"]`);
+          assertTest(!!root, "today record edit form should open");
+          return root;
+        };
+        const basisField = (root, name) => root.querySelector(`[data-detail-basis-field="${name}"]`);
+        const setBasisValue = (root, name, value, options = {}) => {
+          const input = basisField(root, name);
+          assertTest(!!input, `${name} basis field should exist`);
+          if (input.type === "checkbox") input.checked = value === true;
+          else input.value = String(value);
+          if (options.dispatch) {
+            input.dispatchEvent(new Event(input.tagName === "SELECT" || input.type === "checkbox" ? "change" : "input", { bubbles: true }));
+          }
+        };
+        const setStaleTodayDraft = (overrides = {}) => {
+          const staleDraft = normalizeTodayCalculationDraft({
+            calculationWeight: 66,
+            skeletalMuscle: 28,
+            bodyFatPercent: 24,
+            bodyFatMass: 15.84,
+            todayActivityLevel: "sedentary",
+            todayWorkType: "office",
+            todayRoutineSession: "REST",
+            todayIntensityOverride: 0,
+            todayWeightDuration: 0,
+            todayCardioType: "treadmill_walk",
+            todayCardioDuration: 0,
+            todayCardioSpeed: 0,
+            todayCardioIncline: 0,
+            ...overrides
+          });
+          staleDraft.weeklyTrainingDays = 0;
+          todayCalculationDrafts = { [today]: staleDraft };
+        };
+
+        results.push(runNamedTest("C4.3.2 auto weekly count updates after today REST to training without Today draft", () => {
+          prepareSettings();
+          recordsState.items = normalizeRecordsCollection([makeRecordWithBasis({ routine: "REST", weightDuration: 0, weeklyTrainingDays: 0 })]);
+          todayCalculationDrafts = {};
+          const root = openTodayEdit();
+          setBasisValue(root, "routine", "PUSH", { dispatch: true });
+          setBasisValue(root, "weightDuration", 60);
+          const saved = saveRecordDetailDraft();
+          const updated = getRecordByDate(today);
+          assertTest(saved.saved === true, "REST to training save should succeed");
+          assertTest(getRecentWeightTrainingDayCount() === 1, "REST to training should increase recent training day count");
+          assertTest(ids.weeklyTrainingDays.value === "1", "auto weekly input should increase after REST to training save");
+          assertTest(calculate().s.weeklyTrainingDays === 1, "calculate should use increased auto weekly count");
+          assertTest(updated.goalSnapshot.weeklyTrainingDays === 1, "saved today snapshot should use the increased auto weekly count");
+        }));
+
+        results.push(runNamedTest("C4.3.2 auto weekly count bypasses stale Today draft for today REST to training", () => {
+          prepareSettings();
+          recordsState.items = normalizeRecordsCollection([makeRecordWithBasis({ routine: "REST", weightDuration: 0, weeklyTrainingDays: 0 })]);
+          setStaleTodayDraft();
+          const draftBefore = JSON.stringify(todayCalculationDrafts);
+          const root = openTodayEdit();
+          setBasisValue(root, "routine", "PUSH", { dispatch: true });
+          setBasisValue(root, "weightDuration", 60);
+          const saved = saveRecordDetailDraft();
+          const updated = getRecordByDate(today);
+          assertTest(saved.saved === true, "REST to training save with stale draft should succeed");
+          assertTest(JSON.stringify(todayCalculationDrafts) === draftBefore, "record save should not directly overwrite Today draft");
+          assertTest(getRecentWeightTrainingDayCount() === 1, "stale Today draft should not block recent training count");
+          assertTest(ids.weeklyTrainingDays.value === "1", "stale Today draft should not block auto weekly input");
+          assertTest(calculate().s.weeklyTrainingDays === 1, "stale Today draft should not block calculate weekly count");
+          assertTest(updated.goalSnapshot.weeklyTrainingDays === 1, "saved snapshot should use latest record-derived auto weekly count");
+        }));
+
+        results.push(runNamedTest("C4.3.2 auto weekly count decreases after today training to REST", () => {
+          prepareSettings();
+          recordsState.items = normalizeRecordsCollection([makeRecordWithBasis({ routine: "PUSH", intensityOverride: 0.8, weightDuration: 60, weeklyTrainingDays: 1 })]);
+          setStaleTodayDraft({ todayRoutineSession: "PUSH", todayIntensityOverride: 0.8, todayWeightDuration: 60 });
+          const draftBefore = JSON.stringify(todayCalculationDrafts);
+          const root = openTodayEdit();
+          setBasisValue(root, "routine", "REST", { dispatch: true });
+          setBasisValue(root, "weightDuration", 0);
+          const saved = saveRecordDetailDraft();
+          const updated = getRecordByDate(today);
+          assertTest(saved.saved === true, "training to REST save should succeed");
+          assertTest(JSON.stringify(todayCalculationDrafts) === draftBefore, "training to REST save should not directly overwrite Today draft");
+          assertTest(getRecentWeightTrainingDayCount() === 0, "training to REST should reduce recent training day count");
+          assertTest(ids.weeklyTrainingDays.value === "0", "auto weekly input should reduce after training to REST save");
+          assertTest(calculate().s.weeklyTrainingDays === 0, "calculate should use reduced auto weekly count");
+          assertTest(updated.goalSnapshot.weeklyTrainingDays === 0, "saved today snapshot should use reduced auto weekly count");
+        }));
+
+        results.push(runNamedTest("C4.3.2 manual weekly mode keeps direct weekly value", () => {
+          prepareSettings();
+          state.weeklyTrainingDaysManual = true;
+          state.weeklyTrainingDays = 5;
+          ids.weeklyTrainingDays.value = "5";
+          recordsState.items = normalizeRecordsCollection([makeRecordWithBasis({ routine: "REST", weightDuration: 0, weeklyTrainingDays: 5 })]);
+          const root = openTodayEdit();
+          setBasisValue(root, "weeklyTrainingDays", 5);
+          setBasisValue(root, "routine", "PUSH", { dispatch: true });
+          setBasisValue(root, "weightDuration", 60);
+          const saved = saveRecordDetailDraft();
+          const updated = getRecordByDate(today);
+          assertTest(saved.saved === true, "manual weekly save should succeed");
+          assertTest(ids.weeklyTrainingDays.value === "5", "manual weekly input should keep the direct value");
+          assertTest(calculate().s.weeklyTrainingDays === 5, "calculate should keep manual weekly value");
+          assertTest(updated.goalSnapshot.weeklyTrainingDays === 5, "manual weekly record snapshot should keep direct form value");
+        }));
+
+        results.push(runNamedTest("C4.3.2 training-to-training session change preserves count and syncs intensity", () => {
+          prepareSettings();
+          recordsState.items = normalizeRecordsCollection([makeRecordWithBasis({ routine: "PUSH", intensityOverride: 0.8, weightDuration: 60, weeklyTrainingDays: 1 })]);
+          const root = openTodayEdit();
+          setBasisValue(root, "routine", "LEGS", { dispatch: true });
+          assertTest(basisField(root, "intensityOverride").value === "1.00", "LEGS should sync default intensity 1.00 before save");
+          const saved = saveRecordDetailDraft();
+          const updated = getRecordByDate(today);
+          assertTest(saved.saved === true, "training-to-training save should succeed");
+          assertTest(getRecentWeightTrainingDayCount() === 1, "training-to-training edit should keep recent count stable");
+          assertTest(ids.weeklyTrainingDays.value === "1", "auto weekly input should remain stable for training-to-training edit");
+          assertTest(calculate().s.weeklyTrainingDays === 1, "calculate weekly count should remain stable for training-to-training edit");
+          assertTest(updated.goalSnapshot.routine === "LEGS", "training-to-training edit should save the new session");
+          assertClose(updated.goalSnapshot.intensityOverride, 1.0, 0.0001, "training-to-training edit should save LEGS default intensity");
+          assertTest(updated.goalSnapshot.weeklyTrainingDays === 1, "training-to-training saved snapshot should keep the same recent count");
+        }));
+
+        results.push(runNamedTest("C4.3.2 record edit does not mutate Settings InBody or export payload", () => {
+          prepareSettings();
+          recordsState.items = normalizeRecordsCollection([makeRecordWithBasis({ routine: "REST", weightDuration: 0, weeklyTrainingDays: 0 })]);
+          state.inbodyRecords = [{ date: today, weight: 76, skeletalMuscle: 36, bodyFat: 11.4, bodyFatPercent: 15, warning: "", isSuspicious: false }];
+          setStaleTodayDraft();
+          const draftBefore = JSON.stringify(todayCalculationDrafts);
+          const settingsBefore = {
+            mode: state.mode,
+            goal: state.goal,
+            routinePlan: state.routinePlan,
+            routine: state.routine,
+            weightDuration: ids.weightDuration.value
+          };
+          const inBodyBefore = JSON.stringify(state.inbodyRecords);
+          const root = openTodayEdit();
+          setBasisValue(root, "routine", "PUSH", { dispatch: true });
+          setBasisValue(root, "weightDuration", 60);
+          saveRecordDetailDraft();
+          assertTest(JSON.stringify(todayCalculationDrafts) === draftBefore, "auto weekly hotfix should not directly mutate Today draft");
+          assertTest(JSON.stringify(state.inbodyRecords) === inBodyBefore, "auto weekly hotfix should not mutate InBody records");
+          assertTest(state.mode === settingsBefore.mode && state.goal === settingsBefore.goal, "auto weekly hotfix should not mutate Settings mode or goal");
+          assertTest(state.routinePlan === settingsBefore.routinePlan && state.routine === settingsBefore.routine, "auto weekly hotfix should not mutate Settings routine defaults");
+          assertTest(ids.weightDuration.value === settingsBefore.weightDuration, "auto weekly hotfix should not mutate Settings weight duration");
+          const exported = JSON.stringify({ records: recordsState.items });
+          assertExcludesAll(exported, ["todayCalculationDraft", "selectedMacroBasis", "uiState"], "auto weekly hotfix should not add UI-only state to export payload");
+        }));
+
+        results.push(runNamedTest("C4.3.2 auto weekly test export and protected constants remain intact", () => {
+          assertTest(typeof window.runRecordTodayAutoWeeklyCountTests === "function", "runRecordTodayAutoWeeklyCountTests should be exported");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "auto weekly hotfix should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "auto weekly hotfix should not change recent context windows");
         }));
 
         return results;
@@ -30051,6 +30326,7 @@ Notes:
           assertTest(typeof window.runSettingsDefaultsStructureTests === "function", "runSettingsDefaultsStructureTests should be exported");
           assertTest(typeof window.runTodayCalculationOwnershipTests === "function", "runTodayCalculationOwnershipTests should be exported");
           assertTest(typeof window.runTodayQuickEditTests === "function", "runTodayQuickEditTests should be exported");
+          assertTest(typeof window.runRecordTodayAutoWeeklyCountTests === "function", "runRecordTodayAutoWeeklyCountTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
         }));
@@ -36170,6 +36446,7 @@ Notes:
     window.runCompactPolishTests = runCompactPolishTests;
     window.runRecordsInlineEditTests = runRecordsInlineEditTests;
     window.runRecordEditCalculationBasisTests = runRecordEditCalculationBasisTests;
+    window.runRecordTodayAutoWeeklyCountTests = runRecordTodayAutoWeeklyCountTests;
     window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runRecordStartWeightFlowTests = runRecordStartWeightFlowTests;
     window.runCalculationInputSeparationTests = runCalculationInputSeparationTests;
