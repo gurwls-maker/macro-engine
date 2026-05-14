@@ -1,8 +1,16 @@
 <!--
-Version: 6.6-C4.5
-Stage: 6.6-C4.5 유산소 프리셋 적용형 구현
+Version: 6.6-C4.5.1
+Stage: 6.6-C4.5.1 주간 웨이트일수 기준 유지형 정리
 Date: 2026-05-14
 Notes:
+- C4.5.1 주간 웨이트일수 기준 유지형 정리
+- 주간 웨이트일수를 최근 기록 기준 / 직접 입력 구조로 정리
+- 최근 기록 기준은 Records 기반 웨이트한 날짜 수를 사용
+- 직접 입력 상태에서는 Records 변경으로 자동 덮어쓰기하지 않음
+- 운동횟수로 오해되는 문구를 주간 웨이트일수 문맥으로 정리
+- 하루 다중 세션 / 주간 세션 수 산식은 후속으로 보류
+- C4.7 데이터 관리에서는 Settings 탭 설정성 데이터 전체 백업 범위를 재검토
+- 산식 / score / Coach / recentContext / InBody gate / schema-import-export 변경 없음
 - C4.5 유산소 프리셋 적용형 구현
 - Settings 유산소 프리셋 목록 관리 추가
 - Today에서 유산소 프리셋 적용 지원
@@ -36,9 +44,9 @@ Notes:
 - InBody 원본 / Records 공복 체중 / Today 계산용 체중 책임 분리 유지
 - 산식 / score / Coach / recentContext / InBody gate / schema-import-export 변경 없음
 - C4.3.1 Records 운동 기준 수정 저장 hotfix
-- C4.3.2 오늘 날짜 Records 수정 후 자동 주간운동횟수 갱신 누락 보정
+- C4.3.2 오늘 날짜 Records 수정 후 자동 주간 웨이트일수 갱신 누락 보정
 - C4.3.2 todayCalculationDraft가 있는 상태에서도 manual=false이면 최신 Records 기반 자동 주간횟수 반영
-- C4.3.2 수동 주간운동횟수 모드는 기존 직접 입력값 유지
+- C4.3.2 수동 주간 웨이트일수 모드는 기존 직접 입력값 유지
 - Records 수정하기에서 세션 / 운동시간 값이 저장 및 재계산 기준에 반영되지 않던 문제 수정
 - Records 수정폼 세션 변경 시 기본 운동강도 보정 동기화
 - REST ↔ 운동 세션 변경과 주간 웨이트일수 재계산 QA 보강
@@ -101,7 +109,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.5</title>
+  <title>탄단지 다이어리 v6.6-C4.5.1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2778,6 +2786,44 @@ Notes:
       white-space:nowrap;
     }
     #todayInputPanel #weeklyTrainingDays[readonly]{
+      background:color-mix(in srgb, var(--surface-soft) 78%, white 22%);
+      color:var(--deep);
+      cursor:default;
+    }
+    .weekly-training-basis-toggle{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:6px;
+      margin:0 0 8px;
+    }
+    .weekly-training-basis-toggle .secondary-btn{
+      min-height:34px;
+      padding:6px 10px;
+      font-size:12px;
+      white-space:normal;
+    }
+    .weekly-training-basis-toggle .secondary-btn.active,
+    .weekly-training-basis-toggle .secondary-btn[aria-pressed="true"]{
+      border-color:color-mix(in srgb, var(--teal) 70%, var(--line) 30%);
+      background:color-mix(in srgb, var(--teal) 12%, white 88%);
+      color:var(--teal);
+      font-weight:800;
+    }
+    #weeklyTrainingDaysField{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    #weeklyTrainingDaysField .weekly-training-input-row{
+      display:grid;
+      grid-template-columns:minmax(0,1fr);
+      gap:8px;
+      align-items:center;
+    }
+    #weeklyTrainingDays{
+      width:100%;
+    }
+    #weeklyTrainingDays[readonly]{
       background:color-mix(in srgb, var(--surface-soft) 78%, white 22%);
       color:var(--deep);
       cursor:default;
@@ -5581,7 +5627,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.5</span>
+               <span class="app-version">v6.6-C4.5.1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -6074,10 +6120,13 @@ Notes:
             </div>
             <div class="input-group-body training-group-body">
               <div class="field" id="weeklyTrainingDaysField">
-                <label>주당 웨이트일수</label>
+                <label for="weeklyTrainingDays">주간 웨이트일수</label>
+                <div class="weekly-training-basis-toggle" role="group" aria-label="주간 웨이트일수 기준">
+                  <button class="secondary-btn active" id="weeklyTrainingDaysAutoBtn" type="button" aria-pressed="true">최근 기록 기준</button>
+                  <button class="secondary-btn" id="weeklyTrainingDaysEditBtn" type="button" aria-pressed="false" aria-label="주간 웨이트일수 직접 입력">직접 입력</button>
+                </div>
                 <div class="weekly-training-input-row">
                   <input id="weeklyTrainingDays" type="number" min="0" max="14" step="1" value="3" readonly>
-                  <button class="secondary-btn" id="weeklyTrainingDaysEditBtn" type="button" aria-label="주당 웨이트일수 직접 수정">수정</button>
                 </div>
                 <div class="hint" id="weeklyTrainingHint"></div>
               </div>
@@ -8697,7 +8746,7 @@ Notes:
         ["유산소 속도", s.cardioSpeed],
         ["유산소 경사도", s.cardioIncline],
         ["강도 보정", s.intensityOverride],
-        ["주당 웨이트일수", s.weeklyTrainingDays]
+        ["주간 웨이트일수", s.weeklyTrainingDays]
       ];
       numericFields.forEach(([label, value]) => {
         if (!Number.isFinite(value)) issues.push(`${label} 입력값을 숫자로 확인해 주세요.`);
@@ -8711,7 +8760,7 @@ Notes:
       if (Number.isFinite(s.cardioDuration) && s.cardioDuration < 0) issues.push("유산소 시간은 음수가 될 수 없습니다.");
       if (Number.isFinite(s.cardioSpeed) && s.cardioSpeed < 0) issues.push("유산소 속도는 음수가 될 수 없습니다.");
       if (Number.isFinite(s.cardioIncline) && s.cardioIncline < 0) issues.push("유산소 경사도는 음수가 될 수 없습니다.");
-      if (Number.isFinite(s.weeklyTrainingDays) && s.weeklyTrainingDays < 0) issues.push("주당 웨이트일수는 음수가 될 수 없습니다.");
+      if (Number.isFinite(s.weeklyTrainingDays) && s.weeklyTrainingDays < 0) issues.push("주간 웨이트일수는 음수가 될 수 없습니다.");
       return { isValid: issues.length === 0, issues };
     }
 
@@ -9187,7 +9236,7 @@ Notes:
         if (generalHint){
           generalHint.textContent = state.routine === "REST"
             ? "쉬는 날로 선택하면 웨이트 강도와 시간은 계산에 반영되지 않습니다."
-            : `운동하는 날은 주당 웨이트일수를 참고해 자동 강도 Xw ${autoXw.toFixed(2)}를 적용합니다.`;
+            : `운동하는 날은 주간 웨이트일수를 참고해 자동 강도 Xw ${autoXw.toFixed(2)}를 적용합니다.`;
         }
       } else {
         document.getElementById("routinePlanHint").textContent = `${getRoutineScheme().label} 기준으로 오늘 루틴을 고릅니다.`;
@@ -9321,14 +9370,14 @@ Notes:
       const days = clamp(Math.round(Number(ids.weeklyTrainingDays.value) || 0), 0, 14);
       const hint = document.getElementById("weeklyTrainingHint");
       if (state.weeklyTrainingDaysManual) {
-        hint.textContent = "직접 입력 중입니다. 자동으로 돌리려면 자동을 누르세요.";
+        hint.textContent = "직접 입력한 주간 웨이트일수를 오늘 계산에 사용합니다.";
         return;
       }
       if (days === 0) {
-        hint.textContent = "최근 7일 웨이트 기록이 없어 0회로 반영됩니다.";
+        hint.textContent = "최근 7일 웨이트 기록이 없어 0일로 반영됩니다.";
         return;
       }
-      hint.textContent = "최근 7일 웨이트 기록 기준으로 자동 반영됩니다.";
+      hint.textContent = "최근 기록 기준은 최근 7일 기록에서 웨이트한 날짜를 반영합니다.";
     }
 
     function updateGeneralAdvancedText(){
@@ -9563,7 +9612,7 @@ Notes:
       moveSettingsField("settingsLifestyleHost", "workType", "기본 업무 유형");
 
       moveSettingsField("settingsTrainingDefaultsHost", "routinePlan", "루틴 종류");
-      moveSettingsField("settingsTrainingDefaultsHost", "weeklyTrainingDays", "주당 웨이트일수");
+      moveSettingsField("settingsTrainingDefaultsHost", "weeklyTrainingDays", "주간 웨이트일수");
       moveSettingsField("settingsTrainingDefaultsHost", "weightDuration", "기본 웨이트 시간 (분)");
     }
 
@@ -10896,13 +10945,18 @@ Notes:
         ids.weeklyTrainingDays.value = String(days);
       }
       ids.weeklyTrainingDays.readOnly = !state.weeklyTrainingDaysManual;
-      const button = document.getElementById("weeklyTrainingDaysEditBtn");
-      if (!button) return;
-      button.textContent = state.weeklyTrainingDaysManual ? "자동" : "수정";
-      button.setAttribute(
-        "aria-label",
-        state.weeklyTrainingDaysManual ? "최근 7일 기록 기준으로 자동 반영" : "주당 웨이트일수 직접 수정"
-      );
+      const autoButton = document.getElementById("weeklyTrainingDaysAutoBtn");
+      const manualButton = document.getElementById("weeklyTrainingDaysEditBtn");
+      if (autoButton) {
+        autoButton.classList.toggle("active", !state.weeklyTrainingDaysManual);
+        autoButton.setAttribute("aria-pressed", state.weeklyTrainingDaysManual ? "false" : "true");
+        autoButton.setAttribute("aria-label", "최근 기록 기준으로 주간 웨이트일수 반영");
+      }
+      if (manualButton) {
+        manualButton.classList.toggle("active", !!state.weeklyTrainingDaysManual);
+        manualButton.setAttribute("aria-pressed", state.weeklyTrainingDaysManual ? "true" : "false");
+        manualButton.setAttribute("aria-label", "주간 웨이트일수 직접 입력");
+      }
     }
 
     function getWeightedRecords(records = getSortedRecords()){
@@ -17034,7 +17088,7 @@ Notes:
         { label: "활동량", value: ACTIVITY_LABELS[normalized.activityLevel] || "" },
         { label: "업무 유형", value: WORK_TYPE_LABELS[normalized.workType] || "" },
         { label: "업무 보정", value: Number.isFinite(normalized.workAdj) ? normalized.workAdj.toFixed(2) : "" },
-        { label: "주당 웨이트일수", value: Number.isFinite(normalized.weeklyTrainingDays) ? `${Math.round(normalized.weeklyTrainingDays)}일` : "" },
+        { label: "주간 웨이트일수", value: Number.isFinite(normalized.weeklyTrainingDays) ? `${Math.round(normalized.weeklyTrainingDays)}일` : "" },
         { label: "루틴", value: normalized.routinePlan && ROUTINE_SCHEMES[normalized.routinePlan] ? ROUTINE_SCHEMES[normalized.routinePlan].label : "" },
         { label: "운동", value: routineLabel },
         { label: "훈련 강도", value: Number.isFinite(normalized.intensityOverride) ? normalized.intensityOverride.toFixed(2) : "" },
@@ -17255,7 +17309,7 @@ Notes:
       { label: "활동량", formKey: "activityLevel", saveKey: "activityLevel", snapshotKey: "activityLevel" },
       { label: "업무 유형", formKey: "workType", saveKey: "workType", snapshotKey: "workType" },
       { label: "업무 보정", formKey: "workAdj", saveKey: "workAdj", snapshotKey: "workAdj" },
-      { label: "주당 웨이트일수", formKey: "weeklyTrainingDays", saveKey: "weeklyTrainingDays", snapshotKey: "weeklyTrainingDays" },
+      { label: "주간 웨이트일수", formKey: "weeklyTrainingDays", saveKey: "weeklyTrainingDays", snapshotKey: "weeklyTrainingDays" },
       { label: "루틴", formKey: "routinePlan", saveKey: "routinePlan", snapshotKey: "routinePlan" },
       { label: "웨이트 세션", formKey: "routine", saveKey: "routine", snapshotKey: "routine" },
       { label: "웨이트 시간", formKey: "weightDuration", saveKey: "weightDuration", snapshotKey: "weightDuration" },
@@ -17501,7 +17555,7 @@ Notes:
               <input type="number" min="-0.2" max="0.2" step="0.01" inputmode="decimal" data-detail-basis-field="workAdj" value="${escapeHtml(formatInputNumber(basis.workAdj, 2))}">
             </div>
             <div class="record-detail-edit-field">
-              <label>주당 웨이트일수</label>
+              <label>주간 웨이트일수</label>
               <input type="number" min="0" max="14" step="1" inputmode="numeric" data-detail-basis-field="weeklyTrainingDays" value="${escapeHtml(formatInputNumber(basis.weeklyTrainingDays, 0))}">
             </div>
             <div class="record-detail-edit-field">
@@ -19718,14 +19772,19 @@ Notes:
         state.generalLowDigestCarbs = !!ids.generalLowDigestCarbs.checked;
         render();
       });
-      document.getElementById("weeklyTrainingDaysEditBtn")?.addEventListener("click", () => {
-        state.weeklyTrainingDaysManual = !state.weeklyTrainingDaysManual;
-        if (!state.weeklyTrainingDaysManual) {
-          state.weeklyTrainingDays = getRecentWeightTrainingDayCount();
-          ids.weeklyTrainingDays.value = String(state.weeklyTrainingDays);
-        }
+      document.getElementById("weeklyTrainingDaysAutoBtn")?.addEventListener("click", () => {
+        state.weeklyTrainingDaysManual = false;
+        state.weeklyTrainingDays = getRecentWeightTrainingDayCount();
+        ids.weeklyTrainingDays.value = String(state.weeklyTrainingDays);
         render();
-        if (state.weeklyTrainingDaysManual) ids.weeklyTrainingDays.focus();
+      });
+      document.getElementById("weeklyTrainingDaysEditBtn")?.addEventListener("click", () => {
+        state.weeklyTrainingDaysManual = true;
+        const days = clamp(Math.round(Number(ids.weeklyTrainingDays.value) || state.weeklyTrainingDays || 0), 0, 14);
+        state.weeklyTrainingDays = days;
+        ids.weeklyTrainingDays.value = String(days);
+        render();
+        ids.weeklyTrainingDays.focus();
       });
       document.querySelector(".philosophy-banner")?.addEventListener("toggle", syncPhilosophyBannerUI);
       ids.intensityOverride.addEventListener("input", () => {
@@ -23889,9 +23948,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("C4.5 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.5"), "document title should show v6.6-C4.5");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.5"), "app version badge should show v6.6-C4.5");
+        results.push(runNamedTest("C4.5.1 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.5.1"), "document title should show v6.6-C4.5.1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.5.1"), "app version badge should show v6.6-C4.5.1");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -38894,6 +38953,152 @@ Notes:
       });
     }
 
+    function runWeeklyTrainingBasisModeTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const yesterday = shiftDateString(today, -1);
+        const twoDaysAgo = shiftDateString(today, -2);
+        const makeTrainingRecord = (date, overrides = {}) => normalizeRecord({
+          date,
+          recordMode: "detailed",
+          goalSnapshot: {
+            targetCal: 2500,
+            protein: 150,
+            carbs: 300,
+            fat: 70,
+            routine: "PUSH",
+            weightDuration: 60,
+            weeklyTrainingDays: 3,
+            ...overrides
+          },
+          meals: []
+        });
+        const autoButton = () => document.getElementById("weeklyTrainingDaysAutoBtn");
+        const manualButton = () => document.getElementById("weeklyTrainingDaysEditBtn");
+        const setAutoModeWithRecords = records => {
+          recordsState.items = normalizeRecordsCollection(records);
+          state.weeklyTrainingDaysManual = false;
+          render();
+        };
+
+        results.push(runNamedTest("C4.5.1 weekly basis UI defaults to recent-record mode", () => {
+          setAutoModeWithRecords([
+            makeTrainingRecord(today),
+            makeTrainingRecord(yesterday, { routine: "LEGS", weightDuration: 75 })
+          ]);
+          assertTest(autoButton()?.textContent.includes("최근 기록 기준"), "recent-record basis button should be visible");
+          assertTest(manualButton()?.textContent.includes("직접 입력"), "direct input basis button should be visible");
+          assertTest(autoButton()?.getAttribute("aria-pressed") === "true", "recent-record basis should be active by default");
+          assertTest(manualButton()?.getAttribute("aria-pressed") === "false", "direct input basis should be inactive by default");
+          assertTest(ids.weeklyTrainingDays.readOnly === true, "recent-record basis should keep weekly input readonly");
+          assertTest(ids.weeklyTrainingDays.value === "2", "recent-record basis should show recent training days");
+          assertTest(document.getElementById("weeklyTrainingHint").textContent.includes("최근 기록 기준"), "hint should explain recent-record basis");
+          assertTest(document.querySelectorAll("#weeklyTrainingDays").length === 1, "weekly training days input should not be duplicated");
+          assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weeklyTrainingDays), "weekly training days should stay in Settings training defaults");
+          assertTest(!document.getElementById("settingsCalculationInputHost").contains(ids.weeklyTrainingDays), "weekly training days visible input should not be hidden mirror duplicate");
+        }));
+
+        results.push(runNamedTest("C4.5.1 readonly input does not switch to direct mode by typing", () => {
+          setAutoModeWithRecords([]);
+          ids.weeklyTrainingDays.value = "7";
+          ids.weeklyTrainingDays.dispatchEvent(new Event("input", { bubbles: true }));
+          assertTest(state.weeklyTrainingDaysManual === false, "typing event on readonly auto field should not switch to direct mode");
+          assertTest(ids.weeklyTrainingDays.readOnly === true, "auto field should remain readonly after input event");
+          assertTest(ids.weeklyTrainingDays.value === "0", "auto field should restore recent-record count after render");
+        }));
+
+        results.push(runNamedTest("C4.5.1 direct input mode keeps user value against record changes", () => {
+          setAutoModeWithRecords([makeTrainingRecord(today)]);
+          manualButton().click();
+          assertTest(state.weeklyTrainingDaysManual === true, "direct input button should enable manual mode");
+          assertTest(ids.weeklyTrainingDays.readOnly === false, "direct input mode should enable the input");
+          ids.weeklyTrainingDays.value = "5";
+          ids.weeklyTrainingDays.dispatchEvent(new Event("input", { bubbles: true }));
+          assertTest(calculate().s.weeklyTrainingDays === 5, "direct input should feed calculation");
+          recordsState.items = normalizeRecordsCollection([
+            makeTrainingRecord(today),
+            makeTrainingRecord(yesterday),
+            makeTrainingRecord(twoDaysAgo)
+          ]);
+          render();
+          assertTest(ids.weeklyTrainingDays.value === "5", "direct input value should not be overwritten by record changes");
+          assertTest(calculate().s.weeklyTrainingDays === 5, "direct input calculation should not be overwritten by record changes");
+        }));
+
+        results.push(runNamedTest("C4.5.1 recent-record basis returns to latest records", () => {
+          recordsState.items = normalizeRecordsCollection([
+            makeTrainingRecord(today),
+            makeTrainingRecord(yesterday),
+            makeTrainingRecord(twoDaysAgo)
+          ]);
+          state.weeklyTrainingDaysManual = true;
+          ids.weeklyTrainingDays.value = "6";
+          render();
+          autoButton().click();
+          assertTest(state.weeklyTrainingDaysManual === false, "recent-record button should disable direct input mode");
+          assertTest(ids.weeklyTrainingDays.readOnly === true, "recent-record mode should make input readonly");
+          assertTest(ids.weeklyTrainingDays.value === "3", "recent-record mode should restore latest recent count");
+          assertTest(calculate().s.weeklyTrainingDays === 3, "recent-record mode should feed calculation after returning from direct mode");
+        }));
+
+        results.push(runNamedTest("C4.5.1 record edits affect recent-record mode but not session-to-session count", () => {
+          setAutoModeWithRecords([makeTrainingRecord(today, { routine: "REST", weightDuration: 0 })]);
+          assertTest(ids.weeklyTrainingDays.value === "0", "REST record should not count as a training day");
+          recordsState.items = normalizeRecordsCollection([makeTrainingRecord(today, { routine: "PUSH", weightDuration: 60 })]);
+          render();
+          assertTest(ids.weeklyTrainingDays.value === "1", "REST to training should increase recent-record count");
+          recordsState.items = normalizeRecordsCollection([makeTrainingRecord(today, { routine: "LEGS", weightDuration: 60 })]);
+          render();
+          assertTest(ids.weeklyTrainingDays.value === "1", "training-to-training change should keep recent-record count stable");
+          recordsState.items = normalizeRecordsCollection([makeTrainingRecord(today, { routine: "REST", weightDuration: 0 })]);
+          render();
+          assertTest(ids.weeklyTrainingDays.value === "0", "training to REST should reduce recent-record count");
+        }));
+
+        results.push(runNamedTest("C4.5.1 weekly mode stays global state and not Today draft meta", () => {
+          todayCalculationDrafts[today] = normalizeTodayCalculationDraft({
+            calculationWeight: 77,
+            todayRoutineSession: "REST",
+            weeklyTrainingDays: 0,
+            weeklyTrainingDaysManual: true
+          });
+          saveTodayCalculationDrafts();
+          setAutoModeWithRecords([makeTrainingRecord(today, { routine: "PUSH", weightDuration: 60 })]);
+          assertTest(state.weeklyTrainingDaysManual === false, "weekly mode should stay on existing global state");
+          assertTest(calculate().s.weeklyTrainingDays === 1, "stale Today draft weekly value should not block record-derived count");
+          assertTest(!Object.prototype.hasOwnProperty.call(todayCalculationDrafts[today] || {}, "weeklyTrainingDaysManual"), "weekly manual mode should not move into Today draft meta");
+          assertTest(!Object.prototype.hasOwnProperty.call(todayCalculationDrafts[today] || {}, "weeklyTrainingDays"), "weekly value should not be stored in Today draft");
+        }));
+
+        results.push(runNamedTest("C4.5.1 record detail weekly field remains saved-basis edit only", () => {
+          recordsState.items = normalizeRecordsCollection([makeTrainingRecord(today, { routine: "PUSH", weightDuration: 60, weeklyTrainingDays: 4 })]);
+          setActiveTab("records");
+          renderRecordsPanel();
+          startRecordDetailEdit(today);
+          renderRecordsPanel();
+          const root = document.querySelector(`[data-record-detail-date="${today}"][data-record-detail-edit="true"]`);
+          assertTest(!!root, "record detail edit form should open");
+          assertTest(!!root.querySelector('[data-detail-basis-field="weeklyTrainingDays"]'), "record detail should keep weekly days saved-basis field");
+          assertTest(!root.querySelector(".weekly-training-basis-toggle"), "record detail should not get recent/direct basis segmented UI");
+        }));
+
+        results.push(runNamedTest("C4.5.1 protected exports and copy remain stable", () => {
+          assertTest(typeof window.runWeeklyTrainingBasisModeTests === "function", "runWeeklyTrainingBasisModeTests should be exported");
+          assertTest(typeof window.runRecordTodayAutoWeeklyCountTests === "function", "C4.3.2 auto weekly hotfix tests should remain exported");
+          assertTest(typeof window.runCardioPresetApplyTests === "function", "C4.5 cardio preset tests should remain exported");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "weekly basis UI should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "weekly basis UI should not change recent context windows");
+          const visibleText = document.body.innerText || "";
+          ["draft", "source meta", "source of truth", "schema", "helper", "policy", "manual override", "auto fill", "actual", "selectedBasis"].forEach(term => {
+            assertTest(!visibleText.includes(term), `visible UI should not expose ${term}`);
+          });
+        }));
+
+        return results;
+      });
+    }
+
     function runWeeklyTrainingDayAutoTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -38973,7 +39178,7 @@ Notes:
           ids.weeklyTrainingDays.value = "5";
           render();
           assertTest(ids.weeklyTrainingDays.value === "0", "empty recent records should show zero");
-          assertTest(document.getElementById("weeklyTrainingHint").textContent.includes("0회"), "empty auto hint should mention zero");
+          assertTest(document.getElementById("weeklyTrainingHint").textContent.includes("0일"), "empty auto hint should mention zero days");
         }));
 
         results.push(runNamedTest("weekly training reset restores auto mode", () => {
@@ -39065,6 +39270,7 @@ Notes:
     window.runInbodyCopySourceSeparationTests = runInbodyCopySourceSeparationTests;
     window.runDailyCoachInbodyGateTests = runDailyCoachInbodyGateTests;
     window.runInbodyCoachRefreshTests = runInbodyCoachRefreshTests;
+    window.runWeeklyTrainingBasisModeTests = runWeeklyTrainingBasisModeTests;
     window.runWeeklyTrainingDayAutoTests = runWeeklyTrainingDayAutoTests;
     window.RECENT_CONTEXT_WINDOWS = RECENT_CONTEXT_WINDOWS;
     window.inferRecordMode = inferRecordMode;
