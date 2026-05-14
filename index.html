@@ -1,8 +1,15 @@
 <!--
-Version: 6.6-C4.4.3
-Stage: 6.6-C4.4.3 Records 체중 저장 후 Today 반영 선택 위치 정리
+Version: 6.6-C4.5
+Stage: 6.6-C4.5 유산소 프리셋 적용형 구현
 Date: 2026-05-14
 Notes:
+- C4.5 유산소 프리셋 적용형 구현
+- Settings 유산소 프리셋 목록 관리 추가
+- Today에서 유산소 프리셋 적용 지원
+- 프리셋 적용 후 Today 유산소 입력칸은 계속 직접 수정 가능
+- 프리셋 원본 / Today 유산소 값 책임 분리 유지
+- 기본 프리셋은 새 날짜 Today 유산소 시작값 후보로만 사용
+- 산식 / score / Coach / recentContext / InBody gate / schema-import-export 변경 없음
 - C4.4.3 Records 체중 저장 후 Today 반영 선택 위치 정리
 - Records 직접 저장 / 상세 수정 저장 성공 직후 one-shot 선택으로 처리
 - Today 기록 시작 팝업의 기존 체크박스 흐름과 중복 방지
@@ -94,7 +101,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.4.3</title>
+  <title>탄단지 다이어리 v6.6-C4.5</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -757,6 +764,127 @@ Notes:
       color:var(--muted);
       white-space:nowrap;
     }
+    .today-cardio-preset-actions{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:8px;
+      flex-wrap:wrap;
+      min-width:0;
+    }
+    .today-cardio-preset-actions .secondary-btn{
+      min-width:0;
+      min-height:34px;
+      padding:7px 11px;
+      font-size:12px;
+      white-space:nowrap;
+    }
+    .today-cardio-source-note{
+      font-size:11px;
+      line-height:1.35;
+      font-weight:800;
+      color:var(--muted);
+      white-space:nowrap;
+    }
+    .cardio-preset-settings{
+      display:grid;
+      gap:12px;
+      grid-column:1 / -1;
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:12px;
+      background:rgba(255,252,247,.72);
+    }
+    .cardio-preset-settings-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .cardio-preset-settings-head h5{
+      margin:0;
+      color:var(--deep);
+      font-size:15px;
+    }
+    .cardio-preset-settings-head p{
+      margin:4px 0 0;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+    }
+    .cardio-preset-form{
+      display:grid;
+      grid-template-columns:1.2fr 1fr repeat(3, minmax(92px,.72fr));
+      gap:8px;
+      align-items:end;
+    }
+    .cardio-preset-form-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      grid-column:1 / -1;
+      justify-content:flex-end;
+    }
+    .cardio-preset-feedback{
+      min-height:18px;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:800;
+    }
+    .cardio-preset-list{
+      display:grid;
+      gap:8px;
+    }
+    .cardio-preset-row{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      gap:10px;
+      align-items:center;
+      border:1px solid color-mix(in srgb, var(--line) 84%, white 16%);
+      border-radius:12px;
+      background:#fff;
+      padding:10px;
+    }
+    .cardio-preset-row-title{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+      font-weight:900;
+      color:var(--deep);
+    }
+    .cardio-preset-default-badge{
+      border:1px solid color-mix(in srgb, var(--teal) 45%, white 55%);
+      border-radius:999px;
+      padding:3px 7px;
+      font-size:10px;
+      font-weight:900;
+      color:var(--teal);
+      background:rgba(9,132,132,.08);
+    }
+    .cardio-preset-row-meta{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      margin-top:6px;
+    }
+    .cardio-preset-row-meta span{
+      border:1px solid color-mix(in srgb, var(--line) 80%, white 20%);
+      border-radius:999px;
+      padding:4px 8px;
+      font-size:11px;
+      font-weight:800;
+      color:var(--muted);
+      background:#fff;
+      white-space:nowrap;
+    }
+    .cardio-preset-row-actions{
+      display:flex;
+      gap:6px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
     .inbody-record-select-overlay{
       position:fixed;
       inset:0;
@@ -777,6 +905,44 @@ Notes:
       background:var(--panel-soft, var(--paper, #fffaf3));
       box-shadow:0 24px 60px rgba(33,30,24,.2);
       padding:18px;
+    }
+    .cardio-preset-select-overlay{
+      position:fixed;
+      inset:0;
+      z-index:71;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      background:rgba(34,30,24,.32);
+      backdrop-filter:blur(8px);
+    }
+    .cardio-preset-select-dialog{
+      width:min(680px,100%);
+      max-height:min(680px,88vh);
+      overflow:auto;
+      border:1px solid var(--line);
+      border-radius:18px;
+      background:var(--panel-soft, var(--paper, #fffaf3));
+      box-shadow:0 24px 60px rgba(33,30,24,.2);
+      padding:18px;
+    }
+    .cardio-preset-select-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:12px;
+    }
+    .cardio-preset-select-head h3{
+      margin:0;
+      color:var(--deep);
+      font-size:20px;
+      letter-spacing:0;
+    }
+    .cardio-preset-select-list{
+      display:grid;
+      gap:10px;
     }
     .inbody-record-select-head{
       display:flex;
@@ -5240,6 +5406,23 @@ Notes:
         padding:14px;
         border-radius:16px;
       }
+      .cardio-preset-form{
+        grid-template-columns:1fr;
+      }
+      .cardio-preset-row{
+        grid-template-columns:1fr;
+      }
+      .cardio-preset-row-actions .secondary-btn{
+        flex:1 1 120px;
+      }
+      .cardio-preset-select-dialog{
+        max-height:86vh;
+        padding:14px;
+        border-radius:16px;
+      }
+      .cardio-preset-select-head{
+        align-items:flex-start;
+      }
       .inbody-record-select-head{
         align-items:flex-start;
       }
@@ -5398,7 +5581,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.4.3</span>
+               <span class="app-version">v6.6-C4.5</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -5723,7 +5906,13 @@ Notes:
                 <option value="heavy_field">고강도 현장</option>
               </select>
             </div>
-            <div class="today-quick-edit-section-title">오늘 운동</div>
+            <div class="today-quick-edit-section-head today-cardio-preset-head">
+              <div class="today-quick-edit-section-title">오늘 운동</div>
+              <div class="today-cardio-preset-actions">
+                <span class="today-cardio-source-note hidden" id="todayCardioSourceNote"></span>
+                <button class="secondary-btn" id="todayApplyCardioPresetBtn" type="button">프리셋 적용</button>
+              </div>
+            </div>
             <div class="field">
               <label for="todayQuickWeightDuration">웨이트 시간</label>
               <input id="todayQuickWeightDuration" type="number" min="0" max="180" step="5" inputmode="decimal">
@@ -6292,6 +6481,46 @@ Notes:
               <p>루틴과 주간 웨이트 기준을 둡니다. 오늘 세션과 오늘 유산소는 Today에서 관리합니다.</p>
             </div>
             <div class="settings-host settings-fields-grid" id="settingsTrainingDefaultsHost"></div>
+            <div class="cardio-preset-settings" id="cardioPresetSettingsHost">
+              <div class="cardio-preset-settings-head">
+                <div>
+                  <h5>유산소 프리셋</h5>
+                  <p>자주 쓰는 유산소를 저장해두고 Today에서 바로 적용합니다.</p>
+                </div>
+              </div>
+              <div class="cardio-preset-form">
+                <div class="field">
+                  <label for="cardioPresetName">프리셋 이름</label>
+                  <input id="cardioPresetName" type="text" maxlength="24" placeholder="아침 워킹">
+                </div>
+                <div class="field">
+                  <label for="cardioPresetType">유산소 종류</label>
+                  <select id="cardioPresetType">
+                    <option value="treadmill_walk">트레드밀 걷기</option>
+                    <option value="treadmill_run">트레드밀 러닝</option>
+                    <option value="outdoor_run">야외 러닝</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="cardioPresetDuration">시간</label>
+                  <input id="cardioPresetDuration" type="number" min="0" max="180" step="5" inputmode="decimal">
+                </div>
+                <div class="field">
+                  <label for="cardioPresetSpeed">속도</label>
+                  <input id="cardioPresetSpeed" type="number" min="0" max="25" step="0.5" inputmode="decimal">
+                </div>
+                <div class="field">
+                  <label for="cardioPresetIncline">경사</label>
+                  <input id="cardioPresetIncline" type="number" min="0" max="15" step="1" inputmode="decimal">
+                </div>
+                <div class="cardio-preset-form-actions">
+                  <button class="primary-btn" id="saveCardioPresetBtn" type="button">프리셋 저장</button>
+                  <button class="secondary-btn" id="clearCardioPresetFormBtn" type="button">새로 입력</button>
+                </div>
+              </div>
+              <div class="cardio-preset-feedback" id="cardioPresetFeedback"></div>
+              <div class="cardio-preset-list" id="cardioPresetList"></div>
+            </div>
           </div>
           <div class="settings-host settings-mirror-bank" id="settingsCalculationInputHost" aria-hidden="true"></div>
         </section>
@@ -6522,6 +6751,16 @@ Notes:
         <button class="secondary-btn" id="inbodyRecordSelectClose" type="button">닫기</button>
       </div>
       <div class="inbody-record-select-list" id="inbodyRecordSelectList"></div>
+    </div>
+  </div>
+
+  <div class="cardio-preset-select-overlay hidden" id="cardioPresetSelectOverlay" aria-hidden="true">
+    <div class="cardio-preset-select-dialog" role="dialog" aria-modal="true" aria-labelledby="cardioPresetSelectTitle">
+      <div class="cardio-preset-select-head">
+        <h3 id="cardioPresetSelectTitle">유산소 프리셋 선택</h3>
+        <button class="secondary-btn" id="cardioPresetSelectClose" type="button">닫기</button>
+      </div>
+      <div class="cardio-preset-select-list" id="cardioPresetSelectList"></div>
     </div>
   </div>
 
@@ -6938,6 +7177,16 @@ Notes:
     const TODAY_BODY_STATUS_LOAD_AUTO = "auto";
     const TODAY_BODY_STATUS_LOAD_LATEST = "latest";
     const TODAY_BODY_STATUS_LOAD_RECORD = "record";
+    const CARDIO_PRESET_STORAGE_KEY = "cardioPresets.v1";
+    const TODAY_CARDIO_DRAFT_FIELDS = [
+      "todayCardioType",
+      "todayCardioDuration",
+      "todayCardioSpeed",
+      "todayCardioIncline"
+    ];
+    const TODAY_CARDIO_SOURCE_PRESET = "preset";
+    const TODAY_CARDIO_SOURCE_DEFAULT_PRESET = "default_preset";
+    const TODAY_CARDIO_SOURCE_USER = "user";
     const TODAY_RECORD_WEIGHT_MATCH_TOLERANCE = 0.005;
     const TODAY_INBODY_APPLY_TOLERANCE = {
       calculationWeight: 0.05,
@@ -6946,6 +7195,13 @@ Notes:
       bodyFatPercent: 0.1
     };
     let todayCalculationDrafts = {};
+    let cardioPresetState = {
+      items: [],
+      defaultId: null,
+      editingId: null,
+      feedback: null
+    };
+    let cardioPresetDialogOpen = false;
     let suppressTodayRecordAutoSync = false;
     let pendingInbodyTodayApplyChoice = null;
     let pendingRecordWeightTodayApplyChoice = null;
@@ -7051,6 +7307,17 @@ Notes:
       if (raw.bodyStatusEdited === true || raw.bodyStatusEdited === "true") {
         normalized.bodyStatusEdited = true;
       }
+      const cardioSource = typeof raw.cardioSource === "string" ? raw.cardioSource.trim() : "";
+      if ([TODAY_CARDIO_SOURCE_PRESET, TODAY_CARDIO_SOURCE_DEFAULT_PRESET, TODAY_CARDIO_SOURCE_USER].includes(cardioSource)) {
+        normalized.cardioSource = cardioSource;
+      }
+      const cardioPresetId = typeof raw.cardioPresetId === "string" ? raw.cardioPresetId.trim() : "";
+      if (cardioPresetId) normalized.cardioPresetId = cardioPresetId;
+      const cardioPresetName = typeof raw.cardioPresetName === "string" ? raw.cardioPresetName.trim().slice(0, 24) : "";
+      if (cardioPresetName) normalized.cardioPresetName = cardioPresetName;
+      if (raw.cardioEdited === true || raw.cardioEdited === "true") {
+        normalized.cardioEdited = true;
+      }
       return normalized;
     }
 
@@ -7077,6 +7344,132 @@ Notes:
         return;
       }
       localStorage.setItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY), JSON.stringify(Object.fromEntries(entries)));
+    }
+
+    function createCardioPresetId(){
+      return `cardio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    function normalizeCardioPreset(raw = {}, fallback = null){
+      const name = String(raw.name ?? fallback?.name ?? "").trim().slice(0, 24);
+      const cardioType = isAllowedOption(raw.cardioType ?? fallback?.cardioType, Object.keys(CARDIO_TYPES))
+        ? String(raw.cardioType ?? fallback?.cardioType)
+        : DEFAULT_STATE.cardioType;
+      const duration = normalizeTodayCalculationNumber(raw.cardioDuration ?? fallback?.cardioDuration);
+      const speed = normalizeTodayCalculationNumber(raw.cardioSpeed ?? fallback?.cardioSpeed);
+      const incline = normalizeTodayCalculationNumber(raw.cardioIncline ?? fallback?.cardioIncline);
+      if (!name) return null;
+      if (!Number.isFinite(duration) || duration < 0 || duration > 180) return null;
+      if (!Number.isFinite(speed) || speed < 0 || speed > 25) return null;
+      if (!Number.isFinite(incline) || incline < 0 || incline > 15) return null;
+      if (duration > 0 && speed <= 0) return null;
+      return {
+        id: String(raw.id || fallback?.id || createCardioPresetId()),
+        name,
+        cardioType,
+        cardioDuration: duration,
+        cardioSpeed: duration > 0 ? speed : 0,
+        cardioIncline: duration > 0 ? incline : 0,
+        createdAt: raw.createdAt || fallback?.createdAt || new Date().toISOString(),
+        updatedAt: raw.updatedAt || new Date().toISOString()
+      };
+    }
+
+    function normalizeCardioPresetState(raw = {}){
+      const items = Array.isArray(raw.items)
+        ? raw.items.map(item => normalizeCardioPreset(item)).filter(Boolean)
+        : [];
+      const defaultId = items.some(item => item.id === raw.defaultId) ? raw.defaultId : null;
+      return {
+        items,
+        defaultId,
+        editingId: null,
+        feedback: null
+      };
+    }
+
+    function loadCardioPresets(){
+      try {
+        cardioPresetState = normalizeCardioPresetState(JSON.parse(readStoredValue(CARDIO_PRESET_STORAGE_KEY) || "{}"));
+      } catch (_error) {
+        cardioPresetState = normalizeCardioPresetState();
+      }
+    }
+
+    function saveCardioPresets(){
+      const payload = {
+        items: cardioPresetState.items.map(({ id, name, cardioType, cardioDuration, cardioSpeed, cardioIncline, createdAt, updatedAt }) => ({
+          id,
+          name,
+          cardioType,
+          cardioDuration,
+          cardioSpeed,
+          cardioIncline,
+          createdAt,
+          updatedAt
+        })),
+        defaultId: cardioPresetState.items.some(item => item.id === cardioPresetState.defaultId) ? cardioPresetState.defaultId : null
+      };
+      if (!payload.items.length) {
+        localStorage.removeItem(storageKey(CARDIO_PRESET_STORAGE_KEY));
+        return;
+      }
+      localStorage.setItem(storageKey(CARDIO_PRESET_STORAGE_KEY), JSON.stringify(payload));
+    }
+
+    function getCardioPresetById(id){
+      return cardioPresetState.items.find(item => item.id === id) || null;
+    }
+
+    function getDefaultCardioPreset(){
+      return getCardioPresetById(cardioPresetState.defaultId);
+    }
+
+    function getCardioPresetDraftValues(preset){
+      if (!preset) return {};
+      const values = {};
+      if (isAllowedOption(preset.cardioType, Object.keys(CARDIO_TYPES))) values.todayCardioType = preset.cardioType;
+      if (Number.isFinite(preset.cardioDuration)) values.todayCardioDuration = preset.cardioDuration;
+      if (Number.isFinite(preset.cardioSpeed)) values.todayCardioSpeed = preset.cardioSpeed;
+      if (Number.isFinite(preset.cardioIncline)) values.todayCardioIncline = preset.cardioIncline;
+      return values;
+    }
+
+    function hasTodayCardioDraftValues(draft = {}){
+      return TODAY_CARDIO_DRAFT_FIELDS.some(field => Object.prototype.hasOwnProperty.call(draft, field));
+    }
+
+    function materializeTodayCardioDefaults(date = getTodayDateString()){
+      const targetDate = normalizeDateString(date) || getTodayDateString();
+      const draft = normalizeTodayCalculationDraft(todayCalculationDrafts[targetDate] || {});
+      if (hasTodayCardioDraftValues(draft)) return { materialized: false, reason: "present" };
+      const preset = getDefaultCardioPreset();
+      const values = getCardioPresetDraftValues(preset);
+      if (!preset || !Object.keys(values).length) return { materialized: false, reason: "no_default_preset" };
+      setTodayCalculationDraftValues(values, {
+        date: targetDate,
+        cardioSource: TODAY_CARDIO_SOURCE_DEFAULT_PRESET,
+        cardioPresetId: preset.id,
+        cardioPresetName: preset.name,
+        markCardioUserEdited: false
+      });
+      return { materialized: true, preset };
+    }
+
+    function getTodayCardioSourceInfo(date = getTodayDateString()){
+      const targetDate = normalizeDateString(date) || getTodayDateString();
+      materializeTodayCardioDefaults(targetDate);
+      const draft = normalizeTodayCalculationDraft(todayCalculationDrafts[targetDate] || {});
+      if (draft.cardioEdited || draft.cardioSource === TODAY_CARDIO_SOURCE_USER) {
+        return { source: TODAY_CARDIO_SOURCE_USER, label: "오늘 직접 수정한 값" };
+      }
+      if (draft.cardioSource === TODAY_CARDIO_SOURCE_PRESET) {
+        return { source: TODAY_CARDIO_SOURCE_PRESET, label: `프리셋에서 불러옴${draft.cardioPresetName ? ` · ${draft.cardioPresetName}` : ""}` };
+      }
+      if (draft.cardioSource === TODAY_CARDIO_SOURCE_DEFAULT_PRESET) {
+        return { source: TODAY_CARDIO_SOURCE_DEFAULT_PRESET, label: `프리셋에서 시작함${draft.cardioPresetName ? ` · ${draft.cardioPresetName}` : ""}` };
+      }
+      return { source: null, label: "" };
     }
 
     function getSettingsCalculationDefaults(){
@@ -7214,6 +7607,7 @@ Notes:
     function getEffectiveTodayCalculationValues(date = getTodayDateString()){
       const targetDate = normalizeDateString(date) || getTodayDateString();
       materializeTodayBodyStatusDefaults(targetDate);
+      materializeTodayCardioDefaults(targetDate);
       const defaults = getSettingsCalculationDefaults();
       const draft = normalizeTodayCalculationDraft(todayCalculationDrafts[targetDate] || {});
       const values = { ...defaults, ...draft };
@@ -7236,6 +7630,7 @@ Notes:
       const targetDate = normalizeDateString(options.date) || getTodayDateString();
       const current = { ...(todayCalculationDrafts[targetDate] || {}) };
       const updatesBodyStatus = TODAY_BODY_STATUS_DRAFT_FIELDS.some(field => Object.prototype.hasOwnProperty.call(values, field));
+      const updatesCardio = TODAY_CARDIO_DRAFT_FIELDS.some(field => Object.prototype.hasOwnProperty.call(values, field));
       TODAY_CALCULATION_DRAFT_FIELDS.forEach(field => {
         if (!Object.prototype.hasOwnProperty.call(values, field)) return;
         const raw = values[field];
@@ -7272,6 +7667,23 @@ Notes:
           current.bodyStatusEdited = true;
           delete current.bodyStatusSourceDate;
           delete current.bodyStatusLoadType;
+        }
+      }
+      if (updatesCardio) {
+        if ([TODAY_CARDIO_SOURCE_PRESET, TODAY_CARDIO_SOURCE_DEFAULT_PRESET].includes(options.cardioSource)) {
+          current.cardioSource = options.cardioSource;
+          const presetId = typeof options.cardioPresetId === "string" ? options.cardioPresetId.trim() : "";
+          const presetName = typeof options.cardioPresetName === "string" ? options.cardioPresetName.trim().slice(0, 24) : "";
+          if (presetId) current.cardioPresetId = presetId;
+          else delete current.cardioPresetId;
+          if (presetName) current.cardioPresetName = presetName;
+          else delete current.cardioPresetName;
+          delete current.cardioEdited;
+        } else if (options.markCardioUserEdited !== false) {
+          current.cardioSource = TODAY_CARDIO_SOURCE_USER;
+          current.cardioEdited = true;
+          delete current.cardioPresetId;
+          delete current.cardioPresetName;
         }
       }
       const normalized = normalizeTodayCalculationDraft(current);
@@ -7351,6 +7763,7 @@ Notes:
         loaded.inbodyRecords = [];
       }
 
+      loadCardioPresets();
       loadTodayCalculationDrafts();
       Object.assign(state, loaded);
       applyStateToInputs();
@@ -7363,7 +7776,9 @@ Notes:
       localStorage.removeItem(storageKey("records"));
       localStorage.removeItem(storageKey("inbodyRecords"));
       localStorage.removeItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY));
+      localStorage.removeItem(storageKey(CARDIO_PRESET_STORAGE_KEY));
       todayCalculationDrafts = {};
+      cardioPresetState = normalizeCardioPresetState();
       Object.assign(state, { ...DEFAULT_STATE, renderedRoutineKey: "", renderedGoalKey: "" });
       uiState.activeTab = "today";
       uiState.selectedMacroBasis = "guide";
@@ -9366,6 +9781,223 @@ Notes:
       }
     }
 
+    function formatCardioPresetSummary(preset){
+      if (!preset) return "";
+      const typeLabel = CARDIO_TYPES[preset.cardioType]?.label || "유산소";
+      const duration = Number(preset.cardioDuration) || 0;
+      const speed = Number(preset.cardioSpeed);
+      const incline = Number(preset.cardioIncline);
+      const parts = [typeLabel, `${Math.round(duration)}분`];
+      if (duration > 0 && Number.isFinite(speed) && speed > 0) parts.push(`${round(speed, 1)} km/h`);
+      if (duration > 0 && preset.cardioType !== "outdoor_run" && Number.isFinite(incline) && incline > 0) parts.push(`${round(incline, 1)}%`);
+      return parts.join(" · ");
+    }
+
+    function setCardioPresetFeedback(message = "", tone = ""){
+      cardioPresetState.feedback = message ? { message, tone } : null;
+      const feedback = document.getElementById("cardioPresetFeedback");
+      if (!feedback) return;
+      feedback.textContent = message;
+      feedback.className = `cardio-preset-feedback ${tone || ""}`.trim();
+    }
+
+    function resetCardioPresetForm(){
+      const preset = {
+        name: document.getElementById("cardioPresetName"),
+        type: document.getElementById("cardioPresetType"),
+        duration: document.getElementById("cardioPresetDuration"),
+        speed: document.getElementById("cardioPresetSpeed"),
+        incline: document.getElementById("cardioPresetIncline")
+      };
+      if (preset.name) preset.name.value = "";
+      if (preset.type) preset.type.value = DEFAULT_STATE.cardioType;
+      if (preset.duration) preset.duration.value = "";
+      if (preset.speed) preset.speed.value = "";
+      if (preset.incline) preset.incline.value = "";
+      cardioPresetState.editingId = null;
+      const saveButton = document.getElementById("saveCardioPresetBtn");
+      if (saveButton) saveButton.textContent = "프리셋 저장";
+    }
+
+    function readCardioPresetForm(){
+      return {
+        id: cardioPresetState.editingId || undefined,
+        name: document.getElementById("cardioPresetName")?.value || "",
+        cardioType: document.getElementById("cardioPresetType")?.value || DEFAULT_STATE.cardioType,
+        cardioDuration: document.getElementById("cardioPresetDuration")?.value,
+        cardioSpeed: document.getElementById("cardioPresetSpeed")?.value,
+        cardioIncline: document.getElementById("cardioPresetIncline")?.value
+      };
+    }
+
+    function saveCardioPresetFromForm(){
+      const editing = getCardioPresetById(cardioPresetState.editingId);
+      const raw = readCardioPresetForm();
+      const preset = normalizeCardioPreset(raw, editing);
+      if (!preset) {
+        setCardioPresetFeedback("이름과 유산소 값을 확인해 주세요.", "warn");
+        renderCardioPresetSettings();
+        return;
+      }
+      const index = cardioPresetState.items.findIndex(item => item.id === preset.id);
+      if (index >= 0) cardioPresetState.items[index] = preset;
+      else cardioPresetState.items.push(preset);
+      cardioPresetState.items.sort((a, b) => String(a.name).localeCompare(String(b.name), "ko"));
+      saveCardioPresets();
+      resetCardioPresetForm();
+      setCardioPresetFeedback("유산소 프리셋을 저장했습니다.", "ok");
+      renderCardioPresetSettings();
+      renderTodayCardioPresetControls();
+    }
+
+    function editCardioPreset(id){
+      const preset = getCardioPresetById(id);
+      if (!preset) return;
+      cardioPresetState.editingId = preset.id;
+      const name = document.getElementById("cardioPresetName");
+      const type = document.getElementById("cardioPresetType");
+      const duration = document.getElementById("cardioPresetDuration");
+      const speed = document.getElementById("cardioPresetSpeed");
+      const incline = document.getElementById("cardioPresetIncline");
+      if (name) name.value = preset.name;
+      if (type) type.value = preset.cardioType;
+      if (duration) duration.value = String(preset.cardioDuration);
+      if (speed) speed.value = String(preset.cardioSpeed);
+      if (incline) incline.value = String(preset.cardioIncline);
+      const saveButton = document.getElementById("saveCardioPresetBtn");
+      if (saveButton) saveButton.textContent = "수정 저장";
+      setCardioPresetFeedback("수정할 값을 확인한 뒤 저장하세요.", "");
+    }
+
+    function deleteCardioPreset(id){
+      const before = cardioPresetState.items.length;
+      cardioPresetState.items = cardioPresetState.items.filter(item => item.id !== id);
+      if (cardioPresetState.defaultId === id) cardioPresetState.defaultId = null;
+      if (cardioPresetState.editingId === id) resetCardioPresetForm();
+      if (cardioPresetState.items.length !== before) {
+        saveCardioPresets();
+        setCardioPresetFeedback("유산소 프리셋을 삭제했습니다.", "");
+      }
+      renderCardioPresetSettings();
+      renderTodayCardioPresetControls();
+    }
+
+    function toggleDefaultCardioPreset(id){
+      if (!getCardioPresetById(id)) return;
+      cardioPresetState.defaultId = cardioPresetState.defaultId === id ? null : id;
+      saveCardioPresets();
+      setCardioPresetFeedback(cardioPresetState.defaultId === id ? "기본 프리셋으로 지정했습니다." : "기본 프리셋 지정을 해제했습니다.", "");
+      renderCardioPresetSettings();
+    }
+
+    function renderCardioPresetSettings(){
+      const list = document.getElementById("cardioPresetList");
+      const feedback = document.getElementById("cardioPresetFeedback");
+      if (!list) return;
+      if (feedback) {
+        feedback.textContent = cardioPresetState.feedback?.message || "";
+        feedback.className = `cardio-preset-feedback ${cardioPresetState.feedback?.tone || ""}`.trim();
+      }
+      if (!cardioPresetState.items.length) {
+        list.innerHTML = `<div class="mini-note">저장된 유산소 프리셋이 없습니다.</div>`;
+        return;
+      }
+      list.innerHTML = cardioPresetState.items.map(preset => {
+        const isDefault = preset.id === cardioPresetState.defaultId;
+        return `
+          <div class="cardio-preset-row" data-cardio-preset-id="${escapeHtml(preset.id)}">
+            <div>
+              <div class="cardio-preset-row-title">
+                <strong>${escapeHtml(preset.name)}</strong>
+                ${isDefault ? `<span class="cardio-preset-default-badge">기본</span>` : ""}
+              </div>
+              <div class="cardio-preset-row-meta">
+                <span>${escapeHtml(formatCardioPresetSummary(preset))}</span>
+              </div>
+            </div>
+            <div class="cardio-preset-row-actions">
+              <button class="secondary-btn" type="button" data-cardio-preset-default="${escapeHtml(preset.id)}">${isDefault ? "기본 해제" : "기본 지정"}</button>
+              <button class="secondary-btn" type="button" data-cardio-preset-edit="${escapeHtml(preset.id)}">수정</button>
+              <button class="secondary-btn" type="button" data-cardio-preset-delete="${escapeHtml(preset.id)}">삭제</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderTodayCardioPresetControls(){
+      const button = document.getElementById("todayApplyCardioPresetBtn");
+      const note = document.getElementById("todayCardioSourceNote");
+      const hasPresets = cardioPresetState.items.length > 0;
+      if (button) {
+        button.classList.toggle("hidden", !hasPresets);
+        button.disabled = !hasPresets;
+        button.setAttribute("aria-disabled", hasPresets ? "false" : "true");
+      }
+      if (note) {
+        const sourceInfo = getTodayCardioSourceInfo();
+        const label = sourceInfo.label || "";
+        note.classList.toggle("hidden", !label);
+        note.textContent = label;
+      }
+    }
+
+    function renderCardioPresetSelectDialog(){
+      const overlay = document.getElementById("cardioPresetSelectOverlay");
+      const list = document.getElementById("cardioPresetSelectList");
+      if (!overlay || !list) return;
+      overlay.classList.toggle("hidden", !cardioPresetDialogOpen);
+      overlay.setAttribute("aria-hidden", cardioPresetDialogOpen ? "false" : "true");
+      if (!cardioPresetDialogOpen) {
+        list.innerHTML = "";
+        return;
+      }
+      if (!cardioPresetState.items.length) {
+        list.innerHTML = `<div class="mini-note">저장된 유산소 프리셋이 없습니다.</div>`;
+        return;
+      }
+      list.innerHTML = cardioPresetState.items.map(preset => `
+        <div class="cardio-preset-row" data-cardio-preset-id="${escapeHtml(preset.id)}">
+          <div>
+            <div class="cardio-preset-row-title">
+              <strong>${escapeHtml(preset.name)}</strong>
+              ${preset.id === cardioPresetState.defaultId ? `<span class="cardio-preset-default-badge">기본</span>` : ""}
+            </div>
+            <div class="cardio-preset-row-meta">
+              <span>${escapeHtml(formatCardioPresetSummary(preset))}</span>
+            </div>
+          </div>
+          <div class="cardio-preset-row-actions">
+            <button class="primary-btn" type="button" data-apply-cardio-preset="${escapeHtml(preset.id)}">오늘 유산소에 적용</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function openCardioPresetSelectDialog(){
+      if (!cardioPresetState.items.length) return;
+      cardioPresetDialogOpen = true;
+      renderCardioPresetSelectDialog();
+    }
+
+    function closeCardioPresetSelectDialog(){
+      cardioPresetDialogOpen = false;
+      renderCardioPresetSelectDialog();
+    }
+
+    function applyCardioPresetToToday(id){
+      const preset = getCardioPresetById(id);
+      if (!preset) return;
+      setTodayCalculationDraftValues(getCardioPresetDraftValues(preset), {
+        cardioSource: TODAY_CARDIO_SOURCE_PRESET,
+        cardioPresetId: preset.id,
+        cardioPresetName: preset.name,
+        markCardioUserEdited: false
+      });
+      closeCardioPresetSelectDialog();
+      render();
+    }
+
     function renderTodayQuickSelectOptions(select, items, currentValue){
       if (!select) return;
       const safeItems = Array.isArray(items) && items.length ? items : [{ value: "", label: "-" }];
@@ -9457,6 +10089,7 @@ Notes:
     function renderTodayQuickEditUi(result, showPlaceholder){
       syncTodayQuickEditControls();
       renderTodayInbodyFillControls();
+      renderTodayCardioPresetControls();
       renderTodayCalculationBasisSummary(result, showPlaceholder);
       renderTodayQuickEditResultSummary(result, showPlaceholder);
     }
@@ -9472,6 +10105,7 @@ Notes:
       if (open) {
         syncTodayQuickEditControls();
         renderTodayInbodyFillControls();
+        renderTodayCardioPresetControls();
         renderTodayQuickEditResultSummary(calculate(), false);
       }
     }
@@ -18956,6 +19590,8 @@ Notes:
       syncGoalUI();
       renderMealLabelChips();
       renderAdvancedSettings();
+      renderCardioPresetSettings();
+      renderCardioPresetSelectDialog();
       syncQuickSettingsUI();
 
       document.getElementById("workAdjOut").value = Number(ids.workAdj.value).toFixed(2);
@@ -19187,6 +19823,37 @@ Notes:
         if (!button) return;
         applySelectedInbodyRecordToToday(button.getAttribute("data-apply-inbody-record"));
       });
+      document.getElementById("saveCardioPresetBtn")?.addEventListener("click", saveCardioPresetFromForm);
+      document.getElementById("clearCardioPresetFormBtn")?.addEventListener("click", () => {
+        resetCardioPresetForm();
+        setCardioPresetFeedback("", "");
+      });
+      document.getElementById("cardioPresetList")?.addEventListener("click", event => {
+        const defaultButton = event.target.closest("[data-cardio-preset-default]");
+        const editButton = event.target.closest("[data-cardio-preset-edit]");
+        const deleteButton = event.target.closest("[data-cardio-preset-delete]");
+        if (defaultButton) {
+          toggleDefaultCardioPreset(defaultButton.getAttribute("data-cardio-preset-default"));
+          return;
+        }
+        if (editButton) {
+          editCardioPreset(editButton.getAttribute("data-cardio-preset-edit"));
+          return;
+        }
+        if (deleteButton) {
+          deleteCardioPreset(deleteButton.getAttribute("data-cardio-preset-delete"));
+        }
+      });
+      document.getElementById("todayApplyCardioPresetBtn")?.addEventListener("click", openCardioPresetSelectDialog);
+      document.getElementById("cardioPresetSelectClose")?.addEventListener("click", closeCardioPresetSelectDialog);
+      document.getElementById("cardioPresetSelectOverlay")?.addEventListener("click", event => {
+        if (event.target === event.currentTarget) closeCardioPresetSelectDialog();
+      });
+      document.getElementById("cardioPresetSelectList")?.addEventListener("click", event => {
+        const button = event.target.closest("[data-apply-cardio-preset]");
+        if (!button) return;
+        applyCardioPresetToToday(button.getAttribute("data-apply-cardio-preset"));
+      });
       document.getElementById("recordWeightTodayApplyBtn")?.addEventListener("click", applyPendingRecordWeightTodayApplyChoice);
       document.getElementById("recordWeightTodayKeepBtn")?.addEventListener("click", keepPendingRecordWeightTodayApplyChoice);
       document.getElementById("recordWeightTodayApplyClose")?.addEventListener("click", keepPendingRecordWeightTodayApplyChoice);
@@ -19230,7 +19897,15 @@ Notes:
           return;
         }
         const inbodyOverlay = document.getElementById("inbodyRecordSelectOverlay");
-        if (inbodyOverlay && !inbodyOverlay.classList.contains("hidden")) closeInbodyRecordSelectDialog();
+        if (inbodyOverlay && !inbodyOverlay.classList.contains("hidden")) {
+          closeInbodyRecordSelectDialog();
+          return;
+        }
+        const cardioPresetOverlay = document.getElementById("cardioPresetSelectOverlay");
+        if (cardioPresetOverlay && !cardioPresetOverlay.classList.contains("hidden")) {
+          closeCardioPresetSelectDialog();
+          return;
+        }
         const overlay = getTodayRecordStartOverlay();
         if (overlay && !overlay.classList.contains("hidden")) closeTodayRecordStartDialog();
       });
@@ -19391,8 +20066,11 @@ Notes:
         recordsDetailDraft: uiState.recordsDetailDraft ? JSON.stringify(uiState.recordsDetailDraft) : null,
         pendingRecordWeightTodayApplyChoice: pendingRecordWeightTodayApplyChoice ? JSON.stringify(pendingRecordWeightTodayApplyChoice) : null,
         pendingInbodyTodayApplyChoice: pendingInbodyTodayApplyChoice ? JSON.stringify(pendingInbodyTodayApplyChoice) : null,
+        cardioPresetState: JSON.stringify(cardioPresetState || normalizeCardioPresetState()),
+        cardioPresetDialogOpen,
         todayCalculationDrafts: JSON.stringify(todayCalculationDrafts || {}),
         storedTodayCalculationDrafts: readStoredValue(TODAY_CALCULATION_DRAFT_STORAGE_KEY),
+        storedCardioPresets: readStoredValue(CARDIO_PRESET_STORAGE_KEY),
         todayQuickEditOpen: isTodayQuickEditOpen(),
         weight: ids.weight.value,
         height: ids.height.value,
@@ -19443,11 +20121,18 @@ Notes:
         uiState.recordsDetailDraft = snapshot.recordsDetailDraft ? JSON.parse(snapshot.recordsDetailDraft) : null;
         pendingRecordWeightTodayApplyChoice = snapshot.pendingRecordWeightTodayApplyChoice ? JSON.parse(snapshot.pendingRecordWeightTodayApplyChoice) : null;
         pendingInbodyTodayApplyChoice = snapshot.pendingInbodyTodayApplyChoice ? JSON.parse(snapshot.pendingInbodyTodayApplyChoice) : null;
+        cardioPresetState = normalizeCardioPresetState(JSON.parse(snapshot.cardioPresetState || "{}"));
+        cardioPresetDialogOpen = !!snapshot.cardioPresetDialogOpen;
         todayCalculationDrafts = JSON.parse(snapshot.todayCalculationDrafts || "{}");
         if (snapshot.storedTodayCalculationDrafts === null || snapshot.storedTodayCalculationDrafts === undefined) {
           localStorage.removeItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY));
         } else {
           localStorage.setItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY), snapshot.storedTodayCalculationDrafts);
+        }
+        if (snapshot.storedCardioPresets === null || snapshot.storedCardioPresets === undefined) {
+          localStorage.removeItem(storageKey(CARDIO_PRESET_STORAGE_KEY));
+        } else {
+          localStorage.setItem(storageKey(CARDIO_PRESET_STORAGE_KEY), snapshot.storedCardioPresets);
         }
         ids.weight.value = snapshot.weight;
         ids.height.value = snapshot.height;
@@ -19490,6 +20175,7 @@ Notes:
         }
         closeRecordWeightTodayApplyChoice();
         closeInbodyRecordSelectDialog();
+        closeCardioPresetSelectDialog();
         document.body.classList.remove("record-start-open");
         setTodayRecordStartFeedback("", "");
         render();
@@ -23203,9 +23889,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("C4.4.3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.4.3"), "document title should show v6.6-C4.4.3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.4.3"), "app version badge should show v6.6-C4.4.3");
+        results.push(runNamedTest("C4.5 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.5"), "document title should show v6.6-C4.5");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.5"), "app version badge should show v6.6-C4.5");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -24282,6 +24968,212 @@ Notes:
           assertTest(typeof window.runRecordTodayAutoWeeklyCountTests === "function", "runRecordTodayAutoWeeklyCountTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "auto weekly hotfix should not change scoring version");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "auto weekly hotfix should not change recent context windows");
+        }));
+
+        return results;
+      });
+    }
+
+    function runCardioPresetApplyTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const tomorrow = shiftDateString(today, 1);
+        const makePreset = (overrides = {}) => normalizeCardioPreset({
+          id: overrides.id || `preset-${Math.random().toString(36).slice(2, 7)}`,
+          name: overrides.name || "아침 워킹",
+          cardioType: overrides.cardioType || "treadmill_walk",
+          cardioDuration: Object.prototype.hasOwnProperty.call(overrides, "cardioDuration") ? overrides.cardioDuration : 35,
+          cardioSpeed: Object.prototype.hasOwnProperty.call(overrides, "cardioSpeed") ? overrides.cardioSpeed : 5.5,
+          cardioIncline: Object.prototype.hasOwnProperty.call(overrides, "cardioIncline") ? overrides.cardioIncline : 4,
+          createdAt: overrides.createdAt || "2026-05-14T00:00:00.000Z",
+          updatedAt: overrides.updatedAt || "2026-05-14T00:00:00.000Z"
+        });
+        const setPresets = (items, defaultId = null) => {
+          cardioPresetState = normalizeCardioPresetState({ items, defaultId });
+          saveCardioPresets();
+          render();
+        };
+        const currentTodayCardio = date => {
+          const values = getEffectiveTodayCalculationValues(date);
+          return {
+            type: values.todayCardioType,
+            duration: values.todayCardioDuration,
+            speed: values.todayCardioSpeed,
+            incline: values.todayCardioIncline
+          };
+        };
+
+        results.push(runNamedTest("C4.5 cardio preset form validates and saves trimmed presets", () => {
+          resetCardioPresetForm();
+          document.getElementById("cardioPresetName").value = "  저녁 인터벌  ";
+          document.getElementById("cardioPresetType").value = "outdoor_run";
+          document.getElementById("cardioPresetDuration").value = "30";
+          document.getElementById("cardioPresetSpeed").value = "9";
+          document.getElementById("cardioPresetIncline").value = "0";
+          saveCardioPresetFromForm();
+          assertTest(cardioPresetState.items.length === 1, "valid cardio preset should save");
+          assertTest(cardioPresetState.items[0].name === "저녁 인터벌", "preset name should be trimmed");
+          assertTest(cardioPresetState.items[0].cardioType === "outdoor_run", "preset type should save");
+
+          document.getElementById("cardioPresetName").value = "";
+          document.getElementById("cardioPresetDuration").value = "25";
+          document.getElementById("cardioPresetSpeed").value = "6";
+          document.getElementById("cardioPresetIncline").value = "0";
+          saveCardioPresetFromForm();
+          assertTest(cardioPresetState.items.length === 1, "empty preset name should not save");
+
+          document.getElementById("cardioPresetName").value = "잘못된 값";
+          document.getElementById("cardioPresetDuration").value = "-1";
+          document.getElementById("cardioPresetSpeed").value = "6";
+          document.getElementById("cardioPresetIncline").value = "0";
+          saveCardioPresetFromForm();
+          assertTest(cardioPresetState.items.length === 1, "negative duration should not save");
+        }));
+
+        results.push(runNamedTest("C4.5 cardio presets support edit delete and default designation", () => {
+          const walk = makePreset({ id: "walk", name: "아침 워킹", cardioDuration: 40, cardioSpeed: 5, cardioIncline: 3 });
+          const rest = makePreset({ id: "rest", name: "유산소 없음", cardioDuration: 0, cardioSpeed: 0, cardioIncline: 0 });
+          setPresets([walk, rest]);
+          toggleDefaultCardioPreset(walk.id);
+          assertTest(cardioPresetState.defaultId === walk.id, "default preset should be set by id");
+          editCardioPreset(walk.id);
+          document.getElementById("cardioPresetName").value = "아침 워킹 수정";
+          document.getElementById("cardioPresetDuration").value = "45";
+          saveCardioPresetFromForm();
+          assertTest(getCardioPresetById(walk.id).name === "아침 워킹 수정", "preset edit should persist name");
+          assertClose(getCardioPresetById(walk.id).cardioDuration, 45, 0.0001, "preset edit should persist duration");
+          deleteCardioPreset(walk.id);
+          assertTest(!getCardioPresetById(walk.id), "preset delete should remove item");
+          assertTest(cardioPresetState.defaultId === null, "deleting default preset should clear default");
+          assertTest(!!getCardioPresetById(rest.id), "duration zero preset should be valid");
+          assertClose(getCardioPresetById(rest.id).cardioSpeed, 0, 0.0001, "duration zero preset should allow speed zero");
+          assertClose(getCardioPresetById(rest.id).cardioIncline, 0, 0.0001, "duration zero preset should allow incline zero");
+        }));
+
+        results.push(runNamedTest("C4.5 Today preset action opens selection and applies preset without locking fields", () => {
+          setValidTodayBalanceTestInputs();
+          uiState.selectedMacroBasis = "activity";
+          const preset = makePreset({ id: "hill-walk", name: "언덕 걷기", cardioDuration: 50, cardioSpeed: 5.8, cardioIncline: 9 });
+          setPresets([preset], null);
+          const button = document.getElementById("todayApplyCardioPresetBtn");
+          assertTest(button && !button.classList.contains("hidden") && !button.disabled, "Today preset action should be available when presets exist");
+          openCardioPresetSelectDialog();
+          assertTest(!document.getElementById("cardioPresetSelectOverlay").classList.contains("hidden"), "preset select dialog should open");
+          assertIncludesAll(document.getElementById("cardioPresetSelectList").textContent, ["언덕 걷기", "오늘 유산소에 적용"], "preset select UI should list preset and action");
+          const beforeTarget = calculate().targetCal;
+          applyCardioPresetToToday(preset.id);
+          const cardio = currentTodayCardio(today);
+          assertTest(cardio.type === preset.cardioType, "preset apply should copy cardio type");
+          assertClose(cardio.duration, 50, 0.0001, "preset apply should copy duration");
+          assertClose(cardio.speed, 5.8, 0.0001, "preset apply should copy speed");
+          assertClose(cardio.incline, 9, 0.0001, "preset apply should copy incline");
+          assertTest(calculate().targetCal !== beforeTarget, "preset apply should recalculate target");
+          assertTest(uiState.selectedMacroBasis === "activity", "preset apply should preserve selected dual basis");
+          assertTest(!document.getElementById("todayQuickCardioDuration").disabled, "Today cardio duration input should remain editable");
+          assertIncludesAll(document.getElementById("todayCardioSourceNote").textContent, ["프리셋에서 불러옴", "언덕 걷기"], "source label should show preset apply");
+        }));
+
+        results.push(runNamedTest("C4.5 direct Today cardio edit marks only the date value as direct edit", () => {
+          const preset = makePreset({ id: "tempo", name: "템포런", cardioType: "outdoor_run", cardioDuration: 30, cardioSpeed: 9, cardioIncline: 0 });
+          setPresets([preset]);
+          applyCardioPresetToToday(preset.id);
+          const presetBefore = JSON.stringify(cardioPresetState.items);
+          const quick = document.getElementById("todayQuickCardioDuration");
+          quick.value = "42";
+          quick.dispatchEvent(new Event("input", { bubbles: true }));
+          assertClose(getEffectiveTodayCalculationValues().todayCardioDuration, 42, 0.0001, "direct edit should update Today date value");
+          assertIncludesAll(document.getElementById("todayCardioSourceNote").textContent, ["오늘 직접 수정한 값"], "direct edit should update cardio source label");
+          assertTest(JSON.stringify(cardioPresetState.items) === presetBefore, "direct Today edit should not mutate preset source");
+          assertTest(JSON.stringify(recordsState.items) === "[]", "direct Today edit should not mutate records");
+          assertTest(JSON.stringify(state.inbodyRecords || []) === "[]", "direct Today edit should not mutate InBody records");
+        }));
+
+        results.push(runNamedTest("C4.5 default preset materializes new date over hidden mirror once", () => {
+          ids.cardioType.value = "outdoor_run";
+          ids.cardioDuration.value = "10";
+          ids.cardioSpeed.value = "8";
+          ids.cardioIncline.value = "0";
+          const defaultPreset = makePreset({ id: "default-walk", name: "기본 걷기", cardioType: "treadmill_walk", cardioDuration: 35, cardioSpeed: 5, cardioIncline: 6 });
+          const nextDefault = makePreset({ id: "next-walk", name: "다른 기본", cardioType: "treadmill_walk", cardioDuration: 60, cardioSpeed: 6, cardioIncline: 2 });
+          setPresets([defaultPreset, nextDefault], defaultPreset.id);
+          delete todayCalculationDrafts[tomorrow];
+          const first = currentTodayCardio(tomorrow);
+          assertTest(first.type === "treadmill_walk", "default preset should outrank hidden cardio mirror for new date type");
+          assertClose(first.duration, 35, 0.0001, "default preset should materialize new date duration");
+          assertIncludesAll(getTodayCardioSourceInfo(tomorrow).label, ["프리셋에서 시작함", "기본 걷기"], "default preset source should be shown for new date");
+          cardioPresetState.defaultId = nextDefault.id;
+          saveCardioPresets();
+          const afterDefaultChange = currentTodayCardio(tomorrow);
+          assertClose(afterDefaultChange.duration, 35, 0.0001, "changing default preset should not overwrite an already materialized date");
+          const later = shiftDateString(tomorrow, 1);
+          const newDate = currentTodayCardio(later);
+          assertClose(newDate.duration, 60, 0.0001, "new date should use the newly selected default preset");
+        }));
+
+        results.push(runNamedTest("C4.5 no default preset keeps legacy hidden cardio fallback", () => {
+          cardioPresetState = normalizeCardioPresetState();
+          saveCardioPresets();
+          todayCalculationDrafts = {};
+          ids.cardioType.value = "outdoor_run";
+          ids.cardioDuration.value = "22";
+          ids.cardioSpeed.value = "8.5";
+          ids.cardioIncline.value = "0";
+          const cardio = currentTodayCardio(shiftDateString(today, 2));
+          assertTest(cardio.type === "outdoor_run", "without default preset hidden mirror should remain fallback type");
+          assertClose(cardio.duration, 22, 0.0001, "without default preset hidden mirror should remain fallback duration");
+        }));
+
+        results.push(runNamedTest("C4.5 storage and visible copy stay separated from export payload", () => {
+          const preset = makePreset({ id: "storage-test", name: "저장 테스트" });
+          setPresets([preset], preset.id);
+          assertTest(!!readStoredValue(CARDIO_PRESET_STORAGE_KEY), "cardio presets should use their own localStorage key");
+          const recordsPayload = JSON.stringify({ records: recordsState.items });
+          assertExcludesAll(recordsPayload, ["todayCalculationDraft", "cardioPresets", "cardioSource", "selectedMacroBasis"], "records export payload should not include cardio presets or Today source state");
+          const visibleText = [
+            document.getElementById("todayPanel")?.textContent || "",
+            document.getElementById("settingsPanel")?.textContent || "",
+            document.getElementById("cardioPresetSelectOverlay")?.textContent || ""
+          ].join(" ");
+          assertExcludesAll(visibleText, ["draft", "source meta", "source of truth", "schema", "helper", "policy", "actual", "selectedBasis"], "visible cardio preset UI should not expose internal terms");
+          assertTest(document.getElementById("settingsCalculationInputHost")?.getAttribute("aria-hidden") === "true", "hidden mirror should remain aria-hidden");
+          const settingsText = document.getElementById("settingsPanel")?.textContent || "";
+          assertIncludesAll(settingsText, ["유산소 프리셋"], "Settings should expose preset management");
+        }));
+
+        results.push(runNamedTest("C4.5 overlay state is separate from InBody and record prompts", () => {
+          const preset = makePreset({ id: "overlay-test", name: "오버레이" });
+          setPresets([preset]);
+          pendingInbodyTodayApplyChoice = { id: "inbody-pending" };
+          pendingRecordWeightTodayApplyChoice = {
+            id: "record-pending",
+            source: "record-direct",
+            date: today,
+            savedWeight: 77,
+            createdAt: Date.now()
+          };
+          openCardioPresetSelectDialog();
+          assertTest(cardioPresetDialogOpen === true, "cardio preset dialog should open independently");
+          closeCardioPresetSelectDialog();
+          assertTest(cardioPresetDialogOpen === false, "cardio preset dialog should close independently");
+          assertTest(!!pendingInbodyTodayApplyChoice, "closing cardio preset dialog should not clear InBody apply choice");
+          assertTest(!!pendingRecordWeightTodayApplyChoice, "closing cardio preset dialog should not clear Records weight prompt");
+          pendingInbodyTodayApplyChoice = null;
+          pendingRecordWeightTodayApplyChoice = null;
+        }));
+
+        results.push(runNamedTest("C4.5 protected exports and regressions remain available", () => {
+          assertTest(typeof window.runCardioPresetApplyTests === "function", "runCardioPresetApplyTests should be exported");
+          assertTest(typeof window.runInBodyRecordApplyTests === "function", "runInBodyRecordApplyTests should remain exported");
+          assertTest(typeof window.runRecordWeightTodayApplyPromptTests === "function", "runRecordWeightTodayApplyPromptTests should remain exported");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "cardio preset work should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "cardio preset work should not change recent windows");
+          const inbodyResults = runInBodyRecordApplyTests();
+          const promptResults = runRecordWeightTodayApplyPromptTests();
+          const weeklyResults = runRecordTodayAutoWeeklyCountTests();
+          assertTest(inbodyResults.every(item => item.pass), "InBody record apply regression should pass");
+          assertTest(promptResults.every(item => item.pass), "Records weight prompt regression should pass");
+          assertTest(weeklyResults.every(item => item.pass), "auto weekly regression should pass");
         }));
 
         return results;
@@ -31304,6 +32196,7 @@ Notes:
           assertTest(typeof window.runTodayQuickEditTests === "function", "runTodayQuickEditTests should be exported");
           assertTest(typeof window.runRecordTodayAutoWeeklyCountTests === "function", "runRecordTodayAutoWeeklyCountTests should be exported");
           assertTest(typeof window.runRecordWeightTodayApplyPromptTests === "function", "runRecordWeightTodayApplyPromptTests should be exported");
+          assertTest(typeof window.runCardioPresetApplyTests === "function", "runCardioPresetApplyTests should be exported");
           assertTest(typeof window.runInBodyRecordApplyTests === "function", "runInBodyRecordApplyTests should be exported");
           assertTest(typeof window.runInBodyTodayFillTests === "function", "runInBodyTodayFillTests should be exported");
           assertTest(typeof window.runInBodySaveTodayApplyChoiceTests === "function", "runInBodySaveTodayApplyChoiceTests should be exported");
@@ -38118,6 +39011,7 @@ Notes:
     window.runRecordEditCalculationBasisTests = runRecordEditCalculationBasisTests;
     window.runRecordTodayAutoWeeklyCountTests = runRecordTodayAutoWeeklyCountTests;
     window.runRecordWeightTodayApplyPromptTests = runRecordWeightTodayApplyPromptTests;
+    window.runCardioPresetApplyTests = runCardioPresetApplyTests;
     window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runRecordStartWeightFlowTests = runRecordStartWeightFlowTests;
     window.runCalculationInputSeparationTests = runCalculationInputSeparationTests;
