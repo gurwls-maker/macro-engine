@@ -1,8 +1,15 @@
 <!--
-Version: 6.6-C4.3.2
-Stage: 6.6-C4.3.2 Records 오늘 수정 자동 주간횟수 hotfix
-Date: 2026-05-12
+Version: 6.6-C4.4
+Stage: 6.6-C4.4 InBody 최신값 Today 채움
+Date: 2026-05-14
 Notes:
+- C4.4 InBody 최신값 Today 채움
+- 최신 InBody 값을 Today 몸 상태 기본값으로 채움
+- Today 몸 상태를 직접 수정한 뒤에는 최신 InBody 값으로 자동 덮어쓰지 않음
+- Today 계산값 패널에서 최신 InBody 값 수동 불러오기 지원
+- 새 InBody 저장 직후 "오늘 계산에도 반영할까요?" 선택 흐름은 후속으로 보류
+- InBody 원본 / Records 공복 체중 / Today 계산용 체중 책임 분리 유지
+- 산식 / score / Coach / recentContext / InBody gate / schema-import-export 변경 없음
 - C4.3.1 Records 운동 기준 수정 저장 hotfix
 - C4.3.2 오늘 날짜 Records 수정 후 자동 주간운동횟수 갱신 누락 보정
 - C4.3.2 todayCalculationDraft가 있는 상태에서도 manual=false이면 최신 Records 기반 자동 주간횟수 반영
@@ -69,7 +76,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.3.2</title>
+  <title>탄단지 다이어리 v6.6-C4.4</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -695,6 +702,42 @@ Notes:
       font-size:12px;
       font-weight:900;
       color:var(--teal);
+    }
+    .today-quick-edit-section-head{
+      grid-column:1 / -1;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin:2px 0 -2px;
+      min-width:0;
+      flex-wrap:wrap;
+    }
+    .today-quick-edit-section-head .today-quick-edit-section-title{
+      grid-column:auto;
+      margin:0;
+    }
+    .today-inbody-fill-actions{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:8px;
+      flex-wrap:wrap;
+      min-width:0;
+    }
+    .today-inbody-fill-actions .secondary-btn{
+      min-width:0;
+      min-height:34px;
+      padding:7px 11px;
+      font-size:12px;
+      white-space:nowrap;
+    }
+    .today-inbody-source-note{
+      font-size:11px;
+      line-height:1.35;
+      font-weight:800;
+      color:var(--muted);
+      white-space:nowrap;
     }
     .today-quick-edit-panel .field{
       min-width:0;
@@ -5159,7 +5202,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.3.2</span>
+               <span class="app-version">v6.6-C4.4</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -5440,7 +5483,13 @@ Notes:
         <div class="today-calc-summary-grid" id="todayCalcSummary" aria-live="polite"></div>
         <div class="today-quick-edit-panel" id="todayQuickEditPanel" aria-hidden="false">
           <div class="today-quick-edit-fields">
-            <div class="today-quick-edit-section-title">오늘 몸 상태</div>
+            <div class="today-quick-edit-section-head">
+              <div class="today-quick-edit-section-title">오늘 몸 상태</div>
+              <div class="today-inbody-fill-actions">
+                <span class="today-inbody-source-note hidden" id="todayInbodySourceNote">출처: 최신 InBody</span>
+                <button class="secondary-btn" id="todayLoadLatestInbodyBtn" type="button">최신 InBody 값 불러오기</button>
+              </div>
+            </div>
             <div class="field">
               <label for="todayQuickWeight">계산용 체중</label>
               <input id="todayQuickWeight" type="number" min="30" max="200" step="0.1" inputmode="decimal">
@@ -6646,6 +6695,15 @@ Notes:
       ...TODAY_CALCULATION_DRAFT_NUMBER_FIELDS,
       ...TODAY_CALCULATION_DRAFT_SELECT_FIELDS
     ];
+    const TODAY_BODY_STATUS_DRAFT_FIELDS = [
+      "calculationWeight",
+      "skeletalMuscle",
+      "bodyFatMass",
+      "bodyFatPercent"
+    ];
+    const TODAY_BODY_STATUS_SOURCE_INBODY = "latest_inbody";
+    const TODAY_BODY_STATUS_SOURCE_USER = "user";
+    const TODAY_BODY_STATUS_SOURCE_DEFAULT = "default";
     let todayCalculationDrafts = {};
     let suppressTodayRecordAutoSync = false;
     const ADHERENCE_SCORING_VERSION = "v6.1_alcohol_penalty_v2";
@@ -6737,6 +6795,17 @@ Notes:
       if (isAllowedOption(cardioType, Object.keys(CARDIO_TYPES))) normalized.todayCardioType = cardioType;
       const routineSession = raw.todayRoutineSession;
       if (typeof routineSession === "string" && routineSession.trim()) normalized.todayRoutineSession = routineSession;
+      const bodyStatusSource = typeof raw.bodyStatusSource === "string" ? raw.bodyStatusSource.trim() : "";
+      if ([TODAY_BODY_STATUS_SOURCE_INBODY, TODAY_BODY_STATUS_SOURCE_USER, TODAY_BODY_STATUS_SOURCE_DEFAULT].includes(bodyStatusSource)) {
+        normalized.bodyStatusSource = bodyStatusSource;
+      }
+      const bodyStatusSourceDate = normalizeDateString(raw.bodyStatusSourceDate);
+      if (bodyStatusSourceDate) normalized.bodyStatusSourceDate = bodyStatusSourceDate;
+      const bodyStatusLoadType = typeof raw.bodyStatusLoadType === "string" ? raw.bodyStatusLoadType.trim() : "";
+      if (["auto", "manual"].includes(bodyStatusLoadType)) normalized.bodyStatusLoadType = bodyStatusLoadType;
+      if (raw.bodyStatusEdited === true || raw.bodyStatusEdited === "true") {
+        normalized.bodyStatusEdited = true;
+      }
       return normalized;
     }
 
@@ -6790,6 +6859,96 @@ Notes:
       };
     }
 
+    function hasTodayBodyStatusDraftValues(draft = {}){
+      return TODAY_BODY_STATUS_DRAFT_FIELDS.some(field => Object.prototype.hasOwnProperty.call(draft, field));
+    }
+
+    function isTodayBodyStatusUserControlled(draft = {}){
+      if (!draft || typeof draft !== "object") return false;
+      if (draft.bodyStatusEdited === true || draft.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_USER) return true;
+      if (draft.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_INBODY) return false;
+      if (draft.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_DEFAULT) return false;
+      return hasTodayBodyStatusDraftValues(draft);
+    }
+
+    function getTodayCalculationValuesFromInbody(record){
+      if (!record) return {};
+      const weight = normalizeTodayCalculationNumber(record.weight);
+      const skeletalMuscle = normalizeTodayCalculationNumber(record.skeletalMuscle);
+      const bodyFatPercent = normalizeTodayCalculationNumber(getDisplayBodyFatPercent(record));
+      const bodyFatMassInput = normalizeTodayCalculationNumber(record.bodyFat);
+      const bodyFatMass = bodyFatMassInput ?? (Number.isFinite(weight) && Number.isFinite(bodyFatPercent) ? weight * bodyFatPercent / 100 : null);
+      const values = {};
+      if (Number.isFinite(weight)) values.calculationWeight = weight;
+      if (Number.isFinite(skeletalMuscle)) values.skeletalMuscle = skeletalMuscle;
+      if (Number.isFinite(bodyFatMass)) values.bodyFatMass = bodyFatMass;
+      if (Number.isFinite(bodyFatPercent)) values.bodyFatPercent = bodyFatPercent;
+      return values;
+    }
+
+    function shouldUseLatestInbodyForTodayDefaults(draft = {}){
+      if (isTodayBodyStatusUserControlled(draft)) return false;
+      if (draft.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_DEFAULT) return false;
+      return !hasTodayBodyStatusDraftValues(draft);
+    }
+
+    function materializeTodayBodyStatusDefaults(date = getTodayDateString()){
+      const targetDate = normalizeDateString(date) || getTodayDateString();
+      const draft = normalizeTodayCalculationDraft(todayCalculationDrafts[targetDate] || {});
+      if (!shouldUseLatestInbodyForTodayDefaults(draft)) return { materialized: false, reason: "locked_or_present" };
+      const latest = getLatestInbodyForTodayInput();
+      const values = getTodayCalculationValuesFromInbody(latest);
+      if (latest && Object.keys(values).length) {
+        setTodayCalculationDraftValues(values, {
+          date: targetDate,
+          bodyStatusSource: TODAY_BODY_STATUS_SOURCE_INBODY,
+          bodyStatusSourceDate: latest.date,
+          bodyStatusLoadType: "auto",
+          markBodyStatusUserEdited: false
+        });
+        return { materialized: true, latest, source: TODAY_BODY_STATUS_SOURCE_INBODY };
+      }
+      todayCalculationDrafts[targetDate] = normalizeTodayCalculationDraft({
+        ...draft,
+        bodyStatusSource: TODAY_BODY_STATUS_SOURCE_DEFAULT
+      });
+      saveTodayCalculationDrafts();
+      return { materialized: true, source: TODAY_BODY_STATUS_SOURCE_DEFAULT };
+    }
+
+    function getTodayBodyStatusSourceInfo(date = getTodayDateString()){
+      const targetDate = normalizeDateString(date) || getTodayDateString();
+      materializeTodayBodyStatusDefaults(targetDate);
+      const draft = normalizeTodayCalculationDraft(todayCalculationDrafts[targetDate] || {});
+      const latest = getLatestInbodyForTodayInput();
+      if (isTodayBodyStatusUserControlled(draft)) {
+        return {
+          source: TODAY_BODY_STATUS_SOURCE_USER,
+          date: null,
+          label: "오늘 직접 수정한 값",
+          automatic: false
+        };
+      }
+      if (draft.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_INBODY && hasTodayBodyStatusDraftValues(draft)) {
+        const isManual = draft.bodyStatusLoadType === "manual";
+        return {
+          source: TODAY_BODY_STATUS_SOURCE_INBODY,
+          date: draft.bodyStatusSourceDate || normalizeDateString(latest?.date) || null,
+          label: isManual ? "최신 InBody에서 불러옴" : "출처: 최신 InBody",
+          automatic: false
+        };
+      }
+      if (draft.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_DEFAULT) {
+        return {
+          source: TODAY_BODY_STATUS_SOURCE_DEFAULT,
+          date: null,
+          label: "출처: 기본값",
+          automatic: false
+        };
+      }
+      return { source: null, date: null, label: "", automatic: false };
+    }
+
     function getRoutineItemsForTodayCalculation(){
       const modeCfg = getModeRuntimeConfig();
       if (modeCfg.inputDepth === "basic" && !state.generalAdvancedSettings) return getGeneralRoutineItems();
@@ -6804,6 +6963,7 @@ Notes:
 
     function getEffectiveTodayCalculationValues(date = getTodayDateString()){
       const targetDate = normalizeDateString(date) || getTodayDateString();
+      materializeTodayBodyStatusDefaults(targetDate);
       const defaults = getSettingsCalculationDefaults();
       const draft = normalizeTodayCalculationDraft(todayCalculationDrafts[targetDate] || {});
       const values = { ...defaults, ...draft };
@@ -6825,6 +6985,7 @@ Notes:
     function setTodayCalculationDraftValues(values = {}, options = {}){
       const targetDate = normalizeDateString(options.date) || getTodayDateString();
       const current = { ...(todayCalculationDrafts[targetDate] || {}) };
+      const updatesBodyStatus = TODAY_BODY_STATUS_DRAFT_FIELDS.some(field => Object.prototype.hasOwnProperty.call(values, field));
       TODAY_CALCULATION_DRAFT_FIELDS.forEach(field => {
         if (!Object.prototype.hasOwnProperty.call(values, field)) return;
         const raw = values[field];
@@ -6840,6 +7001,27 @@ Notes:
           current[field] = String(raw);
         }
       });
+      if (updatesBodyStatus) {
+        if (options.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_INBODY) {
+          current.bodyStatusSource = TODAY_BODY_STATUS_SOURCE_INBODY;
+          const sourceDate = normalizeDateString(options.bodyStatusSourceDate);
+          if (sourceDate) current.bodyStatusSourceDate = sourceDate;
+          else delete current.bodyStatusSourceDate;
+          if (["auto", "manual"].includes(options.bodyStatusLoadType)) current.bodyStatusLoadType = options.bodyStatusLoadType;
+          else delete current.bodyStatusLoadType;
+          delete current.bodyStatusEdited;
+        } else if (options.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_DEFAULT) {
+          current.bodyStatusSource = TODAY_BODY_STATUS_SOURCE_DEFAULT;
+          delete current.bodyStatusSourceDate;
+          delete current.bodyStatusLoadType;
+          delete current.bodyStatusEdited;
+        } else if (options.markBodyStatusUserEdited !== false) {
+          current.bodyStatusSource = TODAY_BODY_STATUS_SOURCE_USER;
+          current.bodyStatusEdited = true;
+          delete current.bodyStatusSourceDate;
+          delete current.bodyStatusLoadType;
+        }
+      }
       const normalized = normalizeTodayCalculationDraft(current);
       if (Object.keys(normalized).length) todayCalculationDrafts[targetDate] = normalized;
       else delete todayCalculationDrafts[targetDate];
@@ -8909,6 +9091,23 @@ Notes:
       syncTodayQuickRoutineControls(todayValues);
     }
 
+    function renderTodayInbodyFillControls(){
+      const button = document.getElementById("todayLoadLatestInbodyBtn");
+      const note = document.getElementById("todayInbodySourceNote");
+      const latest = getLatestInbodyForTodayInput();
+      if (button) {
+        button.disabled = !latest;
+        button.setAttribute("aria-disabled", latest ? "false" : "true");
+      }
+      if (note) {
+        const sourceInfo = getTodayBodyStatusSourceInfo();
+        const label = sourceInfo.label || "";
+        const shouldShow = !!label;
+        note.classList.toggle("hidden", !shouldShow);
+        note.textContent = shouldShow ? label : "";
+      }
+    }
+
     function renderTodayQuickSelectOptions(select, items, currentValue){
       if (!select) return;
       const safeItems = Array.isArray(items) && items.length ? items : [{ value: "", label: "-" }];
@@ -8999,6 +9198,7 @@ Notes:
 
     function renderTodayQuickEditUi(result, showPlaceholder){
       syncTodayQuickEditControls();
+      renderTodayInbodyFillControls();
       renderTodayCalculationBasisSummary(result, showPlaceholder);
       renderTodayQuickEditResultSummary(result, showPlaceholder);
     }
@@ -9013,6 +9213,7 @@ Notes:
       button.textContent = open ? "접기" : "펼치기";
       if (open) {
         syncTodayQuickEditControls();
+        renderTodayInbodyFillControls();
         renderTodayQuickEditResultSummary(calculate(), false);
       }
     }
@@ -13698,15 +13899,11 @@ Notes:
         setTodayInputFeedback("warn", "불러올 InBody 기록이 없습니다.");
         return { loaded: false, reason: "no_inbody_records" };
       }
-      const bodyFatPercent = getDisplayBodyFatPercent(latest);
-      const bodyFatMass = Number.isFinite(latest.bodyFat)
-        ? latest.bodyFat
-        : (Number.isFinite(latest.weight) && Number.isFinite(bodyFatPercent) ? latest.weight * bodyFatPercent / 100 : null);
-      setTodayCalculationDraftValues({
-        calculationWeight: latest.weight,
-        skeletalMuscle: latest.skeletalMuscle,
-        bodyFatPercent: bodyFatPercent,
-        bodyFatMass: bodyFatMass
+      setTodayCalculationDraftValues(getTodayCalculationValuesFromInbody(latest), {
+        bodyStatusSource: TODAY_BODY_STATUS_SOURCE_INBODY,
+        bodyStatusSourceDate: latest.date,
+        bodyStatusLoadType: "manual",
+        markBodyStatusUserEdited: false
       });
       syncTodayQuickEditControls();
       setTodayInputFeedback("ok", "최근 InBody 기록을 계산 기준 입력에 불러왔습니다. 저장은 하지 않았습니다.");
@@ -18439,6 +18636,7 @@ Notes:
       });
       document.getElementById("todayQuickRoutinePlan")?.addEventListener("change", handleTodayQuickRoutinePlanChange);
       document.getElementById("todayQuickRoutineSession")?.addEventListener("change", handleTodayQuickRoutineSessionChange);
+      document.getElementById("todayLoadLatestInbodyBtn")?.addEventListener("click", loadLatestInbodyToTodayInputs);
       document.addEventListener("click", event => {
         const trigger = event.target.closest("[data-open-calculation-settings]");
         if (!trigger) return;
@@ -22429,9 +22627,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("C4.3.2 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.3.2"), "document title should show v6.6-C4.3.2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.3.2"), "app version badge should show v6.6-C4.3.2");
+        results.push(runNamedTest("C4.4 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.4"), "document title should show v6.6-C4.4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.4"), "app version badge should show v6.6-C4.4");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -35717,6 +35915,296 @@ Notes:
       });
     }
 
+    function runInBodyTodayFillTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const tomorrow = shiftDateString(today, 1);
+        const latestInbody = {
+          date: today,
+          weight: 73.8,
+          skeletalMuscle: 36.2,
+          bodyFat: 10.7,
+          bodyFatPercent: 14.5,
+          warning: "",
+          isSuspicious: false
+        };
+        const newerInbody = {
+          date: today,
+          weight: 72.4,
+          skeletalMuscle: 37.4,
+          bodyFat: 9.8,
+          bodyFatPercent: 13.5,
+          warning: "",
+          isSuspicious: false
+        };
+        const olderInbody = {
+          date: shiftDateString(today, -7),
+          weight: 75.1,
+          skeletalMuscle: 35.6,
+          bodyFat: 11.9,
+          bodyFatPercent: 15.8,
+          warning: "",
+          isSuspicious: false
+        };
+        const resetDrafts = () => {
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
+        };
+        const setInbodyRecords = (...records) => {
+          state.inbodyRecords = records;
+          normalizeInbodyRecords();
+        };
+
+        results.push(runNamedTest("C4.4 no InBody keeps Settings/default body status fallback", () => {
+          setValidTodayBalanceTestInputs();
+          ids.weight.value = "76.4";
+          ids.skeletal.value = "35.1";
+          ids.bodyFat.value = "16.2";
+          ids.bodyFatMass.value = "";
+          setInbodyRecords();
+          resetDrafts();
+          const values = getEffectiveTodayCalculationValues();
+          assertClose(values.calculationWeight, 76.4, 0.0001, "no InBody should use Settings/default calculation weight");
+          assertClose(values.skeletalMuscle, 35.1, 0.0001, "no InBody should use Settings/default skeletal muscle");
+          assertClose(values.bodyFatPercent, 16.2, 0.0001, "no InBody should use Settings/default body fat percent");
+          const sourceInfo = getTodayBodyStatusSourceInfo();
+          assertTest(sourceInfo.source === TODAY_BODY_STATUS_SOURCE_DEFAULT, "no InBody should use default body status source");
+          assertTest(sourceInfo.label === "출처: 기본값", "default body status source label should be short");
+        }));
+
+        results.push(runNamedTest("C4.4 latest InBody fills unedited Today body status", () => {
+          setValidTodayBalanceTestInputs();
+          setInbodyRecords(olderInbody, latestInbody);
+          resetDrafts();
+          const values = getEffectiveTodayCalculationValues();
+          assertClose(values.calculationWeight, latestInbody.weight, 0.0001, "latest InBody should fill calculation weight");
+          assertClose(values.skeletalMuscle, latestInbody.skeletalMuscle, 0.0001, "latest InBody should fill skeletal muscle");
+          assertClose(values.bodyFatMass, latestInbody.bodyFat, 0.0001, "latest InBody should fill body fat mass");
+          assertClose(values.bodyFatPercent, latestInbody.bodyFatPercent, 0.0001, "latest InBody should fill body fat percent");
+          const sourceInfo = getTodayBodyStatusSourceInfo();
+          assertTest(sourceInfo.source === TODAY_BODY_STATUS_SOURCE_INBODY, "latest InBody auto fill should mark InBody source");
+          assertTest(sourceInfo.label === "출처: 최신 InBody", "latest InBody auto fill should show short source label");
+        }));
+
+        results.push(runNamedTest("C4.4 same-date new InBody does not silently replace generated Today body status", () => {
+          setValidTodayBalanceTestInputs();
+          setInbodyRecords(latestInbody);
+          resetDrafts();
+          const firstValues = getEffectiveTodayCalculationValues();
+          assertClose(firstValues.calculationWeight, latestInbody.weight, 0.0001, "initial Today body status should use first latest InBody");
+          setInbodyRecords(latestInbody, newerInbody);
+          render();
+          const afterNewInbody = getEffectiveTodayCalculationValues();
+          assertClose(afterNewInbody.calculationWeight, latestInbody.weight, 0.0001, "same-date newer InBody should not silently overwrite generated Today body status");
+          assertClose(afterNewInbody.skeletalMuscle, latestInbody.skeletalMuscle, 0.0001, "same-date newer InBody should not silently overwrite skeletal muscle");
+          const loaded = loadLatestInbodyToTodayInputs();
+          const afterManualLoad = getEffectiveTodayCalculationValues();
+          assertTest(loaded.loaded === true, "manual load should still be available after same-date new InBody");
+          assertClose(afterManualLoad.calculationWeight, newerInbody.weight, 0.0001, "manual load should intentionally update to newest InBody");
+        }));
+
+        results.push(runNamedTest("C4.4 InBody-filled body status recalculates Today result", () => {
+          setValidTodayBalanceTestInputs();
+          setInbodyRecords();
+          resetDrafts();
+          const before = calculate();
+          resetDrafts();
+          setInbodyRecords(latestInbody);
+          const after = calculate();
+          assertTest(after.isCalculable === true, "InBody-filled Today should stay calculable");
+          assertClose(after.s.weight, latestInbody.weight, 0.0001, "calculate should read InBody-filled Today weight");
+          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal) && before.targetCal !== after.targetCal, "InBody fill should refresh target calculation");
+        }));
+
+        results.push(runNamedTest("C4.4 direct Today calculation weight edit blocks automatic InBody overwrite", () => {
+          setValidTodayBalanceTestInputs();
+          setInbodyRecords(latestInbody);
+          resetDrafts();
+          setTodayCalculationDraftField("calculationWeight", 81.3);
+          render();
+          ids.weight.value = "69.5";
+          render();
+          const values = getEffectiveTodayCalculationValues();
+          const sourceInfo = getTodayBodyStatusSourceInfo();
+          assertClose(values.calculationWeight, 81.3, 0.0001, "direct calculation weight edit should survive rerender and Settings change");
+          assertTest(sourceInfo.source === TODAY_BODY_STATUS_SOURCE_USER, "direct body edit should mark user source");
+          assertTest(sourceInfo.label === "오늘 직접 수정한 값", "direct body edit should show direct-edit source label");
+        }));
+
+        results.push(runNamedTest("C4.4 direct Today body edit survives same-date new InBody save", () => {
+          setValidTodayBalanceTestInputs();
+          setInbodyRecords(latestInbody);
+          resetDrafts();
+          setTodayCalculationDraftField("calculationWeight", 83.6);
+          setInbodyRecords(latestInbody, newerInbody);
+          render();
+          const values = getEffectiveTodayCalculationValues();
+          const sourceInfo = getTodayBodyStatusSourceInfo();
+          assertClose(values.calculationWeight, 83.6, 0.0001, "same-date new InBody should not overwrite user-edited calculation weight");
+          assertTest(sourceInfo.source === TODAY_BODY_STATUS_SOURCE_USER, "same-date new InBody should keep direct-edit source");
+          assertTest(sourceInfo.label === "오늘 직접 수정한 값", "same-date new InBody should keep direct-edit label");
+        }));
+
+        results.push(runNamedTest("C4.4 direct body composition edits block automatic InBody overwrite", () => {
+          setValidTodayBalanceTestInputs();
+          setInbodyRecords(latestInbody);
+          resetDrafts();
+          setTodayCalculationDraftValues({
+            skeletalMuscle: 39.1,
+            bodyFatMass: 8.4,
+            bodyFatPercent: 11.2
+          });
+          setInbodyRecords({
+            ...latestInbody,
+            date: shiftDateString(today, 1),
+            weight: 74.4,
+            skeletalMuscle: 34.1,
+            bodyFat: 14.2,
+            bodyFatPercent: 19.1
+          });
+          render();
+          const values = getEffectiveTodayCalculationValues();
+          const sourceInfo = getTodayBodyStatusSourceInfo();
+          assertClose(values.skeletalMuscle, 39.1, 0.0001, "direct skeletal edit should not be overwritten");
+          assertClose(values.bodyFatMass, 8.4, 0.0001, "direct body fat mass edit should not be overwritten");
+          assertClose(values.bodyFatPercent, 11.2, 0.0001, "direct body fat percent edit should not be overwritten");
+          assertTest(sourceInfo.source === TODAY_BODY_STATUS_SOURCE_USER, "direct body composition edit should mark user source");
+          assertTest(sourceInfo.label === "오늘 직접 수정한 값", "direct body composition edit should show direct-edit source label");
+        }));
+
+        results.push(runNamedTest("C4.4 new date can use latest InBody as body status default again", () => {
+          setValidTodayBalanceTestInputs();
+          setInbodyRecords(latestInbody);
+          resetDrafts();
+          setTodayCalculationDraftField("calculationWeight", 82.2);
+          const todayValues = getEffectiveTodayCalculationValues(today);
+          const tomorrowValues = getEffectiveTodayCalculationValues(tomorrow);
+          const tomorrowSource = getTodayBodyStatusSourceInfo(tomorrow);
+          assertClose(todayValues.calculationWeight, 82.2, 0.0001, "current date should keep user-edited body status");
+          assertClose(tomorrowValues.calculationWeight, latestInbody.weight, 0.0001, "new date should be able to use latest InBody default");
+          assertTest(tomorrowSource.source === TODAY_BODY_STATUS_SOURCE_INBODY, "new date should not inherit previous date direct-edit source");
+          assertTest(tomorrowSource.label === "출처: 최신 InBody", "new date latest InBody source label should be restored");
+        }));
+
+        results.push(runNamedTest("C4.4 manual latest InBody load updates current Today body status", () => {
+          setValidTodayBalanceTestInputs();
+          setInbodyRecords(latestInbody);
+          resetDrafts();
+          setTodayCalculationDraftValues({
+            calculationWeight: 80.2,
+            skeletalMuscle: 38.5,
+            bodyFatMass: 9.2,
+            bodyFatPercent: 11.5
+          });
+          const loaded = loadLatestInbodyToTodayInputs();
+          const values = getEffectiveTodayCalculationValues();
+          assertTest(loaded.loaded === true, "manual latest InBody load should succeed");
+          assertClose(values.calculationWeight, latestInbody.weight, 0.0001, "manual load should overwrite current calculation weight");
+          assertClose(values.skeletalMuscle, latestInbody.skeletalMuscle, 0.0001, "manual load should overwrite current skeletal muscle");
+          assertClose(values.bodyFatMass, latestInbody.bodyFat, 0.0001, "manual load should overwrite current body fat mass");
+          assertClose(values.bodyFatPercent, latestInbody.bodyFatPercent, 0.0001, "manual load should overwrite current body fat percent");
+          assertTest(getTodayBodyStatusSourceInfo().label === "최신 InBody에서 불러옴", "manual load should show explicit InBody load source label");
+        }));
+
+        results.push(runNamedTest("C4.4 manual latest InBody load recalculates selected result", () => {
+          setValidTodayBalanceTestInputs();
+          uiState.selectedMacroBasis = "activity";
+          setInbodyRecords(latestInbody);
+          resetDrafts();
+          setTodayCalculationDraftField("calculationWeight", 86.4);
+          const before = calculate();
+          loadLatestInbodyToTodayInputs();
+          const after = calculate();
+          assertTest(after.dualBasis?.selectedBasis === "activity", "manual load should keep selected activity basis");
+          assertClose(after.s.weight, latestInbody.weight, 0.0001, "manual load should recalculate with latest InBody weight");
+          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal) && before.targetCal !== after.targetCal, "manual load should update target calculation");
+        }));
+
+        results.push(runNamedTest("C4.4 latest InBody load does not mutate Records fasting weight", () => {
+          setValidTodayBalanceTestInputs();
+          setInbodyRecords(latestInbody);
+          recordsState.items = normalizeRecordsCollection([{ date: today, recordMode: "weight_only", weight: 77.7, note: "공복 체중", meals: [] }]);
+          const beforeRecords = JSON.stringify(recordsState.items);
+          loadLatestInbodyToTodayInputs();
+          assertTest(JSON.stringify(recordsState.items) === beforeRecords, "latest InBody load should not mutate Records");
+          assertClose(getRecordByDate(today).weight, 77.7, 0.0001, "Records fasting weight should remain separate");
+        }));
+
+        results.push(runNamedTest("C4.4 latest InBody load does not mutate InBody source record", () => {
+          setValidTodayBalanceTestInputs();
+          setInbodyRecords(olderInbody, latestInbody);
+          const beforeInbody = JSON.stringify(state.inbodyRecords);
+          loadLatestInbodyToTodayInputs();
+          assertTest(JSON.stringify(state.inbodyRecords) === beforeInbody, "manual load should not mutate InBody source records");
+        }));
+
+        results.push(runNamedTest("C4.4 import-export payload excludes Today draft and source metadata", () => {
+          setValidTodayBalanceTestInputs();
+          setInbodyRecords(latestInbody);
+          resetDrafts();
+          loadLatestInbodyToTodayInputs();
+          const payload = JSON.stringify({
+            version: 3,
+            records: getSortedRecords(),
+            inbodyRecords: Array.isArray(state.inbodyRecords) ? [...state.inbodyRecords] : []
+          });
+          assertExcludesAll(payload, ["todayCalculationDraft", "bodyStatusSource", "bodyStatusEdited", "selectedMacroBasis", "uiState"], "export payload should exclude Today draft and source metadata");
+        }));
+
+        results.push(runNamedTest("C4.4 visible DOM avoids internal source terms", () => {
+          setValidTodayBalanceTestInputs();
+          setActiveTab("today");
+          setInbodyRecords(latestInbody);
+          resetDrafts();
+          render();
+          const visible = getRenderedBodyText();
+          assertExcludesAll(visible, ["draft", "source of truth", "schema", "helper", "policy", "selectedBasis", "uiState"], "visible DOM should not expose internal Today source terms");
+        }));
+
+        results.push(runNamedTest("C4.4 source note is short when latest InBody is used", () => {
+          setValidTodayBalanceTestInputs();
+          setActiveTab("today");
+          setInbodyRecords(latestInbody);
+          resetDrafts();
+          render();
+          const note = document.getElementById("todayInbodySourceNote");
+          assertTest(!!note && !note.classList.contains("hidden"), "latest InBody source note should be visible");
+          assertTest((note.textContent || "").trim() === "출처: 최신 InBody", "source note should stay short");
+        }));
+
+        results.push(runNamedTest("C4.4 InBody save does not open deferred calculation-apply prompt", () => {
+          setValidTodayBalanceTestInputs();
+          state.inbodyRecords = [];
+          const originalConfirm = window.confirm;
+          const confirmMessages = [];
+          window.confirm = message => {
+            confirmMessages.push(String(message || ""));
+            return true;
+          };
+          try {
+            document.getElementById("inbodyDate").value = today;
+            document.getElementById("inbodyWeight").value = "72.5";
+            document.getElementById("inbodySkeletalMuscle").value = "35.7";
+            document.getElementById("inbodyBodyFat").value = "10.8";
+            document.getElementById("inbodyBodyFatPercent").value = "14.9";
+            saveInbodyRecord();
+          } finally {
+            window.confirm = originalConfirm;
+          }
+          assertTest(!confirmMessages.some(message => message.includes("오늘 계산에도 반영")), "deferred apply-to-Today prompt should not appear in C4.4");
+        }));
+
+        results.push(runNamedTest("C4.4 keeps C4.3.2 today auto weekly count tests passing", () => {
+          const weeklyResults = runRecordTodayAutoWeeklyCountTests();
+          const failures = weeklyResults.filter(result => !result.pass);
+          assertTest(failures.length === 0, "C4.3.2 auto weekly count suite should still pass");
+        }));
+
+        return results;
+      });
+    }
+
     function runTodayInputActionTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -35742,6 +36230,7 @@ Notes:
           todayCalculationDrafts = {};
           saveTodayCalculationDrafts();
           const today = getTodayDateString();
+          state.inbodyRecords = [];
           recordsState.items = normalizeRecordsCollection([{
             date: today,
             weight: 74,
@@ -35763,6 +36252,7 @@ Notes:
           saveTodayCalculationDrafts();
           const today = getTodayDateString();
           recordsState.items = [];
+          state.inbodyRecords = [];
           ids.weight.value = "76";
           saveTodayInputWeightToRecord({ render: false });
           const record = getRecordByDate(today);
@@ -35819,6 +36309,11 @@ Notes:
           ids.skeletal.value = "39";
           ids.bodyFat.value = "18";
           ids.bodyFatMass.value = "";
+          setTodayCalculationDraftValues({
+            calculationWeight: 81,
+            skeletalMuscle: 39,
+            bodyFatPercent: 18
+          });
           window.confirm = () => false;
           try {
             const saved = saveTodayInputWithInbody();
@@ -36301,6 +36796,12 @@ Notes:
             ids.skeletal.value = "35.1";
             ids.bodyFatMass.value = "12.8";
             ids.bodyFat.value = "16.8";
+            setTodayCalculationDraftValues({
+              calculationWeight: 76,
+              skeletalMuscle: 35.1,
+              bodyFatMass: 12.8,
+              bodyFatPercent: 16.8
+            });
             const saved = saveTodayInputWithInbody();
             assertTest(saved.savedRecord === true && saved.savedInbody === true, "Today input should save InBody record");
             const context = buildInbodyTrendContext(state.inbodyRecords);
@@ -36453,6 +36954,7 @@ Notes:
     window.runSettingsDefaultsStructureTests = runSettingsDefaultsStructureTests;
     window.runTodayCalculationOwnershipTests = runTodayCalculationOwnershipTests;
     window.runTodayQuickEditTests = runTodayQuickEditTests;
+    window.runInBodyTodayFillTests = runInBodyTodayFillTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
     window.runGoalAwareCopyRegressionTests = runGoalAwareCopyRegressionTests;
     window.runCoachAdherenceCopySeparationTests = runCoachAdherenceCopySeparationTests;
