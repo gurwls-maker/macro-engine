@@ -1,8 +1,14 @@
 <!--
-Version: 6.6-C4.4.2
-Stage: 6.6-C4.4.2 InBody 기록 선택 Today 적용
+Version: 6.6-C4.4.3
+Stage: 6.6-C4.4.3 Records 체중 저장 후 Today 반영 선택 위치 정리
 Date: 2026-05-14
 Notes:
+- C4.4.3 Records 체중 저장 후 Today 반영 선택 위치 정리
+- Records 직접 저장 / 상세 수정 저장 성공 직후 one-shot 선택으로 처리
+- Today 기록 시작 팝업의 기존 체크박스 흐름과 중복 방지
+- 기존 Today↔Records 체중 불일치 안내 역할 유지
+- Records 공복 체중 / Today 계산용 체중 책임 분리 유지
+- 산식 / score / Coach / recentContext / InBody gate / schema-import-export 변경 없음
 - C4.4.2 InBody 기록 선택 Today 적용
 - InBody를 기록 적용형으로 정리
 - Today 몸 상태에 최신 InBody 적용 지원
@@ -88,7 +94,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.4.2</title>
+  <title>탄단지 다이어리 v6.6-C4.4.3</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -818,6 +824,73 @@ Notes:
       color:var(--muted);
       background:#fff;
       white-space:nowrap;
+    }
+    .record-weight-apply-overlay{
+      position:fixed;
+      inset:0;
+      z-index:72;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      background:rgba(34,30,24,.32);
+      backdrop-filter:blur(8px);
+    }
+    .record-weight-apply-dialog{
+      width:min(520px,100%);
+      border:1px solid var(--line);
+      border-radius:18px;
+      background:var(--panel-soft, var(--paper, #fffaf3));
+      box-shadow:0 24px 60px rgba(33,30,24,.2);
+      padding:18px;
+    }
+    .record-weight-apply-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:10px;
+    }
+    .record-weight-apply-head h3{
+      margin:0;
+      color:var(--deep);
+      font-size:20px;
+      letter-spacing:0;
+    }
+    .record-weight-apply-copy{
+      margin:0 0 12px;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.55;
+    }
+    .record-weight-apply-values{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+      margin-bottom:14px;
+    }
+    .record-weight-apply-value{
+      border:1px solid color-mix(in srgb, var(--line) 84%, white 16%);
+      border-radius:12px;
+      background:#fff;
+      padding:10px;
+    }
+    .record-weight-apply-value .label{
+      color:var(--muted);
+      font-size:11px;
+      font-weight:800;
+      margin-bottom:4px;
+    }
+    .record-weight-apply-value .value{
+      color:var(--deep);
+      font-size:18px;
+      font-weight:900;
+    }
+    .record-weight-apply-actions{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px;
+      flex-wrap:wrap;
     }
     .today-quick-edit-panel .field{
       min-width:0;
@@ -5176,6 +5249,22 @@ Notes:
       .inbody-record-select-item .secondary-btn{
         width:100%;
       }
+      .record-weight-apply-dialog{
+        max-height:86vh;
+        overflow:auto;
+        padding:14px;
+        border-radius:16px;
+      }
+      .record-weight-apply-values{
+        grid-template-columns:1fr;
+      }
+      .record-weight-apply-actions{
+        flex-direction:column;
+      }
+      .record-weight-apply-actions .primary-btn,
+      .record-weight-apply-actions .secondary-btn{
+        width:100%;
+      }
       .global-bar{
         flex-direction:column;
         align-items:stretch;
@@ -5309,7 +5398,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.4.2</span>
+               <span class="app-version">v6.6-C4.4.3</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -6436,6 +6525,30 @@ Notes:
     </div>
   </div>
 
+  <div class="record-weight-apply-overlay hidden" id="recordWeightTodayApplyOverlay" aria-hidden="true">
+    <div class="record-weight-apply-dialog" role="dialog" aria-modal="true" aria-labelledby="recordWeightTodayApplyTitle">
+      <div class="record-weight-apply-head">
+        <h3 id="recordWeightTodayApplyTitle">오늘 계산에도 반영할까요?</h3>
+        <button class="secondary-btn" id="recordWeightTodayApplyClose" type="button">닫기</button>
+      </div>
+      <p class="record-weight-apply-copy">방금 저장한 공복 체중을 오늘 계산용 체중에 한 번 반영할 수 있습니다.</p>
+      <div class="record-weight-apply-values">
+        <div class="record-weight-apply-value">
+          <div class="label">Records 공복 체중</div>
+          <div class="value" id="recordWeightTodayApplySavedValue">-</div>
+        </div>
+        <div class="record-weight-apply-value">
+          <div class="label">Today 계산용 체중</div>
+          <div class="value" id="recordWeightTodayApplyCurrentValue">-</div>
+        </div>
+      </div>
+      <div class="record-weight-apply-actions">
+        <button class="primary-btn" id="recordWeightTodayApplyBtn" type="button">오늘 계산에 반영</button>
+        <button class="secondary-btn" id="recordWeightTodayKeepBtn" type="button">기록만 저장</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // 1) constants
     const STORAGE_PREFIX = "runstep_macro_v1_";
@@ -6825,6 +6938,7 @@ Notes:
     const TODAY_BODY_STATUS_LOAD_AUTO = "auto";
     const TODAY_BODY_STATUS_LOAD_LATEST = "latest";
     const TODAY_BODY_STATUS_LOAD_RECORD = "record";
+    const TODAY_RECORD_WEIGHT_MATCH_TOLERANCE = 0.005;
     const TODAY_INBODY_APPLY_TOLERANCE = {
       calculationWeight: 0.05,
       skeletalMuscle: 0.05,
@@ -6834,6 +6948,7 @@ Notes:
     let todayCalculationDrafts = {};
     let suppressTodayRecordAutoSync = false;
     let pendingInbodyTodayApplyChoice = null;
+    let pendingRecordWeightTodayApplyChoice = null;
     const ADHERENCE_SCORING_VERSION = "v6.1_alcohol_penalty_v2";
     const RECENT_CONTEXT_WINDOWS = [1, 3, 7, 14, 28];
     const RECORD_MODES = ["weight_only", "simple", "detailed"];
@@ -10735,15 +10850,19 @@ Notes:
       return !!aSignature && !!bSignature && aSignature === bSignature;
     }
 
+    function hasMeaningfulRecordWeightDifference(a, b, tolerance = TODAY_RECORD_WEIGHT_MATCH_TOLERANCE){
+      const left = normalizeWeightValue(a);
+      const right = normalizeWeightValue(b);
+      return Number.isFinite(left) && Number.isFinite(right) && Math.abs(left - right) > tolerance;
+    }
+
     function getTodayRecordWeightMismatch(){
       const today = getTodayDateString();
       const record = getRecordByDate(today);
       if (!record) return { hasMismatch: false, today, record: null, inputWeight: null, recordWeight: null };
       const inputWeight = normalizeWeightValue(getEffectiveTodayCalculationValues().calculationWeight);
       const recordWeight = normalizeWeightValue(record.weight);
-      const hasMismatch = Number.isFinite(inputWeight)
-        && Number.isFinite(recordWeight)
-        && Math.abs(inputWeight - recordWeight) > 0.005;
+      const hasMismatch = hasMeaningfulRecordWeightDifference(inputWeight, recordWeight);
       return { hasMismatch, today, record, inputWeight, recordWeight };
     }
 
@@ -14006,6 +14125,77 @@ Notes:
       return { reverted: true, weight: mismatch.recordWeight };
     }
 
+    function closeRecordWeightTodayApplyChoice(){
+      const overlay = document.getElementById("recordWeightTodayApplyOverlay");
+      if (!overlay) return;
+      overlay.classList.add("hidden");
+      overlay.setAttribute("aria-hidden", "true");
+    }
+
+    function renderRecordWeightTodayApplyChoice(){
+      const overlay = document.getElementById("recordWeightTodayApplyOverlay");
+      if (!overlay) return;
+      const pending = pendingRecordWeightTodayApplyChoice;
+      if (!pending) {
+        closeRecordWeightTodayApplyChoice();
+        return;
+      }
+      document.getElementById("recordWeightTodayApplySavedValue").textContent = `${formatKg2(pending.savedWeight)} kg`;
+      document.getElementById("recordWeightTodayApplyCurrentValue").textContent = Number.isFinite(pending.currentWeight)
+        ? `${formatKg2(pending.currentWeight)} kg`
+        : "-";
+      overlay.classList.remove("hidden");
+      overlay.setAttribute("aria-hidden", "false");
+    }
+
+    function queueRecordWeightTodayApplyChoice({ source, date, savedWeight } = {}){
+      pendingRecordWeightTodayApplyChoice = null;
+      const targetDate = normalizeDateString(date);
+      const today = getTodayDateString();
+      const normalizedWeight = normalizeWeightValue(savedWeight);
+      if (targetDate !== today) return { queued: false, reason: "not_today" };
+      if (!Number.isFinite(normalizedWeight) || normalizedWeight <= 0) return { queued: false, reason: "invalid_weight" };
+      const currentWeight = normalizeWeightValue(getEffectiveTodayCalculationValues().calculationWeight);
+      if (Number.isFinite(currentWeight) && !hasMeaningfulRecordWeightDifference(currentWeight, normalizedWeight)) {
+        return { queued: false, reason: "same_weight", currentWeight, savedWeight: normalizedWeight };
+      }
+      pendingRecordWeightTodayApplyChoice = {
+        id: `${source || "record"}:${targetDate}:${normalizedWeight}:${Date.now()}`,
+        source: source || "record",
+        date: targetDate,
+        savedWeight: normalizedWeight,
+        currentWeight,
+        createdAt: new Date().toISOString()
+      };
+      return { queued: true, pending: pendingRecordWeightTodayApplyChoice };
+    }
+
+    function applyPendingRecordWeightTodayApplyChoice(){
+      const pending = pendingRecordWeightTodayApplyChoice;
+      if (!pending || !Number.isFinite(pending.savedWeight)) return { applied: false, reason: "no_pending_choice" };
+      const before = calculate();
+      pendingRecordWeightTodayApplyChoice = null;
+      setTodayCalculationDraftField("calculationWeight", pending.savedWeight);
+      syncTodayQuickEditControls();
+      setTodayInputFeedback("ok", "오늘 계산용 체중에 반영했습니다.");
+      suppressTodayRecordAutoSync = true;
+      try {
+        render();
+      } finally {
+        suppressTodayRecordAutoSync = false;
+      }
+      const after = calculate();
+      return { applied: true, pending, before, after };
+    }
+
+    function keepPendingRecordWeightTodayApplyChoice(){
+      const pending = pendingRecordWeightTodayApplyChoice;
+      pendingRecordWeightTodayApplyChoice = null;
+      setTodayInputFeedback("ok", "기록만 저장했습니다. 오늘 계산값은 그대로 둡니다.");
+      render();
+      return pending ? { kept: true, pending } : { kept: false, reason: "no_pending_choice" };
+    }
+
     function formatInputNumber(value, digits = 1){
       if (!Number.isFinite(value)) return "";
       return value.toFixed(digits);
@@ -14450,7 +14640,7 @@ Notes:
         render();
         return;
       }
-      upsertRecord({
+      let savedRecord = upsertRecord({
         date,
         recordMode,
         ...(recordMode !== "detailed" ? clearDietEvidenceForMode(recordMode, existing) : {}),
@@ -14461,11 +14651,21 @@ Notes:
       });
       setRecordFeedback("ok", `${record.date} ${getRecordModeLabel(recordMode)}을 저장했습니다.`);
       if (recordMode === "detailed") {
-        persistAutoAdherenceForDate(date, calculate(), {
+        const autoResult = persistAutoAdherenceForDate(date, calculate(), {
           snapshotSource: existing?.goalSnapshot ? existing.snapshotSource : "saved_at_entry"
         });
+        savedRecord = autoResult.record || getRecordByDate(date) || savedRecord;
       }
       syncRecordInputsForDate(record.date);
+      if (hasWeightInput) {
+        queueRecordWeightTodayApplyChoice({
+          source: "record-direct",
+          date: record.date,
+          savedWeight: savedRecord?.weight
+        });
+      } else {
+        pendingRecordWeightTodayApplyChoice = null;
+      }
       render();
     }
 
@@ -15848,6 +16048,10 @@ Notes:
     function renderTodayRecordWeightMismatchNotice(){
       const host = document.getElementById("todayRecordWeightMismatchHost");
       if (!host) return;
+      if (pendingRecordWeightTodayApplyChoice) {
+        host.innerHTML = "";
+        return;
+      }
       const mismatch = getTodayRecordWeightMismatch();
       if (!mismatch.hasMismatch) {
         host.innerHTML = "";
@@ -17268,6 +17472,11 @@ Notes:
       uiState.recordsDetailDraft = null;
       uiState.recordsDetailDate = draft.date;
       syncRecordInputsForDate(draft.date);
+      queueRecordWeightTodayApplyChoice({
+        source: "record-detail",
+        date: draft.date,
+        savedWeight: record?.weight
+      });
       setRecordFeedback("ok", `${draft.date} 기록을 수정했습니다.`);
       render();
       return { saved: true, record };
@@ -18823,6 +19032,7 @@ Notes:
       renderRecordsPanel();
       renderWeeklyPanel(result);
       renderInbodyPanel();
+      renderRecordWeightTodayApplyChoice();
       setActiveTab(uiState.activeTab);
       saveState();
     }
@@ -18977,6 +19187,12 @@ Notes:
         if (!button) return;
         applySelectedInbodyRecordToToday(button.getAttribute("data-apply-inbody-record"));
       });
+      document.getElementById("recordWeightTodayApplyBtn")?.addEventListener("click", applyPendingRecordWeightTodayApplyChoice);
+      document.getElementById("recordWeightTodayKeepBtn")?.addEventListener("click", keepPendingRecordWeightTodayApplyChoice);
+      document.getElementById("recordWeightTodayApplyClose")?.addEventListener("click", keepPendingRecordWeightTodayApplyChoice);
+      document.getElementById("recordWeightTodayApplyOverlay")?.addEventListener("click", event => {
+        if (event.target === event.currentTarget) keepPendingRecordWeightTodayApplyChoice();
+      });
       document.addEventListener("click", event => {
         const trigger = event.target.closest("[data-open-calculation-settings]");
         if (!trigger) return;
@@ -19008,6 +19224,11 @@ Notes:
       document.getElementById("todayRecordSkipSaveBtn")?.addEventListener("click", saveTodayRecordStartSkip);
       document.addEventListener("keydown", event => {
         if (event.key !== "Escape") return;
+        const recordWeightOverlay = document.getElementById("recordWeightTodayApplyOverlay");
+        if (recordWeightOverlay && !recordWeightOverlay.classList.contains("hidden")) {
+          keepPendingRecordWeightTodayApplyChoice();
+          return;
+        }
         const inbodyOverlay = document.getElementById("inbodyRecordSelectOverlay");
         if (inbodyOverlay && !inbodyOverlay.classList.contains("hidden")) closeInbodyRecordSelectDialog();
         const overlay = getTodayRecordStartOverlay();
@@ -19168,6 +19389,8 @@ Notes:
         recordsDetailDate: uiState.recordsDetailDate,
         recordsDetailEditMode: uiState.recordsDetailEditMode,
         recordsDetailDraft: uiState.recordsDetailDraft ? JSON.stringify(uiState.recordsDetailDraft) : null,
+        pendingRecordWeightTodayApplyChoice: pendingRecordWeightTodayApplyChoice ? JSON.stringify(pendingRecordWeightTodayApplyChoice) : null,
+        pendingInbodyTodayApplyChoice: pendingInbodyTodayApplyChoice ? JSON.stringify(pendingInbodyTodayApplyChoice) : null,
         todayCalculationDrafts: JSON.stringify(todayCalculationDrafts || {}),
         storedTodayCalculationDrafts: readStoredValue(TODAY_CALCULATION_DRAFT_STORAGE_KEY),
         todayQuickEditOpen: isTodayQuickEditOpen(),
@@ -19218,6 +19441,8 @@ Notes:
         uiState.recordsDetailDate = snapshot.recordsDetailDate;
         uiState.recordsDetailEditMode = snapshot.recordsDetailEditMode;
         uiState.recordsDetailDraft = snapshot.recordsDetailDraft ? JSON.parse(snapshot.recordsDetailDraft) : null;
+        pendingRecordWeightTodayApplyChoice = snapshot.pendingRecordWeightTodayApplyChoice ? JSON.parse(snapshot.pendingRecordWeightTodayApplyChoice) : null;
+        pendingInbodyTodayApplyChoice = snapshot.pendingInbodyTodayApplyChoice ? JSON.parse(snapshot.pendingInbodyTodayApplyChoice) : null;
         todayCalculationDrafts = JSON.parse(snapshot.todayCalculationDrafts || "{}");
         if (snapshot.storedTodayCalculationDrafts === null || snapshot.storedTodayCalculationDrafts === undefined) {
           localStorage.removeItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY));
@@ -19263,6 +19488,8 @@ Notes:
           recordStartOverlay.classList.add("hidden");
           recordStartOverlay.setAttribute("aria-hidden", "true");
         }
+        closeRecordWeightTodayApplyChoice();
+        closeInbodyRecordSelectDialog();
         document.body.classList.remove("record-start-open");
         setTodayRecordStartFeedback("", "");
         render();
@@ -22976,9 +23203,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("C4.4.2 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.4.2"), "document title should show v6.6-C4.4.2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.4.2"), "app version badge should show v6.6-C4.4.2");
+        results.push(runNamedTest("C4.4.3 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.4.3"), "document title should show v6.6-C4.4.3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.4.3"), "app version badge should show v6.6-C4.4.3");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -24055,6 +24282,208 @@ Notes:
           assertTest(typeof window.runRecordTodayAutoWeeklyCountTests === "function", "runRecordTodayAutoWeeklyCountTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "auto weekly hotfix should not change scoring version");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "auto weekly hotfix should not change recent context windows");
+        }));
+
+        return results;
+      });
+    }
+
+    function runRecordWeightTodayApplyPromptTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const past = shiftDateString(today, -3);
+        const setup = ({ todayWeight = 70, records = [] } = {}) => {
+          setValidTodayBalanceTestInputs();
+          state.inbodyRecords = [{ date: today, weight: 68, skeletalMuscle: 33, bodyFat: 12, bodyFatPercent: 17, warning: "", isSuspicious: false }];
+          recordsState.items = normalizeRecordsCollection(records);
+          todayCalculationDrafts = {};
+          pendingRecordWeightTodayApplyChoice = null;
+          setTodayCalculationDraftValues({ calculationWeight: todayWeight });
+          setActiveTab("records");
+          ids.recordDate.value = today;
+          syncRecordInputsForDate(today);
+          render();
+        };
+        const promptVisible = () => !document.getElementById("recordWeightTodayApplyOverlay")?.classList.contains("hidden");
+        const promptText = () => document.getElementById("recordWeightTodayApplyOverlay")?.innerText || "";
+        const directSaveWeight = (date, weight, mode = "weight_only") => {
+          ids.recordDate.value = date;
+          syncRecordInputsForDate(date);
+          setRecordModeForSelectedDate(mode);
+          ids.recordWeight.value = weight === "" ? "" : String(weight);
+          saveRecord();
+          return getRecordByDate(date);
+        };
+        const detailSaveWeight = (date, weight, initial = {}) => {
+          recordsState.items = normalizeRecordsCollection([{ date, recordMode: "weight_only", weight: initial.weight ?? 74.1, note: "", meals: [] }]);
+          render();
+          startRecordDetailEdit(date);
+          const root = document.querySelector(`[data-record-detail-date="${date}"][data-record-detail-edit="true"]`);
+          assertTest(!!root, "record detail edit should open for weight prompt test");
+          root.querySelector('[data-detail-field="weight"]').value = String(weight);
+          return saveRecordDetailDraft();
+        };
+
+        results.push(runNamedTest("C4.4.3 saveRecord today weight save opens one-shot Today apply prompt", () => {
+          setup({ todayWeight: 70 });
+          const saved = directSaveWeight(today, 76.2);
+          assertClose(saved.weight, 76.2, 0.0001, "direct save should store Records fasting weight");
+          assertTest(promptVisible(), "direct Records weight save should show Today apply prompt");
+          assertIncludesAll(promptText(), ["오늘 계산에도 반영할까요?", "오늘 계산에 반영", "기록만 저장"], "prompt should show required copy and actions");
+          assertTest(!(document.getElementById("todayRecordWeightMismatchHost")?.textContent || "").includes("Records 공복 체중"), "inline mismatch notice should be hidden while prompt is active");
+        }));
+
+        results.push(runNamedTest("C4.4.3 saveRecordDetailDraft today weight edit opens one-shot Today apply prompt", () => {
+          setup({ todayWeight: 70 });
+          const saved = detailSaveWeight(today, 77.4);
+          assertTest(saved.saved === true, "detail weight save should succeed");
+          assertTest(promptVisible(), "detail Records weight save should show Today apply prompt");
+          assertClose(getRecordByDate(today).weight, 77.4, 0.0001, "detail save should update Records fasting weight");
+        }));
+
+        results.push(runNamedTest("C4.4.3 Today record-start save does not open post-save prompt", () => {
+          setup({ todayWeight: 70 });
+          openTodayRecordStartDialog();
+          setTodayRecordStartStep("skip");
+          document.getElementById("todayRecordSkipWeight").value = "78.5";
+          document.getElementById("todayRecordSkipApplyWeightToCalculation").checked = false;
+          const saved = saveTodayRecordStartSkip();
+          assertTest(saved.saved === true, "record-start skip should save");
+          assertTest(!promptVisible() && !pendingRecordWeightTodayApplyChoice, "record-start path should not open post-save prompt");
+          assertClose(getRecordByDate(today).weight, 78.5, 0.0001, "record-start should still save Records fasting weight");
+        }));
+
+        results.push(runNamedTest("C4.4.3 applying prompt copies Records weight to Today only", () => {
+          setup({ todayWeight: 70 });
+          directSaveWeight(today, 76.2);
+          const recordsBefore = JSON.stringify(recordsState.items);
+          const inbodyBefore = JSON.stringify(state.inbodyRecords);
+          const settingsWeightBefore = ids.weight.value;
+          const before = calculate();
+          const result = applyPendingRecordWeightTodayApplyChoice();
+          const after = calculate();
+          assertTest(result.applied === true, "prompt apply should succeed");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, 76.2, 0.0001, "prompt apply should update Today calculation weight");
+          assertTest(JSON.stringify(recordsState.items) === recordsBefore, "prompt apply should not rewrite Records record");
+          assertTest(JSON.stringify(state.inbodyRecords) === inbodyBefore, "prompt apply should not mutate InBody records");
+          assertTest(ids.weight.value === settingsWeightBefore, "prompt apply should not mutate Settings weight");
+          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal) && before.targetCal !== after.targetCal, "prompt apply should recalculate Today result");
+          assertTest(!promptVisible() && !pendingRecordWeightTodayApplyChoice, "prompt apply should clear pending choice");
+        }));
+
+        results.push(runNamedTest("C4.4.3 keep action preserves Today calculation weight and saved Records weight", () => {
+          setup({ todayWeight: 70 });
+          directSaveWeight(today, 76.2);
+          const beforeTodayWeight = getEffectiveTodayCalculationValues().calculationWeight;
+          const kept = keepPendingRecordWeightTodayApplyChoice();
+          assertTest(kept.kept === true, "keep should clear an active prompt");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, beforeTodayWeight, 0.0001, "keep should not change Today calculation weight");
+          assertClose(getRecordByDate(today).weight, 76.2, 0.0001, "keep should leave saved Records fasting weight");
+          assertTest(!promptVisible() && !pendingRecordWeightTodayApplyChoice, "keep should close prompt");
+        }));
+
+        results.push(runNamedTest("C4.4.3 close Escape and backdrop behave like keep", () => {
+          setup({ todayWeight: 70 });
+          directSaveWeight(today, 76.2);
+          document.getElementById("recordWeightTodayApplyClose").click();
+          assertTest(!promptVisible() && !pendingRecordWeightTodayApplyChoice, "close should clear prompt");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, 70, 0.0001, "close should keep Today weight");
+
+          directSaveWeight(today, 77.2);
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+          assertTest(!promptVisible() && !pendingRecordWeightTodayApplyChoice, "Escape should clear prompt");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, 70, 0.0001, "Escape should keep Today weight");
+
+          directSaveWeight(today, 78.2);
+          document.getElementById("recordWeightTodayApplyOverlay").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+          assertTest(!promptVisible() && !pendingRecordWeightTodayApplyChoice, "backdrop click should clear prompt");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, 70, 0.0001, "backdrop click should keep Today weight");
+        }));
+
+        results.push(runNamedTest("C4.4.3 prompt is date and weight gated", () => {
+          setup({ todayWeight: 75 });
+          directSaveWeight(past, 76.2);
+          assertTest(!promptVisible(), "past date save should not open prompt");
+
+          ids.recordDate.value = today;
+          syncRecordInputsForDate(today);
+          setRecordModeForSelectedDate("simple");
+          ids.recordWeight.value = "";
+          saveRecord();
+          assertTest(!promptVisible(), "empty optional weight should not open prompt");
+
+          directSaveWeight(today, 75);
+          assertTest(!promptVisible(), "same Today and Records weight should not open prompt");
+          assertTest(!(document.getElementById("todayRecordWeightMismatchHost")?.textContent || "").includes("Today 계산용 체중"), "same tolerance should not leave mismatch notice");
+        }));
+
+        results.push(runNamedTest("C4.4.3 active prompt suppresses inline mismatch actions and restores them after clear", () => {
+          setup({ todayWeight: 70, records: [{ date: today, recordMode: "weight_only", weight: 75 }] });
+          renderRecordsPanel();
+          assertTest((document.getElementById("todayRecordWeightMismatchHost")?.textContent || "").includes("입력탭 체중") || !!document.querySelector("[data-apply-today-weight]"), "legacy mismatch notice should remain available without prompt");
+          directSaveWeight(today, 76.2);
+          render();
+          assertTest(!document.querySelector("[data-apply-today-weight]") && !document.querySelector("[data-revert-today-weight]"), "inline mismatch actions should hide while prompt is active");
+          keepPendingRecordWeightTodayApplyChoice();
+          assertTest(!!document.querySelector("[data-apply-today-weight]") && !!document.querySelector("[data-revert-today-weight]"), "inline mismatch actions should return after prompt clears");
+        }));
+
+        results.push(runNamedTest("C4.4.3 active prompt survives render without duplicating", () => {
+          setup({ todayWeight: 70 });
+          directSaveWeight(today, 76.2);
+          const firstId = pendingRecordWeightTodayApplyChoice?.id;
+          render();
+          render();
+          const overlays = Array.from(document.querySelectorAll("#recordWeightTodayApplyOverlay")).filter(overlay => !overlay.classList.contains("hidden"));
+          assertTest(firstId && pendingRecordWeightTodayApplyChoice?.id === firstId, "render should not replace active pending prompt");
+          assertTest(overlays.length === 1, "render should keep a single visible prompt overlay");
+        }));
+
+        results.push(runNamedTest("C4.4.3 new Records save replaces active pending prompt", () => {
+          setup({ todayWeight: 70 });
+          directSaveWeight(today, 76.2);
+          const firstId = pendingRecordWeightTodayApplyChoice?.id;
+          directSaveWeight(today, 78.4);
+          assertTest(promptVisible(), "new save should still show prompt");
+          assertTest(pendingRecordWeightTodayApplyChoice?.id && pendingRecordWeightTodayApplyChoice.id !== firstId, "new save should replace previous pending prompt");
+          assertClose(pendingRecordWeightTodayApplyChoice.savedWeight, 78.4, 0.0001, "new pending prompt should use latest saved weight");
+        }));
+
+        results.push(runNamedTest("C4.4.3 detail keep preserves Today draft selected basis and remaining basis", () => {
+          setup({ todayWeight: 70, records: [{ date: today, recordMode: "weight_only", weight: 74 }] });
+          state.weeklyTrainingDaysManual = true;
+          ids.weeklyTrainingDays.value = "0";
+          uiState.selectedMacroBasis = "activity";
+          const beforeWeight = getEffectiveTodayCalculationValues().calculationWeight;
+          const beforeBalance = getTodayMacroBalance(calculate());
+          detailSaveWeight(today, 79.1);
+          keepPendingRecordWeightTodayApplyChoice();
+          const afterBalance = getTodayMacroBalance(calculate());
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, beforeWeight, 0.0001, "detail keep should preserve Today calculation draft");
+          assertTest(uiState.selectedMacroBasis === "activity", "detail keep should preserve selected basis");
+          assertClose(afterBalance.remaining.kcal, beforeBalance.remaining.kcal, 0.0001, "detail keep should preserve remaining calculation basis");
+        }));
+
+        results.push(runNamedTest("C4.4.3 export and visible DOM stay clean", () => {
+          setup({ todayWeight: 70 });
+          directSaveWeight(today, 76.2);
+          const payload = JSON.stringify({ records: getSortedRecords(), inbodyRecords: state.inbodyRecords });
+          assertExcludesAll(payload, ["todayCalculationDraft", "bodyStatusSource", "selectedMacroBasis", "uiState"], "record weight prompt should not add UI state to export payload");
+          assertExcludesAll(getRenderedBodyText(), ["draft", "source meta", "source of truth", "schema", "helper", "policy", "actual", "one-shot", "pending choice"], "visible record weight prompt should avoid internal terms");
+        }));
+
+        results.push(runNamedTest("C4.4.3 C4.4.2 and C4.3.2 suites keep passing", () => {
+          const inbodyResults = runInBodyRecordApplyTests();
+          const weeklyResults = runRecordTodayAutoWeeklyCountTests();
+          assertTest(inbodyResults.filter(result => !result.pass).length === 0, "C4.4.2 InBody record apply tests should still pass");
+          assertTest(weeklyResults.filter(result => !result.pass).length === 0, "C4.3.2 auto weekly tests should still pass");
+        }));
+
+        results.push(runNamedTest("C4.4.3 test export and protected constants remain intact", () => {
+          assertTest(typeof window.runRecordWeightTodayApplyPromptTests === "function", "runRecordWeightTodayApplyPromptTests should be exported");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "record weight prompt should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "record weight prompt should not change recent context windows");
         }));
 
         return results;
@@ -30874,6 +31303,7 @@ Notes:
           assertTest(typeof window.runTodayCalculationOwnershipTests === "function", "runTodayCalculationOwnershipTests should be exported");
           assertTest(typeof window.runTodayQuickEditTests === "function", "runTodayQuickEditTests should be exported");
           assertTest(typeof window.runRecordTodayAutoWeeklyCountTests === "function", "runRecordTodayAutoWeeklyCountTests should be exported");
+          assertTest(typeof window.runRecordWeightTodayApplyPromptTests === "function", "runRecordWeightTodayApplyPromptTests should be exported");
           assertTest(typeof window.runInBodyRecordApplyTests === "function", "runInBodyRecordApplyTests should be exported");
           assertTest(typeof window.runInBodyTodayFillTests === "function", "runInBodyTodayFillTests should be exported");
           assertTest(typeof window.runInBodySaveTodayApplyChoiceTests === "function", "runInBodySaveTodayApplyChoiceTests should be exported");
@@ -37687,6 +38117,7 @@ Notes:
     window.runRecordsInlineEditTests = runRecordsInlineEditTests;
     window.runRecordEditCalculationBasisTests = runRecordEditCalculationBasisTests;
     window.runRecordTodayAutoWeeklyCountTests = runRecordTodayAutoWeeklyCountTests;
+    window.runRecordWeightTodayApplyPromptTests = runRecordWeightTodayApplyPromptTests;
     window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runRecordStartWeightFlowTests = runRecordStartWeightFlowTests;
     window.runCalculationInputSeparationTests = runCalculationInputSeparationTests;
