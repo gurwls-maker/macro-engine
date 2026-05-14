@@ -1,8 +1,15 @@
 <!--
-Version: 6.6-C4.4.1
-Stage: 6.6-C4.4.1 InBody 저장 후 Today 반영 선택
+Version: 6.6-C4.4.2
+Stage: 6.6-C4.4.2 InBody 기록 선택 Today 적용
 Date: 2026-05-14
 Notes:
+- C4.4.2 InBody 기록 선택 Today 적용
+- InBody를 기록 적용형으로 정리
+- Today 몸 상태에 최신 InBody 적용 지원
+- Today 몸 상태에 특정 InBody 기록 선택 적용 지원
+- InBody 적용 후 Today 몸 상태 입력칸은 계속 직접 수정 가능
+- InBody 원본 / Records 공복 체중 / Today 계산용 체중 책임 분리 유지
+- 산식 / score / Coach / recentContext / InBody gate / schema-import-export 변경 없음
 - C4.4.1 InBody 저장 후 Today 반영 선택
 - 새 InBody 저장 후 Today 몸 상태 값과 다르면 오늘 계산 적용 여부 선택
 - 같은 값이면 적용 선택을 띄우지 않음
@@ -81,7 +88,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.4.1</title>
+  <title>탄단지 다이어리 v6.6-C4.4.2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -742,6 +749,74 @@ Notes:
       line-height:1.35;
       font-weight:800;
       color:var(--muted);
+      white-space:nowrap;
+    }
+    .inbody-record-select-overlay{
+      position:fixed;
+      inset:0;
+      z-index:70;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      background:rgba(34,30,24,.32);
+      backdrop-filter:blur(8px);
+    }
+    .inbody-record-select-dialog{
+      width:min(720px,100%);
+      max-height:min(720px,88vh);
+      overflow:auto;
+      border:1px solid var(--line);
+      border-radius:18px;
+      background:var(--panel-soft, var(--paper, #fffaf3));
+      box-shadow:0 24px 60px rgba(33,30,24,.2);
+      padding:18px;
+    }
+    .inbody-record-select-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:12px;
+    }
+    .inbody-record-select-head h3{
+      margin:0;
+      color:var(--deep);
+      font-size:20px;
+      letter-spacing:0;
+    }
+    .inbody-record-select-list{
+      display:grid;
+      gap:10px;
+    }
+    .inbody-record-select-item{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      gap:10px;
+      align-items:center;
+      padding:12px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:rgba(255,252,247,.82);
+    }
+    .inbody-record-select-date{
+      font-weight:900;
+      color:var(--deep);
+      margin-bottom:8px;
+    }
+    .inbody-record-select-values{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+    }
+    .inbody-record-select-values span{
+      border:1px solid color-mix(in srgb, var(--line) 80%, white 20%);
+      border-radius:999px;
+      padding:4px 8px;
+      font-size:11px;
+      font-weight:800;
+      color:var(--muted);
+      background:#fff;
       white-space:nowrap;
     }
     .today-quick-edit-panel .field{
@@ -5087,6 +5162,20 @@ Notes:
       .today-quick-edit-footer .secondary-btn{
         width:100%;
       }
+      .inbody-record-select-dialog{
+        max-height:86vh;
+        padding:14px;
+        border-radius:16px;
+      }
+      .inbody-record-select-head{
+        align-items:flex-start;
+      }
+      .inbody-record-select-item{
+        grid-template-columns:1fr;
+      }
+      .inbody-record-select-item .secondary-btn{
+        width:100%;
+      }
       .global-bar{
         flex-direction:column;
         align-items:stretch;
@@ -5220,7 +5309,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.4.1</span>
+               <span class="app-version">v6.6-C4.4.2</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -5505,7 +5594,8 @@ Notes:
               <div class="today-quick-edit-section-title">오늘 몸 상태</div>
               <div class="today-inbody-fill-actions">
                 <span class="today-inbody-source-note hidden" id="todayInbodySourceNote">출처: 최신 InBody</span>
-                <button class="secondary-btn" id="todayLoadLatestInbodyBtn" type="button">최신 InBody 값 불러오기</button>
+                <button class="secondary-btn" id="todayLoadLatestInbodyBtn" type="button">최신 InBody 적용</button>
+                <button class="secondary-btn" id="todaySelectInbodyRecordBtn" type="button">InBody 기록 선택</button>
               </div>
             </div>
             <div class="field">
@@ -6336,6 +6426,16 @@ Notes:
     </div>
   </div>
 
+  <div class="inbody-record-select-overlay hidden" id="inbodyRecordSelectOverlay" aria-hidden="true">
+    <div class="inbody-record-select-dialog" role="dialog" aria-modal="true" aria-labelledby="inbodyRecordSelectTitle">
+      <div class="inbody-record-select-head">
+        <h3 id="inbodyRecordSelectTitle">InBody 기록 선택</h3>
+        <button class="secondary-btn" id="inbodyRecordSelectClose" type="button">닫기</button>
+      </div>
+      <div class="inbody-record-select-list" id="inbodyRecordSelectList"></div>
+    </div>
+  </div>
+
   <script>
     // 1) constants
     const STORAGE_PREFIX = "runstep_macro_v1_";
@@ -6722,6 +6822,9 @@ Notes:
     const TODAY_BODY_STATUS_SOURCE_INBODY = "latest_inbody";
     const TODAY_BODY_STATUS_SOURCE_USER = "user";
     const TODAY_BODY_STATUS_SOURCE_DEFAULT = "default";
+    const TODAY_BODY_STATUS_LOAD_AUTO = "auto";
+    const TODAY_BODY_STATUS_LOAD_LATEST = "latest";
+    const TODAY_BODY_STATUS_LOAD_RECORD = "record";
     const TODAY_INBODY_APPLY_TOLERANCE = {
       calculationWeight: 0.05,
       skeletalMuscle: 0.05,
@@ -6827,7 +6930,9 @@ Notes:
       const bodyStatusSourceDate = normalizeDateString(raw.bodyStatusSourceDate);
       if (bodyStatusSourceDate) normalized.bodyStatusSourceDate = bodyStatusSourceDate;
       const bodyStatusLoadType = typeof raw.bodyStatusLoadType === "string" ? raw.bodyStatusLoadType.trim() : "";
-      if (["auto", "manual"].includes(bodyStatusLoadType)) normalized.bodyStatusLoadType = bodyStatusLoadType;
+      if ([TODAY_BODY_STATUS_LOAD_AUTO, TODAY_BODY_STATUS_LOAD_LATEST, TODAY_BODY_STATUS_LOAD_RECORD, "manual"].includes(bodyStatusLoadType)) {
+        normalized.bodyStatusLoadType = bodyStatusLoadType === "manual" ? TODAY_BODY_STATUS_LOAD_LATEST : bodyStatusLoadType;
+      }
       if (raw.bodyStatusEdited === true || raw.bodyStatusEdited === "true") {
         normalized.bodyStatusEdited = true;
       }
@@ -6928,7 +7033,7 @@ Notes:
           date: targetDate,
           bodyStatusSource: TODAY_BODY_STATUS_SOURCE_INBODY,
           bodyStatusSourceDate: latest.date,
-          bodyStatusLoadType: "auto",
+          bodyStatusLoadType: TODAY_BODY_STATUS_LOAD_AUTO,
           markBodyStatusUserEdited: false
         });
         return { materialized: true, latest, source: TODAY_BODY_STATUS_SOURCE_INBODY };
@@ -6955,11 +7060,16 @@ Notes:
         };
       }
       if (draft.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_INBODY && hasTodayBodyStatusDraftValues(draft)) {
-        const isManual = draft.bodyStatusLoadType === "manual";
+        const sourceDate = draft.bodyStatusSourceDate || normalizeDateString(latest?.date) || null;
+        const displayDate = sourceDate ? sourceDate.replaceAll("-", ".") : "";
+        const isLatestLoad = draft.bodyStatusLoadType === TODAY_BODY_STATUS_LOAD_LATEST || draft.bodyStatusLoadType === "manual";
+        const isRecordLoad = draft.bodyStatusLoadType === TODAY_BODY_STATUS_LOAD_RECORD;
         return {
           source: TODAY_BODY_STATUS_SOURCE_INBODY,
-          date: draft.bodyStatusSourceDate || normalizeDateString(latest?.date) || null,
-          label: isManual ? "최신 InBody에서 불러옴" : "출처: 최신 InBody",
+          date: sourceDate,
+          label: isRecordLoad
+            ? `InBody 기록에서 불러옴${displayDate ? ` · ${displayDate}` : ""}`
+            : (isLatestLoad ? "최신 InBody에서 불러옴" : "출처: 최신 InBody"),
           automatic: false
         };
       }
@@ -7032,7 +7142,9 @@ Notes:
           const sourceDate = normalizeDateString(options.bodyStatusSourceDate);
           if (sourceDate) current.bodyStatusSourceDate = sourceDate;
           else delete current.bodyStatusSourceDate;
-          if (["auto", "manual"].includes(options.bodyStatusLoadType)) current.bodyStatusLoadType = options.bodyStatusLoadType;
+          if ([TODAY_BODY_STATUS_LOAD_AUTO, TODAY_BODY_STATUS_LOAD_LATEST, TODAY_BODY_STATUS_LOAD_RECORD, "manual"].includes(options.bodyStatusLoadType)) {
+            current.bodyStatusLoadType = options.bodyStatusLoadType === "manual" ? TODAY_BODY_STATUS_LOAD_LATEST : options.bodyStatusLoadType;
+          }
           else delete current.bodyStatusLoadType;
           delete current.bodyStatusEdited;
         } else if (options.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_DEFAULT) {
@@ -9118,11 +9230,17 @@ Notes:
 
     function renderTodayInbodyFillControls(){
       const button = document.getElementById("todayLoadLatestInbodyBtn");
+      const selectButton = document.getElementById("todaySelectInbodyRecordBtn");
       const note = document.getElementById("todayInbodySourceNote");
       const latest = getLatestInbodyForTodayInput();
       if (button) {
         button.disabled = !latest;
         button.setAttribute("aria-disabled", latest ? "false" : "true");
+      }
+      if (selectButton) {
+        const hasRecords = getInbodyRecordsForTodayApply().length > 0;
+        selectButton.disabled = !hasRecords;
+        selectButton.setAttribute("aria-disabled", hasRecords ? "false" : "true");
       }
       if (note) {
         const sourceInfo = getTodayBodyStatusSourceInfo();
@@ -13918,7 +14036,7 @@ Notes:
       return candidates.length ? candidates[candidates.length - 1] : null;
     }
 
-    function applyInbodyRecordToTodayBodyStatus(record){
+    function applyInbodyRecordToTodayBodyStatus(record, options = {}){
       const values = getTodayCalculationValuesFromInbody(record);
       if (!record || !Object.keys(values).length) {
         return { applied: false, reason: "no_inbody_values" };
@@ -13926,11 +14044,90 @@ Notes:
       setTodayCalculationDraftValues(values, {
         bodyStatusSource: TODAY_BODY_STATUS_SOURCE_INBODY,
         bodyStatusSourceDate: record.date,
-        bodyStatusLoadType: "manual",
+        bodyStatusLoadType: options.loadType || TODAY_BODY_STATUS_LOAD_LATEST,
         markBodyStatusUserEdited: false
       });
       syncTodayQuickEditControls();
       return { applied: true, record, values };
+    }
+
+    function getInbodyRecordsForTodayApply(){
+      const records = Array.isArray(state.inbodyRecords) ? state.inbodyRecords : [];
+      return records
+        .map((record, index) => ({
+          ...record,
+          index,
+          date: normalizeDateString(record?.date),
+          weight: Number(record?.weight),
+          skeletalMuscle: Number(record?.skeletalMuscle),
+          bodyFat: Number(record?.bodyFat),
+          bodyFatPercent: Number(record?.bodyFatPercent)
+        }))
+        .filter(record => record.date && Object.keys(getTodayCalculationValuesFromInbody(record)).length)
+        .sort((a, b) => b.date.localeCompare(a.date) || b.index - a.index);
+    }
+
+    function getInbodyApplyRecordByIndex(index){
+      const numericIndex = Number(index);
+      if (!Number.isInteger(numericIndex)) return null;
+      return getInbodyRecordsForTodayApply().find(record => record.index === numericIndex) || null;
+    }
+
+    function renderInbodyRecordSelectList(){
+      const list = document.getElementById("inbodyRecordSelectList");
+      if (!list) return;
+      const records = getInbodyRecordsForTodayApply();
+      if (!records.length) {
+        list.innerHTML = `<div class="notice"><h4>InBody 기록 없음</h4><ul><li>적용할 InBody 기록이 없습니다.</li></ul></div>`;
+        return;
+      }
+      list.innerHTML = records.map(record => `
+        <div class="inbody-record-select-item">
+          <div>
+            <div class="inbody-record-select-date">${escapeHtml(record.date)}</div>
+            <div class="inbody-record-select-values">
+              <span>체중 ${formatKg2(record.weight)}kg</span>
+              <span>골격근량 ${formatKg2(record.skeletalMuscle)}kg</span>
+              <span>체지방량 ${formatKg2(record.bodyFat)}kg</span>
+              <span>체지방률 ${Number.isFinite(getDisplayBodyFatPercent(record)) ? `${getDisplayBodyFatPercent(record).toFixed(2)}%` : "-"}</span>
+            </div>
+          </div>
+          <button class="secondary-btn" type="button" data-apply-inbody-record="${record.index}">오늘 몸 상태에 적용</button>
+        </div>
+      `).join("");
+    }
+
+    function openInbodyRecordSelectDialog(){
+      const overlay = document.getElementById("inbodyRecordSelectOverlay");
+      if (!overlay) return { opened: false, reason: "missing_overlay" };
+      renderInbodyRecordSelectList();
+      overlay.classList.remove("hidden");
+      overlay.setAttribute("aria-hidden", "false");
+      return { opened: true };
+    }
+
+    function closeInbodyRecordSelectDialog(){
+      const overlay = document.getElementById("inbodyRecordSelectOverlay");
+      if (!overlay) return;
+      overlay.classList.add("hidden");
+      overlay.setAttribute("aria-hidden", "true");
+    }
+
+    function applySelectedInbodyRecordToToday(index){
+      const record = getInbodyApplyRecordByIndex(index);
+      if (!record) return { applied: false, reason: "missing_record" };
+      const before = calculate();
+      const applied = applyInbodyRecordToTodayBodyStatus(record, { loadType: TODAY_BODY_STATUS_LOAD_RECORD });
+      if (!applied.applied) return applied;
+      closeInbodyRecordSelectDialog();
+      suppressTodayRecordAutoSync = true;
+      try {
+        render();
+      } finally {
+        suppressTodayRecordAutoSync = false;
+      }
+      const after = calculate();
+      return { ...applied, before, after };
     }
 
     function getTodayBodyStatusApplyDifferences(record, currentValues = getEffectiveTodayCalculationValues()){
@@ -14002,7 +14199,7 @@ Notes:
     function applyPendingInbodyTodayChoice(){
       const pending = pendingInbodyTodayApplyChoice;
       if (!pending?.record) return { applied: false, reason: "no_pending_choice" };
-      const applied = applyInbodyRecordToTodayBodyStatus(pending.record);
+      const applied = applyInbodyRecordToTodayBodyStatus(pending.record, { loadType: TODAY_BODY_STATUS_LOAD_LATEST });
       pendingInbodyTodayApplyChoice = null;
       suppressTodayRecordAutoSync = true;
       try {
@@ -14029,9 +14226,9 @@ Notes:
         setTodayInputFeedback("warn", "불러올 InBody 기록이 없습니다.");
         return { loaded: false, reason: "no_inbody_records" };
       }
-      const applied = applyInbodyRecordToTodayBodyStatus(latest);
+      const applied = applyInbodyRecordToTodayBodyStatus(latest, { loadType: TODAY_BODY_STATUS_LOAD_LATEST });
       if (!applied.applied) return { loaded: false, reason: applied.reason };
-      setTodayInputFeedback("ok", "최근 InBody 기록을 계산 기준 입력에 불러왔습니다. 저장은 하지 않았습니다.");
+      setTodayInputFeedback("ok", "최신 InBody 기록을 오늘 몸 상태에 적용했습니다.");
       suppressTodayRecordAutoSync = true;
       try {
         render();
@@ -18770,6 +18967,16 @@ Notes:
       document.getElementById("todayQuickRoutinePlan")?.addEventListener("change", handleTodayQuickRoutinePlanChange);
       document.getElementById("todayQuickRoutineSession")?.addEventListener("change", handleTodayQuickRoutineSessionChange);
       document.getElementById("todayLoadLatestInbodyBtn")?.addEventListener("click", loadLatestInbodyToTodayInputs);
+      document.getElementById("todaySelectInbodyRecordBtn")?.addEventListener("click", openInbodyRecordSelectDialog);
+      document.getElementById("inbodyRecordSelectClose")?.addEventListener("click", closeInbodyRecordSelectDialog);
+      document.getElementById("inbodyRecordSelectOverlay")?.addEventListener("click", event => {
+        if (event.target === event.currentTarget) closeInbodyRecordSelectDialog();
+      });
+      document.getElementById("inbodyRecordSelectList")?.addEventListener("click", event => {
+        const button = event.target.closest("[data-apply-inbody-record]");
+        if (!button) return;
+        applySelectedInbodyRecordToToday(button.getAttribute("data-apply-inbody-record"));
+      });
       document.addEventListener("click", event => {
         const trigger = event.target.closest("[data-open-calculation-settings]");
         if (!trigger) return;
@@ -18801,6 +19008,8 @@ Notes:
       document.getElementById("todayRecordSkipSaveBtn")?.addEventListener("click", saveTodayRecordStartSkip);
       document.addEventListener("keydown", event => {
         if (event.key !== "Escape") return;
+        const inbodyOverlay = document.getElementById("inbodyRecordSelectOverlay");
+        if (inbodyOverlay && !inbodyOverlay.classList.contains("hidden")) closeInbodyRecordSelectDialog();
         const overlay = getTodayRecordStartOverlay();
         if (overlay && !overlay.classList.contains("hidden")) closeTodayRecordStartDialog();
       });
@@ -22767,9 +22976,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("C4.4.1 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.4.1"), "document title should show v6.6-C4.4.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.4.1"), "app version badge should show v6.6-C4.4.1");
+        results.push(runNamedTest("C4.4.2 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.4.2"), "document title should show v6.6-C4.4.2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.4.2"), "app version badge should show v6.6-C4.4.2");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -30665,6 +30874,9 @@ Notes:
           assertTest(typeof window.runTodayCalculationOwnershipTests === "function", "runTodayCalculationOwnershipTests should be exported");
           assertTest(typeof window.runTodayQuickEditTests === "function", "runTodayQuickEditTests should be exported");
           assertTest(typeof window.runRecordTodayAutoWeeklyCountTests === "function", "runRecordTodayAutoWeeklyCountTests should be exported");
+          assertTest(typeof window.runInBodyRecordApplyTests === "function", "runInBodyRecordApplyTests should be exported");
+          assertTest(typeof window.runInBodyTodayFillTests === "function", "runInBodyTodayFillTests should be exported");
+          assertTest(typeof window.runInBodySaveTodayApplyChoiceTests === "function", "runInBodySaveTodayApplyChoiceTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
         }));
@@ -36055,6 +36267,211 @@ Notes:
       });
     }
 
+    function runInBodyRecordApplyTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const olderDate = shiftDateString(today, -9);
+        const olderInbody = {
+          date: olderDate,
+          weight: 76.4,
+          skeletalMuscle: 35.4,
+          bodyFat: 12.2,
+          bodyFatPercent: 16.0,
+          warning: "",
+          isSuspicious: false
+        };
+        const latestInbody = {
+          date: today,
+          weight: 73.8,
+          skeletalMuscle: 36.2,
+          bodyFat: 10.7,
+          bodyFatPercent: 14.5,
+          warning: "",
+          isSuspicious: false
+        };
+        const directTodayValues = {
+          calculationWeight: 82.1,
+          skeletalMuscle: 38.5,
+          bodyFatMass: 13.4,
+          bodyFatPercent: 16.3
+        };
+        const resetFixture = () => {
+          setValidTodayBalanceTestInputs();
+          setActiveTab("today");
+          recordsState.items = normalizeRecordsCollection([{ date: today, recordMode: "weight_only", weight: 79.4, note: "공복", meals: [] }]);
+          state.inbodyRecords = [];
+          todayCalculationDrafts = {};
+          pendingInbodyTodayApplyChoice = null;
+          saveTodayCalculationDrafts();
+          render();
+        };
+        const setInbodyRecords = (...records) => {
+          state.inbodyRecords = records;
+          normalizeInbodyRecords();
+          render();
+        };
+        const currentValues = () => getEffectiveTodayCalculationValues();
+        const sourceLabel = () => getTodayBodyStatusSourceInfo().label;
+        const openDialogText = () => document.getElementById("inbodyRecordSelectOverlay")?.textContent || "";
+
+        results.push(runNamedTest("C4.4.2 no InBody records disables Today InBody actions cleanly", () => {
+          resetFixture();
+          const latestButton = document.getElementById("todayLoadLatestInbodyBtn");
+          const selectButton = document.getElementById("todaySelectInbodyRecordBtn");
+          assertTest(!!latestButton && latestButton.textContent.includes("최신 InBody 적용"), "latest InBody action should use apply wording");
+          assertTest(latestButton.disabled === true, "latest InBody action should be disabled without records");
+          assertTest(!!selectButton && selectButton.disabled === true, "record select action should be disabled without records");
+        }));
+
+        results.push(runNamedTest("C4.4.2 InBody records expose latest apply and record select actions", () => {
+          resetFixture();
+          setInbodyRecords(olderInbody, latestInbody);
+          const latestButton = document.getElementById("todayLoadLatestInbodyBtn");
+          const selectButton = document.getElementById("todaySelectInbodyRecordBtn");
+          assertTest(latestButton.disabled === false, "latest InBody action should be enabled when records exist");
+          assertTest(selectButton.disabled === false, "record select action should be enabled when records exist");
+          assertIncludesAll(document.getElementById("todayQuickEditPanel")?.textContent || "", ["최신 InBody 적용", "InBody 기록 선택"], "Today body status actions should be visible");
+        }));
+
+        results.push(runNamedTest("C4.4.2 latest InBody apply copies newest record and recalculates", () => {
+          resetFixture();
+          setInbodyRecords(olderInbody, latestInbody);
+          setTodayCalculationDraftValues(directTodayValues);
+          const before = calculate();
+          document.getElementById("todayLoadLatestInbodyBtn")?.click();
+          const values = currentValues();
+          const after = calculate();
+          assertClose(values.calculationWeight, latestInbody.weight, 0.0001, "latest apply should copy latest weight");
+          assertClose(values.skeletalMuscle, latestInbody.skeletalMuscle, 0.0001, "latest apply should copy latest skeletal muscle");
+          assertClose(values.bodyFatMass, latestInbody.bodyFat, 0.0001, "latest apply should copy latest body fat mass");
+          assertClose(values.bodyFatPercent, latestInbody.bodyFatPercent, 0.0001, "latest apply should copy latest body fat percent");
+          assertTest(sourceLabel() === "최신 InBody에서 불러옴", "latest apply should show latest source label");
+          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal) && before.targetCal !== after.targetCal, "latest apply should recalculate Today result");
+        }));
+
+        results.push(runNamedTest("C4.4.2 latest InBody apply keeps Today body inputs editable", () => {
+          resetFixture();
+          setInbodyRecords(latestInbody);
+          document.getElementById("todayLoadLatestInbodyBtn")?.click();
+          ["todayQuickWeight", "todayQuickSkeletal", "todayQuickBodyFatMass", "todayQuickBodyFat"].forEach(id => {
+            assertTest(document.getElementById(id)?.disabled === false, `${id} should remain editable after InBody apply`);
+          });
+        }));
+
+        results.push(runNamedTest("C4.4.2 InBody record select dialog renders records newest first", () => {
+          resetFixture();
+          setInbodyRecords(olderInbody, latestInbody);
+          openInbodyRecordSelectDialog();
+          const overlay = document.getElementById("inbodyRecordSelectOverlay");
+          const items = Array.from(document.querySelectorAll("[data-apply-inbody-record]"));
+          assertTest(!overlay.classList.contains("hidden"), "record select dialog should open");
+          assertIncludesAll(openDialogText(), ["InBody 기록 선택", "오늘 몸 상태에 적용", latestInbody.date, olderInbody.date], "record select dialog should show required copy and records");
+          assertTest(items.length >= 2, "record select dialog should render selectable records");
+          assertTest(items[0].closest(".inbody-record-select-item").textContent.includes(latestInbody.date), "latest record should render first");
+          closeInbodyRecordSelectDialog();
+        }));
+
+        results.push(runNamedTest("C4.4.2 selecting an older InBody record applies that record", () => {
+          resetFixture();
+          setInbodyRecords(olderInbody, latestInbody);
+          setTodayCalculationDraftValues(directTodayValues);
+          openInbodyRecordSelectDialog();
+          document.querySelector(`[data-apply-inbody-record="0"]`)?.click();
+          const values = currentValues();
+          assertClose(values.calculationWeight, olderInbody.weight, 0.0001, "selected record should copy selected weight");
+          assertClose(values.skeletalMuscle, olderInbody.skeletalMuscle, 0.0001, "selected record should copy selected skeletal muscle");
+          assertClose(values.bodyFatMass, olderInbody.bodyFat, 0.0001, "selected record should copy selected body fat mass");
+          assertClose(values.bodyFatPercent, olderInbody.bodyFatPercent, 0.0001, "selected record should copy selected body fat percent");
+          assertIncludesAll(sourceLabel(), ["InBody 기록에서 불러옴", olderDate.replaceAll("-", ".")], "selected record source should show record source and date");
+          assertTest(document.getElementById("inbodyRecordSelectOverlay").classList.contains("hidden"), "record select dialog should close after apply");
+        }));
+
+        results.push(runNamedTest("C4.4.2 selected InBody record apply recalculates Today result", () => {
+          resetFixture();
+          setInbodyRecords(olderInbody, latestInbody);
+          setTodayCalculationDraftValues(directTodayValues);
+          const before = calculate();
+          applySelectedInbodyRecordToToday(0);
+          const after = calculate();
+          assertClose(after.s.weight, olderInbody.weight, 0.0001, "selected record apply should feed calculate");
+          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal) && before.targetCal !== after.targetCal, "selected record apply should recalculate target");
+        }));
+
+        results.push(runNamedTest("C4.4.2 direct edit after InBody record apply switches source label", () => {
+          resetFixture();
+          setInbodyRecords(olderInbody, latestInbody);
+          applySelectedInbodyRecordToToday(0);
+          const weightInput = document.getElementById("todayQuickWeight");
+          weightInput.value = "81.2";
+          weightInput.dispatchEvent(new Event("input", { bubbles: true }));
+          assertClose(currentValues().calculationWeight, 81.2, 0.0001, "direct edit should update Today calculation weight");
+          assertTest(sourceLabel() === "오늘 직접 수정한 값", "direct edit after record apply should mark direct-edit source");
+        }));
+
+        results.push(runNamedTest("C4.4.2 partial InBody apply does not zero missing Today fields", () => {
+          resetFixture();
+          setTodayCalculationDraftValues(directTodayValues);
+          const applied = applyInbodyRecordToTodayBodyStatus({ date: today, weight: 71.5, skeletalMuscle: 35.2 }, { loadType: TODAY_BODY_STATUS_LOAD_RECORD });
+          const values = currentValues();
+          assertTest(applied.applied === true, "partial selected record apply should apply available values");
+          assertClose(values.calculationWeight, 71.5, 0.0001, "partial apply should update available weight");
+          assertClose(values.skeletalMuscle, 35.2, 0.0001, "partial apply should update available skeletal muscle");
+          assertClose(values.bodyFatMass, directTodayValues.bodyFatMass, 0.0001, "partial apply should preserve missing body fat mass");
+          assertClose(values.bodyFatPercent, directTodayValues.bodyFatPercent, 0.0001, "partial apply should preserve missing body fat percent");
+        }));
+
+        results.push(runNamedTest("C4.4.2 InBody apply keeps InBody Records and Settings separated", () => {
+          resetFixture();
+          setInbodyRecords(olderInbody, latestInbody);
+          const beforeInbody = JSON.stringify(state.inbodyRecords);
+          const beforeRecords = JSON.stringify(recordsState.items);
+          const beforeSettingsWeight = ids.weight.value;
+          const beforeSettingsSkeletal = ids.skeletal.value;
+          applySelectedInbodyRecordToToday(0);
+          assertTest(JSON.stringify(state.inbodyRecords) === beforeInbody, "record apply should not mutate InBody source records");
+          assertTest(JSON.stringify(recordsState.items) === beforeRecords, "record apply should not mutate Records fasting weight");
+          assertTest(ids.weight.value === beforeSettingsWeight, "record apply should not mutate Settings weight mirror default");
+          assertTest(ids.skeletal.value === beforeSettingsSkeletal, "record apply should not mutate Settings skeletal mirror default");
+        }));
+
+        results.push(runNamedTest("C4.4.2 export payload excludes Today draft and source metadata", () => {
+          resetFixture();
+          setInbodyRecords(olderInbody, latestInbody);
+          applySelectedInbodyRecordToToday(0);
+          const payload = JSON.stringify({
+            version: 3,
+            records: getSortedRecords(),
+            inbodyRecords: Array.isArray(state.inbodyRecords) ? [...state.inbodyRecords] : []
+          });
+          assertExcludesAll(payload, ["todayCalculationDraft", "bodyStatusSource", "bodyStatusEdited", "bodyStatusLoadType", "selectedMacroBasis", "uiState"], "export payload should not expose Today source state");
+        }));
+
+        results.push(runNamedTest("C4.4.2 visible InBody record apply UI avoids internal terms", () => {
+          resetFixture();
+          setInbodyRecords(olderInbody, latestInbody);
+          openInbodyRecordSelectDialog();
+          const visible = getRenderedBodyText();
+          assertExcludesAll(visible, ["draft", "source meta", "source of truth", "schema", "helper", "policy", "manual override", "auto fill", "actual"], "visible record apply UI should avoid internal terms");
+          closeInbodyRecordSelectDialog();
+        }));
+
+        results.push(runNamedTest("C4.4.2 C4.4.1 save apply choice still works", () => {
+          const choiceResults = runInBodySaveTodayApplyChoiceTests();
+          const failures = choiceResults.filter(result => !result.pass);
+          assertTest(failures.length === 0, "C4.4.1 InBody save apply choice suite should still pass");
+        }));
+
+        results.push(runNamedTest("C4.4.2 C4.3.2 auto weekly count suite still works", () => {
+          const weeklyResults = runRecordTodayAutoWeeklyCountTests();
+          const failures = weeklyResults.filter(result => !result.pass);
+          assertTest(failures.length === 0, "C4.3.2 auto weekly suite should still pass");
+        }));
+
+        return results;
+      });
+    }
+
     function runInBodyTodayFillTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -37276,6 +37693,7 @@ Notes:
     window.runSettingsDefaultsStructureTests = runSettingsDefaultsStructureTests;
     window.runTodayCalculationOwnershipTests = runTodayCalculationOwnershipTests;
     window.runTodayQuickEditTests = runTodayQuickEditTests;
+    window.runInBodyRecordApplyTests = runInBodyRecordApplyTests;
     window.runInBodyTodayFillTests = runInBodyTodayFillTests;
     window.runInBodySaveTodayApplyChoiceTests = runInBodySaveTodayApplyChoiceTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
