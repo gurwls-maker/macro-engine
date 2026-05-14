@@ -1,13 +1,18 @@
 <!--
-Version: 6.6-C4.4
-Stage: 6.6-C4.4 InBody 최신값 Today 채움
+Version: 6.6-C4.4.1
+Stage: 6.6-C4.4.1 InBody 저장 후 Today 반영 선택
 Date: 2026-05-14
 Notes:
+- C4.4.1 InBody 저장 후 Today 반영 선택
+- 새 InBody 저장 후 Today 몸 상태 값과 다르면 오늘 계산 적용 여부 선택
+- 같은 값이면 적용 선택을 띄우지 않음
+- "오늘 계산에 적용"은 Today 몸 상태 값을 방금 저장한 InBody로 갱신
+- "그대로 두기"는 Today 계산값 유지
 - C4.4 InBody 최신값 Today 채움
 - 최신 InBody 값을 Today 몸 상태 기본값으로 채움
 - Today 몸 상태를 직접 수정한 뒤에는 최신 InBody 값으로 자동 덮어쓰지 않음
 - Today 계산값 패널에서 최신 InBody 값 수동 불러오기 지원
-- 새 InBody 저장 직후 "오늘 계산에도 반영할까요?" 선택 흐름은 후속으로 보류
+- C4.4에서 보류했던 새 InBody 저장 직후 Today 반영 선택 흐름은 C4.4.1에서 구현
 - InBody 원본 / Records 공복 체중 / Today 계산용 체중 책임 분리 유지
 - 산식 / score / Coach / recentContext / InBody gate / schema-import-export 변경 없음
 - C4.3.1 Records 운동 기준 수정 저장 hotfix
@@ -76,7 +81,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.4</title>
+  <title>탄단지 다이어리 v6.6-C4.4.1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -1297,6 +1302,19 @@ Notes:
       font-size:12px;
       color:var(--accent-strong);
       line-height:1.5;
+    }
+    .inbody-today-apply-actions{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-top:10px;
+    }
+    .inbody-today-apply-actions .primary-btn,
+    .inbody-today-apply-actions .secondary-btn{
+      min-height:36px;
+      padding:8px 12px;
+      font-size:13px;
     }
     #inbodyRecordList .inbody-record{
       display:block;
@@ -5202,7 +5220,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.4</span>
+               <span class="app-version">v6.6-C4.4.1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -6704,8 +6722,15 @@ Notes:
     const TODAY_BODY_STATUS_SOURCE_INBODY = "latest_inbody";
     const TODAY_BODY_STATUS_SOURCE_USER = "user";
     const TODAY_BODY_STATUS_SOURCE_DEFAULT = "default";
+    const TODAY_INBODY_APPLY_TOLERANCE = {
+      calculationWeight: 0.05,
+      skeletalMuscle: 0.05,
+      bodyFatMass: 0.05,
+      bodyFatPercent: 0.1
+    };
     let todayCalculationDrafts = {};
     let suppressTodayRecordAutoSync = false;
+    let pendingInbodyTodayApplyChoice = null;
     const ADHERENCE_SCORING_VERSION = "v6.1_alcohol_penalty_v2";
     const RECENT_CONTEXT_WINDOWS = [1, 3, 7, 14, 28];
     const RECORD_MODES = ["weight_only", "simple", "detailed"];
@@ -13893,19 +13918,119 @@ Notes:
       return candidates.length ? candidates[candidates.length - 1] : null;
     }
 
+    function applyInbodyRecordToTodayBodyStatus(record){
+      const values = getTodayCalculationValuesFromInbody(record);
+      if (!record || !Object.keys(values).length) {
+        return { applied: false, reason: "no_inbody_values" };
+      }
+      setTodayCalculationDraftValues(values, {
+        bodyStatusSource: TODAY_BODY_STATUS_SOURCE_INBODY,
+        bodyStatusSourceDate: record.date,
+        bodyStatusLoadType: "manual",
+        markBodyStatusUserEdited: false
+      });
+      syncTodayQuickEditControls();
+      return { applied: true, record, values };
+    }
+
+    function getTodayBodyStatusApplyDifferences(record, currentValues = getEffectiveTodayCalculationValues()){
+      const inbodyValues = getTodayCalculationValuesFromInbody(record);
+      return Object.entries(inbodyValues).reduce((diffs, [field, nextValue]) => {
+        const currentValue = normalizeTodayCalculationNumber(currentValues[field]);
+        if (currentValue === null) {
+          diffs.push({ field, currentValue: null, nextValue });
+          return diffs;
+        }
+        const tolerance = TODAY_INBODY_APPLY_TOLERANCE[field] ?? 0.05;
+        if (Math.abs(currentValue - nextValue) > tolerance) {
+          diffs.push({ field, currentValue, nextValue });
+        }
+        return diffs;
+      }, []);
+    }
+
+    function buildInbodyTodayApplyChoice(record){
+      const recordDate = normalizeDateString(record?.date);
+      const today = getTodayDateString();
+      if (!recordDate || recordDate !== today) return { shouldPrompt: false, sameValues: false, reason: "not_today" };
+      const existingDraft = normalizeTodayCalculationDraft(todayCalculationDrafts[today] || {});
+      const hasGeneratedBodyStatus = !!existingDraft.bodyStatusSource || hasTodayBodyStatusDraftValues(existingDraft);
+      if (!hasGeneratedBodyStatus) return { shouldPrompt: false, sameValues: false, reason: "today_body_status_not_generated" };
+      const inbodyValues = getTodayCalculationValuesFromInbody(record);
+      if (!Object.keys(inbodyValues).length) return { shouldPrompt: false, sameValues: false, reason: "no_inbody_values" };
+      const currentValues = getEffectiveTodayCalculationValues(today);
+      const differences = getTodayBodyStatusApplyDifferences(record, currentValues);
+      return {
+        shouldPrompt: differences.length > 0,
+        sameValues: differences.length === 0,
+        reason: differences.length ? "different_values" : "same_values",
+        record,
+        inbodyValues,
+        currentValues,
+        differences,
+        sourceInfo: getTodayBodyStatusSourceInfo(today)
+      };
+    }
+
+    function renderInbodyTodayApplyChoice(choice){
+      const feedback = document.getElementById("inbodyFeedback");
+      if (!feedback || !choice?.shouldPrompt) return;
+      pendingInbodyTodayApplyChoice = {
+        record: { ...choice.record },
+        sourceInfo: choice.sourceInfo || null
+      };
+      feedback.innerHTML = `
+        <div class="notice inbody-today-apply-choice" id="inbodyTodayApplyChoice">
+          <h4>오늘 계산값도 이 InBody로 바꿀까요?</h4>
+          <ul><li>InBody 저장은 완료되었습니다.</li></ul>
+          <div class="inbody-today-apply-actions">
+            <button class="primary-btn" type="button" data-inbody-today-apply="apply">오늘 계산에 적용</button>
+            <button class="secondary-btn" type="button" data-inbody-today-apply="keep">그대로 두기</button>
+          </div>
+        </div>`;
+    }
+
+    function renderInbodySameTodayValueFeedback(date){
+      const feedback = document.getElementById("inbodyFeedback");
+      pendingInbodyTodayApplyChoice = null;
+      if (feedback) {
+        feedback.innerHTML = `<div class="notice"><h4>InBody 저장</h4><ul><li>InBody를 저장했습니다. 오늘 계산값과 같은 값이라 추가 반영은 필요 없습니다.</li></ul></div>`;
+      }
+      return { shown: true, date };
+    }
+
+    function applyPendingInbodyTodayChoice(){
+      const pending = pendingInbodyTodayApplyChoice;
+      if (!pending?.record) return { applied: false, reason: "no_pending_choice" };
+      const applied = applyInbodyRecordToTodayBodyStatus(pending.record);
+      pendingInbodyTodayApplyChoice = null;
+      suppressTodayRecordAutoSync = true;
+      try {
+        render();
+      } finally {
+        suppressTodayRecordAutoSync = false;
+      }
+      const feedback = document.getElementById("inbodyFeedback");
+      if (feedback) feedback.innerHTML = `<div class="notice"><h4>오늘 계산에 적용</h4><ul><li>방금 저장한 InBody 값을 오늘 계산에 적용했습니다.</li></ul></div>`;
+      return applied;
+    }
+
+    function keepPendingInbodyTodayChoice(){
+      const pending = pendingInbodyTodayApplyChoice;
+      pendingInbodyTodayApplyChoice = null;
+      const feedback = document.getElementById("inbodyFeedback");
+      if (feedback) feedback.innerHTML = `<div class="notice"><h4>InBody 저장</h4><ul><li>InBody 저장은 유지했고 오늘 계산값은 그대로 뒀습니다.</li></ul></div>`;
+      return { kept: true, record: pending?.record || null };
+    }
+
     function loadLatestInbodyToTodayInputs(){
       const latest = getLatestInbodyForTodayInput();
       if (!latest) {
         setTodayInputFeedback("warn", "불러올 InBody 기록이 없습니다.");
         return { loaded: false, reason: "no_inbody_records" };
       }
-      setTodayCalculationDraftValues(getTodayCalculationValuesFromInbody(latest), {
-        bodyStatusSource: TODAY_BODY_STATUS_SOURCE_INBODY,
-        bodyStatusSourceDate: latest.date,
-        bodyStatusLoadType: "manual",
-        markBodyStatusUserEdited: false
-      });
-      syncTodayQuickEditControls();
+      const applied = applyInbodyRecordToTodayBodyStatus(latest);
+      if (!applied.applied) return { loaded: false, reason: applied.reason };
       setTodayInputFeedback("ok", "최근 InBody 기록을 계산 기준 입력에 불러왔습니다. 저장은 하지 않았습니다.");
       suppressTodayRecordAutoSync = true;
       try {
@@ -17832,6 +17957,7 @@ Notes:
         showError("체지방 입력값을 다시 확인해 주세요.");
         return;
       }
+      const todayApplyChoice = buildInbodyTodayApplyChoice(record);
       state.inbodyRecords = Array.isArray(state.inbodyRecords) ? state.inbodyRecords : [];
       const existingIndex = state.inbodyRecords.findIndex(r => r.date === record.date);
       if (existingIndex !== -1) {
@@ -17843,7 +17969,14 @@ Notes:
       saveState();
       saveInbodyRecords();
       render();
-      if (feedback) feedback.innerHTML = `<div class="notice"><h4>InBody 저장</h4><ul><li>${escapeHtml(date)} 측정값을 저장했습니다.</li></ul></div>`;
+      if (todayApplyChoice.shouldPrompt) {
+        renderInbodyTodayApplyChoice(todayApplyChoice);
+      } else if (todayApplyChoice.sameValues) {
+        renderInbodySameTodayValueFeedback(date);
+      } else if (feedback) {
+        pendingInbodyTodayApplyChoice = null;
+        feedback.innerHTML = `<div class="notice"><h4>InBody 저장</h4><ul><li>${escapeHtml(date)} 측정값을 저장했습니다.</li></ul></div>`;
+      }
     }
 
     function getLatestInbody(){
@@ -18680,6 +18813,13 @@ Notes:
       document.getElementById("saveTodayInputWithInbodyBtn").addEventListener("click", saveTodayInputWithInbody);
       document.getElementById("viewInbodyRecordsBtn").addEventListener("click", () => openRecordsForInbodyDate());
       document.getElementById("saveInbodyBtn").addEventListener("click", saveInbodyRecord);
+      document.getElementById("inbodyFeedback")?.addEventListener("click", event => {
+        const button = event.target.closest("[data-inbody-today-apply]");
+        if (!button) return;
+        const action = button.getAttribute("data-inbody-today-apply");
+        if (action === "apply") applyPendingInbodyTodayChoice();
+        if (action === "keep") keepPendingInbodyTodayChoice();
+      });
       ["inbodyWeight","inbodyBodyFat","inbodyBodyFatPercent"].forEach(id => {
         document.getElementById(id).addEventListener("input", updateInbodyDerivedHints);
         document.getElementById(id).addEventListener("change", updateInbodyDerivedHints);
@@ -22627,9 +22767,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("C4.4 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.4"), "document title should show v6.6-C4.4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.4"), "app version badge should show v6.6-C4.4");
+        results.push(runNamedTest("C4.4.1 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.4.1"), "document title should show v6.6-C4.4.1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.4.1"), "app version badge should show v6.6-C4.4.1");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -36205,6 +36345,188 @@ Notes:
       });
     }
 
+    function runInBodySaveTodayApplyChoiceTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const baseInbody = {
+          date: today,
+          weight: 73.8,
+          skeletalMuscle: 36.2,
+          bodyFat: 10.7,
+          bodyFatPercent: 14.5,
+          warning: "",
+          isSuspicious: false
+        };
+        const differentInbody = {
+          date: today,
+          weight: 72.4,
+          skeletalMuscle: 37.4,
+          bodyFat: 9.8,
+          bodyFatPercent: 13.5,
+          warning: "",
+          isSuspicious: false
+        };
+        const directTodayValues = {
+          calculationWeight: 80.5,
+          skeletalMuscle: 38.3,
+          bodyFatMass: 12.1,
+          bodyFatPercent: 15.1
+        };
+        const resetChoiceFixture = () => {
+          setValidTodayBalanceTestInputs();
+          setActiveTab("inbody");
+          recordsState.items = normalizeRecordsCollection([{ date: today, recordMode: "weight_only", weight: 78.2, note: "공복", meals: [] }]);
+          state.inbodyRecords = [];
+          todayCalculationDrafts = {};
+          pendingInbodyTodayApplyChoice = null;
+          saveTodayCalculationDrafts();
+          render();
+        };
+        const fillInbodyForm = record => {
+          document.getElementById("inbodyDate").value = record.date;
+          document.getElementById("inbodyWeight").value = String(record.weight);
+          document.getElementById("inbodySkeletalMuscle").value = String(record.skeletalMuscle);
+          document.getElementById("inbodyBodyFat").value = String(record.bodyFat);
+          document.getElementById("inbodyBodyFatPercent").value = String(record.bodyFatPercent);
+        };
+        const saveInbodyFixture = record => {
+          fillInbodyForm(record);
+          saveInbodyRecord();
+          return {
+            choice: document.getElementById("inbodyTodayApplyChoice"),
+            feedbackText: document.getElementById("inbodyFeedback")?.textContent || ""
+          };
+        };
+        const exportPayloadText = () => JSON.stringify({
+          version: 3,
+          records: getSortedRecords(),
+          inbodyRecords: Array.isArray(state.inbodyRecords) ? [...state.inbodyRecords] : []
+        });
+
+        results.push(runNamedTest("C4.4.1 same InBody values skip Today apply choice", () => {
+          resetChoiceFixture();
+          setTodayCalculationDraftValues(getTodayCalculationValuesFromInbody(baseInbody));
+          const saved = saveInbodyFixture(baseInbody);
+          assertTest(!saved.choice, "same values should not show Today apply choice");
+          assertIncludesAll(saved.feedbackText, ["InBody를 저장했습니다", "추가 반영은 필요 없습니다"], "same values should show short no-apply-needed feedback");
+        }));
+
+        results.push(runNamedTest("C4.4.1 equivalent rounded values are treated as same", () => {
+          resetChoiceFixture();
+          setTodayCalculationDraftValues({
+            calculationWeight: 75,
+            skeletalMuscle: 36.2,
+            bodyFatMass: 10.7,
+            bodyFatPercent: 14.5
+          });
+          const saved = saveInbodyFixture({ ...baseInbody, weight: 75.0 });
+          assertTest(!saved.choice, "75 and 75.0 should be treated as the same value");
+          assertIncludesAll(saved.feedbackText, ["추가 반영은 필요 없습니다"], "rounded same values should use same feedback");
+        }));
+
+        results.push(runNamedTest("C4.4.1 different InBody values show Today apply choice UI", () => {
+          resetChoiceFixture();
+          setTodayCalculationDraftValues(directTodayValues);
+          const saved = saveInbodyFixture(differentInbody);
+          assertTest(!!saved.choice, "different values should show Today apply choice");
+          assertIncludesAll(saved.feedbackText, ["오늘 계산값도 이 InBody로 바꿀까요?", "오늘 계산에 적용", "그대로 두기"], "choice UI should use the required copy");
+        }));
+
+        results.push(runNamedTest("C4.4.1 applying saved InBody updates Today body status and recalculates", () => {
+          resetChoiceFixture();
+          setTodayCalculationDraftValues(directTodayValues);
+          const before = calculate();
+          saveInbodyFixture(differentInbody);
+          document.querySelector('[data-inbody-today-apply="apply"]')?.click();
+          const values = getEffectiveTodayCalculationValues();
+          const after = calculate();
+          assertClose(values.calculationWeight, differentInbody.weight, 0.0001, "apply should update calculation weight");
+          assertClose(values.skeletalMuscle, differentInbody.skeletalMuscle, 0.0001, "apply should update skeletal muscle");
+          assertClose(values.bodyFatMass, differentInbody.bodyFat, 0.0001, "apply should update body fat mass");
+          assertClose(values.bodyFatPercent, differentInbody.bodyFatPercent, 0.0001, "apply should update body fat percent");
+          assertTest(Number.isFinite(before.targetCal) && Number.isFinite(after.targetCal) && before.targetCal !== after.targetCal, "apply should recalculate Today result");
+          assertTest(getTodayBodyStatusSourceInfo().label === "최신 InBody에서 불러옴", "apply should update source label to latest InBody load");
+        }));
+
+        results.push(runNamedTest("C4.4.1 keeping saved InBody preserves Today body status and source", () => {
+          resetChoiceFixture();
+          setTodayCalculationDraftValues(directTodayValues);
+          const sourceBefore = getTodayBodyStatusSourceInfo().label;
+          saveInbodyFixture(differentInbody);
+          document.querySelector('[data-inbody-today-apply="keep"]')?.click();
+          const values = getEffectiveTodayCalculationValues();
+          assertClose(values.calculationWeight, directTodayValues.calculationWeight, 0.0001, "keep should preserve Today calculation weight");
+          assertClose(values.skeletalMuscle, directTodayValues.skeletalMuscle, 0.0001, "keep should preserve Today skeletal muscle");
+          assertTest(getTodayBodyStatusSourceInfo().label === sourceBefore, "keep should preserve source label");
+          assertTest(state.inbodyRecords.some(record => normalizeDateString(record.date) === today && Math.abs(Number(record.weight) - differentInbody.weight) < 0.0001), "keep should still save InBody record");
+          assertClose(getRecordByDate(today).weight, 78.2, 0.0001, "keep should not mutate Records fasting weight");
+        }));
+
+        results.push(runNamedTest("C4.4.1 direct-edit state asks before overwrite and supports explicit apply", () => {
+          resetChoiceFixture();
+          setTodayCalculationDraftValues(directTodayValues);
+          assertTest(getTodayBodyStatusSourceInfo().label === "오늘 직접 수정한 값", "fixture should start as direct-edit source");
+          saveInbodyFixture(differentInbody);
+          assertTest(!!document.getElementById("inbodyTodayApplyChoice"), "direct-edit source should still ask when values differ");
+          document.querySelector('[data-inbody-today-apply="apply"]')?.click();
+          const values = getEffectiveTodayCalculationValues();
+          assertClose(values.calculationWeight, differentInbody.weight, 0.0001, "direct-edit source can be intentionally overwritten");
+          assertTest(getTodayBodyStatusSourceInfo().label === "최신 InBody에서 불러옴", "explicit apply should switch source label");
+        }));
+
+        results.push(runNamedTest("C4.4.1 direct-edit state can keep values after saving different InBody", () => {
+          resetChoiceFixture();
+          setTodayCalculationDraftValues(directTodayValues);
+          saveInbodyFixture(differentInbody);
+          document.querySelector('[data-inbody-today-apply="keep"]')?.click();
+          const values = getEffectiveTodayCalculationValues();
+          assertClose(values.calculationWeight, directTodayValues.calculationWeight, 0.0001, "keep should preserve direct-edit calculation weight");
+          assertTest(getTodayBodyStatusSourceInfo().label === "오늘 직접 수정한 값", "keep should preserve direct-edit source label");
+        }));
+
+        results.push(runNamedTest("C4.4.1 missing InBody fields do not zero existing Today fields", () => {
+          resetChoiceFixture();
+          setTodayCalculationDraftValues(directTodayValues);
+          const applied = applyInbodyRecordToTodayBodyStatus({ date: today, weight: 71.5, skeletalMuscle: 35.2 });
+          const values = getEffectiveTodayCalculationValues();
+          assertTest(applied.applied === true, "partial InBody apply helper should apply available fields");
+          assertClose(values.calculationWeight, 71.5, 0.0001, "partial apply should update available weight");
+          assertClose(values.skeletalMuscle, 35.2, 0.0001, "partial apply should update available skeletal muscle");
+          assertClose(values.bodyFatMass, directTodayValues.bodyFatMass, 0.0001, "partial apply should not zero missing body fat mass");
+          assertClose(values.bodyFatPercent, directTodayValues.bodyFatPercent, 0.0001, "partial apply should not zero missing body fat percent");
+        }));
+
+        results.push(runNamedTest("C4.4.1 Today draft and source meta stay out of export payload", () => {
+          resetChoiceFixture();
+          setTodayCalculationDraftValues(directTodayValues);
+          saveInbodyFixture(differentInbody);
+          document.querySelector('[data-inbody-today-apply="apply"]')?.click();
+          assertExcludesAll(exportPayloadText(), ["todayCalculationDraft", "bodyStatusSource", "bodyStatusEdited", "bodyStatusLoadType", "selectedMacroBasis", "uiState"], "export payload should not expose Today draft or source meta");
+        }));
+
+        results.push(runNamedTest("C4.4.1 visible choice UI avoids internal terms", () => {
+          resetChoiceFixture();
+          setTodayCalculationDraftValues(directTodayValues);
+          saveInbodyFixture(differentInbody);
+          const visible = getRenderedBodyText();
+          assertExcludesAll(visible, ["draft", "source meta", "source of truth", "schema", "helper", "policy", "manual override", "auto fill"], "visible apply choice should avoid internal terms");
+        }));
+
+        results.push(runNamedTest("C4.4.1 previous C4.4 InBody Today fill tests keep passing", () => {
+          const fillResults = runInBodyTodayFillTests();
+          assertTest(fillResults.every(item => item.pass), "C4.4 InBody Today fill suite should still pass");
+        }));
+
+        results.push(runNamedTest("C4.4.1 previous C4.3.2 auto weekly tests keep passing", () => {
+          const weeklyResults = runRecordTodayAutoWeeklyCountTests();
+          assertTest(weeklyResults.every(item => item.pass), "C4.3.2 auto weekly suite should still pass");
+        }));
+
+        return results;
+      });
+    }
+
     function runTodayInputActionTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -36955,6 +37277,7 @@ Notes:
     window.runTodayCalculationOwnershipTests = runTodayCalculationOwnershipTests;
     window.runTodayQuickEditTests = runTodayQuickEditTests;
     window.runInBodyTodayFillTests = runInBodyTodayFillTests;
+    window.runInBodySaveTodayApplyChoiceTests = runInBodySaveTodayApplyChoiceTests;
     window.runDailyCoachRecentContextTests = runDailyCoachRecentContextTests;
     window.runGoalAwareCopyRegressionTests = runGoalAwareCopyRegressionTests;
     window.runCoachAdherenceCopySeparationTests = runCoachAdherenceCopySeparationTests;
