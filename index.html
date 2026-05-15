@@ -1,8 +1,13 @@
 <!--
-Version: 6.6-C4.5.5-A2
-Stage: 6.6-C4.5.5-A2 선택 UI 공통 스타일 정리
+Version: 6.6-C4.5.5-A3
+Stage: 6.6-C4.5.5-A3 적용 후 결과 확인 거리 단축
 Date: 2026-05-14
 Notes:
+- C4.5.5-A3 적용 후 결과 확인 거리 단축
+- Today 유산소 / 웨이트 / 몸 상태 수정 후 가까운 결과 확인 summary 보강
+- 유산소 프리셋 적용 후 같은 섹션에서 유산소 소모 / 목표 변화 확인 가능
+- Records / InBody 적용 후 Today 확인 affordance 보강
+- 산식 / score / Coach / recentContext / InBody gate / schema-import-export 변경 없음
 - C4.5.5-A2 선택 UI 공통 스타일 정리
 - InBody / Records / 유산소 프리셋 선택 UI의 공통 visual tone 정리
 - modal / 선택 panel / button hierarchy / mobile 390px 표시 기준 통일
@@ -117,7 +122,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.5.5-A2</title>
+  <title>탄단지 다이어리 v6.6-C4.5.5-A3</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -1251,6 +1256,51 @@ Notes:
       font-size:11px;
       color:var(--muted);
       line-height:1.45;
+    }
+    .today-proximity-summary{
+      grid-column:1 / -1;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+      padding:9px 10px;
+      border:1px solid color-mix(in srgb, var(--line) 78%, white 22%);
+      border-radius:12px;
+      background:color-mix(in srgb, var(--paper) 82%, white 18%);
+      color:var(--muted);
+      font-size:11px;
+      line-height:1.35;
+      min-width:0;
+    }
+    .today-proximity-pill{
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      min-width:0;
+      font-weight:900;
+      color:var(--deep);
+      overflow-wrap:anywhere;
+    }
+    .today-proximity-pill .label{
+      color:var(--muted);
+      font-weight:800;
+    }
+    .feedback-affordance{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:10px;
+    }
+    .feedback-affordance .feedback-summary{
+      color:var(--muted);
+      font-size:12px;
+      font-weight:800;
+      line-height:1.35;
+    }
+    .feedback-affordance .secondary-btn{
+      min-height:34px;
+      padding:7px 11px;
     }
     .today-quick-edit-footer{
       grid-column:1 / -1;
@@ -5834,7 +5884,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.5.5-A2</span>
+               <span class="app-version">v6.6-C4.5.5-A3</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -6159,6 +6209,7 @@ Notes:
               <label for="todayQuickBodyFat">체지방률</label>
               <input id="todayQuickBodyFat" type="number" min="1" max="75" step="0.1" inputmode="decimal">
             </div>
+            <div class="today-proximity-summary body-status-summary" id="todayBodyResultSummary" aria-live="polite"></div>
             <div class="today-quick-edit-section-title">오늘 활동</div>
             <div class="field">
               <label for="todayQuickActivityLevel">활동량</label>
@@ -6210,6 +6261,7 @@ Notes:
               <label for="todayQuickCardioIncline">유산소 경사</label>
               <input id="todayQuickCardioIncline" type="number" min="0" max="15" step="1" inputmode="decimal">
             </div>
+            <div class="today-proximity-summary exercise-result-summary" id="todayExerciseResultSummary" aria-live="polite"></div>
           </div>
           <div class="today-quick-edit-side">
             <div class="today-quick-edit-result" id="todayQuickEditResultSummary" aria-live="polite"></div>
@@ -9725,6 +9777,13 @@ Notes:
       if (tab === "settings") setQuickSettingsOpen(false);
     }
 
+    function showTodayResultFromFeedback(){
+      setActiveTab("today");
+      setTodayQuickEditOpen(true);
+      const target = document.getElementById("todayCalcSettingsCard") || document.getElementById("kpiPanel");
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
     function getDirectChildByClass(parent, className){
       return Array.from(parent?.children || []).find(child => child.classList?.contains(className)) || null;
     }
@@ -10345,6 +10404,50 @@ Notes:
       `).join("");
     }
 
+    function formatCompactKcal(value){
+      if (!Number.isFinite(Number(value))) return "-";
+      return `${Math.round(Number(value)).toLocaleString()}kcal`;
+    }
+
+    function formatCompactKg(value, digits = 1){
+      if (!Number.isFinite(Number(value))) return "-";
+      return `${Number(value).toFixed(digits)}kg`;
+    }
+
+    function renderProximityPill(label, value){
+      return `<span class="today-proximity-pill"><span class="label">${escapeHtml(label)}</span>${escapeHtml(value)}</span>`;
+    }
+
+    function renderTodayResultProximitySummaries(result, showPlaceholder){
+      const bodyHost = document.getElementById("todayBodyResultSummary");
+      const exerciseHost = document.getElementById("todayExerciseResultSummary");
+      if (showPlaceholder || !result?.isCalculable) {
+        const placeholder = renderProximityPill("결과", "입력 확인 필요");
+        if (bodyHost) bodyHost.innerHTML = placeholder;
+        if (exerciseHost) exerciseHost.innerHTML = placeholder;
+        return;
+      }
+      const s = result.s || {};
+      if (bodyHost) {
+        bodyHost.innerHTML = [
+          renderProximityPill("계산용 체중", formatCompactKg(s.weight, 1)),
+          renderProximityPill("목표 칼로리", formatCompactKcal(result.targetCal))
+        ].join("");
+      }
+      if (exerciseHost) {
+        const cardioKcal = Number(result.cardio?.kcal) || 0;
+        const cardioLabel = cardioKcal > 0 ? formatCompactKcal(cardioKcal) : "오늘 유산소 없음";
+        const weightDuration = Number(s.weightDuration) || 0;
+        const weightLabel = weightDuration > 0 ? `${Math.round(weightDuration)}분` : "오늘 웨이트 없음";
+        exerciseHost.innerHTML = [
+          renderProximityPill("유산소 소모", cardioLabel),
+          renderProximityPill("웨이트", weightLabel),
+          renderProximityPill("오늘 소비 기준", formatCompactKcal(result.totalBurn)),
+          renderProximityPill("목표 칼로리", formatCompactKcal(result.targetCal))
+        ].join("");
+      }
+    }
+
     function renderTodayQuickEditResultSummary(result, showPlaceholder){
       const host = document.getElementById("todayQuickEditResultSummary");
       if (!host) return;
@@ -10367,6 +10470,7 @@ Notes:
       renderTodayInbodyFillControls();
       renderTodayCardioPresetControls();
       renderTodayCalculationBasisSummary(result, showPlaceholder);
+      renderTodayResultProximitySummaries(result, showPlaceholder);
       renderTodayQuickEditResultSummary(result, showPlaceholder);
     }
 
@@ -10382,6 +10486,7 @@ Notes:
         syncTodayQuickEditControls();
         renderTodayInbodyFillControls();
         renderTodayCardioPresetControls();
+        renderTodayResultProximitySummaries(calculate(), false);
         renderTodayQuickEditResultSummary(calculate(), false);
       }
     }
@@ -11227,8 +11332,27 @@ Notes:
       return next;
     }
 
-    function setRecordFeedback(tone, message){
-      recordsState.feedback = message ? { tone, message } : null;
+    function getTodayResultFeedbackSummary(result = calculate(), options = {}){
+      const parts = [];
+      const weight = Number(options.weight);
+      if (Number.isFinite(weight) && weight > 0) parts.push(`계산용 체중 ${formatCompactKg(weight, 1)}`);
+      if (result?.isCalculable) parts.push(`목표 칼로리 ${formatCompactKcal(result.targetCal)}`);
+      return parts.join(" · ");
+    }
+
+    function buildTodayResultFeedbackActionHtml(action){
+      if (!action || action.type !== "today-result") return "";
+      const summary = action.summary ? `<span class="feedback-summary">${escapeHtml(action.summary)}</span>` : "";
+      return `
+        <div class="feedback-affordance">
+          ${summary}
+          <button class="secondary-btn" type="button" data-show-today-result>Today에서 확인</button>
+        </div>
+      `;
+    }
+
+    function setRecordFeedback(tone, message, options = {}){
+      recordsState.feedback = message ? { tone, message, action: options.action || null } : null;
     }
 
     function getEditableRecordMode(record){
@@ -11303,7 +11427,7 @@ Notes:
       return { changed: true, mode: nextMode, record: nextRecord };
     }
 
-    function setTodayInputFeedback(tone, messages){
+    function setTodayInputFeedback(tone, messages, options = {}){
       const host = document.getElementById("todayInputFeedback");
       if (!host) return;
       const list = Array.isArray(messages) ? messages : [messages];
@@ -11317,6 +11441,7 @@ Notes:
         <div class="${isOk ? "notice" : `warn ${tone || "warn"}`}">
           <h4>${isOk ? "입력 안내" : "입력 확인"}</h4>
           <ul>${cleanMessages.map(message => `<li>${escapeHtml(message)}</li>`).join("")}</ul>
+          ${buildTodayResultFeedbackActionHtml(options.action)}
         </div>
       `;
     }
@@ -15046,7 +15171,13 @@ Notes:
       if (!mismatch.record || !Number.isFinite(mismatch.recordWeight)) return { reverted: false, reason: "unavailable" };
       setTodayCalculationDraftField("calculationWeight", mismatch.recordWeight);
       syncTodayQuickEditControls();
-      setRecordFeedback("ok", "기록탭 체중을 입력탭에 적용했습니다.");
+      const result = calculate();
+      setRecordFeedback("ok", "기록의 공복 체중을 오늘 계산용 체중에 반영했습니다.", {
+        action: {
+          type: "today-result",
+          summary: getTodayResultFeedbackSummary(result, { weight: mismatch.recordWeight })
+        }
+      });
       render();
       return { reverted: true, weight: mismatch.recordWeight };
     }
@@ -15103,7 +15234,13 @@ Notes:
       pendingRecordWeightTodayApplyChoice = null;
       setTodayCalculationDraftField("calculationWeight", pending.savedWeight);
       syncTodayQuickEditControls();
-      setTodayInputFeedback("ok", "오늘 계산용 체중에 반영했습니다.");
+      const appliedResult = calculate();
+      const action = {
+        type: "today-result",
+        summary: getTodayResultFeedbackSummary(appliedResult, { weight: pending.savedWeight })
+      };
+      setTodayInputFeedback("ok", "오늘 계산용 체중에 반영했습니다.", { action });
+      setRecordFeedback("ok", "오늘 계산용 체중에 반영했습니다.", { action });
       suppressTodayRecordAutoSync = true;
       try {
         render();
@@ -15118,6 +15255,7 @@ Notes:
       const pending = pendingRecordWeightTodayApplyChoice;
       pendingRecordWeightTodayApplyChoice = null;
       setTodayInputFeedback("ok", "기록만 저장했습니다. 오늘 계산값은 그대로 둡니다.");
+      setRecordFeedback("ok", "기록만 저장했습니다. 오늘 계산값은 그대로 둡니다.");
       render();
       return pending ? { kept: true, pending } : { kept: false, reason: "no_pending_choice" };
     }
@@ -15243,6 +15381,12 @@ Notes:
         suppressTodayRecordAutoSync = false;
       }
       const after = calculate();
+      setTodayInputFeedback("ok", "InBody 기록을 오늘 몸 상태에 적용했습니다.", {
+        action: {
+          type: "today-result",
+          summary: getTodayResultFeedbackSummary(after, { weight: after?.s?.weight })
+        }
+      });
       return { ...applied, before, after };
     }
 
@@ -15324,7 +15468,12 @@ Notes:
         suppressTodayRecordAutoSync = false;
       }
       const feedback = document.getElementById("inbodyFeedback");
-      if (feedback) feedback.innerHTML = `<div class="notice"><h4>오늘 계산에 적용</h4><ul><li>방금 저장한 InBody 값을 오늘 계산에 적용했습니다.</li></ul></div>`;
+      if (feedback) {
+        feedback.innerHTML = `<div class="notice"><h4>오늘 계산에 적용</h4><ul><li>방금 저장한 InBody 값을 오늘 계산에 적용했습니다.</li></ul>${buildTodayResultFeedbackActionHtml({
+          type: "today-result",
+          summary: getTodayResultFeedbackSummary(calculate(), { weight: pending.record?.weight })
+        })}</div>`;
+      }
       return applied;
     }
 
@@ -15344,7 +15493,12 @@ Notes:
       }
       const applied = applyInbodyRecordToTodayBodyStatus(latest, { loadType: TODAY_BODY_STATUS_LOAD_LATEST });
       if (!applied.applied) return { loaded: false, reason: applied.reason };
-      setTodayInputFeedback("ok", "최신 InBody 기록을 오늘 몸 상태에 적용했습니다.");
+      setTodayInputFeedback("ok", "최신 InBody 기록을 오늘 몸 상태에 적용했습니다.", {
+        action: {
+          type: "today-result",
+          summary: getTodayResultFeedbackSummary(calculate(), { weight: latest.weight })
+        }
+      });
       suppressTodayRecordAutoSync = true;
       try {
         render();
@@ -18471,8 +18625,11 @@ Notes:
 
       const feedbackHost = document.getElementById("recordFeedbackHost");
       const selectedRecord = getRecordByDate(selectedDate);
+      const recordFeedbackAction = recordsState.feedback?.action
+        ? buildTodayResultFeedbackActionHtml(recordsState.feedback.action)
+        : "";
       feedbackHost.innerHTML = recordsState.feedback
-        ? `<div class="${recordsState.feedback.tone === "ok" ? "notice" : `warn ${recordsState.feedback.tone}`}"><h4>${recordsState.feedback.tone === "ok" ? "기록 안내" : "입력 확인"}</h4><ul><li>${escapeHtml(formatRecordFeedbackMessage(recordsState.feedback.message, selectedRecord))}</li></ul></div>`
+        ? `<div class="${recordsState.feedback.tone === "ok" ? "notice" : `warn ${recordsState.feedback.tone}`}"><h4>${recordsState.feedback.tone === "ok" ? "기록 안내" : "입력 확인"}</h4><ul><li>${escapeHtml(formatRecordFeedbackMessage(recordsState.feedback.message, selectedRecord))}</li></ul>${recordFeedbackAction}</div>`
         : "";
       renderTodayRecordWeightMismatchNotice();
 
@@ -20158,6 +20315,11 @@ Notes:
         if (event.target === event.currentTarget) keepPendingRecordWeightTodayApplyChoice();
       });
       document.addEventListener("click", event => {
+        const todayResultButton = event.target.closest("[data-show-today-result]");
+        if (todayResultButton) {
+          showTodayResultFromFeedback();
+          return;
+        }
         const trigger = event.target.closest("[data-open-calculation-settings]");
         if (!trigger) return;
         openCalculationSettings();
@@ -24186,9 +24348,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("C4.5.5-A2 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.5.5-A2"), "document title should show v6.6-C4.5.5-A2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.5.5-A2"), "app version badge should show v6.6-C4.5.5-A2");
+        results.push(runNamedTest("C4.5.5-A3 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.5.5-A3"), "document title should show v6.6-C4.5.5-A3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.5.5-A3"), "app version badge should show v6.6-C4.5.5-A3");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -39191,6 +39353,146 @@ Notes:
       });
     }
 
+    function runResultProximitySummaryTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const setQuickValue = (id, value) => {
+          const input = document.getElementById(id);
+          assertTest(!!input, `${id} should exist`);
+          input.value = String(value);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        };
+        const setQuickSelectValue = (id, value) => {
+          const select = document.getElementById(id);
+          assertTest(!!select, `${id} should exist`);
+          select.value = value;
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        const bodySummary = () => document.getElementById("todayBodyResultSummary")?.textContent || "";
+        const exerciseSummary = () => document.getElementById("todayExerciseResultSummary")?.textContent || "";
+
+        results.push(runNamedTest("C4.5.5-A3 Today calculation card shows nearby body and exercise summaries", () => {
+          setValidTodayBalanceTestInputs();
+          render();
+          assertTest(!!document.getElementById("todayBodyResultSummary"), "body result summary should exist");
+          assertTest(!!document.getElementById("todayExerciseResultSummary"), "exercise result summary should exist");
+          assertIncludesAll(bodySummary(), ["계산용 체중", "목표 칼로리"], "body summary should show nearby body and target result");
+          assertIncludesAll(exerciseSummary(), ["유산소 소모", "오늘 소비 기준", "목표 칼로리"], "exercise summary should show nearby cardio and target result");
+        }));
+
+        results.push(runNamedTest("C4.5.5-A3 cardio edits update nearby exercise summary", () => {
+          setValidTodayBalanceTestInputs();
+          render();
+          const before = exerciseSummary();
+          const beforeTarget = calculate().targetCal;
+          setQuickValue("todayQuickCardioDuration", "80");
+          const afterDuration = exerciseSummary();
+          assertTest(afterDuration !== before, "cardio duration edit should update nearby summary text");
+          assertTest(calculate().targetCal !== beforeTarget, "cardio duration edit should still recalculate target");
+          setQuickValue("todayQuickCardioSpeed", "6");
+          const afterSpeed = exerciseSummary();
+          assertTest(afterSpeed !== afterDuration, "cardio speed edit should update nearby summary text");
+          setQuickValue("todayQuickCardioIncline", "10");
+          assertTest(exerciseSummary() !== afterSpeed, "cardio incline edit should update nearby summary text");
+          setQuickSelectValue("todayQuickCardioType", "outdoor_run");
+          assertIncludesAll(exerciseSummary(), ["유산소 소모", "목표 칼로리"], "cardio type edit should keep nearby summary visible");
+        }));
+
+        results.push(runNamedTest("C4.5.5-A3 cardio preset apply updates nearby summary and preserves basis", () => {
+          setValidTodayBalanceTestInputs();
+          uiState.selectedMacroBasis = "activity";
+          const preset = normalizeCardioPreset({
+            id: "a3-cardio",
+            name: "A3 워킹",
+            cardioType: "treadmill_walk",
+            cardioDuration: 55,
+            cardioSpeed: 5.8,
+            cardioIncline: 7,
+            createdAt: "2026-05-15T00:00:00.000Z",
+            updatedAt: "2026-05-15T00:00:00.000Z"
+          });
+          cardioPresetState = normalizeCardioPresetState({ items: [preset], defaultId: null });
+          saveCardioPresets();
+          render();
+          const before = exerciseSummary();
+          const beforeTarget = calculate().targetCal;
+          applyCardioPresetToToday(preset.id);
+          assertTest(exerciseSummary() !== before, "preset apply should update nearby exercise summary");
+          assertTest(calculate().targetCal !== beforeTarget, "preset apply should still recalculate target");
+          assertTest(uiState.selectedMacroBasis === "activity", "preset apply should preserve selected basis");
+        }));
+
+        results.push(runNamedTest("C4.5.5-A3 weight and body edits update nearby summaries", () => {
+          setValidTodayBalanceTestInputs();
+          render();
+          const exerciseBefore = exerciseSummary();
+          setQuickValue("todayQuickWeightDuration", "100");
+          assertTest(exerciseSummary() !== exerciseBefore, "weight duration edit should update nearby exercise summary");
+          const bodyBefore = bodySummary();
+          const beforeTarget = calculate().targetCal;
+          setQuickValue("todayQuickWeight", "82");
+          assertTest(bodySummary() !== bodyBefore, "body weight edit should update nearby body summary");
+          assertTest(calculate().targetCal !== beforeTarget, "body weight edit should still recalculate target");
+        }));
+
+        results.push(runNamedTest("C4.5.5-A3 InBody record apply surfaces Today check affordance", () => {
+          setValidTodayBalanceTestInputs();
+          state.inbodyRecords = [
+            { date: today, weight: 72.4, skeletalMuscle: 35.5, bodyFat: 11.2, bodyFatPercent: 15.5, warning: "", isSuspicious: false }
+          ];
+          render();
+          const applied = applySelectedInbodyRecordToToday(0);
+          assertTest(applied.applied === true, "InBody record apply should still apply");
+          const feedback = document.getElementById("todayInputFeedback")?.textContent || "";
+          assertIncludesAll(feedback, ["Today에서 확인", "목표 칼로리"], "InBody apply feedback should include Today check affordance");
+          assertTest(!!document.querySelector("#todayInputFeedback [data-show-today-result]"), "InBody apply feedback should include Today check button");
+        }));
+
+        results.push(runNamedTest("C4.5.5-A3 Records weight apply feedback surfaces Today check affordance", () => {
+          setValidTodayBalanceTestInputs();
+          setActiveTab("records");
+          setTodayCalculationDraftValues({ calculationWeight: 70 });
+          const queued = queueRecordWeightTodayApplyChoice({ source: "record-direct", date: today, savedWeight: 77 });
+          assertTest(queued.queued === true, "record weight prompt should queue");
+          const applied = applyPendingRecordWeightTodayApplyChoice();
+          assertTest(applied.applied === true, "record weight apply should still apply");
+          const feedback = document.getElementById("recordFeedbackHost")?.textContent || "";
+          assertIncludesAll(feedback, ["Today에서 확인", "목표 칼로리"], "Records apply feedback should include Today check affordance");
+          document.querySelector("#recordFeedbackHost [data-show-today-result]")?.click();
+          assertTest(uiState.activeTab === "today", "Today check affordance should move to Today only when clicked");
+        }));
+
+        results.push(runNamedTest("C4.5.5-A3 summaries do not expose internal terms or mutate formulas", () => {
+          setValidTodayBalanceTestInputs();
+          const before = calculate();
+          renderTodayResultProximitySummaries(before, false);
+          const after = calculate();
+          ["targetCal", "protein", "carbs", "fat", "totalBurn", "weightKcal"].forEach(key => {
+            assertClose(after[key], before[key], 0.0001, `summary render should not change ${key}`);
+          });
+          assertClose(after.cardio.kcal, before.cardio.kcal, 0.0001, "summary render should not change cardio kcal");
+          const visibleText = [
+            bodySummary(),
+            exerciseSummary(),
+            document.getElementById("todayQuickEditResultSummary")?.textContent || "",
+            document.getElementById("todayInputFeedback")?.textContent || "",
+            document.getElementById("recordFeedbackHost")?.textContent || ""
+          ].join(" ");
+          assertExcludesAll(visibleText, ["cardioKcal", "totalBurn", "targetCal", "draft", "source meta", "schema", "helper", "policy", "selectedBasis", "actual"], "A3 summaries and feedback should avoid internal terms");
+        }));
+
+        results.push(runNamedTest("C4.5.5-A3 protected regressions remain exported", () => {
+          assertTest(typeof window.runChoiceUiConsistencyTests === "function", "choice UI tests should remain exported");
+          assertTest(typeof window.runKpiLabelVisualPatternTests === "function", "KPI label tests should remain exported");
+          assertTest(typeof window.runCardioPresetApplyTests === "function", "cardio preset tests should remain exported");
+          assertTest(typeof window.runRecordWeightTodayApplyPromptTests === "function", "record weight prompt tests should remain exported");
+        }));
+
+        return results;
+      });
+    }
+
     function runChoiceUiConsistencyTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -39711,6 +40013,7 @@ Notes:
     window.runInbodyCopySourceSeparationTests = runInbodyCopySourceSeparationTests;
     window.runDailyCoachInbodyGateTests = runDailyCoachInbodyGateTests;
     window.runInbodyCoachRefreshTests = runInbodyCoachRefreshTests;
+    window.runResultProximitySummaryTests = runResultProximitySummaryTests;
     window.runChoiceUiConsistencyTests = runChoiceUiConsistencyTests;
     window.runKpiLabelVisualPatternTests = runKpiLabelVisualPatternTests;
     window.runWeeklyTrainingBasisModeTests = runWeeklyTrainingBasisModeTests;
