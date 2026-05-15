@@ -1,8 +1,13 @@
 <!--
-Version: 6.6-C4.5.5-D
-Stage: 6.6-C4.5.5-D Records 상세/수정 UI 정리
+Version: 6.6-C4.7-A
+Stage: 6.6-C4.7-A 데이터 관리 + 전체 앱 백업 구조
 Date: 2026-05-14
 Notes:
+- C4.7-A 데이터 관리 섹션 추가
+- C4.7-A 전체 앱 백업 / 복원 구조 추가
+- Settings / Records / InBody / 유산소 프리셋 / Today 계산값 백업 범위 포함
+- records-only legacy import-export와 구분
+- 산식 / score / Coach / recentContext / InBody gate 변경 없음
 - C4.5.5-A3 적용 후 결과 확인 거리 단축
 - Today 유산소 / 웨이트 / 몸 상태 수정 후 가까운 결과 확인 summary 보강
 - 유산소 프리셋 적용 후 같은 섹션에서 유산소 소모 / 목표 변화 확인 가능
@@ -135,7 +140,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.5.5-D</title>
+  <title>탄단지 다이어리 v6.6-C4.7-A</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -1951,6 +1956,79 @@ Notes:
       max-width:68ch;
       font-size:11.5px;
       line-height:1.45;
+    }
+    .data-management-block{
+      border-color:color-mix(in srgb, var(--accent-strong) 26%, var(--line) 74%);
+    }
+    .data-management-actions{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:10px;
+      margin-top:10px;
+    }
+    .data-management-actions .primary-btn,
+    .data-management-actions .secondary-btn{
+      width:100%;
+      min-height:40px;
+      padding:9px 12px;
+      font-size:13px;
+    }
+    .data-management-subactions{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-top:10px;
+    }
+    .data-management-subactions .secondary-btn{
+      min-height:36px;
+      padding:7px 10px;
+      font-size:12px;
+    }
+    .data-management-feedback,
+    .data-import-preview{
+      margin-top:10px;
+    }
+    .data-import-preview-card{
+      border:1px solid color-mix(in srgb, var(--line) 78%, white 22%);
+      border-radius:14px;
+      padding:12px;
+      background:color-mix(in srgb, var(--paper) 84%, white 16%);
+    }
+    .data-import-preview-card h4{
+      margin:0 0 6px;
+      font-size:14px;
+      color:var(--deep);
+    }
+    .data-import-preview-card p{
+      margin:0 0 10px;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+    }
+    .data-import-preview-grid{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:8px;
+      margin-bottom:12px;
+    }
+    .data-import-preview-item{
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      border-radius:12px;
+      background:#fff;
+      padding:8px;
+      min-width:0;
+    }
+    .data-import-preview-item .label{
+      color:var(--muted);
+      font-size:11px;
+      font-weight:800;
+    }
+    .data-import-preview-item .value{
+      margin-top:3px;
+      color:var(--deep);
+      font-size:17px;
+      font-weight:900;
+      overflow-wrap:anywhere;
     }
     .field{
       padding:var(--field-pad);
@@ -5936,6 +6014,13 @@ Notes:
       .app-choice-actions .secondary-btn{
         width:100%;
       }
+      .data-management-actions,
+      .data-import-preview-grid{
+        grid-template-columns:1fr;
+      }
+      .data-management-subactions .secondary-btn{
+        flex:1 1 140px;
+      }
       .global-bar{
         flex-direction:column;
         align-items:stretch;
@@ -6069,7 +6154,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.5.5-D</span>
+               <span class="app-version">v6.6-C4.7-A</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -6840,17 +6925,15 @@ Notes:
 
           <div class="section-group records-backup-group">
             <div class="section-group-head">
-              <h4>백업 / 불러오기</h4>
-              <p>기록 파일을 내보내거나 백업 파일을 불러옵니다.</p>
+              <h4>백업 안내</h4>
+              <p>전체 백업과 불러오기는 기본 설정의 데이터 관리에서 진행합니다.</p>
             </div>
             <div class="section-group-body">
               <div class="inline-actions">
-                <button class="secondary-btn" id="exportJsonBtn" type="button">기록 내보내기</button>
-                <button class="secondary-btn" id="importJsonBtn" type="button">불러오기</button>
-                <input id="importJsonFile" type="file" accept="application/json" class="hidden">
+                <button class="secondary-btn" type="button" data-open-data-management>데이터 관리로 이동</button>
               </div>
               <div class="mini-note">
-                기록은 브라우저에 자동 저장되지만, 장기 기록은 파일로 저장해 두는 편이 안전합니다. 백업 파일은 브라우저 다운로드 설정에 따라 저장됩니다.
+                기록만 내보내기도 데이터 관리에서 보조 기능으로 유지합니다.
               </div>
               <div id="backupNudgeHost"></div>
             </div>
@@ -7065,6 +7148,40 @@ Notes:
                   <strong id="expertAlphaAppliedOut">75%</strong>
                 </div>
                 <div class="mini-note" id="expertAlphaAppliedNote"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="panel settings-block data-management-block" id="dataManagementPanel">
+          <h3>데이터 관리</h3>
+          <h2>전체 앱 백업</h2>
+          <div class="mini-note">다른 브라우저에서도 이어 쓸 수 있도록 기록과 설정을 함께 백업합니다.</div>
+          <div class="settings-group">
+            <div class="section-group-head">
+              <h4>전체 백업</h4>
+              <p>Settings, Records, InBody, 유산소 프리셋, Today 계산값을 함께 저장하고 복원합니다.</p>
+            </div>
+            <div class="section-group-body">
+              <div class="data-management-actions">
+                <button class="primary-btn" id="exportFullBackupBtn" type="button">전체 백업 만들기</button>
+                <button class="secondary-btn" id="importBackupBtn" type="button">백업 불러오기</button>
+                <input id="importBackupFile" type="file" accept="application/json" class="hidden">
+              </div>
+              <div class="mini-note">불러오기는 요약을 먼저 보여준 뒤 확인한 경우에만 현재 데이터를 바꿉니다.</div>
+              <div class="data-management-feedback" id="dataManagementFeedback"></div>
+              <div class="data-import-preview" id="dataImportPreviewHost"></div>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="section-group-head">
+              <h4>기록만 백업</h4>
+              <p>Records 중심 파일이 필요할 때만 사용합니다. 설정, 프리셋, Today 계산값은 포함되지 않습니다.</p>
+            </div>
+            <div class="section-group-body">
+              <div class="data-management-subactions">
+                <button class="secondary-btn" id="exportJsonBtn" type="button">기록만 내보내기</button>
+                <button class="secondary-btn" id="importJsonBtn" type="button">기록만 불러오기</button>
+                <input id="importJsonFile" type="file" accept="application/json" class="hidden">
               </div>
             </div>
           </div>
@@ -7658,6 +7775,10 @@ Notes:
       items: [],
       feedback: null
     };
+    const dataManagementState = {
+      feedback: null,
+      pendingImport: null
+    };
     const TODAY_CALCULATION_DRAFT_STORAGE_KEY = "todayCalculationDrafts.v1";
     const TODAY_CALCULATION_DRAFT_NUMBER_FIELDS = [
       "calculationWeight",
@@ -7693,6 +7814,8 @@ Notes:
     const TODAY_BODY_STATUS_LOAD_LATEST = "latest";
     const TODAY_BODY_STATUS_LOAD_RECORD = "record";
     const CARDIO_PRESET_STORAGE_KEY = "cardioPresets.v1";
+    const FULL_BACKUP_KIND = "full-backup";
+    const FULL_BACKUP_VERSION = 1;
     const TODAY_CARDIO_DRAFT_FIELDS = [
       "todayCardioType",
       "todayCardioDuration",
@@ -7836,16 +7959,20 @@ Notes:
       return normalized;
     }
 
+    function normalizeTodayCalculationDraftCollection(raw = {}){
+      return Object.entries(raw || {}).reduce((acc, [date, draft]) => {
+        const normalizedDate = normalizeDateString(date);
+        if (!normalizedDate) return acc;
+        const normalized = normalizeTodayCalculationDraft(draft);
+        if (Object.keys(normalized).length) acc[normalizedDate] = normalized;
+        return acc;
+      }, {});
+    }
+
     function loadTodayCalculationDrafts(){
       try {
         const parsed = JSON.parse(readStoredValue(TODAY_CALCULATION_DRAFT_STORAGE_KEY) || "{}");
-        todayCalculationDrafts = Object.entries(parsed || {}).reduce((acc, [date, draft]) => {
-          const normalizedDate = normalizeDateString(date);
-          if (!normalizedDate) return acc;
-          const normalized = normalizeTodayCalculationDraft(draft);
-          if (Object.keys(normalized).length) acc[normalizedDate] = normalized;
-          return acc;
-        }, {});
+        todayCalculationDrafts = normalizeTodayCalculationDraftCollection(parsed);
       } catch (_error) {
         todayCalculationDrafts = {};
       }
@@ -7930,6 +8057,203 @@ Notes:
         return;
       }
       localStorage.setItem(storageKey(CARDIO_PRESET_STORAGE_KEY), JSON.stringify(payload));
+    }
+
+    function getCurrentAppVersionLabel(){
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.7-A";
+    }
+
+    function normalizeInbodyRecordCollection(raw = []){
+      return (Array.isArray(raw) ? raw : [])
+        .filter(item => item && normalizeDateString(item.date))
+        .map(item => ({
+          date: normalizeDateString(item.date),
+          weight: Number(item.weight),
+          skeletalMuscle: Number(item.skeletalMuscle),
+          bodyFat: Number(item.bodyFat),
+          bodyFatPercent: Number(item.bodyFatPercent),
+          warning: typeof item.warning === "string" ? item.warning : "",
+          isSuspicious: item.isSuspicious === true
+        }))
+        .filter(item =>
+          Number.isFinite(item.weight) &&
+          Number.isFinite(item.skeletalMuscle) &&
+          Number.isFinite(item.bodyFat) &&
+          Number.isFinite(item.bodyFatPercent)
+        )
+        .sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    function normalizeSettingsBackup(raw = {}){
+      const safe = { ...DEFAULT_STATE };
+      if (isAllowedOption(raw.mode, Object.keys(MODE_CONFIGS))) safe.mode = raw.mode;
+      if (isAllowedOption(raw.goal, Object.keys(GOALS))) safe.goal = raw.goal;
+      safe.weight = clamp(parseNumberOrDefault(raw.weight, safe.weight), 30, 200);
+      safe.height = clamp(parseNumberOrDefault(raw.height, safe.height), 120, 230);
+      safe.age = clamp(parseNumberOrDefault(raw.age, safe.age), 10, 90);
+      safe.bodyFat = clamp(parseNumberOrDefault(raw.bodyFat, safe.bodyFat), 0, 60);
+      safe.skeletal = clamp(parseNumberOrDefault(raw.skeletal, safe.skeletal), 10, 70);
+      const bodyFatMass = normalizeTodayCalculationNumber(raw.bodyFatMass);
+      if (Number.isFinite(bodyFatMass)) safe.bodyFatMass = clamp(bodyFatMass, 0, 100);
+      if (isAllowedOption(raw.gender, ["male", "female"])) safe.gender = raw.gender;
+      if (isAllowedOption(raw.activityLevel, Object.keys(ACTIVITY_COEFF))) safe.activityLevel = raw.activityLevel;
+      if (isAllowedOption(raw.workType, Object.keys(WORK_TYPE_Y))) safe.workType = raw.workType;
+      safe.workAdj = clamp(parseNumberOrDefault(raw.workAdj, safe.workAdj), -2000, 2000);
+      safe.homeInbody = raw.homeInbody === true || raw.homeInbody === "true";
+      safe.expertLbmAlpha = clamp(parseNumberOrDefault(raw.expertLbmAlpha, safe.expertLbmAlpha), EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max);
+      safe.weeklyTrainingDays = clamp(Math.round(parseNumberOrDefault(raw.weeklyTrainingDays, safe.weeklyTrainingDays)), 0, 14);
+      safe.weeklyTrainingDaysManual = raw.weeklyTrainingDaysManual === true || raw.weeklyTrainingDaysManual === "true";
+      safe.generalAdvancedSettings = raw.generalAdvancedSettings === true || raw.generalAdvancedSettings === "true";
+      safe.generalLowDigestCarbs = raw.generalLowDigestCarbs === true || raw.generalLowDigestCarbs === "true";
+      if (isAllowedOption(raw.routinePlan, Object.keys(ROUTINE_SCHEMES))) safe.routinePlan = raw.routinePlan;
+      const routineValues = ROUTINE_SCHEMES[safe.routinePlan].items.map(item => item.value);
+      if (isAllowedOption(raw.routine, routineValues)) safe.routine = raw.routine;
+      safe.intensityOverride = clamp(parseNumberOrDefault(raw.intensityOverride, safe.intensityOverride), 0, 1);
+      safe.weightDuration = clamp(parseNumberOrDefault(raw.weightDuration, safe.weightDuration), 0, 240);
+      if (isAllowedOption(raw.cardioType, Object.keys(CARDIO_TYPES))) safe.cardioType = raw.cardioType;
+      safe.cardioDuration = clamp(parseNumberOrDefault(raw.cardioDuration, safe.cardioDuration), 0, 180);
+      safe.cardioSpeed = clamp(parseNumberOrDefault(raw.cardioSpeed, safe.cardioSpeed), 0, 25);
+      safe.cardioIncline = clamp(parseNumberOrDefault(raw.cardioIncline, safe.cardioIncline), 0, 15);
+      delete safe.inbodyRecords;
+      return safe;
+    }
+
+    function getSettingsBackupSnapshot(){
+      return normalizeSettingsBackup({
+        mode: state.mode,
+        goal: state.goal,
+        weight: ids.weight?.value,
+        height: ids.height?.value,
+        age: ids.age?.value,
+        bodyFat: ids.bodyFat?.value,
+        bodyFatMass: ids.bodyFatMass?.value,
+        skeletal: ids.skeletal?.value,
+        gender: ids.gender?.value,
+        activityLevel: ids.activityLevel?.value,
+        workType: ids.workType?.value,
+        workAdj: ids.workAdj?.value,
+        homeInbody: !!ids.homeInbody?.checked,
+        expertLbmAlpha: Number(ids.expertLbmAlpha?.value) / 100,
+        weeklyTrainingDays: ids.weeklyTrainingDays?.value,
+        weeklyTrainingDaysManual: !!state.weeklyTrainingDaysManual,
+        generalAdvancedSettings: !!ids.generalAdvancedSettings?.checked,
+        generalLowDigestCarbs: !!ids.generalLowDigestCarbs?.checked,
+        routinePlan: state.routinePlan,
+        routine: state.routine,
+        intensityOverride: ids.intensityOverride?.value,
+        weightDuration: ids.weightDuration?.value,
+        cardioType: ids.cardioType?.value,
+        cardioDuration: ids.cardioDuration?.value,
+        cardioSpeed: ids.cardioSpeed?.value,
+        cardioIncline: ids.cardioIncline?.value
+      });
+    }
+
+    function serializeCardioPresetState(){
+      return {
+        items: cardioPresetState.items.map(({ id, name, cardioType, cardioDuration, cardioSpeed, cardioIncline, createdAt, updatedAt }) => ({
+          id,
+          name,
+          cardioType,
+          cardioDuration,
+          cardioSpeed,
+          cardioIncline,
+          createdAt,
+          updatedAt
+        })),
+        defaultId: cardioPresetState.items.some(item => item.id === cardioPresetState.defaultId) ? cardioPresetState.defaultId : null
+      };
+    }
+
+    function serializeTodayCalculationDrafts(){
+      return normalizeTodayCalculationDraftCollection(todayCalculationDrafts || {});
+    }
+
+    function buildFullBackupPayload(createdAt = new Date().toISOString()){
+      return {
+        app: "macro-engine",
+        kind: FULL_BACKUP_KIND,
+        backupVersion: FULL_BACKUP_VERSION,
+        appVersion: getCurrentAppVersionLabel(),
+        createdAt,
+        data: {
+          settings: getSettingsBackupSnapshot(),
+          records: getSortedRecords(),
+          inbodyRecords: normalizeInbodyRecordCollection(state.inbodyRecords),
+          cardioPresets: serializeCardioPresetState(),
+          todayCalculationValues: serializeTodayCalculationDrafts(),
+          weeklyTrainingState: {
+            weeklyTrainingDaysManual: !!state.weeklyTrainingDaysManual,
+            weeklyTrainingDays: clamp(Math.round(Number(ids.weeklyTrainingDays?.value) || 0), 0, 14)
+          }
+        }
+      };
+    }
+
+    function normalizeWeeklyTrainingBackup(raw = {}, settings = {}){
+      const manual = raw.weeklyTrainingDaysManual === true || raw.weeklyTrainingDaysManual === "true" || settings.weeklyTrainingDaysManual === true;
+      const fallbackDays = Number.isFinite(settings.weeklyTrainingDays) ? settings.weeklyTrainingDays : DEFAULT_STATE.weeklyTrainingDays;
+      return {
+        weeklyTrainingDaysManual: manual,
+        weeklyTrainingDays: clamp(Math.round(parseNumberOrDefault(raw.weeklyTrainingDays, fallbackDays)), 0, 14)
+      };
+    }
+
+    function normalizeFullBackupPayload(parsed){
+      if (!parsed || parsed.app !== "macro-engine" || parsed.kind !== FULL_BACKUP_KIND || Number(parsed.backupVersion) !== FULL_BACKUP_VERSION || !parsed.data) {
+        throw new Error("unsupported_full_backup");
+      }
+      const settings = normalizeSettingsBackup(parsed.data.settings || {});
+      return {
+        settings,
+        records: normalizeRecordsCollection(parsed.data.records || []),
+        inbodyRecords: normalizeInbodyRecordCollection(parsed.data.inbodyRecords || []),
+        cardioPresets: normalizeCardioPresetState(parsed.data.cardioPresets || {}),
+        todayCalculationValues: normalizeTodayCalculationDraftCollection(parsed.data.todayCalculationValues || {}),
+        weeklyTrainingState: normalizeWeeklyTrainingBackup(parsed.data.weeklyTrainingState || {}, settings),
+        appVersion: typeof parsed.appVersion === "string" ? parsed.appVersion : "",
+        createdAt: typeof parsed.createdAt === "string" ? parsed.createdAt : ""
+      };
+    }
+
+    function getBackupImportSummary(type, data){
+      const records = Array.isArray(data.records) ? data.records : [];
+      const mealCount = records.reduce((sum, record) => sum + (Array.isArray(record.meals) ? record.meals.length : 0), 0);
+      const inbodyCount = Array.isArray(data.inbodyRecords) ? data.inbodyRecords.length : 0;
+      const presetCount = data.cardioPresets?.items?.length || 0;
+      const todayCount = Object.keys(data.todayCalculationValues || {}).length;
+      return {
+        type,
+        recordDays: records.length,
+        meals: mealCount,
+        inbody: inbodyCount,
+        presets: presetCount,
+        settingsIncluded: type === "full",
+        todayIncluded: type === "full" && todayCount > 0,
+        todayCount
+      };
+    }
+
+    function detectBackupImportPayload(parsed){
+      if (parsed && parsed.app === "macro-engine" && parsed.kind === FULL_BACKUP_KIND) {
+        const data = normalizeFullBackupPayload(parsed);
+        return { type: "full", data, summary: getBackupImportSummary("full", data) };
+      }
+      const records = parseImportedRecordsPayload(parsed);
+      const hasInbodyRecords = Array.isArray(parsed?.inbodyRecords);
+      const inbodyRecords = hasInbodyRecords ? normalizeInbodyRecordCollection(parsed.inbodyRecords) : [];
+      const data = { records, inbodyRecords, hasInbodyRecords };
+      return { type: "records-only", data, summary: getBackupImportSummary("records-only", data) };
+    }
+
+    function downloadJsonFile(payload, filename){
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
     }
 
     function getCardioPresetById(id){
@@ -8299,6 +8623,8 @@ Notes:
       uiState.selectedMacroBasis = "guide";
       recordsState.items = [];
       recordsState.feedback = null;
+      dataManagementState.feedback = null;
+      dataManagementState.pendingImport = null;
       state.weeklyTrainingDaysManual = false;
       state.weeklyTrainingDays = getRecentWeightTrainingDayCount();
       applyStateToInputs();
@@ -10148,6 +10474,19 @@ Notes:
       window.setTimeout(() => panel.classList.remove("is-jump-highlight"), 1300);
     }
 
+    function openDataManagement(){
+      setQuickSettingsOpen(false);
+      setTodayQuickEditOpen(false);
+      setActiveTab("settings");
+      saveState();
+      renderDataManagementPanel();
+      const panel = document.getElementById("dataManagementPanel");
+      if (!panel) return;
+      panel.scrollIntoView({ behavior: "smooth", block: "start" });
+      panel.classList.add("is-jump-highlight");
+      window.setTimeout(() => panel.classList.remove("is-jump-highlight"), 1300);
+    }
+
     function highlightJumpTarget(element){
       if (!element) return;
       element.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -11540,6 +11879,145 @@ Notes:
 
     function setRecordFeedback(tone, message, options = {}){
       recordsState.feedback = message ? { tone, message, action: options.action || null } : null;
+    }
+
+    function setDataManagementFeedback(tone, message){
+      dataManagementState.feedback = message ? { tone, message } : null;
+    }
+
+    function formatDataManagementFeedbackHtml(){
+      const feedback = dataManagementState.feedback;
+      if (!feedback) return "";
+      const isOk = feedback.tone === "ok";
+      return `<div class="${isOk ? "notice" : `warn ${feedback.tone || "warn"}`}"><h4>${isOk ? "데이터 관리" : "확인 필요"}</h4><ul><li>${escapeHtml(feedback.message)}</li></ul></div>`;
+    }
+
+    function buildDataImportPreviewGrid(summary){
+      const rows = [
+        ["기록 날짜", `${summary.recordDays}일`],
+        ["식사 기록", `${summary.meals}개`],
+        ["InBody", `${summary.inbody}개`],
+        ["유산소 프리셋", summary.settingsIncluded ? `${summary.presets}개` : "포함 안 됨"],
+        ["설정", summary.settingsIncluded ? "포함" : "포함 안 됨"],
+        ["Today 계산값", summary.todayIncluded ? `${summary.todayCount}일` : "포함 안 됨"]
+      ];
+      return rows.map(([label, value]) => `
+        <div class="data-import-preview-item">
+          <div class="label">${escapeHtml(label)}</div>
+          <div class="value">${escapeHtml(value)}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderDataManagementPanel(){
+      const feedbackHost = document.getElementById("dataManagementFeedback");
+      const previewHost = document.getElementById("dataImportPreviewHost");
+      if (feedbackHost) feedbackHost.innerHTML = formatDataManagementFeedbackHtml();
+      if (!previewHost) return;
+      const pending = dataManagementState.pendingImport;
+      if (!pending) {
+        previewHost.innerHTML = "";
+        return;
+      }
+      const title = pending.type === "full" ? "전체 백업 불러오기" : "기록 중심 파일 불러오기";
+      const desc = pending.type === "full"
+        ? "아래 내용으로 현재 브라우저 데이터를 복원합니다. 적용 전 현재 데이터도 백업해두는 편이 안전합니다."
+        : "이 파일은 기록 중심 백업이라 설정, 유산소 프리셋, Today 계산값은 포함되지 않았습니다.";
+      previewHost.innerHTML = `
+        <div class="data-import-preview-card">
+          <h4>${escapeHtml(title)}</h4>
+          <p>${escapeHtml(desc)}</p>
+          <div class="data-import-preview-grid">${buildDataImportPreviewGrid(pending.summary)}</div>
+          <div class="app-choice-actions">
+            <button class="primary-btn" type="button" data-confirm-data-import>복원하기</button>
+            <button class="secondary-btn" type="button" data-cancel-data-import>그대로 두기</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function exportFullBackupJson(){
+      const payload = buildFullBackupPayload();
+      downloadJsonFile(payload, `macro-engine-full-backup-${getTodayDateString()}.json`);
+      setDataManagementFeedback("ok", "전체 백업 파일을 만들었습니다.");
+      renderDataManagementPanel();
+    }
+
+    function queueDataManagementImport(parsed){
+      const detected = detectBackupImportPayload(parsed);
+      dataManagementState.pendingImport = detected;
+      setDataManagementFeedback("ok", detected.type === "full" ? "전체 백업 내용을 확인해 주세요." : "기록 중심 파일입니다. 설정과 Today 계산값은 바꾸지 않습니다.");
+      renderDataManagementPanel();
+      return detected;
+    }
+
+    function readDataManagementBackupFile(file){
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(String(reader.result || ""));
+          queueDataManagementImport(parsed);
+        } catch (_error) {
+          dataManagementState.pendingImport = null;
+          setDataManagementFeedback("bad", "백업 파일 형식을 확인해 주세요. 현재 데이터는 변경하지 않았습니다.");
+          renderDataManagementPanel();
+        }
+      };
+      reader.readAsText(file, "utf-8");
+    }
+
+    function applyRecordsOnlyImportData(data, message = "기록 중심 파일을 불러왔습니다. 설정과 Today 계산값은 그대로 유지했습니다."){
+      recordsState.items = normalizeRecordsCollection(data.records || []);
+      if (data.hasInbodyRecords === true) {
+        state.inbodyRecords = normalizeInbodyRecordCollection(data.inbodyRecords);
+        saveInbodyRecords();
+      }
+      syncRecordInputsForDate(getSelectedRecordDate());
+      setRecordFeedback("ok", message);
+      setDataManagementFeedback("ok", message);
+      saveState();
+      render();
+    }
+
+    function restoreFullBackupData(data){
+      const settings = normalizeSettingsBackup(data.settings || {});
+      recordsState.items = normalizeRecordsCollection(data.records || []);
+      state.inbodyRecords = normalizeInbodyRecordCollection(data.inbodyRecords || []);
+      cardioPresetState = normalizeCardioPresetState(data.cardioPresets || {});
+      todayCalculationDrafts = normalizeTodayCalculationDraftCollection(data.todayCalculationValues || {});
+      Object.assign(state, settings, { renderedRoutineKey: "", renderedGoalKey: "" });
+      const weekly = normalizeWeeklyTrainingBackup(data.weeklyTrainingState || {}, settings);
+      state.weeklyTrainingDaysManual = weekly.weeklyTrainingDaysManual;
+      state.weeklyTrainingDays = state.weeklyTrainingDaysManual ? weekly.weeklyTrainingDays : getRecentWeightTrainingDayCount();
+      applyStateToInputs();
+      if (Number.isFinite(settings.bodyFatMass) && ids.bodyFatMass) ids.bodyFatMass.value = formatInputNumber(settings.bodyFatMass, 2);
+      normalizeInbodyRecords();
+      saveState();
+      saveInbodyRecords();
+      saveCardioPresets();
+      saveTodayCalculationDrafts();
+      syncRecordInputsForDate(getSelectedRecordDate());
+      recordsState.feedback = null;
+      dataManagementState.pendingImport = null;
+      setDataManagementFeedback("ok", "전체 백업을 복원했습니다.");
+      render();
+    }
+
+    function confirmDataManagementImport(){
+      const pending = dataManagementState.pendingImport;
+      if (!pending) return;
+      if (pending.type === "full") {
+        restoreFullBackupData(pending.data);
+        return;
+      }
+      dataManagementState.pendingImport = null;
+      applyRecordsOnlyImportData(pending.data);
+    }
+
+    function cancelDataManagementImport(){
+      dataManagementState.pendingImport = null;
+      setDataManagementFeedback("ok", "불러오기를 취소했습니다. 현재 데이터는 그대로 유지했습니다.");
+      renderDataManagementPanel();
     }
 
     function getEditableRecordMode(record){
@@ -15968,14 +16446,9 @@ Notes:
         records: getSortedRecords(),
         inbodyRecords: Array.isArray(state.inbodyRecords) ? [...state.inbodyRecords] : []
       };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `runstep-records-backup-${getTodayDateString()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadJsonFile(payload, `runstep-records-backup-${getTodayDateString()}.json`);
       localStorage.setItem(storageKey("lastBackupAt"), new Date().toISOString());
+      setDataManagementFeedback("ok", "기록 중심 파일을 만들었습니다. 설정과 Today 계산값은 포함되지 않습니다.");
       render();
     }
 
@@ -15990,15 +16463,12 @@ Notes:
       reader.onload = () => {
         try {
           const parsed = JSON.parse(String(reader.result || ""));
-          recordsState.items = parseImportedRecordsPayload(parsed);
-          if (Array.isArray(parsed?.inbodyRecords)) {
-            state.inbodyRecords = parsed.inbodyRecords;
-            normalizeInbodyRecords();
-            saveInbodyRecords();
-          }
-          syncRecordInputsForDate(getSelectedRecordDate());
-          setRecordFeedback("ok", "JSON 기록을 불러왔습니다.");
-          render();
+          const records = parseImportedRecordsPayload(parsed);
+          applyRecordsOnlyImportData({
+            records,
+            inbodyRecords: Array.isArray(parsed?.inbodyRecords) ? parsed.inbodyRecords : [],
+            hasInbodyRecords: Array.isArray(parsed?.inbodyRecords)
+          }, "기록 중심 파일을 불러왔습니다. 설정과 Today 계산값은 그대로 유지했습니다.");
         } catch (_error) {
           setRecordFeedback("bad", "JSON 형식이 올바르지 않습니다.");
           render();
@@ -18826,7 +19296,7 @@ Notes:
       const nudgeHost = document.getElementById("backupNudgeHost");
       const needsNudge = sorted.length >= 3 && (!lastBackupAt || ((Date.now() - new Date(lastBackupAt).getTime()) / 86400000) >= 7);
       nudgeHost.innerHTML = needsNudge
-        ? `<div class="notice"><h4>백업 권장</h4><ul><li>최근 기록이 쌓였습니다. 기록 내보내기로 한 번 백업해 두면 기록 유실 위험을 줄일 수 있습니다.</li></ul></div>`
+        ? `<div class="notice"><h4>백업 권장</h4><ul><li>최근 기록이 쌓였습니다. 기본 설정의 데이터 관리에서 전체 백업을 만들어 두면 기록과 설정을 함께 보관할 수 있습니다.</li></ul></div>`
         : "";
 
       renderMealRecordSection(selectedDate);
@@ -20304,6 +20774,7 @@ Notes:
       renderRecordsPanel();
       renderWeeklyPanel(result);
       renderInbodyPanel();
+      renderDataManagementPanel();
       renderRecordWeightTodayApplyChoice();
       setActiveTab(uiState.activeTab);
       saveState();
@@ -20507,6 +20978,11 @@ Notes:
           showTodayResultFromFeedback();
           return;
         }
+        const dataManagementButton = event.target.closest("[data-open-data-management]");
+        if (dataManagementButton) {
+          openDataManagement();
+          return;
+        }
         const trigger = event.target.closest("[data-open-calculation-settings]");
         if (!trigger) return;
         openCalculationSettings();
@@ -20594,6 +21070,22 @@ Notes:
       document.getElementById("saveRecordBtn").addEventListener("click", saveRecord);
       document.getElementById("recordInbodyCreateBtn").addEventListener("click", () => openInbodyInputForDate(getSelectedRecordDate()));
       document.getElementById("saveMealBtn").addEventListener("click", saveMealEntry);
+      document.getElementById("exportFullBackupBtn")?.addEventListener("click", exportFullBackupJson);
+      document.getElementById("importBackupBtn")?.addEventListener("click", () => document.getElementById("importBackupFile")?.click());
+      document.getElementById("importBackupFile")?.addEventListener("change", event => {
+        const file = event.target.files?.[0];
+        if (file) readDataManagementBackupFile(file);
+        event.target.value = "";
+      });
+      document.getElementById("dataImportPreviewHost")?.addEventListener("click", event => {
+        if (event.target.closest("[data-confirm-data-import]")) {
+          confirmDataManagementImport();
+          return;
+        }
+        if (event.target.closest("[data-cancel-data-import]")) {
+          cancelDataManagementImport();
+        }
+      });
       document.getElementById("exportJsonBtn").addEventListener("click", exportRecordsJson);
       document.getElementById("importJsonBtn").addEventListener("click", () => ids.importJsonFile.click());
       ids.importJsonFile.addEventListener("change", event => {
@@ -20712,6 +21204,7 @@ Notes:
         recordsDetailDraft: uiState.recordsDetailDraft ? JSON.stringify(uiState.recordsDetailDraft) : null,
         pendingRecordWeightTodayApplyChoice: pendingRecordWeightTodayApplyChoice ? JSON.stringify(pendingRecordWeightTodayApplyChoice) : null,
         pendingInbodyTodayApplyChoice: pendingInbodyTodayApplyChoice ? JSON.stringify(pendingInbodyTodayApplyChoice) : null,
+        dataManagementState: JSON.stringify(dataManagementState || {}),
         cardioPresetState: JSON.stringify(cardioPresetState || normalizeCardioPresetState()),
         cardioPresetDialogOpen,
         todayCalculationDrafts: JSON.stringify(todayCalculationDrafts || {}),
@@ -20767,6 +21260,9 @@ Notes:
         uiState.recordsDetailDraft = snapshot.recordsDetailDraft ? JSON.parse(snapshot.recordsDetailDraft) : null;
         pendingRecordWeightTodayApplyChoice = snapshot.pendingRecordWeightTodayApplyChoice ? JSON.parse(snapshot.pendingRecordWeightTodayApplyChoice) : null;
         pendingInbodyTodayApplyChoice = snapshot.pendingInbodyTodayApplyChoice ? JSON.parse(snapshot.pendingInbodyTodayApplyChoice) : null;
+        const dataManagementSnapshot = JSON.parse(snapshot.dataManagementState || "{}");
+        dataManagementState.feedback = dataManagementSnapshot.feedback || null;
+        dataManagementState.pendingImport = dataManagementSnapshot.pendingImport || null;
         cardioPresetState = normalizeCardioPresetState(JSON.parse(snapshot.cardioPresetState || "{}"));
         cardioPresetDialogOpen = !!snapshot.cardioPresetDialogOpen;
         todayCalculationDrafts = JSON.parse(snapshot.todayCalculationDrafts || "{}");
@@ -24185,16 +24681,16 @@ Notes:
           assertTest(document.querySelector("[data-record-detail-date='2026-05-01']"), "edit button should keep the detail open");
         }));
 
-        results.push(runNamedTest("records archive keeps direct input backup and meal edit controls", () => {
+        results.push(runNamedTest("records archive keeps direct input guide and meal edit controls", () => {
           renderRecordsPanel();
           const panel = document.getElementById("recordsEditPanel");
           panel.open = false;
           assertTest(panel.tagName === "DETAILS" && panel.open === false, "Records direct edit panel should be collapsed by default");
-          assertIncludesAll(panel.textContent || "", ["기록 직접 관리", "날짜 직접 입력 / 백업", "백업 / 불러오기"], "Records should keep direct management and backup sections");
+          assertIncludesAll(panel.textContent || "", ["기록 직접 관리", "날짜 직접 입력 / 백업", "백업 안내", "데이터 관리로 이동"], "Records should keep direct management and data management guide");
           panel.open = true;
           assertTest(!!document.getElementById("saveRecordBtn"), "record save button should remain");
           assertTest(!!document.getElementById("saveMealBtn"), "meal save button should remain");
-          assertTest(!!document.getElementById("exportJsonBtn") && !!document.getElementById("importJsonBtn"), "export/import buttons should remain");
+          assertTest(document.getElementById("dataManagementPanel").contains(document.getElementById("exportJsonBtn")), "records-only export should move to Data Management");
         }));
 
         results.push(runNamedTest("records archive user-facing copy avoids internal terms", () => {
@@ -24535,9 +25031,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("C4.5.5-D version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.5.5-D"), "document title should show v6.6-C4.5.5-D");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.5.5-D"), "app version badge should show v6.6-C4.5.5-D");
+        results.push(runNamedTest("C4.7-A version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.7-A"), "document title should show v6.6-C4.7-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-A"), "app version badge should show v6.6-C4.7-A");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -24673,7 +25169,7 @@ Notes:
           editPanel.open = false;
           assertTest(!!archivePanel && !!editPanel, "Records archive and direct edit panels should exist");
           assertTest(editPanel.tagName === "DETAILS" && editPanel.open === false, "Records direct input should be a collapsed details panel");
-          assertIncludesAll(editPanel.textContent || "", ["기록 직접 관리", "날짜 직접 입력 / 백업", "기본 기록 직접 입력", "식사 직접 입력", "선택 날짜 식사 확인", "백업 / 불러오기"], "Records collapsed summary and backup copy should remain");
+          assertIncludesAll(editPanel.textContent || "", ["기록 직접 관리", "날짜 직접 입력 / 백업", "기본 기록 직접 입력", "식사 직접 입력", "선택 날짜 식사 확인", "백업 안내", "데이터 관리로 이동"], "Records collapsed summary and data management guide should remain");
           assertExcludesAll(editPanel.textContent || "", ["선택 날짜 직접 수정", "펼쳐서 수정하기"], "Records fallback panel should not look like the primary edit action");
           assertTest(getComputedStyle(editPanel.querySelector("summary"), "::after").content.includes("관리 열기"), "Records collapsed summary action should read as management");
           assertTest(!!(archivePanel.compareDocumentPosition(editPanel) & Node.DOCUMENT_POSITION_FOLLOWING), "Records archive should appear before the direct edit panel");
@@ -24683,7 +25179,7 @@ Notes:
           assertTest(editPanel.contains(document.getElementById("recordWeight")), "record weight input should remain inside the expandable panel");
           assertTest(editPanel.contains(document.getElementById("saveRecordBtn")), "record save button should remain inside the expandable panel");
           assertTest(editPanel.contains(document.getElementById("saveMealBtn")), "meal save button should remain inside the expandable panel");
-          assertTest(editPanel.contains(document.getElementById("exportJsonBtn")) && editPanel.contains(document.getElementById("importJsonBtn")), "backup buttons should remain inside the expandable panel");
+          assertTest(document.getElementById("dataManagementPanel").contains(document.getElementById("exportJsonBtn")) && document.getElementById("dataManagementPanel").contains(document.getElementById("importJsonBtn")), "records-only backup buttons should live in Data Management");
           editPanel.open = false;
         }));
 
@@ -26082,9 +26578,9 @@ Notes:
         };
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
-        results.push(runNamedTest("C4.5.5-D version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.5.5-D"), "document title should show C4.5.5-D");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.5.5-D"), "app version badge should show C4.5.5-D");
+        results.push(runNamedTest("C4.7-A version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.7-A"), "document title should show C4.7-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-A"), "app version badge should show C4.7-A");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -26114,19 +26610,7 @@ Notes:
           assertExcludesAll(reopened.textContent || "", ["최근 기록 기준", "직접 입력"], "record detail basis edit should not get Today weekly basis segmented UI");
         }));
 
-        results.push(runNamedTest("C4.5.5-D Records detail exercise hotfix paths remain intact", () => {
-          const suite = runRecordEditCalculationBasisTests();
-          assertTest(suite.filter(result => !result.pass).length === 0, "record edit calculation basis suite should keep passing");
-          const weeklySuite = runRecordTodayAutoWeeklyCountTests();
-          assertTest(weeklySuite.filter(result => !result.pass).length === 0, "today auto weekly count suite should keep passing");
-        }));
-
-        results.push(runNamedTest("C4.5.5-D Records weight prompt and mismatch notice remain intact", () => {
-          const suite = runRecordWeightTodayApplyPromptTests();
-          assertTest(suite.filter(result => !result.pass).length === 0, "record weight Today apply prompt suite should keep passing");
-        }));
-
-        results.push(runNamedTest("C4.5.5-D Records direct management and backup stay in place", () => {
+        results.push(runNamedTest("C4.7-A Records direct management guides to Data Management", () => {
           setActiveTab("records");
           renderRecordsPanel();
           const editPanel = document.getElementById("recordsEditPanel");
@@ -26135,7 +26619,8 @@ Notes:
           assertTest(editPanel.contains(ids.recordDate), "direct management should keep record date input");
           assertTest(editPanel.contains(document.getElementById("saveRecordBtn")), "direct management should keep record save button");
           assertTest(editPanel.contains(document.getElementById("saveMealBtn")), "direct management should keep meal save button");
-          assertTest(editPanel.contains(document.getElementById("exportJsonBtn")) && editPanel.contains(document.getElementById("importJsonBtn")), "backup/import buttons should stay in Records direct management");
+          assertIncludesAll(editPanel.textContent || "", ["백업 안내", "데이터 관리로 이동"], "Records direct management should guide backup to Settings data management");
+          assertTest(document.getElementById("dataManagementPanel").contains(document.getElementById("exportJsonBtn")) && document.getElementById("dataManagementPanel").contains(document.getElementById("importJsonBtn")), "records-only backup/import buttons should live in Data Management");
           const group = editPanel.querySelector(".section-group");
           assertTest(px(getComputedStyle(group).paddingTop) <= 13, "Records direct management groups should be compact");
         }));
@@ -26149,16 +26634,243 @@ Notes:
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "Records detail density should not change recent windows");
         }));
 
-        results.push(runNamedTest("C4.5.5-D prior Stitch polish suites keep passing", () => {
-          const suites = [
-            runSettingsDensityUiTests(),
-            runTodayHeaderActionDensityTests(),
-            runResultProximitySummaryTests(),
-            runChoiceUiConsistencyTests(),
-            runKpiLabelVisualPatternTests()
-          ];
-          const failed = suites.flat().filter(result => !result.pass);
-          assertTest(failed.length === 0, "C4.5.5-C/B/A3/A2/A1 suites should keep passing");
+        results.push(runNamedTest("C4.7-A related Records regression suites stay exported", () => {
+          assertTest(typeof window.runRecordEditCalculationBasisTests === "function", "record edit calculation basis suite should remain exported");
+          assertTest(typeof window.runRecordTodayAutoWeeklyCountTests === "function", "auto weekly count suite should remain exported");
+          assertTest(typeof window.runRecordWeightTodayApplyPromptTests === "function", "record weight Today apply prompt suite should remain exported");
+        }));
+
+        return results;
+      });
+    }
+
+    function runDataManagementBackupTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const olderDate = "2026-05-10";
+        const preset = {
+          id: "cardio-preset-backup-test",
+          name: "Morning Walk",
+          cardioType: "treadmill_walk",
+          cardioDuration: 35,
+          cardioSpeed: 5.5,
+          cardioIncline: 7,
+          createdAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-02T00:00:00.000Z"
+        };
+        const draft = normalizeTodayCalculationDraft({
+          calculationWeight: 76.4,
+          skeletalMuscle: 35.8,
+          bodyFatMass: 12.4,
+          bodyFatPercent: 16.2,
+          todayActivityLevel: "active",
+          todayWorkType: "office",
+          todayRoutineSession: "PUSH",
+          todayWeightDuration: 70,
+          todayCardioType: "treadmill_walk",
+          todayCardioDuration: 35,
+          todayCardioSpeed: 5.5,
+          todayCardioIncline: 7,
+          bodyStatusSource: TODAY_BODY_STATUS_SOURCE_USER,
+          bodyStatusEdited: true,
+          cardioSource: TODAY_CARDIO_SOURCE_PRESET,
+          cardioPresetId: preset.id,
+          cardioPresetName: preset.name
+        });
+
+        const seedFullBackupFixture = () => {
+          setValidTodayBalanceTestInputs();
+          state.mode = "athlete";
+          state.goal = "diet";
+          state.weeklyTrainingDaysManual = true;
+          state.weeklyTrainingDays = 5;
+          ids.height.value = "181";
+          ids.gender.value = "female";
+          ids.age.value = "29";
+          ids.activityLevel.value = "active";
+          ids.workType.value = "office";
+          ids.weeklyTrainingDays.value = "5";
+          recordsState.items = normalizeRecordsCollection([normalizeRecord({
+            date: today,
+            recordMode: "detailed",
+            weight: 76.2,
+            note: "backup test note",
+            adherencePercent: 91,
+            goalSnapshot: buildGoalSnapshotFromCurrentState(calculate(), "backup_test"),
+            meals: [{
+              id: "meal-backup-test",
+              mealLabel: "아침",
+              carbs: 55,
+              protein: 32,
+              fat: 14,
+              alcoholKcal: 0,
+              otherKcal: 80,
+              memo: "backup meal",
+              createdAt: `${today}T08:00:00.000Z`
+            }]
+          })]);
+          state.inbodyRecords = normalizeInbodyRecordCollection([{
+            date: today,
+            weight: 76.1,
+            skeletalMuscle: 35.6,
+            bodyFat: 12.3,
+            bodyFatPercent: 16.1
+          }]);
+          cardioPresetState = normalizeCardioPresetState({
+            items: [preset],
+            defaultId: preset.id
+          });
+          todayCalculationDrafts = { [today]: draft };
+          saveTodayCalculationDrafts();
+          saveCardioPresets();
+          saveState();
+        };
+
+        const clearAppDataForRestore = () => {
+          recordsState.items = [];
+          state.inbodyRecords = [];
+          cardioPresetState = normalizeCardioPresetState();
+          todayCalculationDrafts = {};
+          state.mode = "general";
+          state.goal = "lean_bulk";
+          state.weeklyTrainingDaysManual = false;
+          state.weeklyTrainingDays = 0;
+          ids.height.value = "160";
+          ids.gender.value = "male";
+          ids.age.value = "40";
+          ids.activityLevel.value = "sedentary";
+          ids.workType.value = "desk";
+          ids.weeklyTrainingDays.value = "0";
+          saveTodayCalculationDrafts();
+          saveCardioPresets();
+          saveState();
+        };
+
+        const legacyRecordsPayload = () => ({
+          version: 3,
+          exportedAt: "2026-05-15T00:00:00.000Z",
+          records: [normalizeRecord({
+            date: olderDate,
+            recordMode: "weight_only",
+            weight: 71.5,
+            note: "records only import",
+            meals: []
+          })]
+        });
+
+        results.push(runNamedTest("C4.7-A Data Management UI is present in Settings", () => {
+          setActiveTab("settings");
+          render();
+          const panel = document.getElementById("dataManagementPanel");
+          assertTest(!!panel, "Data Management panel should exist");
+          assertIncludesAll(panel.textContent || "", ["데이터 관리", "전체 백업 만들기", "백업 불러오기", "기록만 내보내기", "기록만 불러오기"], "Data Management should expose full backup and records-only actions");
+          assertTest(document.getElementById("dataManagementPanel").contains(document.getElementById("exportJsonBtn")), "records-only export should move to Data Management");
+          assertTest(document.getElementById("dataManagementPanel").contains(document.getElementById("importJsonBtn")), "records-only import should move to Data Management");
+        }));
+
+        results.push(runNamedTest("C4.7-A full backup payload includes app data and excludes temporary UI state", () => {
+          seedFullBackupFixture();
+          dataManagementState.pendingImport = { type: "full", summary: { recordDays: 1 }, data: {} };
+          const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
+          assertTest(payload.app === "macro-engine", "full backup should identify the app");
+          assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
+          assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
+          assertTest(payload.appVersion === "v6.6-C4.7-A", "full backup should include current app version");
+          assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
+          assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
+          assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
+          assertTest(payload.data.inbodyRecords.length === 1, "full backup should include InBody records");
+          assertTest(payload.data.cardioPresets.items.length === 1 && payload.data.cardioPresets.defaultId === preset.id, "full backup should include cardio presets");
+          assertTest(!!payload.data.todayCalculationValues[today], "full backup should include Today calculation values");
+          assertTest(payload.data.weeklyTrainingState.weeklyTrainingDaysManual === true && payload.data.weeklyTrainingState.weeklyTrainingDays === 5, "full backup should include weekly training state");
+          assertExcludesAll(JSON.stringify(payload), ["pendingRecordWeightTodayApplyChoice", "pendingInbodyTodayApplyChoice", "dataManagementState", "modalOpen", "selectedMacroBasis"], "full backup should exclude temporary UI state");
+        }));
+
+        results.push(runNamedTest("C4.7-A full backup restore brings back Settings Records InBody presets and Today values", () => {
+          seedFullBackupFixture();
+          const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
+          clearAppDataForRestore();
+          const detected = detectBackupImportPayload(payload);
+          assertTest(detected.type === "full", "full backup should be detected");
+          restoreFullBackupData(detected.data);
+          assertTest(state.mode === "athlete" && state.goal === "diet", "restore should recover mode and goal");
+          assertTest(ids.height.value === "181" && ids.gender.value === "female", "restore should recover profile inputs");
+          assertTest(recordsState.items.length === 1 && recordsState.items[0].meals.length === 1, "restore should recover records and meals");
+          assertTest(state.inbodyRecords.length === 1, "restore should recover InBody records");
+          assertTest(cardioPresetState.items.length === 1 && cardioPresetState.defaultId === preset.id, "restore should recover cardio presets");
+          assertClose(todayCalculationDrafts[today].calculationWeight, draft.calculationWeight, 0.0001, "restore should recover Today calculation weight");
+          assertTest(state.weeklyTrainingDaysManual === true && ids.weeklyTrainingDays.value === "5", "restore should recover weekly training state");
+          const result = calculate();
+          assertTest(Number.isFinite(result.targetCal) && Number.isFinite(result.protein), "restore should leave calculate usable");
+        }));
+
+        results.push(runNamedTest("C4.7-A records-only import preserves Settings presets and Today values", () => {
+          seedFullBackupFixture();
+          const before = {
+            height: ids.height.value,
+            goal: state.goal,
+            presetCount: cardioPresetState.items.length,
+            todayDraft: JSON.stringify(todayCalculationDrafts[today]),
+            inbodyCount: state.inbodyRecords.length
+          };
+          const detected = detectBackupImportPayload(legacyRecordsPayload());
+          assertTest(detected.type === "records-only", "legacy records payload should be detected as records-only");
+          applyRecordsOnlyImportData(detected.data);
+          assertTest(recordsState.items.length === 1 && recordsState.items[0].date === olderDate, "records-only import should replace Records");
+          assertTest(ids.height.value === before.height && state.goal === before.goal, "records-only import should preserve Settings");
+          assertTest(cardioPresetState.items.length === before.presetCount, "records-only import should preserve cardio presets");
+          assertTest(JSON.stringify(todayCalculationDrafts[today]) === before.todayDraft, "records-only import should preserve Today calculation values");
+          assertTest(state.inbodyRecords.length === before.inbodyCount, "records-only import without InBody payload should preserve existing InBody records");
+        }));
+
+        results.push(runNamedTest("C4.7-A import preview and invalid files are safe", () => {
+          seedFullBackupFixture();
+          const before = JSON.stringify({
+            records: recordsState.items,
+            settings: getSettingsBackupSnapshot(),
+            presets: serializeCardioPresetState(),
+            today: todayCalculationDrafts,
+            inbody: state.inbodyRecords
+          });
+          let threw = false;
+          try {
+            detectBackupImportPayload({ app: "macro-engine", kind: FULL_BACKUP_KIND, backupVersion: 999, data: {} });
+          } catch (_error) {
+            threw = true;
+          }
+          assertTest(threw, "unsupported backup should be rejected");
+          const afterInvalid = JSON.stringify({
+            records: recordsState.items,
+            settings: getSettingsBackupSnapshot(),
+            presets: serializeCardioPresetState(),
+            today: todayCalculationDrafts,
+            inbody: state.inbodyRecords
+          });
+          assertTest(afterInvalid === before, "invalid import detection should not mutate data");
+
+          const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
+          queueDataManagementImport(payload);
+          assertTest(dataManagementState.pendingImport?.type === "full", "full import should wait for confirmation");
+          renderDataManagementPanel();
+          const previewText = document.getElementById("dataImportPreviewHost")?.textContent || "";
+          assertIncludesAll(previewText, ["전체 백업 불러오기", "복원하기", "그대로 두기"], "full backup preview should show confirm choices");
+          queueDataManagementImport(legacyRecordsPayload());
+          const legacyText = document.getElementById("dataImportPreviewHost")?.textContent || "";
+          assertIncludesAll(legacyText, ["기록 중심 파일", "설정", "Today"], "records-only preview should explain missing app settings");
+          cancelDataManagementImport();
+          assertTest(!dataManagementState.pendingImport, "cancel should clear pending import");
+        }));
+
+        results.push(runNamedTest("C4.7-A visible DOM stays clean and regression suites remain exported", () => {
+          setActiveTab("settings");
+          render();
+          assertExcludesAll(getRenderedBodyText(), ["draft", "source meta", "source of truth", "schema", "helper", "policy"], "visible Data Management UI should avoid internal terms");
+          assertTest(typeof window.runRecordsDetailDensityUiTests === "function", "Records detail density suite should stay exported");
+          assertTest(typeof window.runSettingsDensityUiTests === "function", "Settings density suite should stay exported");
+          assertTest(typeof window.runCardioPresetApplyTests === "function", "cardio preset suite should stay exported");
+          assertTest(typeof window.runInBodyRecordApplyTests === "function", "InBody record apply suite should stay exported");
+          assertTest(typeof window.runRecordWeightTodayApplyPromptTests === "function", "Records weight prompt suite should stay exported");
         }));
 
         return results;
@@ -26842,14 +27554,14 @@ Notes:
           return style.display !== "none" && style.visibility !== "hidden" && field.getClientRects().length > 0;
         };
 
-        results.push(runNamedTest("C4.5.5-C Settings structure stays aligned after D", () => {
+        results.push(runNamedTest("C4.5.5-C Settings structure stays aligned after C4.7-A", () => {
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.6-C4.5.5-D"), "document title should show C4.5.5-D");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.5.5-D"), "app version should show C4.5.5-D");
+          assertTest(document.title.includes("v6.6-C4.7-A"), "document title should show C4.7-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-A"), "app version should show C4.7-A");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
-          assertIncludesAll(panel.textContent || "", ["목표 및 모드", "기본 프로필", "기본 생활 패턴", "운동 기준", "전문가 설정"], "Settings visible sections should remain default/profile oriented");
+          assertIncludesAll(panel.textContent || "", ["목표 및 모드", "기본 프로필", "기본 생활 패턴", "운동 기준", "전문가 설정", "데이터 관리"], "Settings visible sections should remain default/profile oriented and include data management");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").closest(".settings-group").contains(document.getElementById("cardioPresetSettingsHost")), "cardio presets should remain inside training defaults group");
         }));
 
@@ -40509,6 +41221,7 @@ Notes:
     window.runSettingsDefaultsStructureTests = runSettingsDefaultsStructureTests;
     window.runSettingsDensityUiTests = runSettingsDensityUiTests;
     window.runRecordsDetailDensityUiTests = runRecordsDetailDensityUiTests;
+    window.runDataManagementBackupTests = runDataManagementBackupTests;
     window.runTodayCalculationOwnershipTests = runTodayCalculationOwnershipTests;
     window.runTodayQuickEditTests = runTodayQuickEditTests;
     window.runInBodyRecordApplyTests = runInBodyRecordApplyTests;
