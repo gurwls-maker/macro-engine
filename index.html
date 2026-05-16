@@ -1,8 +1,16 @@
 <!--
-Version: 6.6-C4.7-B2.1
-Stage: 6.6-C4.7-B2.1 Today 계산값 right rail/footer layout hotfix
-Date: 2026-05-14
+Version: 6.6-C4.7-B2.2
+Stage: 6.6-C4.7-B2.2 전체 백업 식사기록 복원 hotfix
+Date: 2026-05-16
 Notes:
+- C4.7-B2.2 full-backup import 시 식사 기록 복원 누락 hotfix
+- 전체 백업 복원 후 Records / meals가 백업 파일 기준으로 표시되도록 보정
+- records-only import 정책 유지
+- 백업 불러오기 후 복원 preview를 modal 확인창으로 표시
+- “복원하기”를 눌러야 실제 복원되도록 사용자 인지 강화
+- 전체 백업 복원 후 Records 입력 날짜를 오늘 날짜로 유지
+- 식사칩 수동 저장 후 다음 기본값이 방금 선택한 식사 흐름을 따르도록 보정
+- 산식 / score / Coach / recentContext / InBody gate 변경 없음
 - C4.7-B2.1 Today 계산값 카드 우측 보조 rail / footer layout hotfix
 - 현재 기준 / 루틴·세션 카드 위치 안정화
 - 닫기 버튼을 카드 하단 action row로 정리
@@ -151,7 +159,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.7-B2.1</title>
+  <title>탄단지 다이어리 v6.6-C4.7-B2.2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -1092,6 +1100,23 @@ Notes:
       background:var(--panel-soft, var(--paper, #fffaf3));
       box-shadow:0 24px 60px rgba(33,30,24,.2);
       padding:18px;
+    }
+    .data-import-confirm-overlay{
+      position:fixed;
+      inset:0;
+      z-index:73;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      background:rgba(34,30,24,.38);
+      backdrop-filter:blur(8px);
+    }
+    .data-import-confirm-dialog{
+      width:min(560px,100%);
+    }
+    .data-import-confirm-copy{
+      margin-bottom:14px;
     }
     .record-weight-apply-head{
       display:flex;
@@ -6180,7 +6205,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.7-B2.1</span>
+               <span class="app-version">v6.6-C4.7-B2.2</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -7446,6 +7471,16 @@ Notes:
     </div>
   </div>
 
+  <div class="data-import-confirm-overlay app-choice-overlay hidden" id="dataImportConfirmOverlay" aria-hidden="true">
+    <div class="data-import-confirm-dialog app-choice-dialog" role="dialog" aria-modal="true" aria-labelledby="dataImportConfirmTitle">
+      <div class="data-import-confirm-head app-choice-head">
+        <h3 class="app-choice-title" id="dataImportConfirmTitle">백업을 복원할까요?</h3>
+        <button class="secondary-btn" id="dataImportConfirmClose" type="button" data-cancel-data-import>닫기</button>
+      </div>
+      <div id="dataImportConfirmBody"></div>
+    </div>
+  </div>
+
   <script>
     // 1) constants
     const STORAGE_PREFIX = "runstep_macro_v1_";
@@ -7771,6 +7806,12 @@ Notes:
     };
 
     const MEAL_LABEL_OPTIONS = ["기상", "아침", "점심", "저녁", "간식", "야식", "술", "기타"];
+    const MEAL_LABEL_FLOW_FOLLOW_UPS = {
+      "기상": "아침",
+      "아침": "점심",
+      "점심": "저녁",
+      "저녁": "야식"
+    };
     const MEAL_LABEL_SUGGESTIONS = MEAL_LABEL_OPTIONS;
 
     // 2) state + storage helpers
@@ -8086,7 +8127,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.7-B2.1";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.7-B2.2";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -8907,6 +8948,13 @@ Notes:
 
     function isMealLabelOption(value){
       return MEAL_LABEL_OPTIONS.includes(String(value || "").trim());
+    }
+
+    function getMealLabelFlowFollowUp(baseLabel){
+      const base = String(baseLabel || "").trim();
+      return isMealLabelOption(MEAL_LABEL_FLOW_FOLLOW_UPS[base])
+        ? MEAL_LABEL_FLOW_FOLLOW_UPS[base]
+        : null;
     }
 
     function getMealLabelNumber(mealLabel, baseLabel){
@@ -11922,9 +11970,9 @@ Notes:
       const rows = [
         ["기록 날짜", `${summary.recordDays}일`],
         ["식사 기록", `${summary.meals}개`],
-        ["InBody", `${summary.inbody}개`],
+        ["InBody 기록", `${summary.inbody}개`],
         ["유산소 프리셋", summary.settingsIncluded ? `${summary.presets}개` : "포함 안 됨"],
-        ["설정", summary.settingsIncluded ? "포함" : "포함 안 됨"],
+        ["설정 포함", summary.settingsIncluded ? "포함" : "포함 안 됨"],
         ["Today 계산값", summary.todayIncluded ? `${summary.todayCount}일` : "포함 안 됨"]
       ];
       return rows.map(([label, value]) => `
@@ -11939,27 +11987,37 @@ Notes:
       const feedbackHost = document.getElementById("dataManagementFeedback");
       const previewHost = document.getElementById("dataImportPreviewHost");
       if (feedbackHost) feedbackHost.innerHTML = formatDataManagementFeedbackHtml();
-      if (!previewHost) return;
+      if (previewHost) previewHost.innerHTML = "";
+    }
+
+    function renderDataImportConfirmDialog(){
       const pending = dataManagementState.pendingImport;
+      const overlay = document.getElementById("dataImportConfirmOverlay");
+      const titleHost = document.getElementById("dataImportConfirmTitle");
+      const bodyHost = document.getElementById("dataImportConfirmBody");
+      if (!overlay || !titleHost || !bodyHost) return;
       if (!pending) {
-        previewHost.innerHTML = "";
+        overlay.classList.add("hidden");
+        overlay.setAttribute("aria-hidden", "true");
+        bodyHost.innerHTML = "";
         return;
       }
-      const title = pending.type === "full" ? "전체 백업 불러오기" : "기록 중심 파일 불러오기";
+      const title = pending.type === "full" ? "백업을 복원할까요?" : "기록 파일을 불러올까요?";
       const desc = pending.type === "full"
-        ? "아래 내용으로 현재 브라우저 데이터를 복원합니다. 적용 전 현재 데이터도 백업해두는 편이 안전합니다."
-        : "이 파일은 기록 중심 백업이라 설정, 유산소 프리셋, Today 계산값은 포함되지 않았습니다.";
-      previewHost.innerHTML = `
-        <div class="data-import-preview-card">
-          <h4>${escapeHtml(title)}</h4>
-          <p>${escapeHtml(desc)}</p>
-          <div class="data-import-preview-grid">${buildDataImportPreviewGrid(pending.summary)}</div>
-          <div class="app-choice-actions">
-            <button class="primary-btn" type="button" data-confirm-data-import>복원하기</button>
-            <button class="secondary-btn" type="button" data-cancel-data-import>그대로 두기</button>
-          </div>
+        ? "아직 복원되지 않았습니다. 아래 내용을 확인한 뒤 복원하기를 눌러 주세요."
+        : "기록 중심 파일입니다. 설정과 Today 계산값은 바꾸지 않습니다. 아직 적용되지 않았습니다.";
+      titleHost.textContent = title;
+      bodyHost.innerHTML = `
+        <p class="data-import-confirm-copy app-choice-desc">${escapeHtml(desc)}</p>
+        <div class="data-import-preview-grid">${buildDataImportPreviewGrid(pending.summary)}</div>
+        <div class="app-choice-actions">
+          <button class="primary-btn" type="button" data-confirm-data-import>복원하기</button>
+          <button class="secondary-btn" type="button" data-cancel-data-import>그대로 두기</button>
         </div>
       `;
+      overlay.classList.remove("hidden");
+      overlay.setAttribute("aria-hidden", "false");
+      bodyHost.querySelector("[data-confirm-data-import]")?.focus();
     }
 
     function exportFullBackupJson(){
@@ -11974,6 +12032,7 @@ Notes:
       dataManagementState.pendingImport = detected;
       setDataManagementFeedback("ok", detected.type === "full" ? "전체 백업 내용을 확인해 주세요." : "기록 중심 파일입니다. 설정과 Today 계산값은 바꾸지 않습니다.");
       renderDataManagementPanel();
+      renderDataImportConfirmDialog();
       return detected;
     }
 
@@ -11987,6 +12046,7 @@ Notes:
           dataManagementState.pendingImport = null;
           setDataManagementFeedback("bad", "백업 파일 형식을 확인해 주세요. 현재 데이터는 변경하지 않았습니다.");
           renderDataManagementPanel();
+          renderDataImportConfirmDialog();
         }
       };
       reader.readAsText(file, "utf-8");
@@ -12005,24 +12065,39 @@ Notes:
       render();
     }
 
+    function selectRestoredRecordDate(records){
+      const restoredRecords = normalizeRecordsCollection(records || []);
+      const selectedDate = getTodayDateString();
+      ids.recordDate.value = selectedDate;
+      if (normalizeDateString(uiState.recordsDetailDate) && !restoredRecords.some(record => record.date === uiState.recordsDetailDate)) {
+        uiState.recordsDetailDate = null;
+      }
+      uiState.recordsDetailEditMode = false;
+      uiState.recordsDetailDraft = null;
+      syncRecordInputsForDate(selectedDate);
+      return { restoredRecords, selectedDate };
+    }
+
     function restoreFullBackupData(data){
       const settings = normalizeSettingsBackup(data.settings || {});
-      recordsState.items = normalizeRecordsCollection(data.records || []);
+      const restoredRecords = normalizeRecordsCollection(data.records || []);
       state.inbodyRecords = normalizeInbodyRecordCollection(data.inbodyRecords || []);
       cardioPresetState = normalizeCardioPresetState(data.cardioPresets || {});
       todayCalculationDrafts = normalizeTodayCalculationDraftCollection(data.todayCalculationValues || {});
       Object.assign(state, settings, { renderedRoutineKey: "", renderedGoalKey: "" });
+      recordsState.items = restoredRecords;
       const weekly = normalizeWeeklyTrainingBackup(data.weeklyTrainingState || {}, settings);
       state.weeklyTrainingDaysManual = weekly.weeklyTrainingDaysManual;
       state.weeklyTrainingDays = state.weeklyTrainingDaysManual ? weekly.weeklyTrainingDays : getRecentWeightTrainingDayCount();
       applyStateToInputs();
       if (Number.isFinite(settings.bodyFatMass) && ids.bodyFatMass) ids.bodyFatMass.value = formatInputNumber(settings.bodyFatMass, 2);
       normalizeInbodyRecords();
+      recordsState.items = restoredRecords;
+      selectRestoredRecordDate(restoredRecords);
       saveState();
       saveInbodyRecords();
       saveCardioPresets();
       saveTodayCalculationDrafts();
-      syncRecordInputsForDate(getSelectedRecordDate());
       recordsState.feedback = null;
       dataManagementState.pendingImport = null;
       setDataManagementFeedback("ok", "전체 백업을 복원했습니다.");
@@ -12032,6 +12107,8 @@ Notes:
     function confirmDataManagementImport(){
       const pending = dataManagementState.pendingImport;
       if (!pending) return;
+      document.getElementById("dataImportConfirmOverlay")?.classList.add("hidden");
+      document.getElementById("dataImportConfirmOverlay")?.setAttribute("aria-hidden", "true");
       if (pending.type === "full") {
         restoreFullBackupData(pending.data);
         return;
@@ -12044,6 +12121,7 @@ Notes:
       dataManagementState.pendingImport = null;
       setDataManagementFeedback("ok", "불러오기를 취소했습니다. 현재 데이터는 그대로 유지했습니다.");
       renderDataManagementPanel();
+      renderDataImportConfirmDialog();
     }
 
     function getEditableRecordMode(record){
@@ -12417,8 +12495,9 @@ Notes:
         || MEAL_LABEL_OPTIONS[0];
     }
 
-    function resetMealInputsForDate(date){
-      ids.mealLabel.value = getSuggestedMealLabel(date);
+    function resetMealInputsForDate(date, options = {}){
+      const preferredLabel = isMealLabelOption(options.preferredMealLabel) ? options.preferredMealLabel : "";
+      ids.mealLabel.value = preferredLabel || getSuggestedMealLabel(date);
       ids.mealCarbs.value = "";
       ids.mealProtein.value = "";
       ids.mealFat.value = "";
@@ -12427,7 +12506,7 @@ Notes:
       ids.mealMemo.value = "";
     }
 
-    function syncRecordInputsForDate(date){
+    function syncRecordInputsForDate(date, options = {}){
       const selectedDate = normalizeDateString(date) || getTodayDateString();
       const record = getRecordByDate(selectedDate);
       const recordMode = getEditableRecordMode(record);
@@ -12438,7 +12517,7 @@ Notes:
       ids.recordAdherence.value = record?.adherence || "medium";
       ids.recordNote.value = record?.note || "";
       ids.recordModeHint.textContent = getRecordModeHint(recordMode);
-      resetMealInputsForDate(selectedDate);
+      resetMealInputsForDate(selectedDate, options);
     }
 
     function renderRecordModeChips(){
@@ -16382,7 +16461,9 @@ Notes:
       });
       const softLimitMessage = getMealSoftLimitMessage(nextMeals.length);
       setRecordFeedback(softLimitMessage ? "warn" : "ok", softLimitMessage || `${meal.mealLabel} 식사를 저장했습니다.`);
-      syncRecordInputsForDate(date);
+      syncRecordInputsForDate(date, {
+        preferredMealLabel: getMealLabelFlowFollowUp(baseMealLabel)
+      });
       render();
       return { saved: true, meal, record: getRecordByDate(date) };
     }
@@ -16489,14 +16570,12 @@ Notes:
       reader.onload = () => {
         try {
           const parsed = JSON.parse(String(reader.result || ""));
-          const records = parseImportedRecordsPayload(parsed);
-          applyRecordsOnlyImportData({
-            records,
-            inbodyRecords: Array.isArray(parsed?.inbodyRecords) ? parsed.inbodyRecords : [],
-            hasInbodyRecords: Array.isArray(parsed?.inbodyRecords)
-          }, "기록 중심 파일을 불러왔습니다. 설정과 Today 계산값은 그대로 유지했습니다.");
+          queueDataManagementImport(parsed);
         } catch (_error) {
+          dataManagementState.pendingImport = null;
           setRecordFeedback("bad", "JSON 형식이 올바르지 않습니다.");
+          setDataManagementFeedback("bad", "백업 파일 형식을 확인해 주세요. 현재 데이터는 변경하지 않았습니다.");
+          renderDataImportConfirmDialog();
           render();
         }
       };
@@ -21039,6 +21118,11 @@ Notes:
       document.getElementById("todayRecordSkipSaveBtn")?.addEventListener("click", saveTodayRecordStartSkip);
       document.addEventListener("keydown", event => {
         if (event.key !== "Escape") return;
+        const dataImportOverlay = document.getElementById("dataImportConfirmOverlay");
+        if (dataImportOverlay && !dataImportOverlay.classList.contains("hidden")) {
+          cancelDataManagementImport();
+          return;
+        }
         const recordWeightOverlay = document.getElementById("recordWeightTodayApplyOverlay");
         if (recordWeightOverlay && !recordWeightOverlay.classList.contains("hidden")) {
           keepPendingRecordWeightTodayApplyChoice();
@@ -21102,6 +21186,15 @@ Notes:
         const file = event.target.files?.[0];
         if (file) readDataManagementBackupFile(file);
         event.target.value = "";
+      });
+      document.getElementById("dataImportConfirmOverlay")?.addEventListener("click", event => {
+        if (event.target === event.currentTarget || event.target.closest("[data-cancel-data-import]")) {
+          cancelDataManagementImport();
+          return;
+        }
+        if (event.target.closest("[data-confirm-data-import]")) {
+          confirmDataManagementImport();
+        }
       });
       document.getElementById("dataImportPreviewHost")?.addEventListener("click", event => {
         if (event.target.closest("[data-confirm-data-import]")) {
@@ -21347,6 +21440,7 @@ Notes:
         document.body.classList.remove("record-start-open");
         setTodayRecordStartFeedback("", "");
         render();
+        renderDataImportConfirmDialog();
         setTodayQuickEditOpen(snapshot.todayQuickEditOpen);
       }
     }
@@ -25058,9 +25152,9 @@ Notes:
         });
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
-        results.push(runNamedTest("C4.7-B2.1 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.7-B2.1"), "document title should show v6.6-C4.7-B2.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-B2.1"), "app version badge should show v6.6-C4.7-B2.1");
+        results.push(runNamedTest("C4.7-B2.2 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.7-B2.2"), "document title should show v6.6-C4.7-B2.2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-B2.2"), "app version badge should show v6.6-C4.7-B2.2");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -26607,9 +26701,9 @@ Notes:
         };
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
-        results.push(runNamedTest("C4.7-B2.1 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.7-B2.1"), "document title should show C4.7-B2.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-B2.1"), "app version badge should show C4.7-B2.1");
+        results.push(runNamedTest("C4.7-B2.2 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.7-B2.2"), "document title should show C4.7-B2.2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-B2.2"), "app version badge should show C4.7-B2.2");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -26805,7 +26899,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.6-C4.7-B2.1", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.6-C4.7-B2.2", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -26883,10 +26977,12 @@ Notes:
           assertTest(dataManagementState.pendingImport?.type === "full", "full import should wait for confirmation");
           renderDataManagementPanel();
           const previewText = document.getElementById("dataImportPreviewHost")?.textContent || "";
-          assertIncludesAll(previewText, ["전체 백업 불러오기", "복원하기", "그대로 두기"], "full backup preview should show confirm choices");
+          const modalText = document.getElementById("dataImportConfirmOverlay")?.textContent || "";
+          assertTest(previewText.trim() === "", "full backup inline preview should not duplicate the modal");
+          assertIncludesAll(modalText, ["백업을 복원할까요?", "아직 복원되지 않았습니다.", "복원하기", "그대로 두기"], "full backup preview modal should show confirm choices");
           queueDataManagementImport(legacyRecordsPayload());
-          const legacyText = document.getElementById("dataImportPreviewHost")?.textContent || "";
-          assertIncludesAll(legacyText, ["기록 중심 파일", "설정", "Today"], "records-only preview should explain missing app settings");
+          const legacyText = document.getElementById("dataImportConfirmOverlay")?.textContent || "";
+          assertIncludesAll(legacyText, ["기록 파일을 불러올까요?", "기록 중심 파일", "설정", "Today"], "records-only preview modal should explain missing app settings");
           cancelDataManagementImport();
           assertTest(!dataManagementState.pendingImport, "cancel should clear pending import");
         }));
@@ -26903,6 +26999,412 @@ Notes:
         }));
 
         return results;
+      });
+    }
+
+    function runFullBackupMealsRestoreTests(){
+      return withRecordTestSandbox(() => {
+        const storageSnapshot = {};
+        const currentKeys = [];
+        for (let i = 0; i < localStorage.length; i += 1) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(STORAGE_PREFIX)) {
+            currentKeys.push(key);
+            storageSnapshot[key] = localStorage.getItem(key);
+          }
+        }
+        const restoreStorage = () => {
+          Array.from({ length: localStorage.length }, (_item, index) => localStorage.key(index))
+            .filter(key => key && key.startsWith(STORAGE_PREFIX))
+            .forEach(key => localStorage.removeItem(key));
+          currentKeys.forEach(key => {
+            if (storageSnapshot[key] !== null && storageSnapshot[key] !== undefined) {
+              localStorage.setItem(key, storageSnapshot[key]);
+            }
+          });
+        };
+
+        const results = [];
+        const today = getTodayDateString();
+        const backupDate = "2026-05-15";
+        const oldDate = "2026-05-10";
+        const backupPreset = {
+          id: "full-restore-preset",
+          name: "Restore Walk",
+          cardioType: "treadmill_walk",
+          cardioDuration: 42,
+          cardioSpeed: 5.8,
+          cardioIncline: 6,
+          createdAt: "2026-05-11T00:00:00.000Z",
+          updatedAt: "2026-05-12T00:00:00.000Z"
+        };
+        const backupDraft = normalizeTodayCalculationDraft({
+          calculationWeight: 82.4,
+          skeletalMuscle: 38.2,
+          bodyFatMass: 13.4,
+          bodyFatPercent: 16.3,
+          todayActivityLevel: "active",
+          todayWorkType: "office",
+          todayRoutineSession: "PUSH",
+          todayWeightDuration: 72,
+          todayCardioType: backupPreset.cardioType,
+          todayCardioDuration: backupPreset.cardioDuration,
+          todayCardioSpeed: backupPreset.cardioSpeed,
+          todayCardioIncline: backupPreset.cardioIncline,
+          bodyStatusSource: TODAY_BODY_STATUS_SOURCE_USER,
+          bodyStatusEdited: true,
+          cardioSource: TODAY_CARDIO_SOURCE_PRESET,
+          cardioPresetId: backupPreset.id,
+          cardioPresetName: backupPreset.name
+        });
+        const backupRecord = normalizeRecord({
+          date: backupDate,
+          recordMode: "detailed",
+          weight: 82.1,
+          note: "full backup record",
+          adherencePercent: 88,
+          adherenceSource: "auto",
+          adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+          meals: [{
+            id: "full-backup-meal",
+            mealLabel: "저녁",
+            carbs: 74,
+            protein: 41,
+            fat: 18,
+            alcoholKcal: 0,
+            otherKcal: 120,
+            memo: "from full backup",
+            createdAt: `${backupDate}T19:00:00.000Z`
+          }]
+        });
+        const oldRecord = normalizeRecord({
+          date: oldDate,
+          recordMode: "detailed",
+          weight: 78.6,
+          note: "old browser record",
+          meals: [{
+            id: "old-browser-meal",
+            mealLabel: "아침",
+            carbs: 30,
+            protein: 20,
+            fat: 8,
+            memo: "old meal",
+            createdAt: `${oldDate}T08:00:00.000Z`
+          }]
+        });
+
+        const seedBackupSource = () => {
+          setValidTodayBalanceTestInputs();
+          state.mode = "expert";
+          state.goal = "diet";
+          state.weeklyTrainingDaysManual = true;
+          state.weeklyTrainingDays = 5;
+          ids.weight.value = "82.4";
+          ids.height.value = "182";
+          ids.age.value = "33";
+          ids.gender.value = "male";
+          ids.activityLevel.value = "active";
+          ids.workType.value = "office";
+          ids.weeklyTrainingDays.value = "5";
+          recordsState.items = normalizeRecordsCollection([backupRecord]);
+          state.inbodyRecords = normalizeInbodyRecordCollection([{
+            date: backupDate,
+            weight: 82.2,
+            skeletalMuscle: 38.1,
+            bodyFat: 13.2,
+            bodyFatPercent: 16.1
+          }]);
+          cardioPresetState = normalizeCardioPresetState({
+            items: [backupPreset],
+            defaultId: backupPreset.id
+          });
+          todayCalculationDrafts = { [backupDate]: backupDraft };
+          saveInbodyRecords();
+          saveCardioPresets();
+          saveTodayCalculationDrafts();
+          saveState();
+          return buildFullBackupPayload("2026-05-15T21:00:00.000Z");
+        };
+
+        const seedOldBrowserState = () => {
+          recordsState.items = normalizeRecordsCollection([oldRecord]);
+          state.inbodyRecords = normalizeInbodyRecordCollection([{
+            date: oldDate,
+            weight: 78.8,
+            skeletalMuscle: 35.1,
+            bodyFat: 14.4,
+            bodyFatPercent: 18.3
+          }]);
+          cardioPresetState = normalizeCardioPresetState();
+          todayCalculationDrafts = {};
+          state.mode = "general";
+          state.goal = "bulk";
+          state.weeklyTrainingDaysManual = false;
+          state.weeklyTrainingDays = 0;
+          ids.weight.value = "78.8";
+          ids.height.value = "170";
+          ids.age.value = "44";
+          ids.gender.value = "female";
+          ids.activityLevel.value = "sedentary";
+          ids.workType.value = "office";
+          ids.weeklyTrainingDays.value = "0";
+          ids.recordDate.value = oldDate;
+          uiState.recordsDetailDate = oldDate;
+          uiState.recordsDetailEditMode = false;
+          uiState.recordsDetailDraft = null;
+          saveInbodyRecords();
+          saveCardioPresets();
+          saveTodayCalculationDrafts();
+          saveState();
+        };
+
+        const legacyRecordsPayload = () => ({
+          version: 3,
+          exportedAt: "2026-05-16T00:00:00.000Z",
+          records: [normalizeRecord({
+            date: backupDate,
+            recordMode: "detailed",
+            weight: 82.1,
+            note: "records only meal",
+            meals: [backupRecord.meals[0]]
+          })]
+        });
+
+        const importModalVisible = () => {
+          const overlay = document.getElementById("dataImportConfirmOverlay");
+          return !!overlay && !overlay.classList.contains("hidden") && overlay.getAttribute("aria-hidden") === "false";
+        };
+        const importModalText = () => document.getElementById("dataImportConfirmOverlay")?.textContent || "";
+        const getActiveMealChip = () => document.querySelector("#mealLabelChips .chip.active")?.textContent?.trim() || "";
+        const clickMealChip = label => {
+          const chip = Array.from(document.querySelectorAll("#mealLabelChips .chip"))
+            .find(button => button.dataset.value === label || button.textContent.trim() === label);
+          assertTest(!!chip, `${label} meal chip should exist`);
+          chip?.click();
+        };
+        const fillMinimalMealInput = () => {
+          ids.mealCarbs.value = "10";
+          ids.mealProtein.value = "10";
+          ids.mealFat.value = "5";
+          ids.mealAlcoholKcal.value = "";
+          ids.mealOtherKcal.value = "";
+          ids.mealMemo.value = "";
+        };
+        const assertOldBrowserRecordStillActive = message => {
+          assertTest(recordsState.items.length === 1 && recordsState.items[0].date === oldDate, `${message}: old Records state should remain`);
+          assertTest(!!getRecordByDate(oldDate) && !getRecordByDate(backupDate), `${message}: backup date should not be applied yet`);
+          const storedRecords = normalizeRecordsCollection(JSON.parse(readStoredValue("records") || "[]"));
+          assertTest(storedRecords.length === 1 && storedRecords[0].date === oldDate, `${message}: localStorage should remain old`);
+        };
+        const queueFullImportOverOldBrowser = () => {
+          const payload = seedBackupSource();
+          seedOldBrowserState();
+          queueDataManagementImport(payload);
+          return payload;
+        };
+
+        try {
+          results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
+            const payload = seedBackupSource();
+            assertTest(payload.appVersion === "v6.6-C4.7-B2.2", "full backup should include C4.7-B2.2 app version");
+            assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
+            assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
+            assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
+            assertExcludesAll(JSON.stringify(payload), ["pendingRecordWeightTodayApplyChoice", "pendingInbodyTodayApplyChoice", "dataManagementState", "modalOpen", "selectedMacroBasis"], "full backup should exclude temporary UI state");
+          }));
+
+          results.push(runNamedTest("C4.7-B2.2 full backup import opens modal and waits for restore click", () => {
+            queueFullImportOverOldBrowser();
+            assertTest(importModalVisible(), "full backup import should open confirm modal");
+            assertIncludesAll(importModalText(), ["백업을 복원할까요?", "아직 복원되지 않았습니다.", "기록 날짜", "식사 기록", "InBody 기록", "유산소 프리셋", "Today 계산값", "설정 포함", "복원하기", "그대로 두기"], "full backup modal should show clear restore preview");
+            assertTest((document.getElementById("dataImportPreviewHost")?.textContent || "").trim() === "", "inline import preview should stay empty when modal is shown");
+            assertOldBrowserRecordStillActive("modal preview only");
+            document.querySelector("#dataImportConfirmOverlay [data-confirm-data-import]")?.click();
+            assertTest(!importModalVisible(), "restore click should close the modal");
+            assertTest(getRecordByDate(backupDate)?.meals?.length === 1, "restore click should apply backup meals");
+          }));
+
+          results.push(runNamedTest("C4.7-B2.2 import modal cancel close escape and backdrop do not restore", () => {
+            queueFullImportOverOldBrowser();
+            document.querySelector("#dataImportConfirmBody [data-cancel-data-import]")?.click();
+            assertTest(!importModalVisible(), "keep button should close modal");
+            assertOldBrowserRecordStillActive("keep button");
+
+            queueFullImportOverOldBrowser();
+            document.getElementById("dataImportConfirmClose")?.click();
+            assertTest(!importModalVisible(), "close button should close modal");
+            assertOldBrowserRecordStillActive("close button");
+
+            queueFullImportOverOldBrowser();
+            document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+            assertTest(!importModalVisible(), "Escape should close modal");
+            assertOldBrowserRecordStillActive("escape");
+
+            queueFullImportOverOldBrowser();
+            document.getElementById("dataImportConfirmOverlay")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+            assertTest(!importModalVisible(), "backdrop click should close modal");
+            assertOldBrowserRecordStillActive("backdrop");
+          }));
+
+          results.push(runNamedTest("C4.7-B2.2 records-only import also uses modal and preserves app settings", () => {
+            seedBackupSource();
+            const preservedSettings = JSON.stringify(getSettingsBackupSnapshot());
+            const preservedPreset = JSON.stringify(serializeCardioPresetState());
+            const preservedTodayDraft = JSON.stringify(todayCalculationDrafts[backupDate]);
+            const preservedInbody = JSON.stringify(state.inbodyRecords);
+            queueDataManagementImport(legacyRecordsPayload());
+            assertTest(importModalVisible(), "records-only import should open confirm modal");
+            assertIncludesAll(importModalText(), ["기록 파일을 불러올까요?", "기록 중심 파일", "설정", "Today", "복원하기", "그대로 두기"], "records-only modal should explain scoped import");
+            assertTest(getSortedRecords()[0]?.note === "full backup record", "records-only preview should not apply before confirm");
+            document.querySelector("#dataImportConfirmOverlay [data-confirm-data-import]")?.click();
+            assertTest(recordsState.items.length === 1 && recordsState.items[0].date === backupDate, "records-only confirm should apply Records");
+            assertTest(recordsState.items[0].note === "records only meal", "records-only confirm should replace Records after confirmation");
+            assertTest(recordsState.items[0].meals.length === 1, "records-only confirm should keep meals");
+            assertTest(JSON.stringify(getSettingsBackupSnapshot()) === preservedSettings, "records-only confirm should preserve Settings");
+            assertTest(JSON.stringify(serializeCardioPresetState()) === preservedPreset, "records-only confirm should preserve cardio presets");
+            assertTest(JSON.stringify(todayCalculationDrafts[backupDate]) === preservedTodayDraft, "records-only confirm should preserve Today values");
+            assertTest(JSON.stringify(state.inbodyRecords) === preservedInbody, "records-only confirm without InBody payload should preserve InBody records");
+          }));
+
+          results.push(runNamedTest("C4.7-B2.2 import modal stays inside viewport", () => {
+            queueFullImportOverOldBrowser();
+            const dialog = document.querySelector("#dataImportConfirmOverlay .data-import-confirm-dialog");
+            const rect = dialog?.getBoundingClientRect();
+            assertTest(!!dialog && !!rect, "data import modal dialog should render");
+            assertTest(rect.left >= -1 && rect.right <= window.innerWidth + 1, "data import modal should not overflow horizontally");
+            assertTest(rect.top >= -1 && rect.bottom <= window.innerHeight + 1, "data import modal should fit the viewport vertically");
+            cancelDataManagementImport();
+          }));
+
+          results.push(runNamedTest("C4.7-B2.2 full backup restore replaces old Records and shows restored meals", () => {
+            const payload = seedBackupSource();
+            seedOldBrowserState();
+            const detected = queueDataManagementImport(payload);
+            assertTest(detected.type === "full", "full backup should be queued as full import");
+            assertTest(dataManagementState.pendingImport?.summary?.meals === 1, "import preview should count meals");
+            confirmDataManagementImport();
+
+            const restoredRecord = getRecordByDate(backupDate);
+            assertTest(recordsState.items.length === 1, "full restore should replace existing Records instead of merging");
+            assertTest(!!restoredRecord, "restored backup date should exist in Records state");
+            assertTest(!getRecordByDate(oldDate), "old browser date should not remain after full restore");
+            assertTest(restoredRecord.meals.length === 1 && restoredRecord.meals[0].memo === "from full backup", "restored record should keep meals");
+            assertTest(ids.recordDate.value === today, "full restore should keep the Records input date on today");
+
+            const storedRecords = normalizeRecordsCollection(JSON.parse(readStoredValue("records") || "[]"));
+            assertTest(storedRecords.length === 1 && storedRecords[0].date === backupDate, "localStorage Records should be replaced by backup records");
+            assertTest(storedRecords[0].meals.length === 1, "localStorage should persist restored meals");
+
+            setActiveTab("records");
+            renderRecordsPanel();
+            const restoredCard = document.querySelector(`[data-record-card-date="${backupDate}"]`);
+            const oldCard = document.querySelector(`[data-record-card-date="${oldDate}"]`);
+            assertTest(!!restoredCard, "Records UI should render restored backup date");
+            assertTest(!oldCard, "Records UI should not render old browser date after full restore");
+            assertIncludesAll(restoredCard.textContent || "", ["식사 1건", "메모 있음"], "Records archive card should show restored meal evidence");
+          }));
+
+          results.push(runNamedTest("C4.7-B2.2 restored meal chip follows manual save flow", () => {
+            setValidTodayBalanceTestInputs();
+            recordsState.items = normalizeRecordsCollection([normalizeRecord({
+              date: backupDate,
+              recordMode: "detailed",
+              meals: ["기상", "아침", "점심", "간식", "저녁"].map((mealLabel, index) => ({
+                id: `restore-flow-${index}`,
+                mealLabel,
+                carbs: 10,
+                protein: 10,
+                fat: 5,
+                memo: "",
+                createdAt: `${backupDate}T0${Math.min(index + 7, 9)}:00:00.000Z`
+              }))
+            })]);
+            const payload = buildFullBackupPayload("2026-05-15T22:00:00.000Z");
+            seedOldBrowserState();
+            queueDataManagementImport(payload);
+            confirmDataManagementImport();
+            assertTest(ids.recordDate.value === today, "full restore should keep meal entry pointed at today");
+            syncRecordInputsForDate(backupDate);
+            render();
+            assertTest(ids.mealLabel.value === "야식" && getActiveMealChip() === "야식", "restored date may initially suggest the first unused meal label");
+
+            clickMealChip("기상");
+            fillMinimalMealInput();
+            const wakeSaved = saveMealEntry();
+            assertTest(wakeSaved.saved === true && wakeSaved.meal.mealLabel === "기상2", "manual wake save should still number duplicate labels");
+            assertTest(ids.mealLabel.value === "아침" && getActiveMealChip() === "아침", "after manual wake save, next chip should follow the meal flow");
+
+            clickMealChip("아침");
+            fillMinimalMealInput();
+            const breakfastSaved = saveMealEntry();
+            assertTest(breakfastSaved.saved === true && breakfastSaved.meal.mealLabel === "아침2", "manual breakfast save should still number duplicate labels");
+            assertTest(ids.mealLabel.value === "점심" && getActiveMealChip() === "점심", "after manual breakfast save, next chip should follow the meal flow");
+          }));
+
+          results.push(runNamedTest("C4.7-B2.2 full backup restore keeps Settings InBody presets and Today values", () => {
+            const payload = seedBackupSource();
+            seedOldBrowserState();
+            queueDataManagementImport(payload);
+            confirmDataManagementImport();
+            assertTest(state.mode === "expert" && state.goal === "diet", "full restore should recover mode and goal");
+            assertTest(ids.height.value === "182" && ids.gender.value === "male", "full restore should recover Settings profile");
+            assertTest(state.inbodyRecords.length === 1 && state.inbodyRecords[0].date === backupDate, "full restore should recover InBody records");
+            assertTest(cardioPresetState.items.length === 1 && cardioPresetState.defaultId === backupPreset.id, "full restore should recover cardio presets");
+            assertClose(todayCalculationDrafts[backupDate].calculationWeight, backupDraft.calculationWeight, 0.0001, "full restore should recover Today calculation values");
+            assertTest(state.weeklyTrainingDaysManual === true && ids.weeklyTrainingDays.value === "5", "full restore should recover weekly training state");
+            const result = calculate();
+            assertTest(Number.isFinite(result.targetCal) && Number.isFinite(result.protein) && Number.isFinite(result.carbs) && Number.isFinite(result.fat), "calculate should remain usable after full restore");
+          }));
+
+          results.push(runNamedTest("C4.7-B2.2 records-only import policy stays scoped to Records", () => {
+            const payload = seedBackupSource();
+            const preservedSettings = JSON.stringify(getSettingsBackupSnapshot());
+            const preservedPreset = JSON.stringify(serializeCardioPresetState());
+            const preservedTodayDraft = JSON.stringify(todayCalculationDrafts[backupDate]);
+            const preservedInbody = JSON.stringify(state.inbodyRecords);
+            const detected = detectBackupImportPayload(legacyRecordsPayload());
+            assertTest(detected.type === "records-only", "legacy payload should stay records-only");
+            applyRecordsOnlyImportData(detected.data);
+            assertTest(recordsState.items.length === 1 && recordsState.items[0].date === backupDate, "records-only import should replace Records");
+            assertTest(recordsState.items[0].meals.length === 1, "records-only import should keep meals");
+            assertTest(JSON.stringify(getSettingsBackupSnapshot()) === preservedSettings, "records-only import should preserve Settings");
+            assertTest(JSON.stringify(serializeCardioPresetState()) === preservedPreset, "records-only import should preserve cardio presets");
+            assertTest(JSON.stringify(todayCalculationDrafts[backupDate]) === preservedTodayDraft, "records-only import should preserve existing Today calculation values");
+            assertTest(JSON.stringify(state.inbodyRecords) === preservedInbody, "records-only import without InBody payload should preserve InBody records");
+            assertTest(payload.kind === FULL_BACKUP_KIND, "full backup schema should remain unchanged while testing records-only import");
+          }));
+
+          results.push(runNamedTest("C4.7-B2.2 invalid full backup import does not mutate Records or meals", () => {
+            seedBackupSource();
+            const before = JSON.stringify({
+              records: recordsState.items,
+              storedRecords: readStoredValue("records"),
+              inbody: state.inbodyRecords,
+              presets: serializeCardioPresetState(),
+              today: todayCalculationDrafts
+            });
+            let threw = false;
+            try {
+              detectBackupImportPayload({ app: "macro-engine", kind: FULL_BACKUP_KIND, backupVersion: 999, data: { records: [] } });
+            } catch (_error) {
+              threw = true;
+            }
+            const after = JSON.stringify({
+              records: recordsState.items,
+              storedRecords: readStoredValue("records"),
+              inbody: state.inbodyRecords,
+              presets: serializeCardioPresetState(),
+              today: todayCalculationDrafts
+            });
+            assertTest(threw, "unsupported full backup should be rejected");
+            assertTest(after === before, "invalid import detection should not mutate app data");
+            assertTest(!dataManagementState.pendingImport, "invalid import detection should not create pending import");
+          }));
+
+          return results;
+        } finally {
+          restoreStorage();
+        }
       });
     }
 
@@ -26928,10 +27430,10 @@ Notes:
           return host;
         };
 
-        results.push(runNamedTest("C4.7-B2.1 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.7-B2.1"), "document title should show v6.6-C4.7-B2.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-B2.1"), "app version badge should show v6.6-C4.7-B2.1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.7-B2.1", "current app version helper should return v6.6-C4.7-B2.1");
+        results.push(runNamedTest("C4.7-B2.2 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.7-B2.2"), "document title should show v6.6-C4.7-B2.2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-B2.2"), "app version badge should show v6.6-C4.7-B2.2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.7-B2.2", "current app version helper should return v6.6-C4.7-B2.2");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -26972,7 +27474,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.6-C4.7-B2.1", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.6-C4.7-B2.2", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -27017,10 +27519,10 @@ Notes:
           return panel;
         };
 
-        results.push(runNamedTest("C4.7-B2.1 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.7-B2.1"), "document title should show v6.6-C4.7-B2.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-B2.1"), "app version badge should show v6.6-C4.7-B2.1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.7-B2.1", "current app version helper should return v6.6-C4.7-B2.1");
+        results.push(runNamedTest("C4.7-B2.2 version labels are updated", () => {
+          assertTest(document.title.includes("v6.6-C4.7-B2.2"), "document title should show v6.6-C4.7-B2.2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-B2.2"), "app version badge should show v6.6-C4.7-B2.2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.7-B2.2", "current app version helper should return v6.6-C4.7-B2.2");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -27779,8 +28281,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.6-C4.7-B2.1"), "document title should show C4.7-B2.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-B2.1"), "app version should show C4.7-B2.1");
+          assertTest(document.title.includes("v6.6-C4.7-B2.2"), "document title should show C4.7-B2.2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.7-B2.2"), "app version should show C4.7-B2.2");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertIncludesAll(panel.textContent || "", ["목표 및 모드", "기본 프로필", "기본 생활 패턴", "운동 기준", "전문가 설정", "데이터 관리"], "Settings visible sections should remain default/profile oriented and include data management");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").closest(".settings-group").contains(document.getElementById("cardioPresetSettingsHost")), "cardio presets should remain inside training defaults group");
@@ -41468,6 +41970,7 @@ Notes:
     window.runSettingsDensityUiTests = runSettingsDensityUiTests;
     window.runRecordsDetailDensityUiTests = runRecordsDetailDensityUiTests;
     window.runDataManagementBackupTests = runDataManagementBackupTests;
+    window.runFullBackupMealsRestoreTests = runFullBackupMealsRestoreTests;
     window.runCopyDietP0TextTests = runCopyDietP0TextTests;
     window.runTodayCopyDietTextTests = runTodayCopyDietTextTests;
     window.runTodayCalculationOwnershipTests = runTodayCalculationOwnershipTests;
