@@ -1,8 +1,12 @@
 ﻿<!--
-Version: 6.6-C4.8-UI0
-Stage: 6.6-C4.8-UI0 Stitch Today UI Shell 이식
+Version: 6.6-C4.8-UI1
+Stage: 6.6-C4.8-UI1 Records Shell 이식
 Date: 2026-05-17
 Notes:
+- C4.8-UI1 Records 탭을 Stitch 톤의 확정 기록 보관함/수정 Shell로 재배치
+- 기록 보관함 / 상세 보기 / 수정하기 / 당시 계산 기준 / 직접 관리 fallback 기능 유지
+- Records 저장/수정 로직과 goalSnapshot 구조 유지
+- 산식 / Coach / recentContext / InBody gate / dual basis / schema-import-export 변경 없음
 - C4.8-UI0 Stitch Today UI Shell을 기준으로 Today 화면 구조 재배치
 - 현재 기능/산식/기록/백업/dual basis/Coach 로직은 유지
 - A2 기록 상태 개념은 작은 별도 카드가 아니라 Today 작업 상태 영역에 통합
@@ -180,7 +184,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.8-UI0</title>
+  <title>탄단지 다이어리 v6.6-C4.8-UI1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -4061,6 +4065,347 @@ Notes:
       gap:18px;
       align-items:start;
     }
+    .records-archive-layout.records-stitch-shell{
+      display:flex;
+      flex-direction:column;
+      gap:36px;
+      padding:30px 18px 36px;
+      border-radius:34px;
+      background:linear-gradient(180deg, rgba(255,254,249,.86), rgba(250,249,244,.72));
+    }
+    .records-stitch-hero{
+      display:grid;
+      grid-template-columns:minmax(0,1.38fr) minmax(280px,.72fr);
+      gap:18px;
+      align-items:stretch;
+    }
+    .records-hero-main,
+    .records-hero-side,
+    .records-stitch-card{
+      border:1px solid color-mix(in srgb, var(--line) 72%, white 28%);
+      border-radius:var(--radius-xl);
+      background:var(--card-sheen);
+      box-shadow:var(--shadow-card);
+    }
+    .records-hero-main{
+      position:relative;
+      overflow:hidden;
+      min-height:168px;
+      padding:28px 30px;
+    }
+    .records-hero-main::after{
+      content:"";
+      position:absolute;
+      width:180px;
+      height:180px;
+      right:-54px;
+      top:-64px;
+      border-radius:50%;
+      background:color-mix(in srgb, var(--accent-strong) 12%, transparent 88%);
+      pointer-events:none;
+    }
+    .records-shell-eyebrow{
+      margin-bottom:10px;
+      color:var(--accent-strong);
+      font-size:12px;
+      font-weight:950;
+      letter-spacing:.08em;
+    }
+    .records-hero-main h2{
+      position:relative;
+      z-index:1;
+      margin:0;
+      color:var(--deep);
+      font-size:clamp(28px,3.3vw,42px);
+      line-height:1.14;
+      font-weight:950;
+      letter-spacing:0;
+    }
+    .records-hero-main p{
+      position:relative;
+      z-index:1;
+      max-width:620px;
+      margin:14px 0 0;
+      color:var(--muted);
+      font-size:14px;
+      line-height:1.7;
+      font-weight:750;
+      word-break:keep-all;
+    }
+    .records-hero-side{
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+      gap:18px;
+      padding:22px;
+    }
+    .records-hero-side-copy{
+      display:grid;
+      gap:8px;
+    }
+    .records-hero-side-copy strong{
+      color:var(--deep);
+      font-size:15px;
+      line-height:1.45;
+      font-weight:950;
+      word-break:keep-all;
+    }
+    .records-hero-side-copy span{
+      color:var(--muted);
+      font-size:12.5px;
+      line-height:1.65;
+      font-weight:750;
+      word-break:keep-all;
+    }
+    .records-hero-side .inline-actions{
+      margin:0;
+      gap:8px;
+    }
+    .records-hero-side .secondary-btn{
+      flex:1 1 140px;
+      justify-content:center;
+      white-space:nowrap;
+    }
+    .records-entry-shell{
+      display:grid;
+      gap:26px;
+      padding:10px 14px 0;
+    }
+    .records-entry-head{
+      display:grid;
+      gap:10px;
+      max-width:740px;
+    }
+    .records-entry-head h2{
+      margin:0;
+      color:var(--deep);
+      font-size:clamp(30px,4vw,42px);
+      line-height:1.14;
+      font-weight:950;
+      letter-spacing:0;
+      word-break:keep-all;
+    }
+    .records-entry-head p{
+      margin:0;
+      color:var(--muted);
+      font-size:15px;
+      line-height:1.6;
+      font-weight:750;
+      word-break:keep-all;
+    }
+    .records-entry-card-grid{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:28px;
+    }
+    .records-entry-card{
+      position:relative;
+      display:flex;
+      min-height:284px;
+      flex-direction:column;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:24px;
+      padding:34px 32px;
+      border:0;
+      border-radius:24px;
+      background:rgba(255,255,255,.86);
+      box-shadow:0 18px 42px rgba(31,42,68,.08);
+      color:var(--deep);
+      text-align:left;
+      overflow:hidden;
+      cursor:pointer;
+    }
+    .records-entry-card:hover{
+      transform:translateY(-1px);
+      box-shadow:0 20px 48px rgba(31,42,68,.12);
+    }
+    .records-entry-card:focus-visible{
+      outline:3px solid color-mix(in srgb, var(--accent-strong) 42%, white 58%);
+      outline-offset:3px;
+    }
+    .records-entry-card:nth-child(2)::after{
+      content:"";
+      position:absolute;
+      top:-78px;
+      right:-70px;
+      width:210px;
+      height:210px;
+      border-radius:50%;
+      background:color-mix(in srgb, var(--teal) 8%, transparent 92%);
+      pointer-events:none;
+    }
+    .records-entry-icon{
+      display:inline-flex;
+      width:62px;
+      height:62px;
+      align-items:center;
+      justify-content:center;
+      border-radius:50%;
+      background:color-mix(in srgb, var(--muted) 12%, white 88%);
+      color:var(--deep);
+    }
+    .records-entry-icon svg{
+      width:27px;
+      height:27px;
+      fill:none;
+      stroke:currentColor;
+      stroke-width:2;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    .records-entry-card h3{
+      margin:0 0 14px;
+      color:var(--deep);
+      font-size:22px;
+      line-height:1.25;
+      font-weight:950;
+      letter-spacing:0;
+    }
+    .records-entry-card p{
+      margin:0;
+      color:var(--ink);
+      font-size:15px;
+      line-height:1.7;
+      font-weight:650;
+      word-break:keep-all;
+    }
+    .records-entry-action{
+      color:var(--teal);
+      font-size:15px;
+      font-weight:850;
+    }
+    .records-continue-strip{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:18px;
+      padding:24px 26px;
+      border-radius:22px;
+      background:rgba(255,255,255,.88);
+      box-shadow:0 16px 38px rgba(31,42,68,.08);
+    }
+    .records-continue-main{
+      display:flex;
+      min-width:0;
+      align-items:center;
+      gap:18px;
+    }
+    .records-continue-icon{
+      display:inline-flex;
+      width:42px;
+      height:42px;
+      flex:0 0 auto;
+      align-items:center;
+      justify-content:center;
+      border-radius:50%;
+      background:color-mix(in srgb, var(--carb) 16%, white 84%);
+      color:var(--carb-dark);
+    }
+    .records-continue-icon svg{
+      width:22px;
+      height:22px;
+      fill:none;
+      stroke:currentColor;
+      stroke-width:2;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    .records-continue-copy{
+      display:grid;
+      gap:3px;
+      min-width:0;
+    }
+    .records-continue-copy strong{
+      color:var(--deep);
+      font-size:16px;
+      font-weight:900;
+      line-height:1.35;
+      word-break:keep-all;
+    }
+    .records-continue-copy span{
+      color:var(--muted);
+      font-size:13px;
+      font-weight:700;
+      line-height:1.4;
+      word-break:keep-all;
+    }
+    .records-continue-strip .primary-btn{
+      min-width:150px;
+      border-color:var(--teal);
+      background:var(--teal);
+      color:#fff;
+      box-shadow:none;
+    }
+    .records-archive-section{
+      display:grid;
+      gap:18px;
+      margin-top:8px;
+    }
+    .records-archive-section-head{
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:18px;
+      padding:0 4px;
+    }
+    .records-archive-section-head h2{
+      margin:0 0 6px;
+      color:var(--deep);
+      font-size:24px;
+      font-weight:950;
+      letter-spacing:0;
+    }
+    .records-archive-section-head p{
+      margin:0;
+      color:var(--muted);
+      font-size:13px;
+      font-weight:750;
+      line-height:1.55;
+      word-break:keep-all;
+    }
+    .records-archive-tools{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      justify-content:flex-end;
+    }
+    .records-stitch-layout{
+      display:grid;
+      grid-template-columns:minmax(0,1.16fr) minmax(320px,.84fr);
+      gap:18px;
+      align-items:start;
+    }
+    .records-stitch-layout .records-archive-panel,
+    .records-stitch-layout .records-review-shell{
+      min-width:0;
+    }
+    .records-review-shell{
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+    .records-stitch-card{
+      overflow:hidden;
+    }
+    .records-stitch-layout .records-archive-panel,
+    .records-stitch-layout .records-input-panel,
+    .records-stitch-layout .records-review-shell > .panel{
+      padding:22px;
+      background:var(--card-sheen);
+    }
+    .records-stitch-layout .records-archive-panel{
+      min-height:520px;
+    }
+    .records-quality-panel h3,
+    .records-quality-panel h2,
+    .records-summary-panel h3,
+    .records-summary-panel h2,
+    .selected-meals-summary-panel h3,
+    .selected-meals-summary-panel h2,
+    .selected-meals-list-panel h3{
+      margin-left:0;
+    }
     .weekly-layout{
       grid-template-columns:minmax(0,1fr);
     }
@@ -4796,9 +5141,9 @@ Notes:
       word-break:keep-all;
       overflow-wrap:anywhere;
     }
-    .records-input-panel .selected-meals-summary-panel,
+    .records-review-shell .selected-meals-summary-panel,
     .records-review-shell .selected-meals-list-panel{
-      margin-top:16px;
+      margin-top:0;
       padding:16px;
       background:rgba(255,252,247,.94);
       box-shadow:0 10px 24px rgba(28,36,48,.055);
@@ -6294,6 +6639,59 @@ Notes:
       #recordsPanel .records-summary-panel .kpi-grid,
       #recordsPanel .meal-summary-grid{grid-template-columns:1fr}
       #recordsPanel .records-summary-panel .kpi:nth-child(3){grid-column:auto}
+      .records-stitch-hero,
+      .records-stitch-layout{
+        grid-template-columns:1fr;
+      }
+      .records-hero-main{
+        min-height:0;
+        padding:22px;
+      }
+      .records-hero-side{
+        padding:18px;
+      }
+      .records-entry-shell{
+        gap:18px;
+        padding:4px 0 0;
+      }
+      .records-entry-head h2{
+        font-size:28px;
+      }
+      .records-entry-card-grid{
+        grid-template-columns:1fr;
+        gap:14px;
+      }
+      .records-entry-card{
+        min-height:0;
+        padding:24px 22px;
+        gap:20px;
+      }
+      .records-continue-strip,
+      .records-archive-section-head{
+        align-items:stretch;
+        flex-direction:column;
+      }
+      .records-continue-strip .primary-btn,
+      .records-archive-tools .secondary-btn{
+        width:100%;
+      }
+      .records-stitch-layout .records-archive-panel,
+      .records-stitch-layout .records-input-panel,
+      .records-stitch-layout .records-review-shell > .panel{
+        padding:18px;
+      }
+      .records-stitch-layout .records-archive-panel{
+        min-height:0;
+      }
+      .records-hero-side .inline-actions{
+        flex-direction:row;
+        align-items:stretch;
+      }
+      .records-hero-side .secondary-btn{
+        flex:1 1 0;
+        width:auto;
+        min-height:48px;
+      }
       .records-archive-head,
       .record-archive-card{
         grid-template-columns:1fr;
@@ -6984,7 +7382,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.8-UI0</span>
+               <span class="app-version">v6.6-C4.8-UI1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -7630,52 +8028,132 @@ Notes:
     </section>
 
     <section class="tab-panel" id="recordsPanel" hidden>
-      <div class="records-archive-layout">
-        <section class="panel records-archive-panel">
-          <div class="records-archive-head">
-            <div>
-              <h3>기록</h3>
-              <h2>기록 보관함</h2>
-              <div class="mini-note">날짜별 식사·체중·점수·InBody 기록을 봅니다.</div>
-            </div>
-            <div class="records-archive-head-note">
-              <div>날짜 카드를 누르면 직접 관리 날짜가 바뀝니다.</div>
-              <div class="inline-actions">
-                <button class="secondary-btn" id="recordInbodyCreateBtn" type="button">InBody 기록하기</button>
-              </div>
-            </div>
+      <div class="records-archive-layout records-stitch-shell" data-stitch-records-shell>
+        <section class="records-entry-shell">
+          <div class="records-entry-head">
+            <h2>어떤 데이터를 기록할까요?</h2>
+            <p>원하는 기록 방식을 선택해 주세요. 저장된 날짜별 기록은 아래 보관함에서 확인하고 수정할 수 있습니다.</p>
           </div>
-          <div class="kpi-grid records-archive-kpis">
-            <div class="kpi">
-              <div class="big" id="recordsCount">0</div>
-              <div class="label">저장된 날짜</div>
-              <div class="sub">기록 보관함</div>
-            </div>
-            <div class="kpi protein">
-              <div class="big" id="recentAvgWeight">0</div>
-              <div class="label">최근 7일 평균</div>
-              <div class="sub">kg</div>
-            </div>
-            <div class="kpi carb">
-              <div class="big" id="recentTrend">0</div>
-              <div class="label">직전 7일 대비</div>
-              <div class="sub">kg</div>
-            </div>
+          <div class="records-entry-card-grid" aria-label="기록 방식 선택">
+            <button class="records-entry-card" type="button" data-open-today-record-start="skip">
+              <span class="records-entry-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M8 4h8"></path><path d="M9 4v4"></path><path d="M15 4v4"></path><rect x="6" y="8" width="12" height="12" rx="2"></rect><path d="M10 12h4"></path></svg>
+              </span>
+              <span>
+                <h3>체중만 기록</h3>
+                <p>오늘 공복 체중과 메모만 빠르게 남깁니다.</p>
+              </span>
+              <span class="records-entry-action">기록하기 →</span>
+            </button>
+            <button class="records-entry-card" type="button" data-open-today-record-start="simple">
+              <span class="records-entry-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"></path><path d="M4 5h9"></path><path d="M4 9h6"></path></svg>
+              </span>
+              <span>
+                <h3>간단 기록</h3>
+                <p>식단을 상·중·하로 남기고 공복 체중과 메모를 함께 저장합니다.</p>
+              </span>
+              <span class="records-entry-action">기록하기 →</span>
+            </button>
+            <button class="records-entry-card" type="button" data-open-today-record-start="detailed">
+              <span class="records-entry-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M7 3v8"></path><path d="M10 3v8"></path><path d="M7 11c0 2 3 2 3 0"></path><path d="M8.5 11v10"></path><path d="M16 3v18"></path><path d="M16 3c3 2 3 7 0 9"></path></svg>
+              </span>
+              <span>
+                <h3>상세 기록</h3>
+                <p>탄수화물·단백질·지방과 칼로리를 꼼꼼하게 관리합니다.</p>
+              </span>
+              <span class="records-entry-action">기록하기 →</span>
+            </button>
           </div>
-          <div class="records-card-list" id="recordsTable"></div>
+          <div class="records-continue-strip">
+            <div class="records-continue-main">
+              <span class="records-continue-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"></path><path d="M3 4v6h6"></path><path d="M12 7v5l3 2"></path></svg>
+              </span>
+              <span class="records-continue-copy">
+                <strong id="recordsLastRecordTitle">마지막 기록을 확인하는 중입니다.</strong>
+                <span id="recordsLastRecordSubtitle">저장된 기록이 있으면 이어서 기록할 수 있습니다.</span>
+              </span>
+            </div>
+            <button class="primary-btn" type="button" data-open-today-record-start>이어서 기록하기</button>
+          </div>
         </section>
 
-        <details class="panel records-input-panel records-edit-panel records-compact-details" id="recordsEditPanel">
+        <section class="records-archive-section">
+          <div class="records-archive-section-head">
+            <div>
+              <h2>저장된 날짜별 기록</h2>
+              <p>확정된 기록을 날짜별로 확인하고, 필요한 날은 상세 보기에서 수정합니다.</p>
+            </div>
+            <div class="records-archive-tools">
+              <button class="secondary-btn" id="recordInbodyCreateBtn" type="button">InBody 기록하기</button>
+              <button class="secondary-btn" type="button" data-open-data-management>데이터 관리</button>
+            </div>
+          </div>
+          <div class="records-stitch-layout">
+          <section class="panel records-archive-panel records-stitch-card">
+            <div class="records-archive-head">
+              <div>
+                <h3>기록 목록</h3>
+                <h2>저장된 날짜</h2>
+                <div class="mini-note">날짜 카드를 누르면 상세 보기와 직접 관리 날짜가 함께 바뀝니다.</div>
+              </div>
+            </div>
+            <div class="records-card-list" id="recordsTable"></div>
+          </section>
+
+          <aside class="records-review-shell" aria-label="기록 요약과 직접 관리">
+            <section class="panel records-summary-panel records-stitch-card">
+              <h3>최근 기록</h3>
+              <h2>최근 14일 요약</h2>
+              <div class="kpi-grid records-archive-kpis">
+                <div class="kpi">
+                  <div class="big" id="recordsCount">0</div>
+                  <div class="label">저장된 날짜</div>
+                  <div class="sub">기록 보관함</div>
+                </div>
+                <div class="kpi protein">
+                  <div class="big" id="recentAvgWeight">0</div>
+                  <div class="label">최근 7일 평균</div>
+                  <div class="sub">kg</div>
+                </div>
+                <div class="kpi carb">
+                  <div class="big" id="recentTrend">0</div>
+                  <div class="label">직전 7일 대비</div>
+                  <div class="sub">kg</div>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel records-quality-panel records-stitch-card">
+              <h3>선택 날짜</h3>
+              <h2>기록 확인</h2>
+              <div id="recordQualitySummaryHost"></div>
+            </section>
+
+            <section class="panel panel-support selected-meals-summary-panel records-stitch-card">
+              <h3>선택 날짜 합산</h3>
+              <h2><span id="selectedMealsDateLabel">-</span> 식사 합산</h2>
+              <div class="meal-summary-grid" id="selectedMealTotals"></div>
+              <div id="mealSoftWarningHost"></div>
+            </section>
+
+            <section class="panel panel-support selected-meals-list-panel records-stitch-card">
+              <h3>선택 날짜 식사 목록</h3>
+              <div class="table-like" id="selectedMealsList"></div>
+            </section>
+
+        <details class="panel records-input-panel records-edit-panel records-compact-details records-stitch-card" id="recordsEditPanel">
           <summary class="records-compact-summary">
             <div>
-              <h3>기록 직접 관리</h3>
-              <h2>날짜 직접 입력</h2>
-              <p>날짜별 기록을 직접 수정합니다. 백업은 데이터 관리에서 진행합니다.</p>
+              <h3>직접 관리</h3>
+              <h2>날짜별 기록 수정</h2>
+              <p>날짜별 기록을 직접 수정합니다. 직접 입력이 필요한 날을 위해 남겨둔 관리 영역입니다.</p>
             </div>
           </summary>
           <div class="records-compact-body">
           <div class="mini-note">선택 날짜의 기록과 식사를 직접 관리합니다.</div>
-          <div id="recordQualitySummaryHost"></div>
           <div class="section-group records-entry-group">
             <div class="section-group-head">
               <h4>기본 기록 직접 입력</h4>
@@ -7766,18 +8244,6 @@ Notes:
             </div>
           </div>
 
-          <div class="panel panel-support selected-meals-summary-panel">
-            <h3>선택 날짜 합산</h3>
-            <h2><span id="selectedMealsDateLabel">-</span> 식사 합산</h2>
-            <div class="meal-summary-grid" id="selectedMealTotals"></div>
-            <div id="mealSoftWarningHost"></div>
-          </div>
-
-          <div class="panel panel-support selected-meals-list-panel">
-            <h3>선택 날짜 식사 목록</h3>
-            <div class="table-like" id="selectedMealsList"></div>
-          </div>
-
           <div class="section-group records-backup-group">
             <div class="section-group-head">
               <h4>백업 안내</h4>
@@ -7795,6 +8261,9 @@ Notes:
           </div>
           </div>
         </details>
+          </aside>
+        </div>
+        </section>
       </div>
     </section>
 
@@ -8931,7 +9400,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-UI0";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-UI1";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -20528,6 +20997,28 @@ Notes:
       }).join("");
     }
 
+    function renderRecordsEntrySummary(records = getSortedRecords()){
+      const titleHost = document.getElementById("recordsLastRecordTitle");
+      const subtitleHost = document.getElementById("recordsLastRecordSubtitle");
+      if (!titleHost || !subtitleHost) return;
+      const sorted = Array.isArray(records) ? records : [];
+      const latest = sorted[0] || null;
+      if (!latest) {
+        titleHost.textContent = "아직 저장된 기록이 없습니다.";
+        subtitleHost.textContent = "체중만 기록, 간단 기록, 상세 기록 중 하나로 오늘 기록을 시작하세요.";
+        return;
+      }
+      const { dateLabel, weekdayLabel } = getRecordArchiveDateParts(latest.date);
+      const modeInfo = inferRecordMode(latest);
+      const modeLabel = getRecordArchiveModeChip(latest, modeInfo).label;
+      const meals = Array.isArray(latest.meals) ? latest.meals : [];
+      const pieces = [modeLabel];
+      if (meals.length) pieces.push(`식사 ${meals.length}건`);
+      if (Number.isFinite(latest.weight)) pieces.push(`공복 체중 ${formatKg2(latest.weight)}kg`);
+      titleHost.textContent = `마지막 기록: ${dateLabel} ${weekdayLabel}`;
+      subtitleHost.textContent = pieces.join(" · ");
+    }
+
     function getRecordDetailEditRoot(){
       return document.querySelector("[data-record-detail-edit='true']");
     }
@@ -20879,6 +21370,7 @@ Notes:
         : "";
       renderTodayRecordWeightMismatchNotice();
 
+      renderRecordsEntrySummary(archiveRecords);
       renderRecordsArchiveList(archiveRecords, selectedDate);
 
       const lastBackupAt = localStorage.getItem(storageKey("lastBackupAt"));
@@ -22566,7 +23058,8 @@ Notes:
       document.addEventListener("click", event => {
         const todayRecordStartTrigger = event.target.closest("[data-open-today-record-start]");
         if (todayRecordStartTrigger) {
-          openTodayRecordStartDialog();
+          const step = todayRecordStartTrigger.getAttribute("data-open-today-record-start");
+          openTodayRecordStartDialog(step || "choices");
           return;
         }
         const todayRecordUpdateTrigger = event.target.closest("[data-update-today-record-basis]");
@@ -23490,22 +23983,24 @@ Notes:
           assertTest(legacyText.includes("기준 없음"), "snapshotless past selected meal totals should avoid live targets");
           assertTest(!legacyText.includes("NaN") && !legacyText.includes("undefined"), "snapshotless selected meal totals should not expose invalid values");
         }));
-        results.push(runNamedTest("selected meal summary and list stay in records edit area", () => {
+        results.push(runNamedTest("selected meal summary and list stay in Records review stack", () => {
           const totalsHost = document.getElementById("selectedMealTotals");
           const warningHost = document.getElementById("mealSoftWarningHost");
           const listHost = document.getElementById("selectedMealsList");
-          assertTest(!!totalsHost.closest(".records-input-panel"), "selected meal totals should live in records input panel");
-          assertTest(!!warningHost.closest(".records-input-panel"), "meal warning host should live in records input panel");
-          assertTest(!!listHost.closest(".records-input-panel"), "selected meal list should live in records edit panel");
+          assertTest(!!totalsHost.closest(".records-review-shell"), "selected meal totals should live in Records review shell");
+          assertTest(!!warningHost.closest(".records-review-shell"), "meal warning host should live in Records review shell");
+          assertTest(!!listHost.closest(".records-review-shell"), "selected meal list should live in Records review shell");
+          assertTest(!totalsHost.closest(".records-input-panel"), "selected meal totals should no longer be hidden inside direct management");
           assertTest(!!listHost.closest(".selected-meals-list-panel"), "selected meal list should keep its support panel");
         }));
 
-        results.push(runNamedTest("record quality summary host sits above records entry group", () => {
+        results.push(runNamedTest("record quality summary host sits in Records review stack before direct management", () => {
           const host = document.getElementById("recordQualitySummaryHost");
           const entryGroup = document.querySelector(".records-entry-group");
-          assertTest(!!host?.closest(".records-input-panel"), "record quality summary host should live in records input panel");
+          assertTest(!!host?.closest(".records-review-shell"), "record quality summary host should live in Records review shell");
+          assertTest(!host?.closest(".records-input-panel"), "record quality summary should not be hidden inside direct management");
           assertTest(!!entryGroup, "records entry group should exist");
-          assertTest(!!(host.compareDocumentPosition(entryGroup) & Node.DOCUMENT_POSITION_FOLLOWING), "record quality summary should render before records entry group");
+          assertTest(!!(host.compareDocumentPosition(entryGroup) & Node.DOCUMENT_POSITION_FOLLOWING), "record quality summary should render before direct management fields");
         }));
 
         results.push(runNamedTest("record quality summary renders 0 1 2 meal states without invalid text", () => {
@@ -26204,7 +26699,7 @@ Notes:
           render();
           assertTest(document.getElementById("tabRecords").textContent === "기록", "Records tab should be labeled 기록");
           const text = document.getElementById("recordsPanel").textContent || "";
-          assertIncludesAll(text, ["기록 보관함", "날짜별 식사·체중·점수·InBody 기록을 봅니다."], "Records screen should use archive heading");
+          assertIncludesAll(text, ["어떤 데이터를 기록할까요?", "체중만 기록", "간단 기록", "상세 기록", "저장된 날짜별 기록", "최근 14일 요약"], "Records screen should use Stitch record-choice heading and archive summary");
         }));
 
         results.push(runNamedTest("records archive renders date cards", () => {
@@ -26333,7 +26828,7 @@ Notes:
           const panel = document.getElementById("recordsEditPanel");
           panel.open = false;
           assertTest(panel.tagName === "DETAILS" && panel.open === false, "Records direct edit panel should be collapsed by default");
-          assertIncludesAll(panel.textContent || "", ["기록 직접 관리", "날짜 직접 입력", "백업 안내", "데이터 관리로 이동"], "Records should keep direct management and data management guide");
+          assertIncludesAll(panel.textContent || "", ["직접 관리", "날짜별 기록 수정", "백업 안내", "데이터 관리로 이동"], "Records should keep direct management and data management guide");
           assertExcludesAll(panel.textContent || "", ["날짜 직접 입력 / 백업", "백업 파일을 관리"], "Records direct management should no longer read as backup management");
           panel.open = true;
           assertTest(!!document.getElementById("saveRecordBtn"), "record save button should remain");
@@ -26680,8 +27175,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show v6.6-C4.8-UI0");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version badge should show v6.6-C4.8-UI0");
+          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show v6.6-C4.8-UI1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show v6.6-C4.8-UI1");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -26775,7 +27270,7 @@ Notes:
           const recordsEditPanel = document.getElementById("recordsEditPanel");
           recordsEditPanel.open = false;
           assertTest(recordsEditPanel.tagName === "DETAILS" && recordsEditPanel.open === false, "Records direct edit panel should start collapsed");
-          assertIncludesAll(recordsEditPanel.textContent || "", ["기록 직접 관리", "날짜 직접 입력"], "Records collapsed panel should read as direct management");
+          assertIncludesAll(recordsEditPanel.textContent || "", ["직접 관리", "날짜별 기록 수정"], "Records collapsed panel should read as direct management");
           assertExcludesAll(recordsEditPanel.textContent || "", ["날짜 직접 입력 / 백업", "백업 파일을 관리"], "Records collapsed panel should not read as backup management");
           assertTest(!!document.querySelector(".records-archive-panel"), "Records archive should remain the main section");
           recordsEditPanel.open = true;
@@ -26818,7 +27313,8 @@ Notes:
           editPanel.open = false;
           assertTest(!!archivePanel && !!editPanel, "Records archive and direct edit panels should exist");
           assertTest(editPanel.tagName === "DETAILS" && editPanel.open === false, "Records direct input should be a collapsed details panel");
-          assertIncludesAll(editPanel.textContent || "", ["기록 직접 관리", "날짜 직접 입력", "기본 기록 직접 입력", "식사 직접 입력", "선택 날짜 합산", "선택 날짜 식사 목록", "백업 안내", "데이터 관리로 이동"], "Records collapsed summary and data management guide should remain");
+          assertIncludesAll(editPanel.textContent || "", ["직접 관리", "날짜별 기록 수정", "기본 기록 직접 입력", "식사 직접 입력", "백업 안내", "데이터 관리로 이동"], "Records collapsed summary and data management guide should remain");
+          assertIncludesAll(document.getElementById("recordsPanel").textContent || "", ["선택 날짜 합산", "선택 날짜 식사 목록"], "Records selected-date summary and list should stay visible in the Stitch side stack");
           assertExcludesAll(editPanel.textContent || "", ["날짜 직접 입력 / 백업", "백업 파일을 관리"], "Records compact guide should direct backup to Data Management");
           assertExcludesAll(editPanel.textContent || "", ["선택 날짜 직접 수정", "펼쳐서 수정하기"], "Records fallback panel should not look like the primary edit action");
           assertTest(getComputedStyle(editPanel.querySelector("summary"), "::after").content.includes("관리 열기"), "Records collapsed summary action should read as management");
@@ -28229,8 +28725,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -28872,7 +29368,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.6-C4.8-UI0", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.6-C4.8-UI1", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -29179,7 +29675,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.6-C4.8-UI0", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.6-C4.8-UI1", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -29404,9 +29900,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show v6.6-C4.8-UI0");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version badge should show v6.6-C4.8-UI0");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI0", "current app version helper should return v6.6-C4.8-UI0");
+          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show v6.6-C4.8-UI1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show v6.6-C4.8-UI1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI1", "current app version helper should return v6.6-C4.8-UI1");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -29422,7 +29918,7 @@ Notes:
           const panel = document.getElementById("recordsEditPanel");
           panel.open = true;
           const text = panel.textContent || "";
-          assertIncludesAll(text, ["기록 직접 관리", "날짜 직접 입력", "백업은 기본 설정의 데이터 관리에서 진행합니다.", "백업 안내", "데이터 관리로 이동"], "Records direct management should focus on direct date input and guide backup to Data Management");
+          assertIncludesAll(text, ["직접 관리", "날짜별 기록 수정", "백업은 기본 설정의 데이터 관리에서 진행합니다.", "백업 안내", "데이터 관리로 이동"], "Records direct management should focus on direct date input and guide backup to Data Management");
           assertExcludesAll(text, ["날짜 직접 입력 / 백업", "백업 파일을 관리합니다", "백업 파일을 관리할 때"], "Records direct management should not present itself as the backup manager");
           assertTest(document.getElementById("dataManagementPanel").contains(document.getElementById("exportFullBackupBtn")), "full backup action should stay in Data Management");
           assertTest(document.getElementById("dataManagementPanel").contains(document.getElementById("exportJsonBtn")), "records-only export should stay in Data Management");
@@ -29447,7 +29943,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.6-C4.8-UI0", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.6-C4.8-UI1", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -29493,9 +29989,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show v6.6-C4.8-UI0");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version badge should show v6.6-C4.8-UI0");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI0", "current app version helper should return v6.6-C4.8-UI0");
+          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show v6.6-C4.8-UI1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show v6.6-C4.8-UI1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI1", "current app version helper should return v6.6-C4.8-UI1");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -29600,16 +30096,16 @@ Notes:
         };
         const visibleBodyText = () => document.body.innerText || getRenderedBodyText();
 
-        results.push(runNamedTest("C4.7-B3 version stage and badges are updated", () => {
+        results.push(runNamedTest("C4.8-UI1 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.6-C4.8-UI0",
-            "Stage: 6.6-C4.8-UI0 Stitch Today UI Shell",
-            "Records / InBody / Settings 설명문 축약"
-          ], "top comment should show C4.7-B3 version and stage");
-          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show v6.6-C4.8-UI0");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version badge should show v6.6-C4.8-UI0");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI0", "version helper should return v6.6-C4.8-UI0");
+            "Version: 6.6-C4.8-UI1",
+            "Stage: 6.6-C4.8-UI1 Records Shell 이식",
+            "Records 탭을 Stitch 톤의 확정 기록 보관함/수정 Shell로 재배치"
+          ], "top comment should show C4.8-UI1 version and stage");
+          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show v6.6-C4.8-UI1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show v6.6-C4.8-UI1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI1", "version helper should return v6.6-C4.8-UI1");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -29618,10 +30114,15 @@ Notes:
           const panel = document.getElementById("recordsPanel");
           const text = panelText("recordsPanel");
           assertIncludesAll(text, [
-            "기록 보관함",
-            "날짜별 식사·체중·점수·InBody 기록을 봅니다.",
-            "날짜 카드를 누르면 직접 관리 날짜가 바뀝니다.",
-            "기록 직접 관리"
+            "어떤 데이터를 기록할까요?",
+            "체중만 기록",
+            "간단 기록",
+            "상세 기록",
+            "저장된 날짜별 기록",
+            "날짜 카드를 누르면 상세 보기와 직접 관리 날짜가 함께 바뀝니다.",
+            "최근 14일 요약",
+            "선택 날짜",
+            "날짜별 기록 수정"
           ], "Records archive and direct management copy should render");
           const editPanel = document.getElementById("recordsEditPanel");
           editPanel.open = true;
@@ -29632,11 +30133,10 @@ Notes:
             "선택 날짜의 공복 체중과 기록 방식을 입력합니다.",
             "선택 날짜에 식사를 누적 저장합니다.",
             "저장하면 다음 식사명이 자동 제안되고 입력칸은 비워집니다.",
-            "선택 날짜 합산",
-            "선택 날짜 식사 목록",
             "백업은 기본 설정의 데이터 관리에서 진행합니다.",
             "기록만 내보내기도 데이터 관리에 있습니다."
           ], "Records direct management should keep essential short copy");
+          assertIncludesAll(text, ["선택 날짜 합산", "선택 날짜 식사 목록"], "Records selected-date summary/list should remain visible in the side stack");
           assertExcludesAll(`${text} ${editText}`, [
             "날짜별 식사, 체중, 식단 점수, InBody 기록을 확인합니다.",
             "하단 기록 직접 관리 영역",
@@ -30483,8 +30983,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertIncludesAll(panel.textContent || "", ["목표 및 모드", "기본 프로필", "기본 생활 패턴", "운동 기준", "전문가 설정", "데이터 관리"], "Settings visible sections should remain default/profile oriented and include data management");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").closest(".settings-group").contains(document.getElementById("cardioPresetSettingsHost")), "cardio presets should remain inside training defaults group");
@@ -31045,6 +31545,158 @@ Notes:
       });
     }
 
+    function runStitchRecordsShellTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const yesterday = shiftDateString(today, -1);
+        const makeMeal = (id, mealLabel, overrides = {}) => ({
+          id,
+          mealLabel,
+          carbs: 70,
+          protein: 35,
+          fat: 18,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "",
+          createdAt: `${today}T08:00:00.000Z`,
+          ...overrides
+        });
+        const seedRecordsShell = () => {
+          setValidTodayBalanceTestInputs();
+          recordsState.items = normalizeRecordsCollection([
+            normalizeRecord({
+              date: today,
+              recordMode: "detailed",
+              weight: 75.2,
+              note: "점심 외식",
+              goalSnapshot: buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry"),
+              meals: [
+                makeMeal("ui1-meal-1", "아침", { createdAt: `${today}T08:00:00.000Z` }),
+                makeMeal("ui1-meal-2", "점심", { carbs: 90, protein: 45, fat: 20, createdAt: `${today}T12:00:00.000Z` })
+              ]
+            }),
+            normalizeRecord({
+              date: yesterday,
+              recordMode: "simple",
+              adherence: "medium",
+              adherenceSource: "manual",
+              weight: 75.5,
+              note: "간단 기록"
+            })
+          ]);
+          ids.recordDate.value = today;
+          syncRecordInputsForDate(today);
+          setActiveTab("records");
+          render();
+        };
+        const forbiddenTerms = [
+          "goalSnapshot",
+          "draft",
+          "source meta",
+          "schema",
+          "payload",
+          "localStorage",
+          "helper",
+          "policy",
+          "pending",
+          "one-shot",
+          "selectedBasis",
+          "actual",
+          "fallback",
+          "materialize"
+        ];
+
+        results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
+          seedRecordsShell();
+          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show v6.6-C4.8-UI1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show v6.6-C4.8-UI1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI1", "version helper should return v6.6-C4.8-UI1");
+          assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
+          assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
+          assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
+          assertIncludesAll(document.getElementById("recordsPanel").textContent || "", ["어떤 데이터를 기록할까요?", "체중만 기록", "간단 기록", "상세 기록", "이어서 기록하기"], "Records first viewport should follow Stitch record-choice flow");
+          assertTest(!!document.querySelector(".records-stitch-layout"), "Records shell should render two-column layout");
+          assertTest(!!document.querySelector(".records-review-shell"), "Records shell should render review side stack");
+        }));
+
+        results.push(runNamedTest("C4.8-UI1 record choice cards open existing record start steps", () => {
+          seedRecordsShell();
+          document.querySelector('[data-open-today-record-start="skip"]')?.click();
+          assertTest(!getTodayRecordStartOverlay()?.classList.contains("hidden"), "weight-only card should open record start modal");
+          assertTest(!document.getElementById("todayRecordStartSkip").classList.contains("hidden"), "weight-only card should open skip step");
+          closeTodayRecordStartDialog();
+          document.querySelector('[data-open-today-record-start="simple"]')?.click();
+          assertTest(!document.getElementById("todayRecordStartSimple").classList.contains("hidden"), "simple card should open simple step");
+          closeTodayRecordStartDialog();
+          document.querySelector('[data-open-today-record-start="detailed"]')?.click();
+          assertTest(!document.getElementById("todayRecordStartDetailed").classList.contains("hidden"), "detailed card should open detailed step");
+          closeTodayRecordStartDialog();
+        }));
+
+        results.push(runNamedTest("C4.8-UI1 archive list detail and direct management remain mounted", () => {
+          seedRecordsShell();
+          assertTest(document.querySelectorAll("#recordsTable .record-archive-card").length >= 2, "Records archive should render date cards");
+          assertTest(!!document.getElementById("recordsEditPanel"), "direct management fallback should remain mounted");
+          assertTest(!!document.getElementById("recordDate") && !!document.getElementById("saveRecordBtn"), "record direct input controls should remain mounted");
+          assertTest(!!document.getElementById("saveMealBtn") && !!document.getElementById("selectedMealsList"), "meal direct input and selected meal list should remain mounted");
+          assertTest(!!document.getElementById("recordQualitySummaryHost") && !!document.getElementById("selectedMealTotals"), "selected date quality and totals should remain visible in shell");
+          assertTest(!!document.querySelector("[data-open-data-management]"), "data management entry should remain accessible");
+        }));
+
+        results.push(runNamedTest("C4.8-UI1 record detail and edit actions stay reachable", () => {
+          seedRecordsShell();
+          uiState.recordsDetailDate = today;
+          renderRecordsPanel();
+          const detail = document.querySelector(`[data-record-detail-date="${today}"]`);
+          assertTest(!!detail && detail.textContent.includes("기록 상세"), "record detail should render inside archive list");
+          assertTest(!!detail.querySelector("[data-edit-record-date]"), "record detail edit action should remain available");
+          startRecordDetailEdit(today);
+          renderRecordsPanel();
+          const edit = document.querySelector(`[data-record-detail-date="${today}"][data-record-detail-edit="true"]`);
+          assertTest(!!edit && edit.textContent.includes("기록 상세 수정"), "record detail edit form should open");
+          assertTest(!!edit.querySelector('[data-detail-field="weight"]'), "record detail edit weight field should remain");
+          assertTest(!!edit.querySelector('[data-detail-basis-field="weeklyTrainingDays"]'), "saved-basis weekly training field should remain");
+          assertTest(!edit.querySelector(".weekly-training-basis-toggle"), "record detail edit should not add recent/direct segmented UI");
+        }));
+
+        results.push(runNamedTest("C4.8-UI1 common record and meal round-trip still works", () => {
+          seedRecordsShell();
+          uiState.recordsDetailDate = today;
+          startRecordDetailEdit(today);
+          renderRecordsPanel();
+          document.querySelector('[data-detail-field="weight"]').value = "76.10";
+          document.querySelector('[data-detail-field="note"]').value = "UI1 저장 메모";
+          document.querySelector('[data-detail-meal-row="0"] [data-detail-meal-field="carbs"]').value = "111";
+          const saved = saveRecordDetailDraft();
+          const record = getRecordByDate(today);
+          assertTest(saved.saved === true, "record detail save should succeed");
+          assertTest(record.weight === 76.1 && record.note === "UI1 저장 메모", "record detail should save weight and memo");
+          assertTest(record.meals[0].carbs === 111, "record detail should save meal macros");
+          assertTest(record.adherenceSource === "auto" && Number.isFinite(record.adherencePercent), "record detail save should recalculate score");
+        }));
+
+        results.push(runNamedTest("C4.8-UI1 Today shell and backup suites remain exported", () => {
+          seedRecordsShell();
+          assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today Stitch shell should remain mounted");
+          assertTest(typeof window.runStitchTodayShellTests === "function", "Today Stitch shell suite should remain exported");
+          assertTest(typeof window.runSmartRestoreImportTests === "function", "smart restore suite should remain exported");
+          assertTest(typeof window.runBackupRestoreConflictPreviewTests === "function", "backup conflict preview suite should remain exported");
+          assertTest(typeof window.runRecordEditCalculationBasisTests === "function", "record edit calculation basis suite should remain exported");
+        }));
+
+        results.push(runNamedTest("C4.8-UI1 visible Records copy avoids internal terms", () => {
+          seedRecordsShell();
+          document.getElementById("recordsEditPanel").open = true;
+          const visibleText = document.getElementById("recordsPanel")?.textContent || "";
+          assertExcludesAll(visibleText, forbiddenTerms, "Records shell visible copy should not expose internal terms");
+          assertIncludesAll(visibleText, ["어떤 데이터를 기록할까요?", "저장된 날짜별 기록", "저장된 날짜", "최근 14일 요약", "선택 날짜", "날짜별 기록 수정"], "Records shell should expose record-choice/archive/review/direct areas");
+        }));
+
+        return results;
+      });
+    }
+
     function runStitchTodayShellTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -31075,9 +31727,9 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show v6.6-C4.8-UI0");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version badge should show v6.6-C4.8-UI0");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI0", "version helper should return v6.6-C4.8-UI0");
+          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show v6.6-C4.8-UI1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show v6.6-C4.8-UI1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI1", "version helper should return v6.6-C4.8-UI1");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
@@ -44451,6 +45103,7 @@ Notes:
     window.runTodayCalculationOwnershipTests = runTodayCalculationOwnershipTests;
     window.runTodayQuickEditTests = runTodayQuickEditTests;
     window.runTodayRecordConfirmationTests = runTodayRecordConfirmationTests;
+    window.runStitchRecordsShellTests = runStitchRecordsShellTests;
     window.runStitchTodayShellTests = runStitchTodayShellTests;
     window.runInBodyRecordApplyTests = runInBodyRecordApplyTests;
     window.runInBodyTodayFillTests = runInBodyTodayFillTests;
