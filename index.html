@@ -1,13 +1,19 @@
 <!--
-Version: 6.6-C4.8-A1
-Stage: 6.6-C4.8-A1 full backup restore conflict preview 강화
+Version: 6.6-C4.8-A1.5
+Stage: 6.6-C4.8-A1.5 스마트 복원 / 추가 기록 가져오기
 Date: 2026-05-17
 Notes:
+- C4.8-A1.5 스마트 복원 / 추가 기록 가져오기
+- full backup preview에서 전체 복원 / 추가 기록만 가져오기 선택 지원
+- 추가 기록만 가져오기는 Settings / Today 계산값 / 프리셋을 유지하고 Records/InBody 기록성 데이터만 보강
+- 같은 날짜 Records 충돌은 사용자 선택으로 처리
+- 기존 full backup replace 정책 유지
+- 산식 / score / Coach / recentContext / InBody gate / dual basis 변경 없음
 - C4.8-A1 full backup restore conflict preview 강화
 - full backup 복원 전 local/backup 차이 preview 강화
 - 오래된/부분 백업으로 현재 기록이 대체될 수 있는 위험 표시
 - records-only와 full backup 용도 구분 강화
-- merge 구현 없이 기존 replace 정책 유지
+- full backup 전체 자동 합치기는 구현하지 않고, 전체 복원 replace 정책 유지
 - 산식 / score / Coach / recentContext / InBody gate / dual basis 변경 없음
 - C4.6 설명문 다이어트 감사 결과 중 Records / InBody / Settings 설명문 축약 반영
 - Records 직접 관리 / InBody 안내 / Settings 기본값 설명의 반복 문구 일부 축약
@@ -168,7 +174,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.8-A1</title>
+  <title>탄단지 다이어리 v6.6-C4.8-A1.5</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2126,6 +2132,50 @@ Notes:
       color:var(--muted);
       font-size:12px;
       font-weight:800;
+      line-height:1.55;
+    }
+    .data-import-mode-list,
+    .data-import-conflict-list{
+      display:grid;
+      gap:10px;
+      margin:0 0 12px;
+    }
+    .data-import-mode-card,
+    .data-import-conflict-card{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      gap:10px;
+      align-items:center;
+      border:1px solid color-mix(in srgb, var(--line) 80%, white 20%);
+      border-radius:14px;
+      background:#fff;
+      padding:12px;
+      min-width:0;
+    }
+    .data-import-mode-card strong,
+    .data-import-conflict-card strong{
+      display:block;
+      margin-bottom:4px;
+      color:var(--deep);
+      font-size:13px;
+      font-weight:950;
+    }
+    .data-import-mode-card span,
+    .data-import-conflict-card span{
+      display:block;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+    }
+    .data-import-smart-note{
+      margin:0 0 12px;
+      border:1px solid color-mix(in srgb, var(--accent-strong) 24%, var(--line) 76%);
+      border-radius:12px;
+      background:color-mix(in srgb, var(--accent-soft) 28%, white 72%);
+      padding:10px 12px;
+      color:var(--deep);
+      font-size:12px;
+      font-weight:850;
       line-height:1.55;
     }
     .field{
@@ -6124,6 +6174,14 @@ Notes:
       .data-import-preview-grid{
         grid-template-columns:1fr;
       }
+      .data-import-mode-card,
+      .data-import-conflict-card{
+        grid-template-columns:1fr;
+      }
+      .data-import-mode-card .primary-btn,
+      .data-import-mode-card .secondary-btn{
+        width:100%;
+      }
       .data-management-subactions .secondary-btn{
         flex:1 1 140px;
       }
@@ -6260,7 +6318,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.8-A1</span>
+               <span class="app-version">v6.6-C4.8-A1.5</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -8182,7 +8240,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-A1";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-A1.5";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -8449,6 +8507,142 @@ Notes:
         backupTodayCount,
         isBackupOlderThanLocalRecords,
         warnings
+      };
+    }
+
+    function getMealImportSignature(rawMeal){
+      const meal = normalizeMeal(rawMeal, 0);
+      if (!meal) return "";
+      return [
+        meal.mealLabel,
+        Number(meal.carbs).toFixed(3),
+        Number(meal.protein).toFixed(3),
+        Number(meal.fat).toFixed(3),
+        Number(meal.alcoholKcal).toFixed(3),
+        Number(meal.otherKcal).toFixed(3),
+        meal.memo || "",
+        meal.createdAt || ""
+      ].join("|");
+    }
+
+    function getMealImportLooseSignature(rawMeal){
+      const meal = normalizeMeal(rawMeal, 0);
+      if (!meal) return "";
+      return [
+        meal.mealLabel,
+        Number(meal.carbs).toFixed(3),
+        Number(meal.protein).toFixed(3),
+        Number(meal.fat).toFixed(3),
+        Number(meal.alcoholKcal).toFixed(3),
+        Number(meal.otherKcal).toFixed(3),
+        meal.memo || ""
+      ].join("|");
+    }
+
+    function getInbodyImportSignature(rawRecord){
+      const record = normalizeInbodyRecordCollection([rawRecord])[0];
+      if (!record) return "";
+      return [
+        record.date,
+        Number(record.weight).toFixed(3),
+        Number(record.skeletalMuscle).toFixed(3),
+        Number(record.bodyFat).toFixed(3),
+        Number(record.bodyFatPercent).toFixed(3)
+      ].join("|");
+    }
+
+    function mergeRecordMealsOnly(localRecord, backupRecord){
+      const local = normalizeRecord(localRecord);
+      const backup = normalizeRecord(backupRecord);
+      const localMeals = normalizeMeals(local.meals || []);
+      const backupMeals = normalizeMeals(backup.meals || []);
+      const existing = new Set(localMeals.map(getMealImportSignature).filter(Boolean));
+      const existingLoose = new Set(localMeals.map(getMealImportLooseSignature).filter(Boolean));
+      let addedMealCount = 0;
+      let duplicateMealCount = 0;
+      let possibleDuplicateMealCount = 0;
+      const mergedMeals = [...localMeals];
+      backupMeals.forEach(meal => {
+        const signature = getMealImportSignature(meal);
+        const looseSignature = getMealImportLooseSignature(meal);
+        if (signature && existing.has(signature)) {
+          duplicateMealCount += 1;
+          return;
+        }
+        if (looseSignature && existingLoose.has(looseSignature)) {
+          possibleDuplicateMealCount += 1;
+        }
+        existing.add(signature);
+        existingLoose.add(looseSignature);
+        mergedMeals.push({ ...meal, id: meal.id || createMealId() });
+        addedMealCount += 1;
+      });
+      const mergedRecord = normalizeRecord({ ...local, meals: mergedMeals });
+      return {
+        record: addedMealCount > 0 ? recalculateImportedRecordMealScore(mergedRecord) : mergedRecord,
+        addedMealCount,
+        duplicateMealCount,
+        possibleDuplicateMealCount
+      };
+    }
+
+    function recalculateImportedRecordMealScore(record){
+      const normalized = normalizeRecord(record);
+      if (inferRecordMode(normalized).recordMode !== "detailed" || !normalized.meals.length || !normalized.goalSnapshot) {
+        return normalized;
+      }
+      const previousItems = recordsState.items;
+      try {
+        recordsState.items = normalizeRecordsCollection([
+          ...normalizeRecordsCollection(previousItems).filter(item => normalizeDateString(item.date) !== normalized.date),
+          normalized
+        ]);
+        const score = getDailyAdherenceScore(normalized.date, calculate(), { goalSnapshot: normalized.goalSnapshot });
+        const hasAutoPercent = Number.isFinite(score?.percent);
+        return normalizeRecord({
+          ...normalized,
+          adherencePercent: score?.isAvailable ? score.percent : null,
+          adherenceSource: score?.isAvailable ? "auto" : "manual",
+          adherenceScoringVersion: hasAutoPercent ? (score.detail?.scoringVersion || ADHERENCE_SCORING_VERSION) : null,
+          adherenceLockedAt: score?.isAvailable ? new Date().toISOString() : normalized.adherenceLockedAt
+        });
+      } finally {
+        recordsState.items = previousItems;
+      }
+    }
+
+    function buildSmartRestoreImportPreview(data = {}){
+      const backupRecords = normalizeRecordsCollection(data.records || []);
+      const localRecords = normalizeRecordsCollection(recordsState.items || []);
+      const backupMap = getRecordDateMap(backupRecords);
+      const localMap = getRecordDateMap(localRecords);
+      const backupOnlyDates = [...backupMap.keys()].filter(date => !localMap.has(date)).sort();
+      const conflictDates = [...backupMap.keys()].filter(date => localMap.has(date)).sort();
+      const localInbodySignatures = new Set(normalizeInbodyRecordCollection(state.inbodyRecords || []).map(getInbodyImportSignature).filter(Boolean));
+      const backupOnlyInbodyRecords = normalizeInbodyRecordCollection(data.inbodyRecords || [])
+        .filter(record => {
+          const signature = getInbodyImportSignature(record);
+          return signature && !localInbodySignatures.has(signature);
+        });
+      let mergeAddedMealCount = 0;
+      let mergeDuplicateMealCount = 0;
+      let mergePossibleDuplicateMealCount = 0;
+      conflictDates.forEach(date => {
+        const merge = mergeRecordMealsOnly(localMap.get(date), backupMap.get(date));
+        mergeAddedMealCount += merge.addedMealCount;
+        mergeDuplicateMealCount += merge.duplicateMealCount;
+        mergePossibleDuplicateMealCount += merge.possibleDuplicateMealCount;
+      });
+      return {
+        backupOnlyDates,
+        conflictDates,
+        backupOnlyRecordCount: backupOnlyDates.length,
+        conflictRecordCount: conflictDates.length,
+        backupOnlyInbodyRecords,
+        backupOnlyInbodyCount: backupOnlyInbodyRecords.length,
+        mergeAddedMealCount,
+        mergeDuplicateMealCount,
+        mergePossibleDuplicateMealCount
       };
     }
 
@@ -12183,6 +12377,93 @@ Notes:
       `;
     }
 
+    function buildSmartRestorePreviewGrid(preview){
+      const safe = preview || {};
+      const rows = [
+        ["백업에만 있는 날짜", `${safe.backupOnlyRecordCount || 0}일`],
+        ["같은 날짜 충돌", `${safe.conflictRecordCount || 0}일`],
+        ["추가될 InBody", `${safe.backupOnlyInbodyCount || 0}개`],
+        ["식사만 합치기 예상", `${safe.mergeAddedMealCount || 0}개 추가`]
+      ];
+      if (safe.mergeDuplicateMealCount) rows.push(["완전 중복 식사", `${safe.mergeDuplicateMealCount}개 제외`]);
+      if (safe.mergePossibleDuplicateMealCount) rows.push(["중복 가능 식사", `${safe.mergePossibleDuplicateMealCount}개 확인 필요`]);
+      return rows.map(([label, value]) => `
+        <div class="data-import-preview-item">
+          <div class="label">${escapeHtml(label)}</div>
+          <div class="value">${escapeHtml(value)}</div>
+        </div>
+      `).join("");
+    }
+
+    function buildSmartRestoreModeHtml(preview){
+      const conflictCopy = preview?.conflictRecordCount
+        ? `같은 날짜 기록 ${preview.conflictRecordCount}일은 다음 단계에서 처리 방식을 고릅니다.`
+        : "같은 날짜 충돌이 없어 바로 추가할 수 있습니다.";
+      return `
+        <div class="data-import-smart-note">
+          추가 기록만 가져오기는 현재 설정, Today 계산값, 유산소 프리셋을 그대로 두고 Records/InBody 기록만 보강합니다.
+        </div>
+        <div class="data-import-preview-grid">${buildSmartRestorePreviewGrid(preview)}</div>
+        <div class="data-import-mode-list">
+          <div class="data-import-mode-card">
+            <div>
+              <strong>전체 복원</strong>
+              <span>현재 브라우저 데이터를 백업 파일 기준으로 바꿉니다.</span>
+            </div>
+            <button class="primary-btn" type="button" data-confirm-data-import>전체 복원</button>
+          </div>
+          <div class="data-import-mode-card">
+            <div>
+              <strong>추가 기록만 가져오기</strong>
+              <span>${escapeHtml(conflictCopy)} Settings / Today 계산값 / 유산소 프리셋은 유지합니다.</span>
+            </div>
+            <button class="secondary-btn" type="button" data-smart-restore-import>${preview?.conflictRecordCount ? "충돌 확인" : "추가하기"}</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function buildSmartRestoreConflictHtml(preview, data){
+      const backupMap = getRecordDateMap(data?.records || []);
+      const localMap = getRecordDateMap(recordsState.items || []);
+      const dates = preview?.conflictDates || [];
+      const visibleDates = dates.slice(0, 6);
+      const rest = dates.length - visibleDates.length;
+      const rows = visibleDates.map(date => {
+        const local = localMap.get(date);
+        const backup = backupMap.get(date);
+        return `
+          <div class="data-import-conflict-card">
+            <div>
+              <strong>${escapeHtml(date)}</strong>
+              <span>현재 식사 ${getRecordMealCount(local)}개 · 백업 식사 ${getRecordMealCount(backup)}개</span>
+              <span>현재 체중 ${Number.isFinite(local?.weight) ? "있음" : "없음"} · 백업 체중 ${Number.isFinite(backup?.weight) ? "있음" : "없음"}</span>
+              <span>현재 메모 ${local?.note ? "있음" : "없음"} · 백업 메모 ${backup?.note ? "있음" : "없음"}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+      const restNote = rest > 0 ? `<div class="data-import-scope-note">외 ${rest}일 충돌이 더 있습니다. 1차 구현에서는 모든 충돌 날짜에 같은 처리 방식을 적용합니다.</div>` : "";
+      const duplicateNote = preview?.mergePossibleDuplicateMealCount
+        ? `<div class="data-import-warning">식사만 합치기에서 중복 가능 식사 ${preview.mergePossibleDuplicateMealCount}개가 있습니다. 완전히 같은 식사는 제외하고, 애매한 식사는 사용자가 확인할 수 있도록 남깁니다.</div>`
+        : "";
+      return `
+        <div class="data-import-smart-note">
+          같은 날짜 기록이 있습니다. 전체 충돌 날짜에 같은 처리 방식을 적용합니다.
+        </div>
+        ${duplicateNote}
+        <div class="data-import-conflict-list">${rows}</div>
+        ${restNote}
+        <div class="app-choice-actions">
+          <button class="secondary-btn" type="button" data-smart-conflict-mode="keep">현재 기록 유지</button>
+          <button class="secondary-btn" type="button" data-smart-conflict-mode="replace">백업 기록으로 교체</button>
+          <button class="primary-btn" type="button" data-smart-conflict-mode="meals">식사만 합치기</button>
+          <button class="secondary-btn" type="button" data-import-back-to-preview>이전</button>
+          <button class="secondary-btn" type="button" data-cancel-data-import>그대로 두기</button>
+        </div>
+      `;
+    }
+
     function renderDataManagementPanel(){
       const feedbackHost = document.getElementById("dataManagementFeedback");
       const previewHost = document.getElementById("dataImportPreviewHost");
@@ -12202,13 +12483,23 @@ Notes:
         bodyHost.innerHTML = "";
         return;
       }
-      const title = pending.type === "full" ? "백업을 복원할까요?" : "기록 파일을 불러올까요?";
+      const smartPreview = pending.smartRestorePreview || (pending.type === "full" ? buildSmartRestoreImportPreview(pending.data) : null);
+      if (pending.type === "full") pending.smartRestorePreview = smartPreview;
+      if (pending.type === "full" && pending.smartRestoreStep === "conflict") {
+        titleHost.textContent = "같은 날짜 기록이 있습니다.";
+        bodyHost.innerHTML = buildSmartRestoreConflictHtml(smartPreview, pending.data);
+        overlay.classList.remove("hidden");
+        overlay.setAttribute("aria-hidden", "false");
+        bodyHost.querySelector("[data-smart-conflict-mode]")?.focus();
+        return;
+      }
+      const title = pending.type === "full" ? "백업을 어떻게 불러올까요?" : "기록 파일을 불러올까요?";
       const desc = pending.type === "full"
-        ? "이 백업은 현재 브라우저 데이터를 대체합니다. 아직 복원되지 않았습니다. 아래 내용을 확인한 뒤 복원하기를 눌러 주세요."
+        ? "전체 복원은 현재 브라우저 데이터를 대체합니다. 추가 기록만 가져오기는 현재 설정과 Today 계산값을 유지합니다. 아직 복원되지 않았습니다."
         : "기록 중심 파일입니다. 설정과 Today 계산값은 바꾸지 않습니다. 아직 적용되지 않았습니다.";
       const comparison = pending.comparison || buildBackupImportComparison(pending.type, pending.data, pending.summary);
       const replaceNote = pending.type === "full"
-        ? `<div class="data-import-replace-note">복원하면 현재 브라우저의 Settings, Records, InBody, 유산소 프리셋, Today 계산값이 백업 파일 기준으로 대체됩니다. 병합은 하지 않습니다.</div>`
+        ? `<div class="data-import-replace-note">전체 복원하면 현재 브라우저의 Settings, Records, InBody, 유산소 프리셋, Today 계산값이 백업 파일 기준으로 대체됩니다. 자동으로 합치지 않습니다.</div>`
         : buildRecordsOnlyScopeNote();
       const comparisonHtml = pending.type === "full"
         ? `
@@ -12222,9 +12513,10 @@ Notes:
         <p class="data-import-confirm-copy app-choice-desc">${escapeHtml(desc)}</p>
         ${replaceNote}
         <div class="data-import-preview-grid">${buildDataImportPreviewGrid(pending.summary)}</div>
+        ${pending.type === "full" ? buildSmartRestoreModeHtml(smartPreview) : ""}
         ${comparisonHtml}
         <div class="app-choice-actions">
-          <button class="primary-btn" type="button" data-confirm-data-import>복원하기</button>
+          ${pending.type === "full" ? "" : `<button class="primary-btn" type="button" data-confirm-data-import>복원하기</button>`}
           <button class="secondary-btn" type="button" data-cancel-data-import>그대로 두기</button>
         </div>
       `;
@@ -12243,7 +12535,8 @@ Notes:
     function queueDataManagementImport(parsed){
       const detected = detectBackupImportPayload(parsed);
       const comparison = buildBackupImportComparison(detected.type, detected.data, detected.summary);
-      dataManagementState.pendingImport = { ...detected, comparison };
+      const smartRestorePreview = detected.type === "full" ? buildSmartRestoreImportPreview(detected.data) : null;
+      dataManagementState.pendingImport = { ...detected, comparison, smartRestorePreview, smartRestoreStep: "preview" };
       setDataManagementFeedback("ok", detected.type === "full" ? "전체 백업 내용을 확인해 주세요. 복원하면 현재 브라우저 데이터가 백업 기준으로 대체됩니다." : "기록 중심 파일입니다. 설정과 Today 계산값은 바꾸지 않습니다. 다른 기기에서 이어 쓰려면 전체 백업을 사용하세요.");
       renderDataManagementPanel();
       renderDataImportConfirmDialog();
@@ -12264,6 +12557,88 @@ Notes:
         }
       };
       reader.readAsText(file, "utf-8");
+    }
+
+    function applySmartRestoreImportData(data, conflictMode = "keep"){
+      const mode = ["keep", "replace", "meals"].includes(conflictMode) ? conflictMode : "keep";
+      const backupRecords = normalizeRecordsCollection(data.records || []);
+      const localMap = getRecordDateMap(recordsState.items || []);
+      const mergeStats = { addedRecords: 0, replacedRecords: 0, mergedMeals: 0, skippedMeals: 0, possibleDuplicateMeals: 0 };
+      backupRecords.forEach(record => {
+        const date = getRecordDateKey(record);
+        if (!date) return;
+        const localRecord = localMap.get(date);
+        if (!localRecord) {
+          localMap.set(date, normalizeRecord(record));
+          mergeStats.addedRecords += 1;
+          return;
+        }
+        if (mode === "replace") {
+          localMap.set(date, normalizeRecord(record));
+          mergeStats.replacedRecords += 1;
+          return;
+        }
+        if (mode === "meals") {
+          const merged = mergeRecordMealsOnly(localRecord, record);
+          localMap.set(date, merged.record);
+          mergeStats.mergedMeals += merged.addedMealCount;
+          mergeStats.skippedMeals += merged.duplicateMealCount;
+          mergeStats.possibleDuplicateMeals += merged.possibleDuplicateMealCount;
+        }
+      });
+
+      const localInbodySignatures = new Set(normalizeInbodyRecordCollection(state.inbodyRecords || []).map(getInbodyImportSignature).filter(Boolean));
+      const inbodyToAdd = normalizeInbodyRecordCollection(data.inbodyRecords || []).filter(record => {
+        const signature = getInbodyImportSignature(record);
+        if (!signature || localInbodySignatures.has(signature)) return false;
+        localInbodySignatures.add(signature);
+        return true;
+      });
+      recordsState.items = normalizeRecordsCollection([...localMap.values()]);
+      if (inbodyToAdd.length) {
+        state.inbodyRecords = normalizeInbodyRecordCollection([...(state.inbodyRecords || []), ...inbodyToAdd]);
+        saveInbodyRecords();
+      }
+      const selectedDate = normalizeDateString(ids.recordDate?.value) || getTodayDateString();
+      syncRecordInputsForDate(selectedDate);
+      dataManagementState.pendingImport = null;
+      const actionLabel = mode === "replace" ? "백업 기록으로 교체" : mode === "meals" ? "식사만 합치기" : "현재 기록 유지";
+      const message = `추가 기록만 가져왔습니다. ${actionLabel} 기준으로 새 기록 ${mergeStats.addedRecords}일, InBody ${inbodyToAdd.length}개를 반영했습니다.`;
+      setRecordFeedback("ok", message);
+      setDataManagementFeedback("ok", message);
+      saveState();
+      render();
+      return { ...mergeStats, addedInbody: inbodyToAdd.length, mode };
+    }
+
+    function startSmartRestoreImport(){
+      const pending = dataManagementState.pendingImport;
+      if (!pending || pending.type !== "full") return null;
+      const preview = pending.smartRestorePreview || buildSmartRestoreImportPreview(pending.data);
+      pending.smartRestorePreview = preview;
+      if (preview.conflictRecordCount > 0) {
+        pending.smartRestoreStep = "conflict";
+        renderDataImportConfirmDialog();
+        return { pendingConflict: true, preview };
+      }
+      document.getElementById("dataImportConfirmOverlay")?.classList.add("hidden");
+      document.getElementById("dataImportConfirmOverlay")?.setAttribute("aria-hidden", "true");
+      return applySmartRestoreImportData(pending.data, "keep");
+    }
+
+    function returnSmartRestorePreview(){
+      const pending = dataManagementState.pendingImport;
+      if (!pending || pending.type !== "full") return;
+      pending.smartRestoreStep = "preview";
+      renderDataImportConfirmDialog();
+    }
+
+    function confirmSmartRestoreConflict(mode){
+      const pending = dataManagementState.pendingImport;
+      if (!pending || pending.type !== "full") return null;
+      document.getElementById("dataImportConfirmOverlay")?.classList.add("hidden");
+      document.getElementById("dataImportConfirmOverlay")?.setAttribute("aria-hidden", "true");
+      return applySmartRestoreImportData(pending.data, mode);
     }
 
     function applyRecordsOnlyImportData(data, message = "기록 중심 파일을 불러왔습니다. 설정과 Today 계산값은 그대로 유지했습니다."){
@@ -21406,11 +21781,37 @@ Notes:
           cancelDataManagementImport();
           return;
         }
+        if (event.target.closest("[data-smart-restore-import]")) {
+          startSmartRestoreImport();
+          return;
+        }
+        const conflictButton = event.target.closest("[data-smart-conflict-mode]");
+        if (conflictButton) {
+          confirmSmartRestoreConflict(conflictButton.getAttribute("data-smart-conflict-mode"));
+          return;
+        }
+        if (event.target.closest("[data-import-back-to-preview]")) {
+          returnSmartRestorePreview();
+          return;
+        }
         if (event.target.closest("[data-confirm-data-import]")) {
           confirmDataManagementImport();
         }
       });
       document.getElementById("dataImportPreviewHost")?.addEventListener("click", event => {
+        if (event.target.closest("[data-smart-restore-import]")) {
+          startSmartRestoreImport();
+          return;
+        }
+        const conflictButton = event.target.closest("[data-smart-conflict-mode]");
+        if (conflictButton) {
+          confirmSmartRestoreConflict(conflictButton.getAttribute("data-smart-conflict-mode"));
+          return;
+        }
+        if (event.target.closest("[data-import-back-to-preview]")) {
+          returnSmartRestorePreview();
+          return;
+        }
         if (event.target.closest("[data-confirm-data-import]")) {
           confirmDataManagementImport();
           return;
@@ -26981,6 +27382,254 @@ Notes:
       });
     }
 
+    function runSmartRestoreImportTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const sameDate = "2026-05-16";
+        const localOnlyDate = "2026-05-17";
+        const backupOnlyDate = "2026-05-12";
+        const inbodyOnlyDate = "2026-05-11";
+        const duplicateMeal = {
+          id: "local-dup",
+          mealLabel: "점심",
+          carbs: 50,
+          protein: 35,
+          fat: 12,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "duplicate meal",
+          createdAt: "2026-05-16T12:00:00.000Z"
+        };
+        const uniqueBackupMeal = {
+          id: "backup-unique",
+          mealLabel: "간식",
+          carbs: 24,
+          protein: 18,
+          fat: 6,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "backup snack",
+          createdAt: "2026-05-16T16:00:00.000Z"
+        };
+        const localSnapshot = { targetCal: 2500, protein: 150, carbs: 300, fat: 70, mode: "athlete", goal: "lean_bulk", weight: 76 };
+        const backupSnapshot = { targetCal: 2100, protein: 130, carbs: 230, fat: 62, mode: "athlete", goal: "diet", weight: 75.5 };
+        const localConflictRecord = normalizeRecord({
+          date: sameDate,
+          recordMode: "detailed",
+          weight: 76.2,
+          note: "local complete",
+          adherencePercent: 12,
+          adherenceSource: "auto",
+          adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+          adherenceLockedAt: "2026-05-16T20:00:00.000Z",
+          goalSnapshot: localSnapshot,
+          meals: [
+            duplicateMeal,
+            { id: "local-dinner", mealLabel: "저녁", carbs: 70, protein: 42, fat: 18, alcoholKcal: 0, otherKcal: 0, memo: "local dinner", createdAt: "2026-05-16T19:00:00.000Z" }
+          ]
+        });
+        const localOnlyRecord = normalizeRecord({
+          date: localOnlyDate,
+          recordMode: "detailed",
+          weight: 76,
+          note: "local only",
+          meals: [{ id: "local-only", mealLabel: "아침", carbs: 35, protein: 24, fat: 9, alcoholKcal: 0, otherKcal: 0, memo: "local only", createdAt: "2026-05-17T08:00:00.000Z" }]
+        });
+        const backupConflictRecord = normalizeRecord({
+          date: sameDate,
+          recordMode: "detailed",
+          weight: 75.4,
+          note: "backup partial",
+          goalSnapshot: backupSnapshot,
+          meals: [duplicateMeal, uniqueBackupMeal]
+        });
+        const backupOnlyRecord = normalizeRecord({
+          date: backupOnlyDate,
+          recordMode: "detailed",
+          weight: 75.5,
+          note: "backup only",
+          meals: [{ id: "backup-only", mealLabel: "점심", carbs: 45, protein: 30, fat: 11, alcoholKcal: 0, otherKcal: 0, memo: "backup only", createdAt: "2026-05-12T12:00:00.000Z" }]
+        });
+        const localInbody = { date: sameDate, weight: 76.2, skeletalMuscle: 37, bodyFat: 11, bodyFatPercent: 14.4 };
+        const backupInbodyOnly = { date: inbodyOnlyDate, weight: 75.3, skeletalMuscle: 36.6, bodyFat: 11.5, bodyFatPercent: 15.2 };
+        const seedLocal = () => {
+          setValidTodayBalanceTestInputs();
+          state.mode = "athlete";
+          state.goal = "lean_bulk";
+          ids.height.value = "173";
+          ids.weight.value = "76";
+          recordsState.items = normalizeRecordsCollection([localConflictRecord, localOnlyRecord]);
+          state.inbodyRecords = normalizeInbodyRecordCollection([localInbody]);
+          cardioPresetState = normalizeCardioPresetState({
+            items: [{ id: "local-preset", name: "Local Preset", cardioType: "treadmill_walk", cardioDuration: 40, cardioSpeed: 5.5, cardioIncline: 5 }],
+            defaultId: "local-preset"
+          });
+          todayCalculationDrafts = {
+            [sameDate]: normalizeTodayCalculationDraft({ calculationWeight: 76.2 }),
+            [localOnlyDate]: normalizeTodayCalculationDraft({ calculationWeight: 76 })
+          };
+          saveInbodyRecords();
+          saveCardioPresets();
+          saveTodayCalculationDrafts();
+          saveState();
+        };
+        const fullPayload = () => {
+          const settings = { ...getSettingsBackupSnapshot(), height: 181, weight: 88, goal: "bulk" };
+          return {
+            app: "macro-engine",
+            kind: FULL_BACKUP_KIND,
+            backupVersion: FULL_BACKUP_VERSION,
+            appVersion: getCurrentAppVersionLabel(),
+            createdAt: "2026-05-17T09:00:00.000Z",
+            data: {
+              settings,
+              records: [backupConflictRecord, backupOnlyRecord],
+              inbodyRecords: [localInbody, backupInbodyOnly],
+              cardioPresets: { items: [{ id: "backup-preset", name: "Backup Preset", cardioType: "outdoor_run", cardioDuration: 20, cardioSpeed: 8, cardioIncline: 0 }], defaultId: "backup-preset" },
+              todayCalculationValues: { [backupOnlyDate]: normalizeTodayCalculationDraft({ calculationWeight: 75.5 }) },
+              weeklyTrainingState: { weeklyTrainingDaysManual: false, weeklyTrainingDays: 0 }
+            }
+          };
+        };
+        const queueFull = () => {
+          seedLocal();
+          return queueDataManagementImport(fullPayload());
+        };
+        const modalText = () => document.getElementById("dataImportConfirmOverlay")?.textContent || "";
+        const getSameRecord = () => getRecordByDate(sameDate);
+        const beforeAppState = () => ({
+          height: ids.height.value,
+          weight: ids.weight.value,
+          goal: state.goal,
+          todaySameDateWeight: todayCalculationDrafts[sameDate]?.calculationWeight,
+          todayLocalOnlyDateWeight: todayCalculationDrafts[localOnlyDate]?.calculationWeight,
+          presets: JSON.stringify(serializeCardioPresetState())
+        });
+
+        results.push(runNamedTest("C4.8-A1.5 full backup import offers restore choices", () => {
+          queueFull();
+          assertIncludesAll(modalText(), ["백업을 어떻게 불러올까요?", "전체 복원", "추가 기록만 가져오기", "그대로 두기"], "full backup modal should offer restore choices");
+        }));
+
+        results.push(runNamedTest("C4.8-A1.5 cancel keeps data unchanged", () => {
+          queueFull();
+          cancelDataManagementImport();
+          assertTest(getRecordByDate(localOnlyDate)?.note === "local only", "cancel should keep local-only record");
+          assertTest(getSameRecord()?.note === "local complete", "cancel should keep same-date local record");
+        }));
+
+        results.push(runNamedTest("C4.8-A1.5 full restore keeps replace behavior", () => {
+          queueFull();
+          confirmDataManagementImport();
+          assertTest(!getRecordByDate(localOnlyDate), "full restore should remove local-only record");
+          assertTest(getRecordByDate(backupOnlyDate)?.note === "backup only", "full restore should add backup-only record");
+          assertTest(getSameRecord()?.note === "backup partial", "full restore should replace same-date record");
+          assertTest(ids.height.value === "181", "full restore should replace Settings");
+          assertClose(todayCalculationDrafts[backupOnlyDate]?.calculationWeight, 75.5, 0.0001, "full restore should recover backup Today calculation value");
+          assertTest(cardioPresetState.items[0]?.id === "backup-preset", "full restore should replace cardio presets");
+        }));
+
+        results.push(runNamedTest("C4.8-A1.5 smart restore opens conflict modal for same-date records", () => {
+          queueFull();
+          const response = startSmartRestoreImport();
+          assertTest(response?.pendingConflict === true, "same-date records should require conflict confirmation");
+          assertIncludesAll(modalText(), ["같은 날짜 기록이 있습니다", sameDate, "현재 기록 유지", "백업 기록으로 교체", "식사만 합치기"], "conflict modal should show conflict choices");
+          assertTest(getSameRecord()?.note === "local complete", "conflict preview should not mutate local record");
+        }));
+
+        results.push(runNamedTest("C4.8-A1.5 keep local conflict adds only backup-only records and InBody", () => {
+          queueFull();
+          const before = beforeAppState();
+          startSmartRestoreImport();
+          confirmSmartRestoreConflict("keep");
+          assertTest(getSameRecord()?.note === "local complete", "keep mode should preserve local conflict record");
+          assertTest(getRecordByDate(backupOnlyDate)?.note === "backup only", "keep mode should add backup-only Records date");
+          assertTest(state.inbodyRecords.some(record => record.date === inbodyOnlyDate), "keep mode should add backup-only InBody");
+          assertTest(state.inbodyRecords.filter(record => getInbodyImportSignature(record) === getInbodyImportSignature(localInbody)).length === 1, "keep mode should not duplicate existing InBody");
+          assertTest(ids.height.value === before.height && ids.weight.value === before.weight && state.goal === before.goal, "smart restore should preserve Settings");
+          assertClose(todayCalculationDrafts[sameDate]?.calculationWeight, before.todaySameDateWeight, 0.0001, "smart restore should preserve same-date Today calculation weight");
+          assertClose(todayCalculationDrafts[localOnlyDate]?.calculationWeight, before.todayLocalOnlyDateWeight, 0.0001, "smart restore should preserve local-only Today calculation weight");
+          assertTest(JSON.stringify(serializeCardioPresetState()) === before.presets, "smart restore should preserve cardio presets");
+        }));
+
+        results.push(runNamedTest("C4.8-A1.5 replace conflict swaps same-date record only", () => {
+          queueFull();
+          const before = beforeAppState();
+          startSmartRestoreImport();
+          confirmSmartRestoreConflict("replace");
+          assertTest(getSameRecord()?.note === "backup partial", "replace mode should use backup conflict record");
+          assertTest(getRecordByDate(localOnlyDate)?.note === "local only", "replace mode should keep unrelated local-only record");
+          assertTest(ids.height.value === before.height && JSON.stringify(serializeCardioPresetState()) === before.presets, "replace conflict mode should still preserve Settings and presets");
+          assertClose(todayCalculationDrafts[sameDate]?.calculationWeight, before.todaySameDateWeight, 0.0001, "replace conflict mode should preserve same-date Today calculation weight");
+          assertClose(todayCalculationDrafts[localOnlyDate]?.calculationWeight, before.todayLocalOnlyDateWeight, 0.0001, "replace conflict mode should preserve local-only Today calculation weight");
+        }));
+
+        results.push(runNamedTest("C4.8-A1.5 meal-only conflict merge preserves local basis and adds unique meals", () => {
+          queueFull();
+          startSmartRestoreImport();
+          confirmSmartRestoreConflict("meals");
+          const record = getSameRecord();
+          assertTest(record.note === "local complete", "meal-only merge should preserve local note");
+          assertClose(record.weight, 76.2, 0.0001, "meal-only merge should preserve local weight");
+          assertTest(record.goalSnapshot?.targetCal === localSnapshot.targetCal, "meal-only merge should preserve local goalSnapshot");
+          assertTest(record.meals.some(meal => meal.id === uniqueBackupMeal.id), "meal-only merge should add unique backup meal");
+          assertTest(record.meals.filter(meal => getMealImportSignature(meal) === getMealImportSignature(duplicateMeal)).length === 1, "meal-only merge should skip exact duplicate meal");
+          assertTest(record.meals.length === 3, "meal-only merge should render the merged record as three meals");
+          const totals = getRecordDetailTotals(record);
+          assertClose(totals.protein, 95, 0.0001, "meal-only merge should recalculate record totals from all meals");
+          const balance = getMacroBalanceForDate(sameDate, calculate(), { goalSnapshot: record.goalSnapshot });
+          assertClose(balance.consumed.protein, 95, 0.0001, "meal-only merge target comparison should use merged meals");
+          const score = getDailyAdherenceScore(sameDate, calculate(), { goalSnapshot: record.goalSnapshot });
+          assertTest(score?.isAvailable === true && Number.isFinite(score.percent), "meal-only merge should produce a fresh score from merged meals");
+          assertClose(record.adherencePercent, score.percent, 0.0001, "meal-only merge should store the recalculated score");
+          assertTest(record.adherencePercent !== 12, "meal-only merge should not keep stale local score after meals change");
+          assertTest(record.adherenceSource === "auto" && record.adherenceScoringVersion === ADHERENCE_SCORING_VERSION, "meal-only merge should keep auto score metadata current");
+          const summary = getRecordSummaryByDate(sameDate);
+          assertTest(summary.mealCount === 3 && summary.adherencePercent === record.adherencePercent, "Records summary should use merged meal count and recalculated score");
+        }));
+
+        results.push(runNamedTest("C4.8-A1.5 modal display alone never mutates data", () => {
+          queueFull();
+          const before = JSON.stringify({ records: recordsState.items, inbody: state.inbodyRecords, today: todayCalculationDrafts, settings: getSettingsBackupSnapshot(), presets: serializeCardioPresetState() });
+          startSmartRestoreImport();
+          returnSmartRestorePreview();
+          const after = JSON.stringify({ records: recordsState.items, inbody: state.inbodyRecords, today: todayCalculationDrafts, settings: getSettingsBackupSnapshot(), presets: serializeCardioPresetState() });
+          assertTest(after === before, "preview and conflict navigation should not mutate data");
+        }));
+
+        results.push(runNamedTest("C4.8-A1.5 invalid import remains safe", () => {
+          seedLocal();
+          const before = JSON.stringify({ records: recordsState.items, inbody: state.inbodyRecords, today: todayCalculationDrafts, settings: getSettingsBackupSnapshot(), presets: serializeCardioPresetState() });
+          let rejected = false;
+          try {
+            queueDataManagementImport({ app: "macro-engine", kind: FULL_BACKUP_KIND, backupVersion: 999, data: {} });
+          } catch (_error) {
+            rejected = true;
+          }
+          const after = JSON.stringify({ records: recordsState.items, inbody: state.inbodyRecords, today: todayCalculationDrafts, settings: getSettingsBackupSnapshot(), presets: serializeCardioPresetState() });
+          assertTest(rejected, "invalid full backup should be rejected");
+          assertTest(after === before, "invalid import should not mutate data");
+        }));
+
+        results.push(runNamedTest("C4.8-A1.5 smart restore modal fits narrow viewport", () => {
+          queueFull();
+          startSmartRestoreImport();
+          const dialog = document.querySelector("#dataImportConfirmOverlay .data-import-confirm-dialog");
+          const rect = dialog?.getBoundingClientRect();
+          assertTest(!!dialog && !!rect, "smart restore conflict modal should render");
+          assertTest(rect.left >= -1 && rect.right <= window.innerWidth + 1, "smart restore modal should not overflow horizontally");
+        }));
+
+        results.push(runNamedTest("C4.8-A1.5 related backup suites remain exported", () => {
+          assertTest(typeof window.runBackupRestoreConflictPreviewTests === "function", "A1 conflict preview suite should remain exported");
+          assertTest(typeof window.runFullBackupMealsRestoreTests === "function", "B2.2 full backup meals restore suite should remain exported");
+          assertTest(typeof window.runDataManagementBackupTests === "function", "Data Management backup suite should remain exported");
+        }));
+
+        return results;
+      });
+    }
+
     function runBackupRestoreConflictPreviewTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -27081,7 +27730,7 @@ Notes:
           const pending = queueFull();
           const text = modalText();
           assertTest(pending.type === "full", "full backup should be queued");
-          assertIncludesAll(text, ["백업을 복원할까요?", "기록 날짜", "식사 기록", "현재 브라우저와 백업 파일 차이", "최신 기록", "현재에만 있는 기록", "백업에만 있는 기록"], "full preview should show summary and comparison");
+          assertIncludesAll(text, ["백업을 어떻게 불러올까요?", "기록 날짜", "식사 기록", "전체 복원", "추가 기록만 가져오기", "현재 브라우저와 백업 파일 차이", "최신 기록", "현재에만 있는 기록", "백업에만 있는 기록"], "full preview should show summary and comparison");
         }));
 
         results.push(runNamedTest("C4.8-A1 preview alone does not mutate local data", () => {
@@ -27311,7 +27960,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.6-C4.8-A1", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.6-C4.8-A1.5", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -27391,7 +28040,7 @@ Notes:
           const previewText = document.getElementById("dataImportPreviewHost")?.textContent || "";
           const modalText = document.getElementById("dataImportConfirmOverlay")?.textContent || "";
           assertTest(previewText.trim() === "", "full backup inline preview should not duplicate the modal");
-          assertIncludesAll(modalText, ["백업을 복원할까요?", "아직 복원되지 않았습니다.", "복원하기", "그대로 두기"], "full backup preview modal should show confirm choices");
+          assertIncludesAll(modalText, ["백업을 어떻게 불러올까요?", "아직 복원되지 않았습니다.", "전체 복원", "추가 기록만 가져오기", "그대로 두기"], "full backup preview modal should show restore choices");
           queueDataManagementImport(legacyRecordsPayload());
           const legacyText = document.getElementById("dataImportConfirmOverlay")?.textContent || "";
           assertIncludesAll(legacyText, ["기록 파일을 불러올까요?", "기록 중심 파일", "설정", "Today"], "records-only preview modal should explain missing app settings");
@@ -27618,7 +28267,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.6-C4.8-A1", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.6-C4.8-A1.5", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -27628,7 +28277,7 @@ Notes:
           results.push(runNamedTest("C4.7-B2.2 full backup import opens modal and waits for restore click", () => {
             queueFullImportOverOldBrowser();
             assertTest(importModalVisible(), "full backup import should open confirm modal");
-            assertIncludesAll(importModalText(), ["백업을 복원할까요?", "아직 복원되지 않았습니다.", "기록 날짜", "식사 기록", "InBody 기록", "유산소 프리셋", "Today 계산값", "설정 포함", "복원하기", "그대로 두기"], "full backup modal should show clear restore preview");
+            assertIncludesAll(importModalText(), ["백업을 어떻게 불러올까요?", "아직 복원되지 않았습니다.", "기록 날짜", "식사 기록", "InBody 기록", "유산소 프리셋", "Today 계산값", "설정 포함", "전체 복원", "추가 기록만 가져오기", "그대로 두기"], "full backup modal should show clear restore preview");
             assertTest((document.getElementById("dataImportPreviewHost")?.textContent || "").trim() === "", "inline import preview should stay empty when modal is shown");
             assertOldBrowserRecordStillActive("modal preview only");
             document.querySelector("#dataImportConfirmOverlay [data-confirm-data-import]")?.click();
@@ -27845,7 +28494,7 @@ Notes:
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
           assertTest(document.title.includes("v6.6-C4.8-A1"), "document title should show v6.6-C4.8-A1");
           assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-A1"), "app version badge should show v6.6-C4.8-A1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-A1", "current app version helper should return v6.6-C4.8-A1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-A1.5", "current app version helper should return v6.6-C4.8-A1.5");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -27886,7 +28535,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.6-C4.8-A1", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.6-C4.8-A1.5", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -27934,7 +28583,7 @@ Notes:
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
           assertTest(document.title.includes("v6.6-C4.8-A1"), "document title should show v6.6-C4.8-A1");
           assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-A1"), "app version badge should show v6.6-C4.8-A1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-A1", "current app version helper should return v6.6-C4.8-A1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-A1.5", "current app version helper should return v6.6-C4.8-A1.5");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -28042,13 +28691,13 @@ Notes:
         results.push(runNamedTest("C4.7-B3 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.6-C4.8-A1",
-            "Stage: 6.6-C4.8-A1 full backup restore conflict preview 강화",
+            "Version: 6.6-C4.8-A1.5",
+            "Stage: 6.6-C4.8-A1.5 스마트 복원 / 추가 기록 가져오기",
             "Records / InBody / Settings 설명문 축약"
           ], "top comment should show C4.7-B3 version and stage");
           assertTest(document.title.includes("v6.6-C4.8-A1"), "document title should show v6.6-C4.8-A1");
           assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-A1"), "app version badge should show v6.6-C4.8-A1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-A1", "version helper should return v6.6-C4.8-A1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-A1.5", "version helper should return v6.6-C4.8-A1.5");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -42610,6 +43259,7 @@ Notes:
     window.runSettingsDefaultsStructureTests = runSettingsDefaultsStructureTests;
     window.runSettingsDensityUiTests = runSettingsDensityUiTests;
     window.runRecordsDetailDensityUiTests = runRecordsDetailDensityUiTests;
+    window.runSmartRestoreImportTests = runSmartRestoreImportTests;
     window.runBackupRestoreConflictPreviewTests = runBackupRestoreConflictPreviewTests;
     window.runDataManagementBackupTests = runDataManagementBackupTests;
     window.runFullBackupMealsRestoreTests = runFullBackupMealsRestoreTests;
