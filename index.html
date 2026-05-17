@@ -1,11 +1,11 @@
-﻿<!--
-Version: 6.6-C4.8-UI1
-Stage: 6.6-C4.8-UI1 Records Shell 이식
+<!--
+Version: 6.6-C4.8-UI2
+Stage: 6.6-C4.8-UI2 최근 흐름 Shell 이식
 Date: 2026-05-17
 Notes:
-- C4.8-UI1 Records 탭을 Stitch 톤의 확정 기록 보관함/수정 Shell로 재배치
-- 기록 보관함 / 상세 보기 / 수정하기 / 당시 계산 기준 / 직접 관리 fallback 기능 유지
-- Records 저장/수정 로직과 goalSnapshot 구조 유지
+- C4.8-UI2 최근 흐름 / Weekly 탭을 Stitch 톤의 기록 흐름 확인 Shell로 재배치
+- 최근 3/7/14/28일 흐름, 기록 부족 안내, recent Coach 기능 유지
+- 그래프는 현재 기록 데이터와 맞는 점수/체중 흐름만 반영하고 억지 추가하지 않음
 - 산식 / Coach / recentContext / InBody gate / dual basis / schema-import-export 변경 없음
 - C4.8-UI0 Stitch Today UI Shell을 기준으로 Today 화면 구조 재배치
 - 현재 기능/산식/기록/백업/dual basis/Coach 로직은 유지
@@ -184,7 +184,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.8-UI1</title>
+  <title>탄단지 다이어리 v6.6-C4.8-UI2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -280,6 +280,12 @@ Notes:
         radial-gradient(circle at top right, var(--body-grad-right), transparent 28%),
         linear-gradient(180deg,var(--body-grad-bottom-1) 0%, var(--body-grad-bottom-2) 100%);
       min-height:100vh;
+    }
+    body:has(#weeklyPanel.active){
+      --body-grad-left:rgba(246,241,231,.62);
+      --body-grad-right:rgba(244,248,239,.56);
+      --body-grad-bottom-1:#fbfaf5;
+      --body-grad-bottom-2:#f7f4ec;
     }
     .shell{
       max-width:1180px;
@@ -5570,6 +5576,440 @@ Notes:
       color:var(--deep);
       font-weight:900;
     }
+    .weekly-stitch-shell{
+      width:min(100%, 1120px);
+      margin:0 auto;
+      padding:26px 0 34px;
+      border:0;
+      border-radius:0;
+      background:transparent;
+      box-shadow:none;
+      display:flex;
+      flex-direction:column;
+      gap:20px;
+    }
+    .weekly-stitch-intro{
+      display:none;
+    }
+    .weekly-stitch-intro h2{
+      margin:6px 0 0;
+      font-size:28px;
+      line-height:1.16;
+      letter-spacing:-.02em;
+      color:var(--deep);
+      font-weight:950;
+    }
+    .weekly-stitch-intro p{
+      margin:0;
+      max-width:360px;
+      color:var(--muted);
+      line-height:1.55;
+      font-weight:750;
+      font-size:13px;
+      text-align:right;
+    }
+    .recent-flow-overview{
+      margin:0;
+      gap:24px;
+    }
+    .recent-flow-range-row{
+      justify-content:center;
+      gap:0;
+      overflow:visible;
+      padding:0 0 2px;
+    }
+    .recent-flow-range-controls{
+      gap:0;
+      padding:6px;
+      border-radius:999px;
+      background:rgba(255,255,255,.74);
+      box-shadow:0 10px 24px rgba(32,27,51,.07);
+    }
+    .recent-flow-range-btn{
+      min-height:40px;
+      min-width:58px;
+      padding:8px 16px;
+      border:none;
+      background:transparent;
+      color:color-mix(in srgb, var(--deep) 64%, var(--muted) 36%);
+      font-size:13px;
+      font-weight:950;
+    }
+    .recent-flow-range-btn.active{
+      background:#07806f;
+      color:#fff;
+      box-shadow:0 8px 18px rgba(7,128,111,.24);
+    }
+    .recent-flow-range-stats{
+      display:none;
+    }
+    .recent-flow-dashboard-grid{
+      display:grid;
+      grid-template-columns:minmax(0,2fr) minmax(300px,.95fr);
+      gap:28px;
+      align-items:stretch;
+    }
+    .recent-flow-trend-card,
+    .recent-flow-nutrition-card,
+    .recent-flow-achievement-card,
+    .recent-flow-summary-card,
+    .recent-flow-points,
+    .recent-flow-window-card,
+    .weekly-stitch-reference{
+      border:1px solid color-mix(in srgb, var(--line) 76%, white 24%);
+      border-radius:24px;
+      background:rgba(255,255,255,.82);
+      box-shadow:0 18px 38px rgba(30,28,44,.07);
+    }
+    .recent-flow-trend-card{
+      padding:26px;
+      min-height:368px;
+    }
+    .recent-flow-card-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:18px;
+      margin-bottom:16px;
+    }
+    .recent-flow-card-head h4,
+    .recent-flow-nutrition-card h4,
+    .recent-flow-points h4,
+    .recent-flow-summary-card h4{
+      margin:0;
+      font-size:22px;
+      line-height:1.25;
+      color:var(--deep);
+      font-weight:950;
+    }
+    .recent-flow-card-head p{
+      margin:6px 0 0;
+      color:var(--muted);
+      font-size:13px;
+      font-weight:750;
+    }
+    .recent-flow-legend{
+      display:flex;
+      align-items:center;
+      gap:14px;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:900;
+      white-space:nowrap;
+    }
+    .recent-flow-legend span{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+    }
+    .recent-flow-legend span::before{
+      content:"";
+      width:10px;
+      height:10px;
+      border-radius:999px;
+      background:#0b7f72;
+    }
+    .recent-flow-legend .weight::before{
+      background:#f8bd88;
+    }
+    .recent-flow-chart-wrap{
+      min-height:278px;
+      border:1px solid color-mix(in srgb, var(--line) 78%, white 22%);
+      border-radius:16px;
+      background:#fffdf8;
+      overflow:hidden;
+    }
+    .recent-flow-chart-svg{
+      width:100%;
+      height:278px;
+      display:block;
+    }
+    .recent-flow-chart-axis{
+      stroke:color-mix(in srgb, var(--line) 82%, white 18%);
+      stroke-width:1.4;
+    }
+    .recent-flow-chart-grid{
+      stroke:color-mix(in srgb, var(--line) 54%, white 46%);
+      stroke-width:1;
+      stroke-dasharray:4 8;
+      opacity:.72;
+    }
+    .recent-flow-chart-bar{
+      fill:#f8bd88;
+      cursor:pointer;
+      opacity:.9;
+    }
+    .recent-flow-chart-line{
+      fill:none;
+      stroke:#0b7f72;
+      stroke-width:4;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    .recent-flow-chart-label,
+    .recent-flow-chart-svg text{
+      fill:var(--muted);
+      font-size:12px;
+      font-weight:800;
+    }
+    .recent-flow-chart-empty{
+      min-height:260px;
+      display:grid;
+      place-content:center;
+      gap:6px;
+      text-align:center;
+      color:var(--muted);
+      font-size:13px;
+      font-weight:750;
+    }
+    .recent-flow-chart-empty strong{
+      color:var(--deep);
+      font-size:17px;
+      font-weight:950;
+    }
+    .recent-flow-side-stack{
+      display:grid;
+      gap:20px;
+      align-content:stretch;
+    }
+    .recent-flow-nutrition-card{
+      padding:22px 24px;
+    }
+    .recent-flow-nutrition-row{
+      display:grid;
+      gap:8px;
+      margin-top:18px;
+    }
+    .recent-flow-nutrition-label{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      color:var(--deep);
+      font-size:13px;
+      font-weight:950;
+    }
+    .recent-flow-nutrition-label strong{
+      font-weight:850;
+      color:color-mix(in srgb, var(--deep) 76%, var(--muted) 24%);
+    }
+    .recent-flow-nutrition-track{
+      height:10px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--line) 70%, white 30%);
+      overflow:hidden;
+    }
+    .recent-flow-nutrition-track span{
+      display:block;
+      height:100%;
+      min-width:4px;
+      border-radius:inherit;
+      background:#0b7f72;
+    }
+    .recent-flow-nutrition-row.protein .recent-flow-nutrition-track span{
+      background:#19365f;
+    }
+    .recent-flow-nutrition-row.fat .recent-flow-nutrition-track span{
+      background:#ffb985;
+    }
+    .recent-flow-achievement-card{
+      padding:24px;
+      color:#fff;
+      background:linear-gradient(135deg,#19365f,#16294d 62%,#0b4f4c);
+      border-color:rgba(255,255,255,.16);
+      box-shadow:0 20px 42px rgba(16,38,70,.22);
+    }
+    .recent-flow-achievement-card div{
+      font-size:13px;
+      font-weight:850;
+      color:rgba(255,255,255,.72);
+    }
+    .recent-flow-achievement-card strong{
+      display:block;
+      margin-top:10px;
+      font-size:42px;
+      line-height:1;
+      font-weight:950;
+      letter-spacing:-.02em;
+    }
+    .recent-flow-achievement-card span{
+      display:block;
+      margin-top:4px;
+      font-weight:900;
+      color:rgba(255,255,255,.82);
+    }
+    .recent-flow-achievement-card p{
+      margin:12px 0 0;
+      color:rgba(255,255,255,.68);
+      font-size:13px;
+      line-height:1.5;
+    }
+    .recent-flow-summary-card,
+    .recent-flow-points{
+      padding:22px 24px;
+    }
+    .recent-flow-summary-card{
+      padding:12px 4px 0;
+      border:0;
+      border-radius:0;
+      background:transparent;
+      box-shadow:none;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:16px;
+      color:var(--muted);
+    }
+    .recent-flow-summary-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:18px;
+    }
+    .recent-flow-summary-card .recent-flow-summary-head{
+      align-items:center;
+      flex:0 0 auto;
+    }
+    .recent-flow-summary-card h4{
+      font-size:14px;
+      color:var(--deep);
+    }
+    .recent-flow-summary-card .preview-chips{
+      margin:0;
+      justify-content:flex-end;
+      flex-wrap:wrap;
+    }
+    .recent-flow-goal-line{
+      margin:0;
+      font-size:13px;
+      color:var(--deep);
+      font-weight:900;
+      text-align:right;
+    }
+    .recent-flow-window-grid{
+      grid-template-columns:repeat(4, minmax(0,1fr));
+      gap:12px;
+    }
+    .recent-flow-window-card{
+      min-height:118px;
+      padding:14px 15px;
+      box-shadow:none;
+      background:rgba(255,255,255,.68);
+    }
+    .recent-flow-window-card .title{
+      font-size:15px;
+    }
+    .recent-flow-window-card .role,
+    .recent-flow-window-card .reason,
+    .recent-flow-window-card .metric{
+      font-size:11px;
+      line-height:1.45;
+    }
+    .recent-flow-window-card .conclusion{
+      margin-top:7px;
+      font-size:12px;
+      line-height:1.45;
+    }
+    .recent-flow-point-list{
+      gap:14px;
+    }
+    .recent-flow-point{
+      padding:16px 18px;
+      border-radius:14px;
+      background:rgba(255,253,247,.88);
+      font-size:13px;
+    }
+    .weekly-stitch-reference{
+      padding:24px;
+    }
+    .weekly-stitch-reference .section-group-body{
+      display:grid;
+      grid-template-columns:minmax(0,1.05fr) minmax(340px,.95fr);
+      gap:24px;
+      align-items:stretch;
+    }
+    .weekly-stitch-reference .section-group-head{
+      display:block;
+      margin-bottom:16px;
+      padding-bottom:14px;
+      border-bottom:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+    }
+    .weekly-stitch-reference .section-group-head h4{
+      margin:0;
+      font-size:20px;
+      color:var(--deep);
+      font-weight:950;
+    }
+    .weekly-stitch-reference .section-group-head p{
+      margin:6px 0 0;
+      color:var(--muted);
+      font-size:13px;
+      font-weight:750;
+    }
+    .weekly-stitch-reference .analysis-card{
+      padding:18px 24px;
+      border:0;
+      border-radius:18px;
+      background:rgba(255,253,248,.72);
+      box-shadow:none;
+    }
+    .weekly-stitch-reference #weeklySummaryRows{
+      display:grid;
+      grid-template-columns:1fr;
+      column-gap:0;
+      row-gap:0;
+    }
+    .weekly-stitch-reference #weeklySummaryRows .row{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      gap:16px;
+      padding:14px 0;
+      align-items:center;
+      border-bottom:1px dashed color-mix(in srgb, var(--line) 82%, white 18%);
+    }
+    .weekly-stitch-reference #weeklySummaryRows .key{
+      font-size:12px;
+      line-height:1.5;
+      color:var(--muted);
+      font-weight:800;
+    }
+    .weekly-stitch-reference #weeklySummaryRows .value{
+      font-size:14px;
+      line-height:1.3;
+      color:var(--deep);
+      font-weight:900;
+      text-align:right;
+      word-break:keep-all;
+      white-space:nowrap;
+    }
+    .weekly-stitch-reference .weekly-hero{
+      grid-template-columns:1fr;
+      gap:16px;
+      border:0;
+      border-radius:0;
+      background:transparent;
+      overflow:visible;
+    }
+    .weekly-stitch-reference .weekly-hero-section{
+      min-height:0;
+      padding:22px 24px;
+      border-radius:18px;
+      background:rgba(237,249,248,.72);
+      border:1px solid color-mix(in srgb, var(--teal) 18%, white 82%);
+      grid-template-rows:auto auto auto;
+      row-gap:12px;
+    }
+    .weekly-stitch-reference .weekly-hero-section + .weekly-hero-section{
+      border-left:1px solid color-mix(in srgb, var(--deep) 18%, white 82%);
+      background:color-mix(in srgb, var(--muted) 12%, white 88%);
+    }
+    .weekly-stitch-reference .weekly-hero-section .headline{
+      font-size:19px;
+      line-height:1.32;
+    }
+    .weekly-reference-block{
+      margin-top:0;
+      padding:22px 2px 0;
+    }
     .weekly-reference-block{
       margin-top:14px;
       padding-top:12px;
@@ -7359,6 +7799,115 @@ Notes:
         width:100%;
       }
     }
+    @media (max-width:900px){
+      .weekly-stitch-shell{
+        padding:22px 10px 28px;
+        border-radius:0;
+      }
+      .weekly-stitch-intro{
+        align-items:flex-start;
+        flex-direction:column;
+      }
+      .weekly-stitch-intro p{
+        text-align:left;
+        max-width:none;
+      }
+      .recent-flow-dashboard-grid{
+        grid-template-columns:1fr;
+      }
+      .weekly-stitch-reference .section-group-body{
+        grid-template-columns:1fr;
+      }
+      .recent-flow-window-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      .weekly-stitch-reference #weeklySummaryRows{
+        grid-template-columns:1fr;
+      }
+    }
+    @media (max-width:560px){
+      .weekly-stitch-shell{
+        padding:18px 0 24px;
+        gap:18px;
+        border-radius:0;
+      }
+      .weekly-stitch-intro h2{
+        font-size:24px;
+      }
+      .recent-flow-range-row{
+        align-items:stretch;
+        flex-direction:column;
+      }
+      .recent-flow-range-controls{
+        width:100%;
+        overflow-x:auto;
+      }
+      .recent-flow-range-btn{
+        flex:1 0 auto;
+        min-width:72px;
+      }
+      .recent-flow-range-stats{
+        justify-content:center;
+      }
+      .recent-flow-trend-card,
+      .recent-flow-nutrition-card,
+      .recent-flow-achievement-card,
+      .recent-flow-points,
+      .weekly-stitch-reference{
+        border-radius:18px;
+        padding:18px;
+      }
+      .recent-flow-summary-card{
+        padding:8px 0 0;
+        border-radius:0;
+        flex-direction:column;
+        align-items:flex-start;
+      }
+      .recent-flow-card-head{
+        flex-direction:column;
+      }
+      .recent-flow-card-head h4,
+      .recent-flow-nutrition-card h4,
+      .recent-flow-points h4,
+      .recent-flow-summary-card h4{
+        font-size:19px;
+      }
+      .recent-flow-chart-wrap,
+      .recent-flow-chart-svg,
+      .recent-flow-chart-empty{
+        min-height:220px;
+        height:220px;
+      }
+      .recent-flow-side-stack{
+        gap:14px;
+      }
+      .recent-flow-window-grid,
+      .recent-flow-point-list{
+        grid-template-columns:1fr;
+      }
+      .recent-flow-summary-head{
+        flex-direction:column;
+      }
+      .recent-flow-goal-line{
+        text-align:left;
+      }
+      .weekly-stitch-reference #weeklySummaryRows .row{
+        grid-template-columns:1fr;
+        gap:4px;
+      }
+      .weekly-stitch-reference #weeklySummaryRows .value{
+        text-align:left;
+        white-space:normal;
+        overflow-wrap:anywhere;
+      }
+      .weekly-hero{
+        grid-template-columns:1fr;
+      }
+      .weekly-hero-section + .weekly-hero-section{
+        border-left:none;
+        border-top:1px dashed color-mix(in srgb, var(--line) 82%, white 18%);
+      }
+    }
     @media (min-width:981px) and (max-width:1180px){
       #todayInputPanel .grid-3{
         grid-template-columns:repeat(3,minmax(0,1fr));
@@ -7382,7 +7931,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.8-UI1</span>
+               <span class="app-version">v6.6-C4.8-UI2</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -8268,42 +8817,44 @@ Notes:
     </section>
 
     <section class="tab-panel" id="weeklyPanel" hidden>
-      <div class="layout weekly-layout">
-        <section class="panel weekly-analysis-panel">
-          <h3>최근 흐름</h3>
-          <h2>최근 기록 흐름과 오늘 행동 기준</h2>
-          <div class="mini-note">최근 기록을 기간별로 나눠 분석합니다.</div>
-          <div id="recentFlowPreviewHost"></div>
-          <div class="section-group weekly-report-group">
-            <div class="section-group-head">
-              <h4>7일 참고 분석</h4>
-              <p>기존 7일 평균 기반 분석은 이전 방식 비교로만 확인합니다.</p>
+      <div class="weekly-stitch-shell" data-stitch-weekly-shell>
+        <div class="weekly-stitch-intro">
+          <div>
+            <div class="eyebrow">최근 흐름</div>
+            <h2>최근 기록 흐름과 오늘 행동 기준</h2>
+          </div>
+          <p>최근 기록으로 식단 안정성, 체중 흐름, 기록 품질을 함께 확인합니다.</p>
+        </div>
+        <div id="recentFlowPreviewHost"></div>
+        <section class="weekly-stitch-reference weekly-report-group">
+          <div class="section-group-head">
+            <h4>7일 참고 분석</h4>
+            <p>기존 7일 평균 기반 분석은 낮은 우선순위로 확인합니다.</p>
+          </div>
+          <div class="section-group-body">
+            <div class="weekly-hero ok" id="weeklyHero">
+              <div class="weekly-hero-section">
+                <div class="eyebrow">이번 주 기록 상태</div>
+                <div class="headline" id="weeklyHeadline">기록을 확인하는 중입니다.</div>
+                <div class="caption" id="weeklyCaption">최근 기록이 쌓이면 여기서 주간 흐름과 설정 변경 전 확인할 내용을 읽을 수 있습니다.</div>
+              </div>
+              <div class="weekly-hero-section action" id="weeklyActionCard">
+                <div class="eyebrow">권장 행동</div>
+                <div class="headline" id="weeklyActionText">최근 기록을 더 쌓아 주세요</div>
+                <div class="caption" id="weeklyActionCaption">현재 주간 상태를 어떻게 해석하고 무엇부터 손보면 되는지 왼쪽 카드와 같은 구조로 정리해 보여줍니다.</div>
+              </div>
             </div>
-            <div class="section-group-body">
-          <div class="weekly-hero ok" id="weeklyHero">
-            <div class="weekly-hero-section">
-              <div class="eyebrow">이번 주 기록 상태</div>
-              <div class="headline" id="weeklyHeadline">기록을 확인하는 중입니다.</div>
-              <div class="caption" id="weeklyCaption">최근 기록이 쌓이면 여기서 주간 흐름과 설정 변경 전 확인할 내용을 읽을 수 있습니다.</div>
-            </div>
-            <div class="weekly-hero-section action" id="weeklyActionCard">
-              <div class="eyebrow">권장 행동</div>
-              <div class="headline" id="weeklyActionText">최근 기록을 더 쌓아 주세요</div>
-              <div class="caption" id="weeklyActionCaption">현재 주간 상태를 어떻게 해석하고 무엇부터 손보면 되는지 왼쪽 카드와 같은 구조로 정리해 보여줍니다.</div>
+            <div class="analysis-card">
+              <div class="rows" id="weeklySummaryRows"></div>
             </div>
           </div>
-          <div class="analysis-card">
-            <div class="rows" id="weeklySummaryRows"></div>
-          </div>
-            </div>
-          </div>
-          <div class="weekly-interpretation-block">
-            <h4>7일 참고 해석</h4>
-            <p class="weekly-interpretation-text" id="weeklyInterpretationText">기록이 아직 충분하지 않아 추세 판단은 이릅니다. 며칠 더 누적하면 더 정확하게 볼 수 있습니다.</p>
-          </div>
-          <div id="weeklyInfoHost"></div>
-          <div id="weeklyWarningHost"></div>
         </section>
+        <div class="weekly-interpretation-block">
+          <h4>7일 참고 해석</h4>
+          <p class="weekly-interpretation-text" id="weeklyInterpretationText">기록이 아직 충분하지 않아 추세 판단은 이릅니다. 며칠 더 누적하면 더 정확하게 볼 수 있습니다.</p>
+        </div>
+        <div id="weeklyInfoHost"></div>
+        <div id="weeklyWarningHost"></div>
       </div>
     </section>
     <section class="tab-panel" id="inbodyPanel" hidden>
@@ -9400,7 +9951,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-UI1";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-UI2";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -21384,7 +21935,7 @@ Notes:
     }
 
     const RECENT_FLOW_UI_CARD_DAYS = [3, 7, 14, 28];
-    const RECENT_FLOW_RANGE_DAYS = [7, 14, 28];
+    const RECENT_FLOW_RANGE_DAYS = [1, 3, 7, 14, 28];
     const RECENT_FLOW_CARD_LABELS = {
       3: { title: "단기 흐름", role: "단기 식단 안정성" },
       7: { title: "반복 패턴", role: "식단 패턴과 운동 빈도" },
@@ -21778,6 +22329,176 @@ Notes:
       return points.slice(0, 4);
     }
 
+    function getRecentFlowRecordScoreValue(summary){
+      if (Number.isFinite(summary?.adherencePercent)) return clamp(Number(summary.adherencePercent), 0, 100);
+      const manual = String(summary?.manualAdherenceValue || summary?.simpleAdherenceLevel || "");
+      if (manual === "high") return 90;
+      if (manual === "medium") return 70;
+      if (manual === "low") return 45;
+      if (summary?.hasMeals) return 55;
+      return null;
+    }
+
+    function getRecentFlowDisplayRecords(window, limit = 7){
+      const records = (Array.isArray(window?.records) ? window.records : [])
+        .filter(item => item && normalizeDateString(item.date))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      return records.slice(Math.max(0, records.length - limit));
+    }
+
+    function getRecentFlowChartStep(maxValue){
+      const safeMax = Math.max(0, Number(maxValue) || 0);
+      if (safeMax <= 4000) return 500;
+      if (safeMax <= 6000) return 1000;
+      return 2000;
+    }
+
+    function getRecentFlowChartAxisMax(maxValue){
+      const step = getRecentFlowChartStep(maxValue);
+      return Math.max(step, Math.ceil(Math.max(0, Number(maxValue) || 0) / step) * step);
+    }
+
+    function getRecentFlowChartLabelEvery(recordCount){
+      const count = Math.max(1, Math.round(Number(recordCount) || 1));
+      if (count > 21) return 4;
+      if (count > 10) return 2;
+      return 1;
+    }
+
+    function getRecentFlowTrendChart(window, selectedRangeDays = 7){
+      const records = getRecentFlowDisplayRecords(window, Math.min(28, Math.max(1, selectedRangeDays)));
+      if (!records.length) {
+        return `
+          <div class="recent-flow-chart-empty">
+            <strong>기록이 아직 부족합니다.</strong>
+            <span>식사와 체중 기록이 쌓이면 흐름을 시각화합니다.</span>
+          </div>
+        `;
+      }
+      const chartWidth = 640;
+      const chartHeight = 260;
+      const plotTop = 28;
+      const plotBottom = 212;
+      const plotLeft = 70;
+      const plotRight = 604;
+      const dataLeft = plotLeft + 18;
+      const dataRight = plotRight - 10;
+      const gap = records.length > 1 ? (dataRight - dataLeft) / (records.length - 1) : 0;
+      const kcalValues = records.map(item => Number.isFinite(item.totalKcal) ? Number(item.totalKcal) : null);
+      const targetValues = records.map(item => Number.isFinite(item.targetCal) ? Number(item.targetCal) : null);
+      const fallbackScores = records.map(getRecentFlowRecordScoreValue);
+      const maxKcal = Math.max(
+        1000,
+        ...kcalValues.filter(Number.isFinite),
+        ...targetValues.filter(Number.isFinite)
+      );
+      const axisMax = getRecentFlowChartAxisMax(maxKcal);
+      const lineValues = kcalValues.map((kcal, index) => Number.isFinite(kcal) ? kcal : targetValues[index]);
+      const labelEvery = getRecentFlowChartLabelEvery(records.length);
+      const barWidth = clamp(Math.round(gap * 0.42), 6, 16);
+      const ticks = [];
+      for (let value = 0; value <= axisMax; value += getRecentFlowChartStep(axisMax)) {
+        ticks.push(value);
+      }
+      const bars = records.map((item, index) => {
+        const x = records.length > 1 ? dataLeft + index * gap : (dataLeft + dataRight) / 2;
+        const kcal = targetValues[index];
+        const score = fallbackScores[index];
+        const ratio = Number.isFinite(kcal) ? clamp(kcal / axisMax, 0.03, 1) : clamp((score || 20) / 100, 0.12, 1);
+        const h = Math.round((plotBottom - plotTop) * ratio);
+        const y = plotBottom - h;
+        const label = String(item.date || "").slice(5).replace("-", "/");
+        const nearLastLabel = records.length > 1 && (records.length - 1 - index) < labelEvery;
+        const showLabel = index === 0 || index === records.length - 1 || (index % labelEvery === 0 && !nearLastLabel);
+        const safeDate = escapeHtml(item.date || "");
+        return `
+          <g data-recent-flow-chart-date="${safeDate}" role="button" tabindex="0" aria-label="${safeDate} 기록 보기">
+            <rect x="${round(x - barWidth / 2, 2)}" y="${y}" width="${barWidth}" height="${h}" rx="${Math.min(8, Math.round(barWidth / 2))}" class="recent-flow-chart-bar"></rect>
+            ${showLabel ? `<text x="${round(x, 2)}" y="238" text-anchor="middle">${escapeHtml(label)}</text>` : ""}
+          </g>
+        `;
+      }).join("");
+      const linePoints = records.map((item, index) => {
+        const x = records.length > 1 ? dataLeft + index * gap : (dataLeft + dataRight) / 2;
+        const lineValue = lineValues[index];
+        const score = fallbackScores[index];
+        const ratio = Number.isFinite(lineValue)
+          ? clamp(lineValue / axisMax, 0.03, 1)
+          : clamp((score || 50) / 100, 0.12, 1);
+        const y = plotBottom - ratio * (plotBottom - plotTop);
+        return `${round(x, 2)},${round(y, 2)}`;
+      }).join(" ");
+      const tickMarkup = ticks.map(value => {
+        const y = plotBottom - (value / axisMax) * (plotBottom - plotTop);
+        return `
+          <g>
+            <line x1="${plotLeft}" y1="${round(y, 2)}" x2="${plotRight}" y2="${round(y, 2)}" class="recent-flow-chart-grid"></line>
+            <text x="12" y="${round(y + 4, 2)}" class="recent-flow-chart-label">${value.toLocaleString()}</text>
+          </g>
+        `;
+      }).join("");
+      return `
+        <div class="recent-flow-chart-wrap" aria-label="최근 흐름 차트">
+          <svg class="recent-flow-chart-svg" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="최근 섭취와 목표 칼로리 흐름">
+            ${tickMarkup}
+            <line x1="${plotLeft}" y1="${plotTop}" x2="${plotLeft}" y2="${plotBottom}" class="recent-flow-chart-axis"></line>
+            <line x1="${plotLeft}" y1="${plotBottom}" x2="${plotRight}" y2="${plotBottom}" class="recent-flow-chart-axis"></line>
+            ${bars}
+            <polyline points="${linePoints}" class="recent-flow-chart-line"></polyline>
+          </svg>
+        </div>
+      `;
+    }
+
+    function getRecentFlowMacroMetrics(window){
+      const records = (Array.isArray(window?.records) ? window.records : []).filter(item => item?.hasMeals);
+      const fallback = [
+        { label: "탄수화물", value: 0, target: 0, pct: 0, tone: "carbs" },
+        { label: "단백질", value: 0, target: 0, pct: 0, tone: "protein" },
+        { label: "지방", value: 0, target: 0, pct: 0, tone: "fat" }
+      ];
+      if (!records.length) return fallback;
+      const average = key => records.reduce((sum, item) => sum + (Number(item[key]) || 0), 0) / records.length;
+      const targetAverage = key => {
+        const targetRecords = records.filter(item => Number.isFinite(item[key]) && item[key] > 0);
+        return targetRecords.length ? targetRecords.reduce((sum, item) => sum + Number(item[key]), 0) / targetRecords.length : 0;
+      };
+      return [
+        { label: "탄수화물", value: average("carbs"), target: targetAverage("targetCarbs"), tone: "carbs" },
+        { label: "단백질", value: average("protein"), target: targetAverage("targetProtein"), tone: "protein" },
+        { label: "지방", value: average("fat"), target: targetAverage("targetFat"), tone: "fat" }
+      ].map(item => ({
+        ...item,
+        pct: item.target > 0 ? clamp((item.value / item.target) * 100, 0, 125) : 0
+      }));
+    }
+
+    function renderRecentFlowMacroBars(window){
+      return getRecentFlowMacroMetrics(window).map(item => {
+        const valueText = item.value > 0 ? `${round(item.value)}g` : "-";
+        const targetText = item.target > 0 ? `${round(item.target)}g` : "-";
+        return `
+          <div class="recent-flow-nutrition-row ${item.tone}">
+            <div class="recent-flow-nutrition-label">
+              <span>${escapeHtml(item.label)}</span>
+              <strong>${escapeHtml(valueText)} / ${escapeHtml(targetText)}</strong>
+            </div>
+            <div class="recent-flow-nutrition-track"><span style="width:${round(item.pct, 2)}%"></span></div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function getRecentFlowAchievement(window){
+      const records = Array.isArray(window?.records) ? window.records : [];
+      const scores = records.map(getRecentFlowRecordScoreValue).filter(Number.isFinite);
+      if (!scores.length) return { value: null, label: "분석 대기", sub: "기록이 쌓이면 목표 달성률을 계산합니다." };
+      const value = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+      const label = value >= 85 ? "훌륭합니다!" : value >= 70 ? "흐름을 더 다듬어 보세요." : "기록 안정화가 먼저입니다.";
+      const sub = value >= 85 ? "최근 흐름이 안정적입니다." : "최근 기록을 기준으로 보수적으로 해석합니다.";
+      return { value, label, sub };
+    }
+
     function renderRecentFlowOverview(currentResult, recentContext){
       const host = document.getElementById("recentFlowPreviewHost");
       if (!host) return;
@@ -21787,6 +22508,7 @@ Notes:
       const chips = getRecentFlowOverviewChips(selectedWindow);
       const points = getRecentFlowPointItems(selectedWindow, selectedRangeDays);
       const goalLine = getRecentFlowGoalBreakdown(selectedWindow);
+      const achievement = getRecentFlowAchievement(selectedWindow);
       const selectedProblemAction = getRecentFlowProblemDateAction(selectedWindow, currentResult);
       const windowCards = RECENT_FLOW_UI_CARD_DAYS.map(days => {
         const window = context.windows?.[days];
@@ -21812,21 +22534,51 @@ Notes:
         `;
       }).join("");
       host.innerHTML = `
-        <div class="recent-flow-overview">
-          <div class="recent-flow-summary-card">
-            <h4>기록 범위</h4>
-            <div class="recent-flow-range-row">
-              <div class="recent-flow-range-controls" aria-label="기록 범위 선택">
-                ${RECENT_FLOW_RANGE_DAYS.map(days => `
-                  <button class="recent-flow-range-btn ${days === selectedRangeDays ? "active" : ""}" type="button" data-recent-flow-range="${days}">${days === selectedRangeDays ? `최근 ${days}일 기준` : `${days}일`}</button>
-                `).join("")}
-              </div>
-              <div class="recent-flow-range-stats">
-                <span class="recent-flow-range-stat training"><span>운동일</span><strong>${Number(selectedWindow.actualWeightTrainingDays || 0)}/${selectedRangeDays}</strong></span>
-                <span class="recent-flow-range-stat weight"><span>체중일</span><strong>${Number(selectedWindow.weightDays || 0)}/${selectedRangeDays}</strong></span>
-              </div>
+        <div class="recent-flow-overview" data-stitch-weekly-dashboard>
+          <div class="recent-flow-range-row">
+            <div class="recent-flow-range-controls" aria-label="기록 범위 선택">
+              ${RECENT_FLOW_RANGE_DAYS.map(days => `
+                <button class="recent-flow-range-btn ${days === selectedRangeDays ? "active" : ""}" type="button" data-recent-flow-range="${days}">${days}일</button>
+              `).join("")}
             </div>
-            <div class="recent-flow-goal-line">${escapeHtml(goalLine)}</div>
+            <div class="recent-flow-range-stats">
+              <span class="recent-flow-range-current">최근 ${selectedRangeDays}일</span>
+              <span class="recent-flow-range-stat training"><span>운동일</span><strong>${Number(selectedWindow.actualWeightTrainingDays || 0)}/${selectedRangeDays}</strong></span>
+              <span class="recent-flow-range-stat weight"><span>체중일</span><strong>${Number(selectedWindow.weightDays || 0)}/${selectedRangeDays}</strong></span>
+            </div>
+          </div>
+          <div class="recent-flow-dashboard-grid">
+            <section class="recent-flow-trend-card">
+              <div class="recent-flow-card-head">
+                <div>
+                  <h4>칼로리 및 체중 변화</h4>
+                  <p>최근 ${selectedRangeDays}일간의 에너지 밸런스</p>
+                </div>
+                <div class="recent-flow-legend">
+                  <span class="intake">섭취 (kcal)</span>
+                  <span class="weight">목표 (kcal)</span>
+                </div>
+              </div>
+              ${getRecentFlowTrendChart(selectedWindow, selectedRangeDays)}
+            </section>
+            <aside class="recent-flow-side-stack">
+              <section class="recent-flow-nutrition-card">
+                <h4>평균 영양 섭취</h4>
+                ${renderRecentFlowMacroBars(selectedWindow)}
+              </section>
+              <section class="recent-flow-achievement-card">
+                <div>목표 달성률</div>
+                <strong>${Number.isFinite(achievement.value) ? `${round(achievement.value)}%` : "-"}</strong>
+                <span>${escapeHtml(achievement.label)}</span>
+                <p>${escapeHtml(achievement.sub)}</p>
+              </section>
+            </aside>
+          </div>
+          <section class="recent-flow-summary-card">
+            <div class="recent-flow-summary-head">
+              <h4>기록 범위 · 최근 ${selectedRangeDays}일</h4>
+              <div class="recent-flow-goal-line">${escapeHtml(goalLine)}</div>
+            </div>
             <div class="preview-chips">
               ${chips.map(chip => `<span class="preview-chip">${escapeHtml(chip)}</span>`).join("")}
             </div>
@@ -21836,18 +22588,18 @@ Notes:
                 <span class="recent-flow-action-note">${escapeHtml(selectedProblemAction.note)}</span>
               </div>
             ` : ""}
-          </div>
-          <div class="recent-flow-window-grid">
-            ${windowCards}
-          </div>
-          <div class="recent-flow-points">
+          </section>
+          <section class="recent-flow-points">
             <h4>최근 주의 포인트</h4>
             <div class="recent-flow-point-list">
               ${points.map(point => `
                 <p class="recent-flow-point"><strong>${escapeHtml(point.title)}</strong>${escapeHtml(point.text)}</p>
               `).join("")}
             </div>
-          </div>
+          </section>
+          <section class="recent-flow-window-grid">
+            ${windowCards}
+          </section>
         </div>
       `;
     }
@@ -22985,6 +23737,11 @@ Notes:
         const problemButton = event.target.closest("[data-open-problem-date]");
         if (problemButton) {
           openRecordsForDate(problemButton.getAttribute("data-open-problem-date"));
+          return;
+        }
+        const chartDate = event.target.closest("[data-recent-flow-chart-date]");
+        if (chartDate) {
+          openRecordsForDate(chartDate.getAttribute("data-recent-flow-chart-date"));
           return;
         }
         const button = event.target.closest("[data-recent-flow-range]");
@@ -25569,7 +26326,7 @@ Notes:
           document.querySelector('[data-recent-flow-range="14"]').click();
           text = document.querySelector(".recent-flow-range-row").textContent || "";
           assertIncludesAll(text, ["최근 14일", "운동일3/14", "체중일14/14"], "fourteen day range should update same top line");
-          assertTest(!text.includes("1일") && !text.includes("5일"), "range selector should not expose one or five day choices");
+          assertTest(text.includes("1일") && !text.includes("5일"), "range selector should expose Stitch-style one day choice but not five day");
           recentFlowSelectedRangeDays = 7;
           recordsState.items = normalizeRecordsCollection([{ date: today, weight: 75 }]);
         }));
@@ -27175,8 +27932,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show v6.6-C4.8-UI1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show v6.6-C4.8-UI1");
+          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -28725,8 +29482,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -29368,7 +30125,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.6-C4.8-UI1", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.6-C4.8-UI2", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -29675,7 +30432,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.6-C4.8-UI1", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.6-C4.8-UI2", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -29900,9 +30657,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show v6.6-C4.8-UI1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show v6.6-C4.8-UI1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI1", "current app version helper should return v6.6-C4.8-UI1");
+          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI2", "current app version helper should return v6.6-C4.8-UI2");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -29943,7 +30700,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.6-C4.8-UI1", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.6-C4.8-UI2", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -29989,9 +30746,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show v6.6-C4.8-UI1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show v6.6-C4.8-UI1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI1", "current app version helper should return v6.6-C4.8-UI1");
+          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI2", "current app version helper should return v6.6-C4.8-UI2");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -30099,13 +30856,13 @@ Notes:
         results.push(runNamedTest("C4.8-UI1 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.6-C4.8-UI1",
-            "Stage: 6.6-C4.8-UI1 Records Shell 이식",
-            "Records 탭을 Stitch 톤의 확정 기록 보관함/수정 Shell로 재배치"
-          ], "top comment should show C4.8-UI1 version and stage");
-          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show v6.6-C4.8-UI1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show v6.6-C4.8-UI1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI1", "version helper should return v6.6-C4.8-UI1");
+            "Version: 6.6-C4.8-UI2",
+            "Stage: 6.6-C4.8-UI2 최근 흐름 Shell 이식",
+            "최근 흐름 / Weekly 탭을 Stitch 톤의 기록 흐름 확인 Shell로 재배치"
+          ], "top comment should show C4.8-UI2 version and stage");
+          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI2", "version helper should return v6.6-C4.8-UI2");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -30983,8 +31740,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertIncludesAll(panel.textContent || "", ["목표 및 모드", "기본 프로필", "기본 생활 패턴", "운동 기준", "전문가 설정", "데이터 관리"], "Settings visible sections should remain default/profile oriented and include data management");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").closest(".settings-group").contains(document.getElementById("cardioPresetSettingsHost")), "cardio presets should remain inside training defaults group");
@@ -31609,9 +32366,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
           seedRecordsShell();
-          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show v6.6-C4.8-UI1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show v6.6-C4.8-UI1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI1", "version helper should return v6.6-C4.8-UI1");
+          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI2", "version helper should return v6.6-C4.8-UI2");
           assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
           assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
           assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
@@ -31697,6 +32454,155 @@ Notes:
       });
     }
 
+    function runStitchWeeklyShellTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const forbiddenTerms = [
+          "goalSnapshot",
+          "draft",
+          "source meta",
+          "schema",
+          "payload",
+          "localStorage",
+          "helper",
+          "policy",
+          "pending",
+          "one-shot",
+          "selectedBasis",
+          "actual",
+          "fallback",
+          "materialize"
+        ];
+        const makeMeal = (date, index, overrides = {}) => ({
+          id: `ui2-meal-${date}-${index}`,
+          mealLabel: index === 0 ? "아침" : index === 1 ? "점심" : "저녁",
+          carbs: 70 + index * 12,
+          protein: 34 + index * 5,
+          fat: 16 + index * 2,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "",
+          createdAt: `${date}T${String(8 + index * 4).padStart(2, "0")}:00:00.000Z`,
+          ...overrides
+        });
+        const seedWeeklyShell = () => {
+          setValidTodayBalanceTestInputs();
+          state.goal = "lean_bulk";
+          state.mode = "athlete";
+          recordsState.items = normalizeRecordsCollection(Array.from({ length: 28 }, (_, index) => {
+            const date = shiftDateString(today, -index);
+            const result = calculate();
+            const meals = [
+              makeMeal(date, 0, { carbs: 64 + index, protein: 32, fat: 14 }),
+              makeMeal(date, 1, { carbs: 90, protein: 44, fat: 22, otherKcal: index % 5 === 0 ? 180 : 0 })
+            ];
+            const total = meals.reduce((sum, meal) => sum + calculateMealEnergy(meal).totalKcal, 0);
+            return normalizeRecord({
+              date,
+              recordMode: "detailed",
+              weight: round(74.6 + index * 0.02, 2),
+              goalSnapshot: buildGoalSnapshotFromCurrentState(result, "saved_at_entry"),
+              meals,
+              adherencePercent: clamp(88 - index, 55, 95),
+              adherenceSource: "auto",
+              note: total > result.targetCal ? "섭취 높음" : ""
+            });
+          }));
+          ids.recordDate.value = today;
+          syncRecordInputsForDate(today);
+          setActiveTab("weekly");
+          render();
+        };
+
+        results.push(runNamedTest("C4.8-UI2 version and Weekly shell root render", () => {
+          seedWeeklyShell();
+          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI2", "version helper should return v6.6-C4.8-UI2");
+          assertTest(!!document.querySelector("[data-stitch-weekly-shell]"), "Weekly should render Stitch shell root");
+          assertTest(!!document.querySelector("[data-stitch-weekly-dashboard]"), "Weekly should render Stitch dashboard root");
+        }));
+
+        results.push(runNamedTest("C4.8-UI2 Weekly dashboard uses Stitch chart and side cards", () => {
+          seedWeeklyShell();
+          const panel = document.getElementById("weeklyPanel");
+          assertTest(!!panel.querySelector(".recent-flow-dashboard-grid"), "Weekly should render chart and side dashboard grid");
+          assertTest(!!panel.querySelector(".recent-flow-trend-card"), "Weekly should render trend chart card");
+          assertTest(!!panel.querySelector(".recent-flow-chart-svg"), "sufficient records should render a finite trend chart");
+          assertTest(!!panel.querySelector(".recent-flow-nutrition-card"), "Weekly should render nutrition summary card");
+          assertTest(panel.querySelectorAll(".recent-flow-nutrition-row").length === 3, "nutrition card should render carbs/protein/fat rows");
+          assertTest(!!panel.querySelector(".recent-flow-achievement-card"), "Weekly should render dark achievement card");
+          assertIncludesAll(panel.textContent || "", ["칼로리 및 체중 변화", "평균 영양 섭취", "목표 달성률"], "Weekly dashboard should expose Stitch-like sections");
+        }));
+
+        results.push(runNamedTest("C4.8-UI2 recent windows points and reference analysis remain visible", () => {
+          seedWeeklyShell();
+          const panelText = document.getElementById("weeklyPanel").textContent || "";
+          const cards = Array.from(document.querySelectorAll("[data-recent-flow-days]")).map(card => card.getAttribute("data-recent-flow-days"));
+          assertTest(JSON.stringify(cards) === JSON.stringify(["3", "7", "14", "28"]), "recent flow UI cards should stay 3/7/14/28");
+          assertIncludesAll(panelText, ["최근 주의 포인트", "7일 참고 분석", "7일 참고 해석", "설정 조정 안내"], "Weekly reference and coach areas should remain visible");
+          assertTest(!!document.getElementById("weeklyHero") && !!document.getElementById("weeklySummaryRows"), "weekly analysis bridge should remain mounted");
+        }));
+
+        results.push(runNamedTest("C4.8-UI2 range selector keeps existing recent window behavior", () => {
+          seedWeeklyShell();
+          let text = document.querySelector(".recent-flow-range-row").textContent || "";
+          assertIncludesAll(text, ["1일", "3일", "7일", "14일", "28일"], "range row should show Stitch-style period selector");
+          document.querySelector('[data-recent-flow-range="14"]').click();
+          text = document.querySelector(".recent-flow-range-row").textContent || "";
+          assertTest(document.querySelector('[data-recent-flow-range="14"]')?.classList.contains("active"), "fourteen day range should become active");
+          assertTest(document.querySelectorAll(".recent-flow-chart-bar").length >= 14, "fourteen day range should render fourteen chart bars");
+          assertTest((document.querySelector(".recent-flow-chart-svg")?.textContent || "").includes("500"), "chart y axis should use explicit kcal ticks");
+          document.querySelector('[data-recent-flow-range="28"]').click();
+          assertTest(document.querySelector('[data-recent-flow-range="28"]')?.classList.contains("active"), "twenty-eight day range should become active");
+          assertTest(document.querySelectorAll(".recent-flow-chart-bar").length >= 28, "twenty-eight day range should render twenty-eight chart bars when records exist");
+          assertTest(!text.includes("5일"), "range selector should not expose five day value");
+        }));
+
+        results.push(runNamedTest("C4.8-UI2 chart bars open matching Records date", () => {
+          seedWeeklyShell();
+          const target = document.querySelector("[data-recent-flow-chart-date]");
+          const date = target?.getAttribute("data-recent-flow-chart-date");
+          assertTest(!!target && !!date, "chart should expose record date on bars");
+          target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+          assertTest(uiState.activeTab === "records", "chart bar click should move to Records tab");
+          assertTest(uiState.recordsDetailDate === date, "chart bar click should open matching record detail date");
+        }));
+
+        results.push(runNamedTest("C4.8-UI2 empty Weekly state stays compact and honest", () => {
+          recordsState.items = [];
+          setActiveTab("weekly");
+          renderWeeklyPanel(calculate());
+          const panel = document.getElementById("weeklyPanel");
+          assertTest(!!panel.querySelector(".recent-flow-chart-empty"), "empty weekly state should show chart empty state");
+          assertIncludesAll(panel.textContent || "", ["기록이 아직 부족합니다", "분석이 어렵습니다", "칼로리는 아직 바꾸지 마세요"], "empty weekly state should keep conservative copy");
+        }));
+
+        results.push(runNamedTest("C4.8-UI2 Weekly shell does not regress Today Records backup exports", () => {
+          seedWeeklyShell();
+          assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today Stitch shell should remain mounted");
+          assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records Stitch shell should remain mounted");
+          assertTest(typeof window.runStitchRecordsShellTests === "function", "Records shell suite should remain exported");
+          assertTest(typeof window.runStitchTodayShellTests === "function", "Today shell suite should remain exported");
+          assertTest(typeof window.runSmartRestoreImportTests === "function", "smart restore suite should remain exported");
+        }));
+
+        results.push(runNamedTest("C4.8-UI2 visible Weekly copy avoids internal terms and overflow", () => {
+          seedWeeklyShell();
+          const panel = document.getElementById("weeklyPanel");
+          assertExcludesAll(panel.textContent || "", forbiddenTerms, "Weekly shell visible copy should not expose internal terms");
+          const beforeWidth = window.innerWidth;
+          const beforeHeight = window.innerHeight;
+          window.resizeTo?.(390, 900);
+          assertTest(panel.scrollWidth <= document.documentElement.clientWidth + 2 || document.documentElement.clientWidth > 390, "Weekly shell should not create horizontal overflow");
+          window.resizeTo?.(beforeWidth, beforeHeight);
+        }));
+
+        return results;
+      });
+    }
+
     function runStitchTodayShellTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -31727,9 +32633,9 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI1"), "document title should show v6.6-C4.8-UI1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI1"), "app version badge should show v6.6-C4.8-UI1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI1", "version helper should return v6.6-C4.8-UI1");
+          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI2", "version helper should return v6.6-C4.8-UI2");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
@@ -45104,6 +46010,7 @@ Notes:
     window.runTodayQuickEditTests = runTodayQuickEditTests;
     window.runTodayRecordConfirmationTests = runTodayRecordConfirmationTests;
     window.runStitchRecordsShellTests = runStitchRecordsShellTests;
+    window.runStitchWeeklyShellTests = runStitchWeeklyShellTests;
     window.runStitchTodayShellTests = runStitchTodayShellTests;
     window.runInBodyRecordApplyTests = runInBodyRecordApplyTests;
     window.runInBodyTodayFillTests = runInBodyTodayFillTests;
