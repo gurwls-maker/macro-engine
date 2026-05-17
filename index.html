@@ -1,8 +1,14 @@
-<!--
-Version: 6.6-C4.8-A1.5
-Stage: 6.6-C4.8-A1.5 스마트 복원 / 추가 기록 가져오기
+﻿<!--
+Version: 6.6-C4.8-UI0
+Stage: 6.6-C4.8-UI0 Stitch Today UI Shell 이식
 Date: 2026-05-17
 Notes:
+- C4.8-UI0 Stitch Today UI Shell을 기준으로 Today 화면 구조 재배치
+- 현재 기능/산식/기록/백업/dual basis/Coach 로직은 유지
+- A2 기록 상태 개념은 작은 별도 카드가 아니라 Today 작업 상태 영역에 통합
+- Stitch 과거 로직은 가져오지 않고 visual shell만 강하게 흡수
+- UI0 보강: 목표/섭취/남은 양을 오늘 목표 섭취량 카드로 통합
+- UI0 보강: Today 흐름 안에 오늘의 식사 카드 추가, 기록 시작 action 중복 정리
 - C4.8-A1.5 스마트 복원 / 추가 기록 가져오기
 - full backup preview에서 전체 복원 / 추가 기록만 가져오기 선택 지원
 - 추가 기록만 가져오기는 Settings / Today 계산값 / 프리셋을 유지하고 Records/InBody 기록성 데이터만 보강
@@ -174,7 +180,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.8-A1.5</title>
+  <title>탄단지 다이어리 v6.6-C4.8-UI0</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -701,6 +707,288 @@ Notes:
       stroke-linecap:round;
       stroke-linejoin:round;
     }
+    .today-stitch-shell{
+      display:flex;
+      flex-direction:column;
+      gap:18px;
+    }
+    .today-stitch-hero{
+      display:grid;
+      grid-template-columns:minmax(0,1.48fr) minmax(300px,.82fr);
+      gap:18px;
+      align-items:stretch;
+      margin-bottom:18px;
+    }
+    .today-work-hero{
+      position:relative;
+      overflow:hidden;
+      border:1px solid color-mix(in srgb, var(--line) 74%, white 26%);
+      border-radius:var(--radius-xl);
+      background:var(--card-sheen);
+      box-shadow:var(--shadow-card);
+    }
+    .today-work-hero{
+      min-height:0;
+      padding:24px;
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      gap:18px;
+      align-items:end;
+    }
+    .today-work-hero::after{
+      content:"";
+      position:absolute;
+      right:-52px;
+      top:-64px;
+      width:260px;
+      height:260px;
+      border-radius:50%;
+      background:radial-gradient(circle, rgba(16,141,134,.15), rgba(221,122,47,.08) 52%, transparent 74%);
+      pointer-events:none;
+    }
+    .today-work-copy,
+    .today-shell-action-host{
+      position:relative;
+      z-index:1;
+      min-width:0;
+    }
+    .today-shell-eyebrow{
+      margin:0 0 8px;
+      font-size:11px;
+      font-weight:900;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+      color:var(--accent-strong);
+    }
+    .today-work-title{
+      margin:0;
+      color:var(--deep);
+      font-size:clamp(25px,2.7vw,34px);
+      line-height:1.08;
+      letter-spacing:-.035em;
+    }
+    .today-work-copy p{
+      max-width:58ch;
+      margin:10px 0 0;
+      color:var(--muted);
+      line-height:1.58;
+      font-size:14px;
+      word-break:keep-all;
+    }
+    .today-work-pills{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      margin-top:16px;
+    }
+    .today-work-pill{
+      display:inline-flex;
+      align-items:center;
+      min-height:30px;
+      padding:5px 10px;
+      border-radius:999px;
+      border:1px solid color-mix(in srgb, var(--line) 76%, white 24%);
+      background:rgba(255,255,255,.68);
+      color:var(--deep);
+      font-size:12px;
+      font-weight:900;
+      white-space:nowrap;
+    }
+    .today-shell-action-host{
+      align-self:end;
+      justify-self:end;
+    }
+    .today-shell-action-host .today-top-actions{
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      gap:10px;
+      flex-wrap:wrap;
+      position:relative;
+    }
+    .today-task-status{
+      grid-column:auto;
+      position:relative;
+      z-index:1;
+      min-height:0;
+      padding:22px 22px 22px 24px;
+      display:grid;
+      grid-template-columns:1fr;
+      align-items:end;
+      gap:14px;
+      overflow:hidden;
+      border:1px solid color-mix(in srgb, var(--accent-line) 50%, white 50%);
+      border-radius:var(--radius-xl);
+      background:rgba(255,255,255,.58);
+      box-shadow:none;
+    }
+    .today-task-status::before{
+      content:"";
+      position:absolute;
+      inset:0 auto 0 0;
+      width:4px;
+      background:var(--accent-strong);
+      opacity:.72;
+    }
+    .today-task-status.status-current::before{background:var(--teal);}
+    .today-task-status.status-stale::before{background:var(--orange);}
+    .today-task-status.status-missing::before{background:var(--muted);}
+    .today-task-status .eyebrow{
+      margin:0 0 4px;
+      font-size:11px;
+      font-weight:900;
+      color:var(--muted);
+      letter-spacing:.08em;
+      text-transform:uppercase;
+    }
+    .today-task-status h3{
+      margin:0;
+      color:var(--deep);
+      font-size:17px;
+      letter-spacing:-.02em;
+      line-height:1.2;
+    }
+    .today-task-status p{
+      margin:5px 0 0;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+      word-break:keep-all;
+    }
+    .today-task-status-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+    .today-task-status-actions .primary-btn,
+    .today-task-status-actions .secondary-btn{
+      min-height:38px;
+      padding:8px 12px;
+      font-size:12px;
+    }
+    .shell{
+      max-width:1140px;
+      padding-top:8px;
+    }
+    .hero{
+      gap:0;
+      margin-bottom:0;
+      position:relative;
+    }
+    .hero-main{
+      width:286px;
+      min-height:86px;
+      padding:10px 14px;
+      justify-content:center;
+      border-color:transparent;
+      background:transparent;
+      box-shadow:none;
+      backdrop-filter:none;
+    }
+    .hero-main::after{display:none}
+    .hero-main h1{
+      margin:0;
+      align-items:center;
+      font-size:22px;
+      line-height:1.08;
+      letter-spacing:-.03em;
+    }
+    .hero-main .lead{
+      margin-top:4px;
+      font-size:12px;
+      line-height:1.35;
+      max-width:none;
+    }
+    .hero-main .hero-meta{
+      display:none;
+    }
+    .hero-main .philosophy-banner{
+      margin-top:7px;
+      padding:5px 8px;
+      border-radius:999px;
+      background:rgba(255,253,249,.72);
+    }
+    .hero-main .philosophy-banner .summary-copy{
+      font-size:11px;
+      max-width:200px;
+    }
+    .hero-main .philosophy-banner .summary-toggle{
+      font-size:11px;
+    }
+    .global-bar{
+      min-height:52px;
+      margin-top:-74px;
+      margin-bottom:6px;
+      padding-left:304px;
+      gap:8px;
+      position:relative;
+      z-index:2;
+    }
+    #globalGoalHost .chip{
+      min-height:38px;
+      padding:0 12px;
+      border-radius:999px;
+      font-size:12px;
+      box-shadow:none;
+    }
+    #globalGoalHost .mini-label,
+    #globalGoalHost .hero-goal-card .hero-actions{
+      display:none;
+    }
+    .global-right .ghost-btn{
+      min-height:38px;
+      padding:0 12px;
+      border-radius:999px;
+      box-shadow:none;
+    }
+    .tabs{
+      justify-content:center;
+      gap:4px;
+      margin:0 0 14px;
+      padding:4px;
+      border:none;
+      border-radius:999px;
+      background:rgba(255,253,249,.68);
+      box-shadow:none;
+    }
+    .tab-btn{
+      flex:0 0 auto;
+      min-height:34px;
+      padding:8px 13px;
+      border-radius:999px;
+      font-size:13px;
+      box-shadow:none;
+    }
+    .tab-btn.active{
+      background:var(--teal);
+      color:#fff;
+      box-shadow:0 10px 20px rgba(16,141,134,.18);
+    }
+    .today-layout{
+      display:grid;
+      grid-template-columns:minmax(0,1.28fr) minmax(300px,.72fr);
+      gap:18px;
+      align-items:start;
+    }
+    .today-layout > .today-execution-shell{
+      min-width:0;
+    }
+    .today-layout > .today-calc-settings-card{
+      min-width:0;
+      position:sticky;
+      top:14px;
+    }
+    .today-execution-shell{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) minmax(280px,.58fr);
+      gap:18px;
+      align-items:start;
+    }
+    .today-primary-stack,
+    .today-secondary-stack{
+      min-width:0;
+    }
     .today-calc-settings-card{
       display:flex;
       flex-direction:column;
@@ -779,12 +1067,12 @@ Notes:
     }
     .today-quick-edit-panel{
       display:grid;
-      grid-template-columns:minmax(0,1fr) minmax(240px,300px);
+      grid-template-columns:1fr;
       grid-template-areas:
-        "fields side"
-        "footer footer";
+        "side"
+        "fields"
+        "footer";
       align-items:start;
-      column-gap:14px;
       row-gap:14px;
       padding-top:16px;
       border-top:1px dashed color-mix(in srgb, var(--line) 82%, transparent);
@@ -794,7 +1082,7 @@ Notes:
     }
     .today-quick-edit-fields{
       display:grid;
-      grid-template-columns:repeat(4,minmax(0,1fr));
+      grid-template-columns:repeat(2,minmax(132px,1fr));
       gap:12px;
       align-items:start;
       grid-area:fields;
@@ -1326,6 +1614,7 @@ Notes:
       grid-area:side;
       align-self:start;
       display:grid;
+      grid-template-columns:1fr;
       align-content:start;
       gap:12px;
       min-width:0;
@@ -1671,9 +1960,10 @@ Notes:
       white-space:nowrap;
     }
     .today-layout{
-      display:flex;
-      flex-direction:column;
-      gap:14px;
+      display:grid;
+      grid-template-columns:minmax(0,1.28fr) minmax(300px,.72fr);
+      gap:18px;
+      align-items:start;
     }
     .single-column-layout{display:block}
     .tab-panel{display:none}
@@ -2800,7 +3090,6 @@ Notes:
     }
     .today-execution-shell{
       gap:14px;
-      order:1;
     }
     #kpiPanel{
       padding:20px;
@@ -3609,11 +3898,11 @@ Notes:
     .coach-panel{
       position:relative;
       padding:24px;
-      color:#fff;
-      background:var(--coach-grad);
-      border-color:rgba(255,255,255,.16);
+      color:var(--deep);
+      background:linear-gradient(145deg, rgba(255,253,249,.98), rgba(241,250,247,.94));
+      border:1px solid color-mix(in srgb, var(--line) 74%, white 26%);
       border-radius:var(--radius-xl);
-      box-shadow:var(--shadow-float);
+      box-shadow:var(--shadow-card);
       overflow:hidden;
     }
     .coach-panel::after{
@@ -3623,7 +3912,7 @@ Notes:
       width:220px;
       height:220px;
       border-radius:50%;
-      background:radial-gradient(circle, rgba(221,122,47,.35), rgba(221,122,47,.06) 55%, transparent 72%);
+      background:radial-gradient(circle, rgba(16,141,134,.16), rgba(221,122,47,.08) 55%, transparent 72%);
       pointer-events:none;
     }
     .coach-panel > *{
@@ -3638,7 +3927,7 @@ Notes:
       font-weight:900;
       letter-spacing:.08em;
       text-transform:none;
-      color:rgba(255,255,255,.74);
+      color:var(--teal);
       margin-bottom:8px;
     }
     .coach-panel h3{
@@ -3646,13 +3935,13 @@ Notes:
       font-size:clamp(22px,2.4vw,30px);
       line-height:1.12;
       letter-spacing:-.04em;
-      color:#fff;
+      color:var(--deep);
     }
     .coach-panel .coach-summary{
       max-width:74ch;
       margin-top:12px;
       margin-bottom:2px;
-      color:#fff;
+      color:var(--deep);
       font-size:clamp(17px,1.5vw,22px);
       line-height:1.55;
       font-weight:900;
@@ -3666,40 +3955,39 @@ Notes:
     .coach-block{
       padding:16px;
       border-radius:18px;
-      border:1px solid rgba(255,255,255,.16);
-      background:rgba(255,255,255,.10);
-      box-shadow:inset 0 1px 0 rgba(255,255,255,.10);
-      backdrop-filter:blur(6px);
+      border:1px solid color-mix(in srgb, var(--line) 78%, white 22%);
+      background:rgba(255,255,255,.62);
+      box-shadow:0 10px 22px rgba(23,50,77,.045);
     }
     .coach-block .k{
       font-size:11px;
       font-weight:900;
       letter-spacing:.06em;
       text-transform:none;
-      color:rgba(255,255,255,.70);
+      color:var(--muted);
       margin-bottom:8px;
     }
     .coach-block .v{
       font-size:13px;
       line-height:1.65;
-      color:rgba(255,255,255,.86);
+      color:var(--ink);
     }
     .coach-reason{
       margin-top:4px;
-      color:rgba(255,255,255,.72) !important;
+      color:var(--muted) !important;
     }
     .coach-action{
       margin-top:2px;
       font-weight:900;
-      color:#fff !important;
+      color:var(--deep) !important;
     }
     .coach-inbody-hint{
       margin-top:12px;
       padding:12px 14px;
-      border:1px solid rgba(255,255,255,.18);
+      border:1px solid color-mix(in srgb, var(--teal) 20%, var(--line) 80%);
       border-radius:16px;
-      background:rgba(255,255,255,.10);
-      color:rgba(255,255,255,.86);
+      background:rgba(16,141,134,.08);
+      color:var(--deep);
       font-size:13px;
       line-height:1.6;
       font-weight:800;
@@ -5091,6 +5379,217 @@ Notes:
       gap:18px;
       margin:18px 0;
     }
+    .today-intake-card{
+      padding:22px;
+    }
+    .today-intake-card .kpi-grid{
+      display:none;
+    }
+    .today-intake-list{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:14px;
+    }
+    .today-intake-row{
+      display:grid;
+      grid-template-columns:minmax(120px,.8fr) minmax(0,1.45fr) minmax(110px,.75fr);
+      gap:14px;
+      align-items:center;
+      padding:12px 14px;
+      border:1px solid color-mix(in srgb, var(--line) 78%, white 22%);
+      border-radius:16px;
+      background:rgba(255,255,255,.58);
+      min-width:0;
+    }
+    .today-intake-row.is-exceeded{
+      border-color:rgba(203,83,83,.24);
+      background:rgba(255,247,245,.74);
+    }
+    .today-intake-label{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      color:var(--deep);
+      font-size:13px;
+      font-weight:900;
+      min-width:0;
+      word-break:keep-all;
+    }
+    .today-intake-values{
+      min-width:0;
+    }
+    .today-intake-main{
+      color:var(--deep);
+      font-size:18px;
+      font-weight:900;
+      line-height:1.2;
+      word-break:keep-all;
+    }
+    .today-intake-sub{
+      margin-top:4px;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.35;
+    }
+    .today-intake-balance{
+      justify-self:end;
+      color:var(--muted);
+      font-size:13px;
+      font-weight:900;
+      line-height:1.35;
+      text-align:right;
+      white-space:normal;
+    }
+    .today-intake-row.is-exceeded .today-intake-balance{
+      color:var(--red);
+    }
+    .today-intake-row .ux-progress{
+      margin-top:8px;
+    }
+    .today-meal-card{
+      position:relative;
+      overflow:hidden;
+      padding:22px;
+      background:var(--card-sheen);
+      border-color:color-mix(in srgb, var(--line) 76%, white 24%);
+      box-shadow:var(--shadow-card);
+    }
+    .today-meal-card::after{
+      content:"";
+      position:absolute;
+      width:120px;
+      height:120px;
+      right:-40px;
+      bottom:-56px;
+      border-radius:50%;
+      background:radial-gradient(circle, rgba(16,141,134,.12), transparent 70%);
+      pointer-events:none;
+    }
+    .today-meal-empty,
+    .today-meal-filled{
+      position:relative;
+      z-index:1;
+      border:1px dashed color-mix(in srgb, var(--line) 80%, white 20%);
+      border-radius:18px;
+      padding:18px;
+      background:rgba(255,255,255,.54);
+    }
+    .today-meal-empty strong,
+    .today-meal-filled strong{
+      display:block;
+      margin-bottom:6px;
+      color:var(--deep);
+      font-size:16px;
+      line-height:1.35;
+    }
+    .today-meal-empty p,
+    .today-meal-filled p{
+      margin:0;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.55;
+    }
+    .today-meal-compact{
+      display:grid;
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      gap:10px;
+      margin-top:14px;
+    }
+    .today-meal-stat{
+      border:1px solid color-mix(in srgb, var(--line) 80%, white 20%);
+      border-radius:14px;
+      padding:10px 12px;
+      background:rgba(255,255,255,.62);
+      min-width:0;
+    }
+    .today-meal-stat .k{
+      color:var(--muted);
+      font-size:11px;
+      font-weight:900;
+      margin-bottom:4px;
+    }
+    .today-meal-stat .v{
+      color:var(--deep);
+      font-size:17px;
+      font-weight:900;
+      line-height:1.15;
+      word-break:keep-all;
+    }
+    .today-meal-actions{
+      position:relative;
+      z-index:1;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:14px;
+    }
+    #todayMealPrimaryActionHost,
+    #todayMealSecondaryActions{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .today-balance-compat{
+      display:none;
+    }
+    .today-layout{
+      display:block;
+    }
+    .today-layout > .today-execution-shell{
+      width:100%;
+    }
+    .today-execution-shell{
+      display:grid;
+      grid-template-columns:minmax(0,1.55fr) minmax(300px,.82fr);
+      gap:18px;
+      align-items:start;
+      padding:0;
+      border:0;
+      background:transparent;
+      box-shadow:none;
+    }
+    .today-layout > .today-calc-settings-card{
+      position:static;
+      margin-top:18px;
+    }
+    .today-secondary-stack .adherence-panel,
+    .today-secondary-stack .coach-panel{
+      width:100%;
+    }
+    .today-secondary-stack .adherence-hero{
+      grid-template-columns:1fr;
+    }
+    .today-secondary-stack .adherence-score-card{
+      min-height:0;
+    }
+    .today-secondary-stack .coach-panel{
+      padding:22px;
+    }
+    .today-secondary-stack .coach-panel h3{
+      font-size:24px;
+    }
+    .today-secondary-stack .coach-panel .coach-summary{
+      max-width:none;
+      font-size:16px;
+      line-height:1.5;
+    }
+    .today-secondary-stack .coach-grid{
+      grid-template-columns:1fr;
+    }
+    .today-calc-settings-card .today-quick-edit-panel{
+      grid-template-columns:minmax(0,1fr) minmax(280px,340px);
+      grid-template-areas:
+        "fields side"
+        "footer footer";
+      column-gap:16px;
+    }
+    .today-calc-settings-card .today-quick-edit-fields{
+      grid-template-columns:repeat(4,minmax(130px,1fr));
+    }
     .meal-summary-card{
       padding:12px 14px;
       border:1px solid color-mix(in srgb, var(--line) 76%, white 24%);
@@ -5991,6 +6490,147 @@ Notes:
       .record-start-actions button{
         flex:1 1 0;
       }
+      .shell{
+        padding-top:10px;
+        padding-bottom:82px;
+      }
+      .hero-main{
+        width:auto;
+        min-height:0;
+        padding:10px 4px 8px;
+      }
+      .hero-main .philosophy-banner{
+        border-radius:14px;
+      }
+      .hero-main .philosophy-banner .summary-copy{
+        max-width:100%;
+      }
+      .global-bar{
+        min-height:0;
+        margin-top:0;
+        margin-bottom:10px;
+        padding-left:0;
+        align-items:center;
+        flex-wrap:nowrap;
+        overflow-x:auto;
+        scrollbar-width:none;
+      }
+      .global-bar::-webkit-scrollbar{display:none}
+      #globalGoalHost{
+        min-width:0;
+        flex:1 1 auto;
+        overflow-x:auto;
+        scrollbar-width:none;
+      }
+      #globalGoalHost::-webkit-scrollbar{display:none}
+      #globalGoalHost .hero-goal-card{
+        width:max-content;
+        min-width:max-content;
+        display:flex;
+        grid-template-columns:none;
+        gap:8px;
+        padding:0;
+        border:0;
+        background:transparent;
+        box-shadow:none;
+      }
+      #globalGoalHost .chip{
+        min-width:96px;
+        justify-content:center;
+      }
+      .global-right{
+        flex:0 0 auto;
+      }
+      .global-right .ghost-btn{
+        min-width:98px;
+      }
+      .tabs{
+        position:fixed;
+        left:0;
+        right:0;
+        bottom:0;
+        z-index:80;
+        flex-direction:row;
+        overflow-x:auto;
+        justify-content:space-between;
+        gap:2px;
+        margin:0;
+        padding:8px;
+        border-radius:18px 18px 0 0;
+        background:rgba(247,249,254,.96);
+        box-shadow:0 -12px 30px rgba(36,52,78,.14);
+        scrollbar-width:none;
+      }
+      .tabs::-webkit-scrollbar{display:none}
+      .tab-btn{
+        flex:1 1 0;
+        min-width:0;
+        padding:8px 4px;
+        font-size:11px;
+        white-space:nowrap;
+      }
+      .today-stitch-hero,
+      .today-work-hero,
+      .today-layout,
+      .today-execution-shell{
+        grid-template-columns:1fr;
+      }
+      .today-execution-shell{
+        display:flex;
+        flex-direction:column;
+      }
+      .today-primary-stack{
+        order:0;
+      }
+      .today-stitch-hero{
+        gap:12px;
+        margin-bottom:12px;
+      }
+      .today-work-hero{
+        min-height:0;
+        padding:18px;
+        align-items:start;
+      }
+      .today-shell-action-host{
+        display:none;
+      }
+      .today-shell-action-host .today-top-actions,
+      .today-task-status-actions{
+        justify-content:stretch;
+      }
+      .today-task-status-actions > button{
+        flex:1 1 140px;
+      }
+      .today-shell-action-host .today-top-actions{
+        justify-content:flex-start;
+      }
+      .today-shell-action-host .today-top-actions > button{
+        flex:0 1 auto;
+      }
+      .today-task-status{
+        min-height:0;
+        padding:0;
+        grid-template-columns:1fr;
+        gap:8px;
+        border:0;
+        border-left:3px solid color-mix(in srgb, var(--teal) 48%, var(--line) 52%);
+        border-radius:0;
+        background:transparent;
+        box-shadow:none;
+        padding-left:12px;
+      }
+      .today-task-status .eyebrow{
+        display:none;
+      }
+      .today-task-status h3{
+        font-size:16px;
+      }
+      .today-task-status p{
+        font-size:13px;
+      }
+      .today-layout > .today-calc-settings-card{
+        position:static;
+      }
       .today-calc-settings-card{
         align-items:flex-start;
       }
@@ -6010,6 +6650,32 @@ Notes:
       .today-calc-summary-grid{
         width:100%;
         grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      .today-intake-card{
+        padding:18px;
+      }
+      .today-intake-row{
+        grid-template-columns:1fr;
+        gap:8px;
+      }
+      .today-intake-balance{
+        justify-self:start;
+        text-align:left;
+      }
+      .today-meal-card{
+        padding:18px;
+      }
+      .today-meal-compact{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+      }
+      .today-meal-actions,
+      #todayMealPrimaryActionHost,
+      #todayMealSecondaryActions{
+        width:100%;
+        justify-content:stretch;
+      }
+      .today-meal-actions button{
+        flex:1 1 140px;
       }
       .today-quick-edit-panel{
         width:100%;
@@ -6318,7 +6984,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.8-A1.5</span>
+               <span class="app-version">v6.6-C4.8-UI0</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -6420,17 +7086,35 @@ Notes:
         </div>
       </div>
     </div>
+    <section class="today-stitch-hero" data-stitch-today-shell>
+      <div class="today-work-hero">
+        <div class="today-work-copy">
+            <div class="today-shell-eyebrow">오늘 작업</div>
+          <h2 class="today-work-title" id="todayShellTitle">오늘 할 일을 한 화면에서 정리합니다</h2>
+          <p id="todayShellLead">목표와 남은 양을 보면서 오늘 몸 상태, 활동, 웨이트, 유산소만 빠르게 조정합니다.</p>
+          <div class="today-work-pills" id="todayShellPills" aria-live="polite"></div>
+        </div>
+        <div class="today-shell-action-host" id="todayShellActionHost"></div>
+      </div>
+      <div class="today-task-status status-missing" id="todayRecordStatusPanel" data-today-record-status aria-live="polite">
+        <div>
+          <div class="eyebrow">오늘 기록 상태</div>
+          <h3 id="todayRecordStatusTitle">오늘 기록 확인 중</h3>
+          <p id="todayRecordStatusCopy">오늘 Records 기록과 현재 Today 계산 기준을 비교합니다.</p>
+        </div>
+        <div class="today-task-status-actions" id="todayRecordStatusActions"></div>
+      </div>
+    </section>
     <div class="today-layout">
       <section class="result-shell today-execution-shell">
         <div class="today-primary-stack">
-          <div id="coachHost"></div>
-          <div class="panel simple" id="kpiPanel">
+          <div class="panel simple today-intake-card" id="kpiPanel">
             <h3>결과</h3>
             <div class="kpi-panel-head">
               <div class="kpi-panel-title">
                 <div class="card-title-row">
                   <span class="ui-icon-badge badge-cal">목표</span>
-                  <h2>오늘 권장 탄단지</h2>
+                  <h2>오늘 목표 섭취량</h2>
                 </div>
               </div>
               <div class="kpi-header-option mode-general-only">
@@ -6507,23 +7191,32 @@ Notes:
                 <div class="macro-sublabel" id="fatBasisSub">-</div>
               </div>
             </div>
-          </div>
-
-          <div class="today-balance-grid">
-            <div class="panel today-balance-card" id="todayConsumedPanel">
-              <h3>오늘 섭취 현황</h3>
-              <h2>누적 섭취</h2>
-              <div class="meal-summary-grid" id="todayConsumedRows"></div>
-              <div id="todayConsumedNote"></div>
-            </div>
-            <div class="panel today-balance-card" id="todayRemainingPanel">
-              <h3>목표 대비</h3>
-              <h2>남은 양과 초과</h2>
-              <div class="meal-summary-grid" id="todayRemainingRows"></div>
+            <div class="today-intake-list" id="todayConsumedRows" aria-live="polite"></div>
+            <div id="todayConsumedNote"></div>
+            <div class="today-balance-compat hidden" aria-hidden="true">
+              <div id="todayRemainingPanel"></div>
+              <div id="todayRemainingRows"></div>
               <div id="todayRemainingNote"></div>
             </div>
           </div>
 
+          <section class="panel today-meal-card" id="todayMealPanel">
+            <div class="section-head">
+              <div>
+                <h3>오늘의 식사</h3>
+                <h2>식사 기록</h2>
+              </div>
+            </div>
+            <div id="todayMealSummary" aria-live="polite"></div>
+            <div class="today-meal-actions">
+              <div id="todayMealPrimaryActionHost"></div>
+              <div id="todayMealSecondaryActions"></div>
+            </div>
+          </section>
+
+        </div>
+
+        <div class="today-secondary-stack">
           <div class="panel adherence-panel" id="todayAdherencePanel">
             <div class="section-head">
               <div>
@@ -6534,9 +7227,7 @@ Notes:
             <div id="todayAdherenceContent"></div>
             <div id="todaySignalSummary" class="mini-note hidden"></div>
           </div>
-        </div>
-
-        <div class="today-secondary-stack">
+          <div id="coachHost"></div>
           <details class="panel panel-muted today-support-details hidden">
             <summary>
               <div class="today-support-summary">
@@ -8240,7 +8931,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-A1.5";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-UI0";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -10704,7 +11395,7 @@ Notes:
       if (quickSettingsButton) quickSettingsButton.style.display = tab === "today" ? "inline-flex" : "none";
       const todayRecordStartButton = document.getElementById("todayRecordStartBtn");
       if (todayRecordStartButton) todayRecordStartButton.style.display = tab === "today" ? "inline-flex" : "none";
-      if (tab === "today") setTodayQuickEditOpen(true);
+      if (tab === "today") setTodayQuickEditOpen(false);
       else setTodayQuickEditOpen(false);
       if (tab === "settings") setQuickSettingsOpen(false);
     }
@@ -10841,6 +11532,7 @@ Notes:
       const modeDescHost = document.getElementById("settingsModeDescriptionHost");
       const globalGoalHost = document.getElementById("globalGoalHost");
       const globalActionHost = document.getElementById("globalActionHost");
+      const todayShellActionHost = document.getElementById("todayShellActionHost");
       const todayInputPanel = document.getElementById("todayInputPanel");
       const settingsCalculationInputHost = document.getElementById("settingsCalculationInputHost");
       const todayRoutineChipsHost = document.getElementById("todayRoutineChipsHost");
@@ -10854,7 +11546,7 @@ Notes:
       if (modeCard && modeGoalHost && modeCard.parentElement !== modeGoalHost) modeGoalHost.appendChild(modeCard);
       if (goalCard && globalGoalHost && goalCard.parentElement !== globalGoalHost) globalGoalHost.appendChild(goalCard);
       if (goalActions && globalActionHost && goalActions.parentElement !== globalActionHost) globalActionHost.appendChild(goalActions);
-      if (todayTopActions && globalActionHost && todayTopActions.parentElement !== globalActionHost) globalActionHost.appendChild(todayTopActions);
+      if (todayTopActions && todayShellActionHost && todayTopActions.parentElement !== todayShellActionHost) todayShellActionHost.appendChild(todayTopActions);
       if (modeDescBlock && modeDescHost && modeDescBlock.parentElement !== modeDescHost) modeDescHost.appendChild(modeDescBlock);
       if (todayInputPanel && settingsCalculationInputHost && todayInputPanel.parentElement !== settingsCalculationInputHost) {
         settingsCalculationInputHost.appendChild(todayInputPanel);
@@ -11588,7 +12280,7 @@ Notes:
     }
 
     function normalizeSnapshotSource(raw){
-      return ["saved_at_entry","generated_on_late_meal_add","legacy_import","today_auto_sync","record_detail_edit"].includes(raw) ? raw : null;
+      return ["saved_at_entry","generated_on_late_meal_add","legacy_import","today_auto_sync","today_manual_confirm","record_detail_edit"].includes(raw) ? raw : null;
     }
 
     function normalizeIsoDatetime(raw){
@@ -13247,6 +13939,21 @@ Notes:
       const aSignature = getGoalSnapshotSignature(a);
       const bSignature = getGoalSnapshotSignature(b);
       return !!aSignature && !!bSignature && aSignature === bSignature;
+    }
+
+    function getGoalSnapshotDifferenceKeys(a, b){
+      const aSignature = getGoalSnapshotSignature(a);
+      const bSignature = getGoalSnapshotSignature(b);
+      if (!aSignature || !bSignature) return ["unavailable"];
+      if (aSignature === bSignature) return [];
+      try {
+        const left = JSON.parse(aSignature);
+        const right = JSON.parse(bSignature);
+        return Array.from(new Set([...Object.keys(left), ...Object.keys(right)]))
+          .filter(key => JSON.stringify(left[key]) !== JSON.stringify(right[key]));
+      } catch (_error) {
+        return ["signature"];
+      }
     }
 
     function hasMeaningfulRecordWeightDifference(a, b, tolerance = TODAY_RECORD_WEIGHT_MATCH_TOLERANCE){
@@ -16497,6 +17204,134 @@ Notes:
       return { synced: true, record, score, snapshotCreated: !existing.goalSnapshot };
     }
 
+    function getTodayRecordConfirmationState(currentResult = calculate()){
+      const today = getTodayDateString();
+      const record = getRecordByDate(today);
+      if (!record) {
+        return {
+          status: "missing",
+          today,
+          record: null,
+          title: "오늘 기록 없음",
+          copy: "아직 오늘 기록이 없습니다. 기록 시작하기로 식사와 공복 체중을 남길 수 있습니다.",
+          action: "record"
+        };
+      }
+      const modeInfo = inferRecordMode(record);
+      if (modeInfo.recordMode !== "detailed") {
+        return {
+          status: "current",
+          today,
+          record,
+          title: "오늘 기록 저장됨",
+          copy: "오늘 기록이 저장되어 있습니다. 상세 식사 기록이 아니면 계산 기준 갱신은 필요하지 않습니다.",
+          action: "view"
+        };
+      }
+      if (!currentResult?.isCalculable) {
+        return {
+          status: "stale",
+          today,
+          record,
+          title: "계산 기준 확인 필요",
+          copy: "현재 Today 계산값을 만들 수 없어 오늘 기록 기준과 비교하지 못했습니다.",
+          action: "none"
+        };
+      }
+      const nextSnapshot = buildGoalSnapshotFromCurrentState(currentResult, "today_manual_confirm");
+      const isCurrent = !!record.goalSnapshot && !!nextSnapshot && areGoalSnapshotsEquivalent(record.goalSnapshot, nextSnapshot);
+      if (isCurrent) {
+        return {
+          status: "current",
+          today,
+          record,
+          title: "오늘 기록 최신 상태",
+          copy: "오늘 기록이 현재 계산 기준과 맞습니다.",
+          action: "view"
+        };
+      }
+      return {
+        status: "stale",
+        today,
+        record,
+        title: "갱신 필요",
+        copy: "오늘 계산 기준이 저장된 기록과 다릅니다. 식사와 공복 체중은 그대로 두고 계산 기준만 오늘 기준으로 갱신할 수 있습니다.",
+        action: "update",
+        nextSnapshot,
+        mismatchKeys: getGoalSnapshotDifferenceKeys(record.goalSnapshot, nextSnapshot)
+      };
+    }
+
+    function renderTodayShellSummary(currentResult = calculate(), showPlaceholder = false){
+      const title = document.getElementById("todayShellTitle");
+      const lead = document.getElementById("todayShellLead");
+      const pills = document.getElementById("todayShellPills");
+      if (!title || !lead || !pills) return;
+      const today = getTodayDateString();
+      title.textContent = "오늘 먼저 할 일";
+      lead.textContent = "오늘 식사와 몸 상태를 기록하고, 필요한 계산 기준만 바로 조정합니다.";
+      const modeLabel = getModeRuntimeConfig().label;
+      const goalLabel = GOALS[state.goal]?.label || state.goal;
+      const basisLabel = uiState.selectedMacroBasis === "activity" ? "활동량 기준" : "가이드 기준";
+      const kcalLabel = showPlaceholder || !currentResult?.isCalculable
+        ? "목표 계산 필요"
+        : `목표 ${Math.round(currentResult.targetCal).toLocaleString()}kcal`;
+      pills.innerHTML = [
+        today,
+        goalLabel,
+        `${modeLabel} 모드`,
+        basisLabel,
+        kcalLabel
+      ].map(item => `<span class="today-work-pill">${escapeHtml(item)}</span>`).join("");
+    }
+
+    function renderTodayRecordConfirmationStatus(currentResult = calculate(), showPlaceholder = false){
+      const panel = document.getElementById("todayRecordStatusPanel");
+      const title = document.getElementById("todayRecordStatusTitle");
+      const copy = document.getElementById("todayRecordStatusCopy");
+      const actions = document.getElementById("todayRecordStatusActions");
+      if (!panel || !title || !copy || !actions) return null;
+      const stateInfo = getTodayRecordConfirmationState(currentResult);
+      panel.classList.remove("status-missing", "status-current", "status-stale");
+      panel.classList.add(`status-${stateInfo.status}`);
+      title.textContent = stateInfo.title;
+      copy.textContent = stateInfo.copy;
+      let actionHtml = "";
+      if (stateInfo.action === "record") {
+        actionHtml = "";
+      } else if (stateInfo.action === "update") {
+        actionHtml = `<button class="primary-btn" type="button" data-update-today-record-basis>오늘 기준으로 기록 갱신</button>`;
+      } else if (stateInfo.action === "view") {
+        actionHtml = "";
+      }
+      actions.innerHTML = actionHtml;
+      return stateInfo;
+    }
+
+    function applyCurrentTodayBasisToTodayRecord(currentResult = calculate()){
+      const today = getTodayDateString();
+      const record = getRecordByDate(today);
+      if (!record) return { updated: false, reason: "no_today_record" };
+      if (inferRecordMode(record).recordMode !== "detailed") return { updated: false, reason: "record_mode_not_detailed" };
+      if (!currentResult?.isCalculable) return { updated: false, reason: "not_calculable" };
+      const snapshot = buildGoalSnapshotFromCurrentState(currentResult, "today_manual_confirm");
+      if (!snapshot) return { updated: false, reason: "snapshot_unavailable" };
+      const score = getDailyAdherenceScore(today, currentResult, { goalSnapshot: snapshot });
+      const hasAutoPercent = Number.isFinite(score?.percent);
+      const nextRecord = upsertRecord({
+        date: today,
+        goalSnapshot: snapshot,
+        snapshotSource: "today_manual_confirm",
+        adherencePercent: score?.isAvailable ? score.percent : null,
+        adherenceSource: score?.isAvailable ? "auto" : "manual",
+        adherenceScoringVersion: hasAutoPercent ? (score.detail?.scoringVersion || ADHERENCE_SCORING_VERSION) : null,
+        adherenceLockedAt: score?.isAvailable ? new Date().toISOString() : record.adherenceLockedAt
+      });
+      if (getSelectedRecordDate() === today) syncRecordInputsForDate(today);
+      render();
+      return { updated: true, record: nextRecord, score };
+    }
+
     function applyTodayWeightToRecord(){
       const mismatch = getTodayRecordWeightMismatch();
       if (!mismatch.record || !Number.isFinite(mismatch.inputWeight)) return { applied: false, reason: "unavailable" };
@@ -17806,30 +18641,48 @@ Notes:
       renderSelectedDateMeals(selectedDate);
     }
 
+    function renderTodayIntakeBalanceText(remainingValue, targetValue, key){
+      if (!Number.isFinite(remainingValue)) return { text: "기준 확인 필요", exceeded: false };
+      const deadzone = getMacroDisplayDeadzone(targetValue, key);
+      const unit = key === "kcal" ? "kcal" : "g";
+      if (Math.abs(remainingValue) <= deadzone) return { text: `남은 ${formatCompactMacroValue(0, unit)}`, exceeded: false };
+      if (remainingValue < 0) return { text: `${formatCompactMacroValue(Math.abs(remainingValue), unit)} 초과`, exceeded: true };
+      return { text: `${formatCompactMacroValue(remainingValue, unit)} 남음`, exceeded: false };
+    }
+
     function renderTodayConsumptionPanel(balance){
       const rows = document.getElementById("todayConsumedRows");
-      rows.innerHTML = [
-        ["탄수화물", formatMacroValueParts(balance.consumed.carbs, "g"), "오늘 누적", "carbs", balance.consumed.carbs, balance.target.carbs],
-        ["단백질", formatMacroValueParts(balance.consumed.protein, "g"), "오늘 누적", "protein", balance.consumed.protein, balance.target.protein],
-        ["지방", formatMacroValueParts(balance.consumed.fat, "g"), "오늘 누적", "fat", balance.consumed.fat, balance.target.fat],
-        ["칼로리", formatMacroValueParts(balance.consumed.kcal, "kcal"), balance.todayDate, "kcal", balance.consumed.kcal, balance.target.kcal]
-      ].map(([label, valueParts, sub, key, consumedValue, targetValue]) => `
-        <div class="meal-summary-card" data-total-kind="${key}">
-          <div class="label">${renderMacroLabelIcon(key)}${label}</div>
-          <div class="value macro-value"><span class="macro-value-amount">${valueParts.amount}</span><span class="macro-value-unit">${valueParts.unit}</span></div>
-          ${renderMacroProgress(consumedValue, targetValue, key)}
-          <div class="sub">${sub}</div>
-        </div>
-      `).join("");
+      if (!rows) return;
+      const items = [
+        ["목표 칼로리", balance.consumed.kcal, balance.target.kcal, balance.remaining.kcal, "kcal", "kcal"],
+        ["탄수화물", balance.consumed.carbs, balance.target.carbs, balance.remaining.carbs, "carbs", "g"],
+        ["단백질", balance.consumed.protein, balance.target.protein, balance.remaining.protein, "protein", "g"],
+        ["지방", balance.consumed.fat, balance.target.fat, balance.remaining.fat, "fat", "g"]
+      ];
+      rows.innerHTML = items.map(([label, consumedValue, targetValue, remainingValue, key, unit]) => {
+        const balanceText = renderTodayIntakeBalanceText(remainingValue, targetValue, key);
+        const consumedText = formatCompactMacroValue(consumedValue, unit);
+        const targetText = Number.isFinite(targetValue) ? formatCompactMacroValue(targetValue, unit) : "기준 없음";
+        return `
+          <div class="today-intake-row ${balanceText.exceeded ? "is-exceeded" : ""}" data-total-kind="${key}">
+            <div class="today-intake-label">${renderMacroLabelIcon(key)}<span>${label}</span></div>
+            <div class="today-intake-values">
+              <div class="today-intake-main">${consumedText} / ${targetText}</div>
+              ${renderMacroProgress(consumedValue, targetValue, key)}
+            </div>
+            <div class="today-intake-balance">${balanceText.text}</div>
+          </div>
+        `;
+      }).join("");
 
       const noteHost = document.getElementById("todayConsumedNote");
       noteHost.innerHTML = balance.hasMeals
-        ? `<div class="mini-note">식사 ${balance.mealCount}건 합산</div>`
+        ? `<div class="mini-note">식사 ${balance.mealCount}건 기준으로 현재 섭취와 남은 양을 함께 보여줍니다.</div>`
         : `<div class="mini-note">아직 식사 기록이 없습니다. 식사를 기록하면 합산됩니다.</div>`;
     }
 
     function renderTodayRemainingPanel(balance){
-      const panel = document.getElementById("todayRemainingPanel");
+      const panel = document.getElementById("kpiPanel");
       const displayRows = [
         ["탄수화물", balance.remaining.carbs, balance.target.carbs, "carbs"],
         ["단백질", balance.remaining.protein, balance.target.protein, "protein"],
@@ -17839,10 +18692,10 @@ Notes:
         const display = getMacroDisplayBalance(value, target, key);
         return { label, value, key, display };
       });
-      panel.classList.toggle("is-warning", displayRows.some(row => row.display.isExceeded));
+      panel?.classList.toggle("is-warning", displayRows.some(row => row.display.isExceeded));
 
       const rows = document.getElementById("todayRemainingRows");
-      rows.innerHTML = displayRows.map(({ label, value, key, display }) => `
+      if (rows) rows.innerHTML = displayRows.map(({ label, value, key, display }) => `
         <div class="meal-summary-card" data-total-kind="${key}">
           <div class="label">${renderMacroLabelIcon(key)}${label}</div>
           <div class="value macro-value">${(() => {
@@ -17857,9 +18710,51 @@ Notes:
       `).join("");
 
       const noteHost = document.getElementById("todayRemainingNote");
-      noteHost.innerHTML = balance.isGoalAvailable
+      if (noteHost) noteHost.innerHTML = balance.isGoalAvailable
         ? `<div class="mini-note">남은 값이 음수면 초과입니다.</div>`
         : `<div class="warn warn"><h4>오늘 목표 확인</h4><ul><li>오늘 목표가 계산되어야 남은 양이 보입니다. 기본 정보를 확인해 주세요.</li></ul></div>`;
+    }
+
+    function renderTodayMealPanel(balance){
+      const host = document.getElementById("todayMealSummary");
+      const primaryHost = document.getElementById("todayMealPrimaryActionHost");
+      const secondaryHost = document.getElementById("todayMealSecondaryActions");
+      const startButton = document.getElementById("todayRecordStartBtn");
+      if (!host || !primaryHost || !secondaryHost || !startButton) return;
+      const today = getTodayDateString();
+      const record = getRecordByDate(today);
+      const meals = Array.isArray(record?.meals) ? record.meals : [];
+      const mealCount = meals.length;
+      const totals = getMealTotalsForDate(today);
+      if (startButton.parentElement !== primaryHost) primaryHost.appendChild(startButton);
+      const startLabel = startButton.querySelector("span");
+      if (startLabel) startLabel.textContent = mealCount ? "식사 추가" : "기록 시작하기";
+      if (!mealCount) {
+        host.innerHTML = `
+          <div class="today-meal-empty">
+            <strong>아직 오늘 식사 기록이 없습니다.</strong>
+            <p>주요 식사부터 기록하면 오늘 섭취량, 남은 양, 식단 점수가 바로 채워집니다.</p>
+          </div>
+        `;
+        secondaryHost.innerHTML = record
+          ? `<button class="secondary-btn" type="button" data-open-today-record>기록 보기</button>`
+          : "";
+        return;
+      }
+      const latestMeals = meals.slice(-3).map(meal => meal.mealLabel).filter(Boolean).join(" · ");
+      host.innerHTML = `
+        <div class="today-meal-filled">
+          <strong>식사 ${mealCount}건 기록됨</strong>
+          <p>${escapeHtml(latestMeals || "저장된 식사")} 기준으로 오늘 누적 섭취를 계산하고 있습니다.</p>
+          <div class="today-meal-compact">
+            <div class="today-meal-stat"><div class="k">칼로리</div><div class="v">${formatCompactMacroValue(totals.totalKcal, "kcal")}</div></div>
+            <div class="today-meal-stat"><div class="k">탄수화물</div><div class="v">${formatCompactMacroValue(totals.carbs, "g")}</div></div>
+            <div class="today-meal-stat"><div class="k">단백질</div><div class="v">${formatCompactMacroValue(totals.protein, "g")}</div></div>
+            <div class="today-meal-stat"><div class="k">지방</div><div class="v">${formatCompactMacroValue(totals.fat, "g")}</div></div>
+          </div>
+        </div>
+      `;
+      secondaryHost.innerHTML = `<button class="secondary-btn" type="button" data-open-today-record>기록 보기</button>`;
     }
 
     function renderMacroBasisUi(result, showPlaceholder){
@@ -21400,6 +22295,8 @@ Notes:
       const result = calculate();
       const showPlaceholder = !result.isCalculable;
       renderTodayQuickEditUi(result, showPlaceholder);
+      renderTodayShellSummary(result, showPlaceholder);
+      renderTodayRecordConfirmationStatus(result, showPlaceholder);
       const displayedTargetCal = showPlaceholder
         ? 0
         : Math.round(result.targetCal);
@@ -21456,9 +22353,9 @@ Notes:
       });
       const todayCoach = generateDailyCoachOutput(todayCoachSignals);
       // 5.3.3: todaySnapshot is a read-only bridge for upcoming UI layers.
-      if (!suppressTodayRecordAutoSync) syncTodayRecordGoalSnapshot(result);
       renderTodayConsumptionPanel(todayBalance);
       renderTodayRemainingPanel(todayBalance);
+      renderTodayMealPanel(todayBalance);
       renderTodayAdherencePanel(todayAdherence, { coach: todayCoach });
       renderCoachPanel(result, todayBalance, todayAdherence, { recentContext });
       renderTodaySignalSummary(todaySnapshot);
@@ -21667,6 +22564,21 @@ Notes:
         if (event.target === event.currentTarget) keepPendingRecordWeightTodayApplyChoice();
       });
       document.addEventListener("click", event => {
+        const todayRecordStartTrigger = event.target.closest("[data-open-today-record-start]");
+        if (todayRecordStartTrigger) {
+          openTodayRecordStartDialog();
+          return;
+        }
+        const todayRecordUpdateTrigger = event.target.closest("[data-update-today-record-basis]");
+        if (todayRecordUpdateTrigger) {
+          applyCurrentTodayBasisToTodayRecord(calculate());
+          return;
+        }
+        const todayRecordOpenTrigger = event.target.closest("[data-open-today-record]");
+        if (todayRecordOpenTrigger) {
+          openRecordsForDate(getTodayDateString());
+          return;
+        }
         const todayResultButton = event.target.closest("[data-show-today-result]");
         if (todayResultButton) {
           showTodayResultFromFeedback();
@@ -24372,12 +25284,12 @@ Notes:
           assertExcludesAll(text, ["recentContext", "confidence", "signal", "severity", "penalty", "cap", "decision", "windowFit", "contextFit", "recordConfidence", "primitive", "engine", "threshold"], "weekly screen internal labels");
         }));
 
-        results.push(runNamedTest("today coach remains before KPI after recent flow rewrite", () => {
+        results.push(runNamedTest("today coach remains visible in Today workflow after recent flow rewrite", () => {
           render();
           const coachHost = document.getElementById("coachHost");
-          const kpiPanel = document.getElementById("kpiPanel");
-          assertTest(!!coachHost && !!kpiPanel, "coach and KPI hosts should exist");
-          assertTest(!!(coachHost.compareDocumentPosition(kpiPanel) & Node.DOCUMENT_POSITION_FOLLOWING), "coach should remain before KPI");
+          const todayLayout = document.querySelector(".today-layout");
+          assertTest(!!coachHost && !!todayLayout, "coach and Today layout hosts should exist");
+          assertTest(todayLayout.contains(coachHost), "coach should remain inside Today workflow");
         }));
 
         results.push(runNamedTest("weekly no data", () => {
@@ -25768,8 +26680,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-A1"), "document title should show v6.6-C4.8-A1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-A1"), "app version badge should show v6.6-C4.8-A1");
+          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show v6.6-C4.8-UI0");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version badge should show v6.6-C4.8-UI0");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -27317,8 +28229,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-A1"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-A1"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -27960,7 +28872,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.6-C4.8-A1.5", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.6-C4.8-UI0", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -28267,7 +29179,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.6-C4.8-A1.5", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.6-C4.8-UI0", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -28492,9 +29404,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-A1"), "document title should show v6.6-C4.8-A1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-A1"), "app version badge should show v6.6-C4.8-A1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-A1.5", "current app version helper should return v6.6-C4.8-A1.5");
+          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show v6.6-C4.8-UI0");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version badge should show v6.6-C4.8-UI0");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI0", "current app version helper should return v6.6-C4.8-UI0");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -28535,7 +29447,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.6-C4.8-A1.5", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.6-C4.8-UI0", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -28581,15 +29493,15 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-A1"), "document title should show v6.6-C4.8-A1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-A1"), "app version badge should show v6.6-C4.8-A1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-A1.5", "current app version helper should return v6.6-C4.8-A1.5");
+          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show v6.6-C4.8-UI0");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version badge should show v6.6-C4.8-UI0");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI0", "current app version helper should return v6.6-C4.8-UI0");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
           renderValidToday();
           const text = todayText();
-          assertIncludesAll(text, ["오늘 권장 탄단지", "오늘 계산값", "오늘 계산에 쓰는 값입니다.", "오늘 몸 상태", "오늘 활동", "오늘 운동"], "Today should keep main card labels and short calculation copy");
+          assertIncludesAll(text, ["오늘 목표 섭취량", "오늘 계산값", "오늘 계산에 쓰는 값입니다.", "오늘 몸 상태", "오늘 활동", "오늘 운동"], "Today should keep main card labels and short calculation copy");
           assertExcludesAll(text, ["오늘 먹을 양을 계산하는 값입니다.", "처음에는 위 결과만 보면 됩니다"], "Today should remove longer repeated explanation copy");
         }));
 
@@ -28691,13 +29603,13 @@ Notes:
         results.push(runNamedTest("C4.7-B3 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.6-C4.8-A1.5",
-            "Stage: 6.6-C4.8-A1.5 스마트 복원 / 추가 기록 가져오기",
+            "Version: 6.6-C4.8-UI0",
+            "Stage: 6.6-C4.8-UI0 Stitch Today UI Shell",
             "Records / InBody / Settings 설명문 축약"
           ], "top comment should show C4.7-B3 version and stage");
-          assertTest(document.title.includes("v6.6-C4.8-A1"), "document title should show v6.6-C4.8-A1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-A1"), "app version badge should show v6.6-C4.8-A1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-A1.5", "version helper should return v6.6-C4.8-A1.5");
+          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show v6.6-C4.8-UI0");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version badge should show v6.6-C4.8-UI0");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI0", "version helper should return v6.6-C4.8-UI0");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -29571,8 +30483,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.6-C4.8-A1"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-A1"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertIncludesAll(panel.textContent || "", ["목표 및 모드", "기본 프로필", "기본 생활 패턴", "운동 기준", "전문가 설정", "데이터 관리"], "Settings visible sections should remain default/profile oriented and include data management");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").closest(".settings-group").contains(document.getElementById("cardioPresetSettingsHost")), "cardio presets should remain inside training defaults group");
@@ -30019,6 +30931,276 @@ Notes:
 
     function runTodayQuickEditTests(){
       return runTodayCalculationOwnershipTests();
+    }
+
+    function runTodayRecordConfirmationTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        setActiveTab("today");
+        setValidTodayBalanceTestInputs();
+        state.goal = "lean_bulk";
+        state.mode = "athlete";
+        state.weeklyTrainingDaysManual = true;
+        ids.weeklyTrainingDays.value = "4";
+        const today = getTodayDateString();
+
+        const buildMeals = () => ([
+          { id: "m-confirm-1", mealLabel: "아침", carbs: 80, protein: 45, fat: 18, alcoholKcal: 0, otherKcal: 0, memo: "아침", createdAt: `${today}T08:00:00.000Z` },
+          { id: "m-confirm-2", mealLabel: "점심", carbs: 95, protein: 55, fat: 22, alcoholKcal: 0, otherKcal: 0, memo: "점심", createdAt: `${today}T12:00:00.000Z` },
+          { id: "m-confirm-3", mealLabel: "저녁", carbs: 90, protein: 50, fat: 20, alcoholKcal: 0, otherKcal: 0, memo: "저녁", createdAt: `${today}T19:00:00.000Z` }
+        ]);
+
+        const seedCurrentRecord = () => {
+          render();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            weight: 75,
+            note: "기록 메모 유지",
+            recordMode: "detailed",
+            meals: buildMeals()
+          }]);
+          const current = calculate();
+          const synced = syncTodayRecordGoalSnapshot(current);
+          const settledCurrent = calculate();
+          const settledSync = syncTodayRecordGoalSnapshot(settledCurrent);
+          return { current: settledCurrent, snapshot: getRecordByDate(today)?.goalSnapshot || null, synced: settledSync.synced ? settledSync : synced };
+        };
+
+        results.push(runNamedTest("C4.8-A2 missing Today record state renders in shell", () => {
+          recordsState.items = [];
+          render();
+          const stateInfo = getTodayRecordConfirmationState(calculate());
+          assertTest(stateInfo.status === "missing", "missing state should be returned when no today record exists");
+          const panel = document.getElementById("todayRecordStatusPanel");
+          assertTest(!!panel && panel.textContent.includes("오늘 기록 없음"), "missing state should render in Today shell status panel");
+          assertTest(document.getElementById("todayMealPrimaryActionHost")?.textContent.includes("기록 시작하기"), "missing state should offer record start action in the meal card");
+        }));
+
+        results.push(runNamedTest("C4.8-A2 current Today record state renders when snapshot matches", () => {
+          seedCurrentRecord();
+          render();
+          const stateInfo = getTodayRecordConfirmationState(calculate());
+          assertTest(stateInfo.status === "current", `matching today record should be current (got ${stateInfo.status}: ${(stateInfo.mismatchKeys || []).join(",")})`);
+          assertTest(document.getElementById("todayRecordStatusPanel")?.textContent.includes("오늘 기록 최신 상태"), "current state should render as latest");
+        }));
+
+        results.push(runNamedTest("C4.8-A2 stale state appears after Today cardio basis changes", () => {
+          seedCurrentRecord();
+          setTodayCalculationDraftField("todayCardioDuration", "55", { markCardioUserEdited: true });
+          render();
+          const stateInfo = getTodayRecordConfirmationState(calculate());
+          assertTest(stateInfo.status === "stale", "changed Today cardio should mark record stale");
+          const panelText = document.getElementById("todayRecordStatusPanel")?.textContent || "";
+          assertIncludesAll(panelText, ["갱신 필요", "오늘 기준으로 기록 갱신"], "stale state should show update action");
+        }));
+
+        results.push(runNamedTest("C4.8-A2 stale state appears after Today training and activity basis changes", () => {
+          seedCurrentRecord();
+          setTodayCalculationDraftValues({
+            activityLevel: "high",
+            workType: "active",
+            todayWeightDuration: 95,
+            todayRoutineSession: "LEGS"
+          });
+          render();
+          const stateInfo = getTodayRecordConfirmationState(calculate());
+          assertTest(stateInfo.status === "stale", "changed activity/training basis should mark record stale");
+        }));
+
+        results.push(runNamedTest("C4.8-A2 manual update keeps meals, fasting weight, and note while refreshing basis", () => {
+          const seeded = seedCurrentRecord();
+          const before = getRecordByDate(today);
+          const beforeMeals = JSON.stringify(before.meals);
+          const beforeWeight = before.weight;
+          const beforeNote = before.note;
+          setTodayCalculationDraftValues({
+            todayCardioDuration: 70,
+            todayCardioSpeed: 6,
+            todayWeightDuration: 90
+          }, { markCardioUserEdited: true });
+          const nextResult = calculate();
+          const update = applyCurrentTodayBasisToTodayRecord(nextResult);
+          const after = getRecordByDate(today);
+          assertTest(update.updated === true, "manual update action should update today record");
+          assertTest(JSON.stringify(after.meals) === beforeMeals, "manual update should keep meals");
+          assertTest(after.weight === beforeWeight, "manual update should keep fasting weight");
+          assertTest(after.note === beforeNote, "manual update should keep note");
+          assertTest(!areGoalSnapshotsEquivalent(after.goalSnapshot, seeded.snapshot), "manual update should replace stale basis snapshot");
+          assertTest(areGoalSnapshotsEquivalent(after.goalSnapshot, buildGoalSnapshotFromCurrentState(nextResult, "today_manual_confirm")), "manual update should store current Today basis");
+          assertTest(after.snapshotSource === "today_manual_confirm", "manual update should mark explicit Today basis update");
+          assertTest(after.adherenceSource === "auto", "manual update should keep score auto-calculated");
+          assertTest(after.adherenceScoringVersion === ADHERENCE_SCORING_VERSION || after.adherencePercent === null, "manual update should refresh score metadata when a percent is available");
+          assertTest(getTodayRecordConfirmationState(calculate()).status === "current", "manual update should make record current");
+        }));
+
+        results.push(runNamedTest("C4.8-A2 export and UI-only boundaries remain unchanged", () => {
+          seedCurrentRecord();
+          const exported = JSON.stringify({ records: recordsState.items });
+          assertExcludesAll(exported, ["todayCalculationDraft", "selectedMacroBasis", "uiState"], "record confirmation should not add UI-only state to records payload");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "record confirmation should not change scoring version");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "record confirmation should not change recent context windows");
+        }));
+
+        return results;
+      });
+    }
+
+    function runStitchTodayShellTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        setActiveTab("today");
+        setValidTodayBalanceTestInputs();
+        state.goal = "lean_bulk";
+        state.mode = "athlete";
+        render();
+
+        const requiredTodayIds = [
+          "targetCal",
+          "protein",
+          "carbs",
+          "fat",
+          "macroBasisRow",
+          "todayMealPanel",
+          "todayMealSummary",
+          "todayAdherencePanel",
+          "todayCalcSettingsCard",
+          "todayQuickEditPanel",
+          "todayLoadLatestInbodyBtn",
+          "todaySelectInbodyRecordBtn",
+          "todayApplyCardioPresetBtn",
+          "weeklyTrainingDaysAutoBtn",
+          "weeklyTrainingDaysEditBtn",
+          "coachHost",
+          "todayRecordStatusPanel"
+        ];
+
+        results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
+          assertTest(document.title.includes("v6.6-C4.8-UI0"), "document title should show v6.6-C4.8-UI0");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI0"), "app version badge should show v6.6-C4.8-UI0");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI0", "version helper should return v6.6-C4.8-UI0");
+          assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
+          assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
+          assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
+        }));
+
+        results.push(runNamedTest("C4.8-UI0 current Today core features remain mounted", () => {
+          requiredTodayIds.forEach(id => {
+            assertTest(!!document.getElementById(id), `${id} should remain mounted`);
+          });
+          assertTest(!document.getElementById("macroBasisRow").classList.contains("hidden"), "guide/activity basis toggle should remain visible");
+          assertTest(document.getElementById("todayQuickEditPanel").classList.contains("hidden"), "quick edit should be collapsed by default so Today does not start as a long form");
+        }));
+
+        results.push(runNamedTest("C4.8-UI0 intake target consumed and remaining are integrated", () => {
+          const today = getTodayDateString();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            recordMode: "detailed",
+            meals: [
+              { id: "ui0-meal-1", mealLabel: "아침", carbs: 70, protein: 35, fat: 12, alcoholKcal: 0, otherKcal: 0, memo: "", createdAt: `${today}T08:00:00.000Z` },
+              { id: "ui0-meal-2", mealLabel: "점심", carbs: 80, protein: 40, fat: 18, alcoholKcal: 0, otherKcal: 0, memo: "", createdAt: `${today}T12:00:00.000Z` }
+            ]
+          }]);
+          render();
+          const intakeText = document.getElementById("kpiPanel")?.textContent || "";
+          assertIncludesAll(intakeText, ["오늘 목표 섭취량", "/", "남음"], "intake card should show target, consumed, and remaining together");
+          assertTest(document.querySelectorAll("#todayConsumedRows .today-intake-row").length === 4, "integrated intake card should render four macro/kcal rows");
+          assertTest(!document.querySelector(".today-balance-grid"), "old split consumed/remaining card grid should not remain");
+        }));
+
+        results.push(runNamedTest("C4.8-UI0 Today meal card owns record start and summary", () => {
+          recordsState.items = [];
+          render();
+          const emptyText = document.getElementById("todayMealPanel")?.textContent || "";
+          assertIncludesAll(emptyText, ["오늘의 식사", "아직 오늘 식사 기록이 없습니다.", "기록 시작하기"], "empty meal card should guide record start");
+          const recordStartButtons = Array.from(document.querySelectorAll("button")).filter(button => button.textContent.trim().includes("기록 시작하기"));
+          assertTest(recordStartButtons.length === 1, "record start action should not be duplicated on Today");
+
+          const today = getTodayDateString();
+          recordsState.items = normalizeRecordsCollection([{
+            date: today,
+            recordMode: "detailed",
+            meals: [
+              { id: "ui0-meal-filled-1", mealLabel: "아침", carbs: 60, protein: 30, fat: 10, alcoholKcal: 0, otherKcal: 0, memo: "", createdAt: `${today}T08:00:00.000Z` },
+              { id: "ui0-meal-filled-2", mealLabel: "점심", carbs: 90, protein: 45, fat: 18, alcoholKcal: 0, otherKcal: 0, memo: "", createdAt: `${today}T12:00:00.000Z` }
+            ]
+          }]);
+          render();
+          const filledText = document.getElementById("todayMealPanel")?.textContent || "";
+          assertIncludesAll(filledText, ["식사 2건", "아침", "점심", "식사 추가", "기록 보기"], "filled meal card should summarize meals and offer add/view actions");
+        }));
+
+        results.push(runNamedTest("C4.8-UI0 dual basis and quick edit still update results", () => {
+          uiState.selectedMacroBasis = "activity";
+          render();
+          const before = calculate();
+          setTodayQuickEditOpen(true);
+          const input = document.getElementById("todayQuickCardioDuration");
+          input.value = "65";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          const after = calculate();
+          assertTest(after.dualBasis?.selectedBasis === "activity", "activity basis should remain selected after quick edit");
+          assertTest(after.s.cardioDuration === 65, "quick edit cardio duration should update canonical Today calculation values");
+          assertTest(Math.round(after.targetCal) !== Math.round(before.targetCal) || after.s.cardioKcal !== before.s.cardioKcal, "quick edit should recalculate Today result");
+          assertTest(!document.getElementById("macroBasisRow").classList.contains("hidden"), "basis toggle should remain visible after quick edit");
+        }));
+
+        results.push(runNamedTest("C4.8-UI0 record status is integrated into top workflow, not a detached A2 card", () => {
+          const statusPanel = document.getElementById("todayRecordStatusPanel");
+          const shell = document.querySelector("[data-stitch-today-shell]");
+          assertTest(!!statusPanel && !!shell && shell.contains(statusPanel), "record status should be inside Today shell workflow");
+          assertTest(!document.querySelector(".today-record-confirmation-card"), "detached A2-style record confirmation card should not remain");
+          assertTest(!document.querySelector("[data-today-record-status] .badge"), "record status should not rely on a tiny decorative badge");
+        }));
+
+        results.push(runNamedTest("C4.8-UI0 backup and smart restore regression suites stay exported", () => {
+          assertTest(typeof window.runSmartRestoreImportTests === "function", "smart restore suite should remain exported");
+          assertTest(typeof window.runBackupRestoreConflictPreviewTests === "function", "backup conflict preview suite should remain exported");
+          assertTest(typeof window.runFullBackupMealsRestoreTests === "function", "full backup meals restore suite should remain exported");
+          assertTest(typeof window.runDataManagementBackupTests === "function", "data management backup suite should remain exported");
+        }));
+
+        results.push(runNamedTest("C4.8-UI0 Records/InBody/Settings panes remain available", () => {
+          ["todayPanel", "recordsPanel", "weeklyPanel", "inbodyPanel", "settingsPanel"].forEach(id => {
+            assertTest(!!document.getElementById(id), `${id} should remain available`);
+          });
+          setActiveTab("records");
+          assertTest(uiState.activeTab === "records", "Records tab should still open");
+          setActiveTab("inbody");
+          assertTest(uiState.activeTab === "inbody", "InBody tab should still open");
+          setActiveTab("settings");
+          assertTest(uiState.activeTab === "settings", "Settings tab should still open");
+          setActiveTab("today");
+        }));
+
+        results.push(runNamedTest("C4.8-UI0 visible Today copy avoids internal terms", () => {
+          render();
+          const visibleText = [
+            document.querySelector("[data-stitch-today-shell]")?.textContent || "",
+            document.getElementById("todayCalcSettingsCard")?.textContent || "",
+            document.getElementById("todayRemainingPanel")?.textContent || "",
+            document.getElementById("coachHost")?.textContent || ""
+          ].join(" ");
+          assertExcludesAll(visibleText, [
+            "goalSnapshot",
+            "draft",
+            "source meta",
+            "schema",
+            "payload",
+            "localStorage",
+            "helper",
+            "policy",
+            "pending",
+            "one-shot",
+            "selectedBasis",
+            "actual",
+            "fallback",
+            "materialize"
+          ], "Today shell visible copy should not expose internal terms");
+        }));
+
+        return results;
+      });
     }
 
     function runDailyCoachRecentContextTests(){
@@ -41099,12 +42281,12 @@ Notes:
           assertTest(!text.includes("5일"), "recent flow should not expose five day window");
         }));
 
-        results.push(runNamedTest("D3 forbidden copy: rendered Today keeps Coach before KPI", () => {
+        results.push(runNamedTest("D3 forbidden copy: rendered Today keeps Coach in Today workflow", () => {
           render();
           const coachHost = document.getElementById("coachHost");
-          const kpiPanel = document.getElementById("kpiPanel");
-          assertTest(!!coachHost && !!kpiPanel, "coach and KPI hosts should exist");
-          assertTest(!!(coachHost.compareDocumentPosition(kpiPanel) & Node.DOCUMENT_POSITION_FOLLOWING), "coach should remain before KPI");
+          const todayLayout = document.querySelector(".today-layout");
+          assertTest(!!coachHost && !!todayLayout, "coach and Today layout hosts should exist");
+          assertTest(todayLayout.contains(coachHost), "coach should remain inside Today workflow");
           const text = `${coachHost.textContent || ""} ${document.getElementById("todayAdherenceContent").textContent || ""}`;
           assertExcludesAll(text, USER_FACING_FORBIDDEN_COPY, "rendered Today copy should avoid forbidden terms");
         }));
@@ -41195,13 +42377,13 @@ Notes:
         const results = [];
         setValidTodayBalanceTestInputs();
 
-        results.push(runNamedTest("D4 Today Coach remains action-first above KPI", () => {
+        results.push(runNamedTest("D4 Today Coach remains action-first inside Today workflow", () => {
           render();
           const coachHost = document.getElementById("coachHost");
-          const kpiPanel = document.getElementById("kpiPanel");
+          const todayLayout = document.querySelector(".today-layout");
           const firstBlock = document.querySelector("#coachHost .coach-block");
-          assertTest(!!coachHost && !!kpiPanel && !!firstBlock, "coach, KPI and first coach block should exist");
-          assertTest(!!(coachHost.compareDocumentPosition(kpiPanel) & Node.DOCUMENT_POSITION_FOLLOWING), "Coach should stay above KPI");
+          assertTest(!!coachHost && !!todayLayout && !!firstBlock, "coach, Today layout and first coach block should exist");
+          assertTest(todayLayout.contains(coachHost), "Coach should stay inside Today workflow");
           const actionEl = firstBlock.querySelector(".coach-action");
           const reasonEl = firstBlock.querySelector(".coach-reason");
           const summaryText = document.querySelector("#coachHost [data-coach-summary]")?.textContent || "";
@@ -42943,25 +44125,25 @@ Notes:
           assertTest(!/칼\s*목표 칼로리|단\s*단백질|탄\s*탄수화물|지\s*지방/.test(visibleText), "KPI labels should not duplicate old one-letter badge text");
         }));
 
-        results.push(runNamedTest("C4.5.5-A1 Today balance cards use SVG icons and full labels", () => {
+        results.push(runNamedTest("C4.5.5-A1 Today integrated balance rows use SVG icons and full labels", () => {
           setValidTodayBalanceTestInputs();
           render();
-          const labelSelector = "#todayConsumedRows .meal-summary-card .label, #todayRemainingRows .meal-summary-card .label";
+          const labelSelector = "#todayConsumedRows .today-intake-label";
           const labels = Array.from(document.querySelectorAll(labelSelector));
           const labelText = labels.map(label => label.textContent.trim());
-          assertTest(labelText.length === 8, "Today consumed and remaining cards should keep eight labels");
-          assertTest(labelText.includes("칼로리"), "Today balance cards should use a full calorie label");
-          assertTest(document.querySelectorAll("#todayConsumedRows .meal-summary-card .label .macro-badge, #todayRemainingRows .meal-summary-card .label .macro-badge").length === 0, "Today balance card labels should not render macro badge boxes");
-          assertTest(document.querySelectorAll("#todayConsumedRows .meal-summary-card .label .macro-label-icon, #todayRemainingRows .meal-summary-card .label .macro-label-icon").length === 8, "Today balance card labels should render one SVG icon per label");
+          assertTest(labelText.length === 4, "Today integrated balance rows should keep four labels");
+          assertTest(labelText.includes("목표 칼로리"), "Today balance rows should use a full calorie label");
+          assertTest(document.querySelectorAll("#todayConsumedRows .today-intake-label .macro-badge").length === 0, "Today balance row labels should not render macro badge boxes");
+          assertTest(document.querySelectorAll("#todayConsumedRows .today-intake-label .macro-label-icon").length === 4, "Today balance row labels should render one SVG icon per label");
           labels.forEach(label => {
             const icon = label.querySelector(".macro-label-icon");
-            assertTest(!!icon && icon.getAttribute("aria-hidden") === "true", "Today balance card SVG icon should be decorative");
-            assertTest(!!icon.querySelector("svg"), "Today balance card decorative icon should use inline SVG");
-            assertTest((label.textContent || "").trim().length > 0, "Today balance card icon should keep a text label");
+            assertTest(!!icon && icon.getAttribute("aria-hidden") === "true", "Today balance row SVG icon should be decorative");
+            assertTest(!!icon.querySelector("svg"), "Today balance row decorative icon should use inline SVG");
+            assertTest((label.textContent || "").trim().length > 0, "Today balance row icon should keep a text label");
           });
-          const visibleText = `${document.querySelector("#todayConsumedRows")?.textContent || ""} ${document.querySelector("#todayRemainingRows")?.textContent || ""}`;
-          assertExcludesAll(visibleText, ["🔥", "🥩", "🍚", "🥑"], "Today balance cards should not use OS emoji");
-          assertTest(!/탄\s*탄수화물|단\s*단백질|지\s*지방|칼\s*칼로리|칼\s*kcal/.test(visibleText), "Today balance cards should not duplicate old one-letter badge text");
+          const visibleText = document.querySelector("#todayConsumedRows")?.textContent || "";
+          assertExcludesAll(visibleText, ["🔥", "🥩", "🍚", "🥑"], "Today balance rows should not use OS emoji");
+          assertTest(!/탄\s*탄수화물|단\s*단백질|지\s*지방|칼\s*kcal/.test(visibleText), "Today balance rows should not duplicate old one-letter badge text");
         }));
 
         results.push(runNamedTest("C4.5.5-A1 KPI numbers and external macro badges stay intact", () => {
@@ -43268,6 +44450,8 @@ Notes:
     window.runRecordsInBodySettingsCopyDietTests = runRecordsInBodySettingsCopyDietTests;
     window.runTodayCalculationOwnershipTests = runTodayCalculationOwnershipTests;
     window.runTodayQuickEditTests = runTodayQuickEditTests;
+    window.runTodayRecordConfirmationTests = runTodayRecordConfirmationTests;
+    window.runStitchTodayShellTests = runStitchTodayShellTests;
     window.runInBodyRecordApplyTests = runInBodyRecordApplyTests;
     window.runInBodyTodayFillTests = runInBodyTodayFillTests;
     window.runInBodySaveTodayApplyChoiceTests = runInBodySaveTodayApplyChoiceTests;
