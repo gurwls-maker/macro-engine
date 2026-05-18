@@ -1,8 +1,11 @@
 <!--
-Version: 6.7-A4
-Stage: 6.7-A4 전날 식사 불러오기
+Version: 6.7-B
+Stage: 6.7-B 최근 흐름 문제 날짜 연결 고도화
 Date: 2026-05-19
 Notes:
+- v6.7-B 최근 흐름 요약에 원인별 관련 날짜 칩을 추가
+- 문제 원인에서 여러 날짜를 바로 Records 상세로 열 수 있게 보강
+- recentContext / Records 저장 구조 / Coach / 계산식 변경 없음
 - v6.7-A4 Records 선택 날짜에 전날 식사를 한 번에 불러오는 흐름 추가
 - 전날 식사는 새 식사 id와 선택 날짜 시간으로 복사하고 기존 식사 저장 구조 유지
 - 중복 식사는 반복 복사하지 않음
@@ -269,7 +272,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.7-A4</title>
+  <title>탄단지 다이어리 v6.7-B</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -6480,6 +6483,74 @@ Notes:
       font-size:12px;
       white-space:nowrap;
     }
+    .recent-flow-related-dates{
+      display:grid;
+      grid-template-columns:repeat(4, minmax(0,1fr));
+      gap:8px;
+      margin-top:10px;
+      padding:10px;
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      border-radius:12px;
+      background:rgba(255,252,247,.66);
+    }
+    .recent-flow-related-title{
+      grid-column:1 / -1;
+      color:var(--muted);
+      font-size:11.5px;
+      line-height:1.35;
+      font-weight:900;
+    }
+    .recent-flow-related-row{
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      min-width:0;
+      padding:8px;
+      border:1px solid color-mix(in srgb, var(--line) 84%, white 16%);
+      border-radius:10px;
+      background:rgba(255,255,255,.52);
+    }
+    .recent-flow-related-label{
+      color:var(--deep);
+      font-size:12px;
+      line-height:1.35;
+      font-weight:950;
+      word-break:keep-all;
+    }
+    .recent-flow-related-chip-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      min-width:0;
+    }
+    .recent-flow-date-chip{
+      appearance:none;
+      border:1px solid color-mix(in srgb, var(--line) 78%, white 22%);
+      border-radius:999px;
+      background:rgba(255,255,255,.78);
+      color:var(--deep);
+      min-height:28px;
+      padding:5px 9px;
+      font:inherit;
+      font-size:11.5px;
+      line-height:1;
+      font-weight:900;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .recent-flow-date-chip:hover,
+    .recent-flow-date-chip:focus-visible{
+      border-color:color-mix(in srgb, var(--accent-strong) 42%, var(--line) 58%);
+      background:rgba(16,141,134,.08);
+      outline:none;
+    }
+    .recent-flow-related-more{
+      align-self:center;
+      color:var(--muted);
+      font-size:11.5px;
+      line-height:1;
+      font-weight:900;
+    }
     .recent-flow-daily-card{
       display:grid;
       gap:12px;
@@ -8567,6 +8638,16 @@ Notes:
       .recent-flow-action-note{
         flex:1 1 180px;
       }
+      .recent-flow-related-row{
+        gap:5px;
+      }
+      .recent-flow-related-dates{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+      }
+      .recent-flow-date-chip{
+        flex:0 1 auto;
+        justify-content:center;
+      }
       .weekly-interpretation-block{
         margin-top:14px;
         padding-top:10px;
@@ -9389,7 +9470,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.7-A4</span>
+               <span class="app-version">v6.7-B</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -11635,7 +11716,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.7-A4";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.7-B";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -24426,6 +24507,41 @@ Notes:
       };
     }
 
+    function getRecentFlowRelatedDateLabel(date){
+      const normalized = normalizeDateString(date);
+      if (!normalized) return "날짜";
+      if (normalized === getTodayDateString()) return "오늘";
+      return normalized.slice(5).replace("-", "/");
+    }
+
+    function renderRecentFlowRelatedDateLinks(groups, options = {}){
+      const visibleGroups = (Array.isArray(groups) ? groups : [])
+        .filter(group => group?.label && Array.isArray(group.dates) && group.dates.length)
+        .slice(0, Math.max(1, Number(options.groupLimit) || 8));
+      if (!visibleGroups.length) return "";
+      const dateLimit = Math.max(1, Number(options.dateLimit) || 3);
+      return `
+        <div class="recent-flow-related-dates" aria-label="관련 날짜">
+          <div class="recent-flow-related-title">관련 날짜</div>
+          ${visibleGroups.map(group => {
+            const dates = group.dates.slice(0, dateLimit);
+            const remaining = group.dates.length - dates.length;
+            return `
+              <div class="recent-flow-related-row">
+                <span class="recent-flow-related-label">${escapeHtml(group.label)}</span>
+                <span class="recent-flow-related-chip-row">
+                  ${dates.map(date => `
+                    <button class="recent-flow-date-chip" type="button" data-open-related-problem-date="${escapeHtml(date)}" aria-label="${escapeHtml(`${group.label} ${date} 기록 보기`)}">${escapeHtml(getRecentFlowRelatedDateLabel(date))}</button>
+                  `).join("")}
+                  ${remaining > 0 ? `<span class="recent-flow-related-more">+${remaining}</span>` : ""}
+                </span>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `;
+    }
+
     function normalizeRecentFlowActionLabel(label){
       return String(label || "").replace(/\s+\d+일\s*$/, "").trim();
     }
@@ -24997,6 +25113,7 @@ Notes:
       const achievement = getRecentFlowAchievement(selectedWindow);
       const hasTrendRecords = getRecentFlowDisplayRecords(selectedWindow, Math.min(28, Math.max(1, selectedRangeDays))).length > 0;
       const hasAchievement = Number.isFinite(achievement.value);
+      const selectedProblemGroups = getRecentFlowProblemDateGroups(selectedWindow, currentResult);
       const selectedProblemAction = getRecentFlowProblemDateAction(selectedWindow, currentResult);
       const windowCards = RECENT_FLOW_UI_CARD_DAYS.map(days => {
         const window = context.windows?.[days];
@@ -25077,6 +25194,7 @@ Notes:
               </div>
             ` : ""}
           </section>
+          ${selectedProblemAction ? renderRecentFlowRelatedDateLinks(selectedProblemGroups) : ""}
           <section class="recent-flow-points">
             <h4>최근 주의 포인트</h4>
             <div class="recent-flow-point-list">
@@ -26245,11 +26363,19 @@ Notes:
       document.getElementById("recentFlowPreviewHost").addEventListener("click", event => {
         const problemButton = event.target.closest("[data-open-problem-date]");
         if (problemButton) {
+          if (typeof problemButton.blur === "function") problemButton.blur();
           openRecordsForDate(problemButton.getAttribute("data-open-problem-date"));
+          return;
+        }
+        const relatedProblemButton = event.target.closest("[data-open-related-problem-date]");
+        if (relatedProblemButton) {
+          if (typeof relatedProblemButton.blur === "function") relatedProblemButton.blur();
+          openRecordsForDate(relatedProblemButton.getAttribute("data-open-related-problem-date"));
           return;
         }
         const chartDate = event.target.closest("[data-recent-flow-chart-date]");
         if (chartDate) {
+          if (typeof chartDate.blur === "function") chartDate.blur();
           openRecordsForDate(chartDate.getAttribute("data-recent-flow-chart-date"));
           return;
         }
@@ -31391,6 +31517,39 @@ Notes:
           assertIncludesAll(detailText(today), ["기록 상세", "단백질 부족", "고지방", "술 영향", "기타 칼로리", "InBody 기록 있음"], "Records detail should show problem chips and InBody metrics");
         }));
 
+        results.push(runNamedTest("v6.7-B recent flow shows related problem date chips", () => {
+          recordsState.items = normalizeRecordsCollection([
+            {
+              date: today,
+              recordMode: "detailed",
+              weight: 75.2,
+              adherencePercent: 70,
+              adherenceSource: "auto",
+              adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+              goalSnapshot: makeSnapshot(),
+              meals: [
+                makeMeal(today, "r1", { carbs: 35, protein: 12, fat: 48, alcoholKcal: 180, otherKcal: 0 }),
+                makeMeal(today, "r2", { carbs: 30, protein: 10, fat: 42, otherKcal: 420 })
+              ]
+            },
+            { date: simpleDate, recordMode: "simple", adherence: "low", adherenceSource: "manual", goalSnapshot: makeSnapshot() },
+            { date: weightDate, recordMode: "weight_only", weight: 75.1 }
+          ]);
+          state.inbodyRecords = [{ date: today, weight: 75.2, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
+          renderWeeklyPanel(calculate());
+          const text = document.getElementById("recentFlowPreviewHost").textContent || "";
+          assertIncludesAll(text, ["관련 날짜", "단백질 부족", "기록 보완 필요", "기록 부족"], "recent flow should show grouped related dates without macro overclaiming low-resolution records");
+          const relatedButtons = Array.from(document.querySelectorAll("#recentFlowPreviewHost [data-open-related-problem-date]"));
+          assertTest(relatedButtons.length >= 3, "recent flow should render multiple related date chips");
+          assertTest(relatedButtons.some(button => button.getAttribute("data-open-related-problem-date") === today), "related dates should include detailed problem date");
+          assertTest(relatedButtons.some(button => button.getAttribute("data-open-related-problem-date") === simpleDate), "related dates should include simple review date");
+          const simpleButton = relatedButtons.find(button => button.getAttribute("data-open-related-problem-date") === simpleDate);
+          simpleButton.click();
+          assertTest(uiState.activeTab === "records", "related date chip should switch to Records");
+          assertTest(ids.recordDate.value === simpleDate, "related date chip should select its date");
+          assertTest(uiState.recordsDetailDate === simpleDate, "related date chip should open Records detail");
+        }));
+
         results.push(runNamedTest("UX2-6 detailed Records card can show macro problem chips", () => {
           renderRecordsPanel();
           const text = cardText(today);
@@ -31513,8 +31672,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
+          assertTest(document.title.includes("v6.7-B"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-B"), "app version badge should show v6.7-A4");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -33064,8 +33223,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-A4"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.7-B"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-B"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -33724,7 +33883,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.7-A4", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.7-B", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -34037,7 +34196,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.7-A4", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.7-B", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -34262,9 +34421,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "current app version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-B"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-B"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-B", "current app version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -34305,7 +34464,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.7-A4", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.7-B", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -34351,9 +34510,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "current app version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-B"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-B"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-B", "current app version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -34458,15 +34617,15 @@ Notes:
         };
         const visibleBodyText = () => getRenderedBodyText();
 
-        results.push(runNamedTest("v6.7-A4 version stage and badges are updated", () => {
+        results.push(runNamedTest("v6.7-B version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.7-A4",
-            "Stage: 6.7-A4"
+            "Version: 6.7-B",
+            "Stage: 6.7-B"
           ], "top comment should show v6.7-A4 version and stage");
-          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-B"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-B"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-B", "version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -35731,8 +35890,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.7-A4"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.7-B"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-B"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertTest(!!panel.querySelector(".settings-goal-choice:not([hidden])"), "Settings should keep the goal selector visible");
           assertTest(!panel.querySelector(".settings-mode-choice"), "Settings should remove mode selector residue after M2-D");
@@ -36333,9 +36492,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and Settings Stitch shell render", () => {
           const panel = renderSettingsShell();
-          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-B"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-B"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-B", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-settings-shell]"), "Settings should render Stitch shell root");
           assertTest(!!panel.querySelector(".settings-stitch-hero"), "Settings should render Stitch-style hero");
           assertTest(panel.querySelectorAll(".settings-choice-card:not([hidden])").length === 1, "Settings should render a single user-facing goal choice card");
@@ -36474,9 +36633,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M2-D version and stage are current", () => {
           renderSettings();
-          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-B"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-B"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-B", "version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.8-M2-D Settings removes user-facing mode selection DOM", () => {
@@ -36619,9 +36778,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI3 version and InBody shell root render", () => {
           seedInbodyShell();
-          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-B"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-B"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-B", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-inbody-shell]"), "InBody should render Stitch shell root");
           assertTest(!!document.querySelector(".inbody-stitch-hero"), "InBody should render result-first hero card");
           assertTest(!!document.querySelector(".inbody-stitch-layout"), "InBody should render analysis/input/history layout");
@@ -36751,9 +36910,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
           seedRecordsShell();
-          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-B"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-B"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-B", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
           assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
           assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
@@ -36902,9 +37061,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI2 version and Weekly shell root render", () => {
           seedWeeklyShell();
-          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-B"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-B"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-B", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-weekly-shell]"), "Weekly should render Stitch shell root");
           assertTest(!!document.querySelector("[data-stitch-weekly-dashboard]"), "Weekly should render Stitch dashboard root");
         }));
@@ -37036,9 +37195,9 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-B"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-B"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-B", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
