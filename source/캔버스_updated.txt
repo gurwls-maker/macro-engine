@@ -2,10 +2,10 @@
 v6.5-UX2-10 기준 정리본
 
 작성일: 2026-05-05
-최신 정리일: 2026-05-11
+최신 정리일: 2026-05-18
 현재 기준본: 루트 index.html
-현재 앱 기준: Version 6.6-A5.11 / Stage 6.6-A5.11 dual basis production 구현
-문서 상태: v6.6-C4.8-S0 Today 중심 구조 + Stitch 흡수 기준문서 정리
+현재 앱 기준: Version 6.6-C4.8-UI5-E / Stage 6.6-C4.8-UI5-E Today Coach 빈 상태 행동 정리
+문서 상태: v6.6-C4.8-M / CAL / UI5 흐름 반영 기준문서 정리
 
 ────────────────────────────────────────
 0. 문서 목적
@@ -25,6 +25,36 @@ v6.5-UX2-10 기준 정리본
 이 문서는 앞으로 Codex 프롬프트, GPT 설계 검토, 코드 리뷰, 문구 QA, 로드맵 판단의 기준으로 사용한다.
 
 혹여나 버전이 다르다면, 먼저 최신 기준 문서와 index.html의 실제 구현 차이를 확인한다. 단, 구현 결과가 제품 철학과 충돌하면 구현 결과를 합리화하지 않고 기준 문서와 제품 성격을 우선 검토한다.
+
+0-1. 2026-05-18 최신 구현 기준
+
+[확정]
+현재 최신 C4.8 흐름은 아래를 이미 반영한 상태로 본다.
+
+- C4.8-UI0~UI4: Today / Records / 최근 흐름 / InBody / Settings Shell 이식
+- C4.8-M1~M2-D: 사용자-facing 일반인 / 운동인 / 전문가 선택 제거, 현재 계산은 실제 입력 기반 calculation context로 전환
+- C4.8-CAL1~CAL1.1: targetCal은 목표/소비량 기준 authoritative 값으로 유지하고, guide/activity basis는 targetCal을 덮어쓰지 않는 구조로 분리
+- C4.8-UI5-A~E: Settings 밀도, 최근 흐름, Today Coach, 모바일 하단 내비게이션 여백, 기록 부족 Coach 표시 정리
+
+[현재 판단]
+일반인 / 운동인 / 전문가 같은 사용자 등급 모드는 최종 사용자 흐름에서 제거한다.
+남은 mode 관련 값은 당장 깨끗이 삭제해야 하는 목표가 아니라 legacy compatibility 또는 아직 정리되지 않은 내부 구현 잔여로 본다.
+새 기능이나 새 UI는 사용자에게 등급 선택을 다시 요구하지 않는다.
+
+[현재 판단]
+목표 칼로리 targetCal은 목표와 소비량 기준의 최종 에너지 예산이다.
+guide/activity basis는 같은 targetCal 안에서 탄단지 배분과 참고 기준을 보여주는 장치이며, targetCal 자체를 끌어올리거나 덮어쓰면 안 된다.
+다이어트에서 targetCal > totalBurn이 재발하면 P0 계산 의미 회귀로 본다.
+
+[현재 판단]
+Stitch UI는 단순 색감 참고가 아니라 강한 시각 목표다.
+하지만 Stitch 기능을 앱에 새로 들여오는 것이 아니라, 우리 앱 기능을 Stitch 수준의 화면 밀도, 카드 리듬, 버튼 우선순위, 입력과 결과의 가까운 흐름으로 재배치한다.
+책임 분리는 여전히 중요하지만, 그 분리 때문에 화면이 딱딱 끊기거나 관리폼처럼 보이면 사용자 흐름을 우선해 재배치한다.
+
+[QA 기준]
+UI 작업은 코드만 보고 확정하지 않는다.
+스크린샷으로 실제 렌더 화면을 확인하고, Stitch reference와 비교해 여백, 색, 폰트 크기, 줄맞춤, 카드 높이, 줄바꿈, 버튼/칩 밀도, inline SVG 품질을 본다.
+계산 작업은 테스트 통과만으로 확정하지 않고, 생리학 / 스포츠영양학 관점에서 개인 사용자가 보기에 이상한 값이 없는지 함께 본다.
 
 ────────────────────────────────────────
 1. Source of Truth 우선순위
@@ -1610,6 +1640,11 @@ A5.11 production 변경:
 - cardioKcal / totalBurn / BMR / activity / work / weight / weeklyTrainingBaselineKcal 산식은 변경하지 않는다.
 - selected basis는 uiState / session 범위만 사용하며 저장 schema에는 넣지 않는다.
 - ADHERENCE_SCORING_VERSION과 RECENT_CONTEXT_WINDOWS는 유지한다.
+
+[Archive / C4.8-CAL1에서 재해석]
+위 A5.11의 "selected basis에 따라 active targetCal이 바뀐다" 기준은 C4.8-CAL1에서 폐기된 과거 구조로 본다.
+최신 기준에서는 targetCal은 목표/소비량 기준 authoritative 값이며, guide/activity basis는 targetCal을 덮지 않고 같은 목표 안에서 탄단지 배분과 참고 기준을 보여준다.
+Today remaining과 식단 점수는 최신 authoritative targetCal과 그 안에서 조정된 macro 기준을 따른다.
 
 [후속 / v6.6-A5.11.1 반영]
 A5.11 이후 dual basis 도움말은 조금씩 붙이지 않는다.
