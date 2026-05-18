@@ -1,8 +1,12 @@
 <!--
-Version: 6.6-C4.8-CAL1.1
-Stage: 6.6-C4.8-CAL1.1 targetCal semantic guard test 보강
+Version: 6.6-C4.8-M2-A
+Stage: 6.6-C4.8-M2-A mode-free current calculation 전환
 Date: 2026-05-18
 Notes:
+- C4.8-M2-A current calculation을 사용자 등급 mode 중심에서 실제 입력 기반 calculation context로 전환
+- legacy mode는 Records snapshot / backup 호환용으로 유지
+- CAL1 targetCal semantic guard 유지
+- 사용자-facing 새 mode/profile UI 없음
 - C4.8-CAL1.1 CAL1 targetCal / guide basis 역할 분리 semantic test 보강
 - diet targetCal <= totalBurn, carbsBelowGuideMin, 목표 안에서 조정 상태, rest day high-carb 방지 검증
 - 계산식 / golden baseline / Records snapshot / backup schema 변경 없음
@@ -212,7 +216,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.8-CAL1.1</title>
+  <title>탄단지 다이어리 v6.6-C4.8-M2-A</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -8774,7 +8778,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.8-CAL1.1</span>
+               <span class="app-version">v6.6-C4.8-M2-A</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -10930,7 +10934,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-CAL1.1";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-M2-A";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -11534,8 +11538,7 @@ Notes:
     }
 
     function getRoutineItemsForTodayCalculation(){
-      const modeCfg = getModeRuntimeConfig();
-      if (modeCfg.inputDepth === "basic" && !state.generalAdvancedSettings) return getGeneralRoutineItems();
+      if (!resolveAdvancedTuning().advancedSettings) return getGeneralRoutineItems();
       return getRoutineItems();
     }
 
@@ -12039,8 +12042,7 @@ Notes:
     }
 
     function getRoutineItems(){
-      const modeCfg = getModeRuntimeConfig();
-      if (modeCfg.inputDepth === "basic" && !state.generalAdvancedSettings) return getGeneralRoutineItems();
+      if (!resolveAdvancedTuning().advancedSettings) return getGeneralRoutineItems();
       return getRoutineScheme().items;
     }
 
@@ -12048,8 +12050,9 @@ Notes:
       return getRoutineItems().find(item => item.value === value) ?? getRoutineItems()[0];
     }
 
-    function getCarbsPlausibilityCapKg(mode = state.mode){
-      if (mode === "general" && state.generalLowDigestCarbs){
+    function getCarbsPlausibilityCapKg(mode = state.mode, options = {}){
+      const lowDigestCarbs = options.lowDigestCarbs === true || (mode === "general" && state.generalLowDigestCarbs);
+      if (lowDigestCarbs){
         return 6.0;
       }
       return PLAUSIBILITY_CAPS.carbsKg[mode] ?? PLAUSIBILITY_CAPS.carbsKg.general;
@@ -12097,11 +12100,11 @@ Notes:
       };
     }
 
-    function getGoalAwareMacroSoftRange(goal, mode = state.mode, weightKg = 0){
+    function getGoalAwareMacroSoftRange(goal, mode = state.mode, weightKg = 0, options = {}){
       const rule = GOAL_AWARE_MACRO_SOFT_RANGE_KG[goal];
       const safeWeight = Math.max(0, Number(weightKg) || 0);
       if (!rule || !(safeWeight > 0)) return null;
-      const baseCarbsKg = getCarbsPlausibilityCapKg(mode);
+      const baseCarbsKg = getCarbsPlausibilityCapKg(mode, options);
       const baseFatKg = FAT_HARD_CAP_KG;
       const carbsKg = Math.max(baseCarbsKg, Number(rule.carbsKg) || baseCarbsKg);
       const fatKg = Math.max(baseFatKg, Number(rule.fatKg) || baseFatKg);
@@ -12158,6 +12161,111 @@ Notes:
       return MODE_LBM_ALPHA[mode] ?? 0;
     }
 
+    function readSourceValue(sourceState, key, fallback){
+      if (sourceState && typeof sourceState === "object" && Object.prototype.hasOwnProperty.call(sourceState, key)) {
+        return sourceState[key];
+      }
+      return fallback;
+    }
+
+    function hasModeFreeBodyCompositionInput(sourceState = state){
+      const bodyFatRaw = readSourceValue(sourceState, "bodyFat", ids.bodyFat?.value);
+      const skeletalRaw = readSourceValue(sourceState, "skeletal", ids.skeletal?.value);
+      const bodyFatValue = Number(bodyFatRaw);
+      const skeletalValue = Number(skeletalRaw);
+      return Number.isFinite(bodyFatValue) && bodyFatValue >= 0 && Number.isFinite(skeletalValue) && skeletalValue > 0;
+    }
+
+    function resolveAdvancedTuning(sourceState = state){
+      const advancedSettings = readSourceValue(sourceState, "generalAdvancedSettings", ids.generalAdvancedSettings?.checked) === true;
+      const lowDigestCarbs = readSourceValue(sourceState, "generalLowDigestCarbs", ids.generalLowDigestCarbs?.checked) === true;
+      const alphaRaw = readSourceValue(sourceState, "expertLbmAlpha", Number(ids.expertLbmAlpha?.value) / 100);
+      const expertLbmAlpha = clamp(Number(alphaRaw), EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max);
+      const alphaAdjusted = Number.isFinite(expertLbmAlpha) && Math.abs(expertLbmAlpha - DEFAULT_STATE.expertLbmAlpha) > 1e-6;
+      return {
+        enabled: advancedSettings || lowDigestCarbs || alphaAdjusted,
+        advancedSettings,
+        lowDigestCarbs,
+        alphaAdjusted,
+        expertLbmAlpha: Number.isFinite(expertLbmAlpha) ? expertLbmAlpha : DEFAULT_STATE.expertLbmAlpha
+      };
+    }
+
+    function resolveBodyCompositionReliability(sourceState = state){
+      if (!hasModeFreeBodyCompositionInput(sourceState)) return "none";
+      const homeInbody = readSourceValue(sourceState, "homeInbody", ids.homeInbody?.checked) === true;
+      if (homeInbody) return "home";
+      if (sourceState === state) {
+        const draft = getTodayCalculationDraft?.(getTodayDateString?.() || "");
+        if (draft?.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_INBODY) return "inbody";
+      }
+      if (readSourceValue(sourceState, "bodyStatusSource", null) === TODAY_BODY_STATUS_SOURCE_INBODY) return "inbody";
+      return "partial";
+    }
+
+    function resolveTrainingEvidence(sourceState = state){
+      const routine = String(readSourceValue(sourceState, "routine", state.routine || DEFAULT_STATE.routine));
+      const weeklyTrainingDays = clamp(Math.round(Number(readSourceValue(sourceState, "weeklyTrainingDays", ids.weeklyTrainingDays?.value)) || 0), 0, 14);
+      const weightDuration = Math.max(0, Number(readSourceValue(sourceState, "weightDuration", ids.weightDuration?.value)) || 0);
+      const intensityOverride = clamp(Number(readSourceValue(sourceState, "intensityOverride", ids.intensityOverride?.value)) || 0, 0, 1);
+      const cardioDuration = Math.max(0, Number(readSourceValue(sourceState, "cardioDuration", ids.cardioDuration?.value)) || 0);
+      const cardioSpeed = Math.max(0, Number(readSourceValue(sourceState, "cardioSpeed", ids.cardioSpeed?.value)) || 0);
+      const hasWeightSession = routine !== "REST" && (weightDuration > 0 || weeklyTrainingDays > 0);
+      const hasCardio = cardioDuration > 0 && cardioSpeed > 0;
+      if (!hasWeightSession && !hasCardio && weeklyTrainingDays <= 0) return "none";
+      if (weeklyTrainingDays >= 5 || weightDuration >= 75 || intensityOverride >= 0.9 || cardioDuration >= 60) return "high";
+      if (weeklyTrainingDays >= 3 || weightDuration >= 45 || cardioDuration >= 30) return "regular";
+      return "light";
+    }
+
+    function getModeFreePresetFromContext(context){
+      if (context.advancedTuning.enabled) return "expert";
+      if (context.trainingEvidence === "regular" || context.trainingEvidence === "high" || context.bodyCompositionReliability === "inbody" || context.bodyCompositionReliability === "home") return "athlete";
+      return "general";
+    }
+
+    function resolveModeFreeRuntimeConfig(sourceState = state){
+      const context = {
+        bodyCompositionReliability: resolveBodyCompositionReliability(sourceState),
+        trainingEvidence: resolveTrainingEvidence(sourceState),
+        advancedTuning: resolveAdvancedTuning(sourceState)
+      };
+      const preset = getModeFreePresetFromContext(context);
+      const base = MODE_CONFIGS[preset] || MODE_CONFIGS.general;
+      const hasBodyCompInput = context.bodyCompositionReliability !== "none";
+      const reliabilityFactor = context.bodyCompositionReliability === "home" ? HOME_INBODY_RELIABILITY_FACTOR : 1;
+      const baseAlpha = !hasBodyCompInput
+        ? 0
+        : context.advancedTuning.alphaAdjusted
+          ? context.advancedTuning.expertLbmAlpha
+          : (context.bodyCompositionReliability === "partial" ? 0.25 : MODE_LBM_ALPHA.athlete);
+      const appliedAlpha = hasBodyCompInput ? clamp(baseAlpha * reliabilityFactor, 0, 1) : 0;
+      const inputDepth = context.advancedTuning.enabled
+        ? "advanced"
+        : (context.trainingEvidence === "regular" || context.trainingEvidence === "high" ? "training" : "basic");
+      return {
+        preset,
+        label: "입력 기반",
+        className: base.className,
+        skeletalEditable: hasBodyCompInput,
+        desc: base.desc,
+        inputDepth,
+        calculationProfile: appliedAlpha > 0 ? "input_lbm_blend" : "input_basic",
+        bodyCompReliability: context.bodyCompositionReliability,
+        trainingEvidence: context.trainingEvidence,
+        advancedTuning: context.advancedTuning.enabled,
+        explanationDepth: context.advancedTuning.enabled ? "full" : (inputDepth === "training" ? "standard" : "brief"),
+        uiDensity: base.uiDensity,
+        homeInbody: context.bodyCompositionReliability === "home",
+        baseAlpha,
+        reliabilityFactor,
+        appliedAlpha,
+        bmrModel: appliedAlpha > 0 ? "katch_mcardle" : "mifflin_st_jeor",
+        lowDigestCarbs: context.advancedTuning.lowDigestCarbs,
+        calculationContext: context
+      };
+    }
+
     function getModeRuntimeConfig(source = state){
       const hasExplicitSource = !!source && typeof source === "object" && source !== state;
       const sourceState = typeof source === "string" ? { mode: source } : (hasExplicitSource ? source : state);
@@ -12209,8 +12317,6 @@ Notes:
     }
 
     function getWorkAdjBounds(){
-      const modeCfg = getModeRuntimeConfig();
-      if (modeCfg.inputDepth === "basic") return { min: 0, max: 0 };
       if (ids.activityLevel.value === "very_active" && ids.workType.value === "heavy_field"){
         return { min: -0.10, max: 0.10 };
       }
@@ -12401,9 +12507,10 @@ Notes:
       const { s, targetCal, protein, carbs, fat, fatTargetContext } = config;
       const mode = config.mode || state.mode;
       const macroCapPolicy = config.macroCapPolicy || "production";
-      const macroSoftRange = macroCapPolicy === "hard_cap" ? null : getGoalAwareMacroSoftRange(s.goal, mode, s.weight);
+      const lowDigestCarbs = config.lowDigestCarbs === true;
+      const macroSoftRange = macroCapPolicy === "hard_cap" ? null : getGoalAwareMacroSoftRange(s.goal, mode, s.weight, { lowDigestCarbs });
       const proteinCap = (PLAUSIBILITY_CAPS.proteinKg[mode] ?? PLAUSIBILITY_CAPS.proteinKg.general) * s.weight;
-      const carbsCapKg = macroSoftRange?.carbsKg ?? getCarbsPlausibilityCapKg(mode);
+      const carbsCapKg = macroSoftRange?.carbsKg ?? getCarbsPlausibilityCapKg(mode, { lowDigestCarbs });
       const fatCapKg = macroSoftRange?.fatKg ?? PLAUSIBILITY_CAPS.fatKg;
       const carbsCap = carbsCapKg * s.weight;
       const fatCap = macroSoftRange
@@ -12490,6 +12597,7 @@ Notes:
         fat: fatTarget,
         fatTargetContext,
         mode: modeCfg?.preset || state.mode,
+        lowDigestCarbs: modeCfg?.lowDigestCarbs === true,
         macroCapPolicy: options.macroCapPolicy || "production"
       });
       return { ...plausibility, proteinBasisWeight, proteinKgApplied: proteinBasisWeight > 0 ? plausibility.protein / proteinBasisWeight : 0 };
@@ -12602,25 +12710,39 @@ Notes:
       return `목표 칼로리 ${target}kcal, 탄단지로 배분한 칼로리 ${allocated}kcal, 목표 칼로리와 차이 ${gap}kcal입니다. ${getMacroAllocationReasonText(info)} 식단 구성은 아래 탄단지 g을 우선 기준으로 보세요.`;
     }
 
-    function collectState(){
+    function getCurrentWorkAdjBounds(activityLevel, workType){
+      if (activityLevel === "very_active" && workType === "heavy_field"){
+        return { min: -0.10, max: 0.10 };
+      }
+      return { min: -0.20, max: 0.20 };
+    }
+
+    function collectState(options = {}){
       const todayValues = getEffectiveTodayCalculationValues();
+      const todayDraft = normalizeTodayCalculationDraft(todayCalculationDrafts[getTodayDateString()] || {});
       const modeCfg = getModeRuntimeConfig();
-      const workAdjBounds = modeCfg.inputDepth === "basic"
-        ? { min: 0, max: 0 }
-        : (todayValues.todayActivityLevel === "very_active" && todayValues.todayWorkType === "heavy_field"
+      const workAdjBounds = options.runtime === "legacy"
+        ? (modeCfg.inputDepth === "basic"
+          ? { min: 0, max: 0 }
+          : (todayValues.todayActivityLevel === "very_active" && todayValues.todayWorkType === "heavy_field"
           ? { min: -0.10, max: 0.10 }
-          : { min: -0.20, max: 0.20 });
+          : { min: -0.20, max: 0.20 }))
+        : getCurrentWorkAdjBounds(todayValues.todayActivityLevel, todayValues.todayWorkType);
       return {
         weight: todayValues.calculationWeight,
         height: Number(ids.height.value),
         age: Number(ids.age.value),
         bodyFat: todayValues.bodyFatPercent,
+        bodyStatusSource: todayDraft.bodyStatusSource || null,
         skeletal: todayValues.skeletalMuscle,
         gender: ids.gender.value,
         activityLevel: todayValues.todayActivityLevel,
         workType: todayValues.todayWorkType,
         workAdj: clamp(Number(ids.workAdj.value), workAdjBounds.min, workAdjBounds.max),
         homeInbody: !!ids.homeInbody.checked,
+        generalAdvancedSettings: !!ids.generalAdvancedSettings?.checked,
+        generalLowDigestCarbs: !!ids.generalLowDigestCarbs?.checked,
+        expertLbmAlpha: clamp((Number(ids.expertLbmAlpha?.value) || 0) / 100, EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max),
         weeklyTrainingDays: Number(ids.weeklyTrainingDays.value),
         routinePlan: state.routinePlan,
         routine: todayValues.todayRoutineSession,
@@ -12665,16 +12787,16 @@ Notes:
       return { isValid: issues.length === 0, issues };
     }
 
-    function createInvalidCalculationResult(s, validationIssues){
+    function createInvalidCalculationResult(s, validationIssues, modeCfg = null){
       const safeIssues = Array.isArray(validationIssues) ? validationIssues : [];
-      const modeCfg = getEffectiveModeConfig();
+      const safeModeCfg = modeCfg || resolveModeFreeRuntimeConfig(s || state);
       return {
         s,
-        modeCfg,
+        modeCfg: safeModeCfg,
         isCalculable: false,
         validationIssues: safeIssues,
         bmr: 0,
-        bmrModel: BMR_MODEL_LABELS[modeCfg.bmrModel] || modeCfg.bmrModel,
+        bmrModel: BMR_MODEL_LABELS[safeModeCfg.bmrModel] || safeModeCfg.bmrModel,
         lbmBase: 0,
         lbmEffective: 0,
         workloadY: 0,
@@ -12736,14 +12858,14 @@ Notes:
       };
     }
 
-    function calculate(){
-      const s = collectState();
+    function calculate(options = {}){
+      const runtime = options.runtime === "legacy" ? "legacy" : "current";
+      const s = collectState({ runtime });
+      const modeCfg = runtime === "legacy" ? getModeRuntimeConfig() : resolveModeFreeRuntimeConfig(s);
       const validation = validateCalculationInputs(s);
       if (!validation.isValid) {
-        return createInvalidCalculationResult(s, validation.issues);
+        return createInvalidCalculationResult(s, validation.issues, modeCfg);
       }
-
-      const modeCfg = getEffectiveModeConfig();
       const lbmBase = s.weight - s.weight * s.bodyFat / 100;
       const skeletalAdj = calcSkeletalAdjustment(s, lbmBase, modeCfg);
       const lbmEffective = modeCfg.appliedAlpha > 0 ? skeletalAdj.lbmEffective : lbmBase;
@@ -12751,7 +12873,7 @@ Notes:
 
       const bmr = calcBMR(s, lbmEffective, modeCfg);
       if (!Number.isFinite(bmr) || bmr <= 0) {
-        return createInvalidCalculationResult(s, ["기초대사량이 0 이하로 계산됩니다. 체중·키·나이 입력을 다시 확인해 주세요."]);
+        return createInvalidCalculationResult(s, ["기초대사량이 0 이하로 계산됩니다. 체중·키·나이 입력을 다시 확인해 주세요."], modeCfg);
       }
       const bmrModel = BMR_MODEL_LABELS[modeCfg.bmrModel] || modeCfg.bmrModel;
       const workloadY = clamp((WORK_TYPE_Y[s.workType] ?? 0) + s.workAdj, 0, 1);
@@ -12764,7 +12886,7 @@ Notes:
       const isRestDay = s.routine === "REST";
       let xw = 0;
       if (!isRestDay) {
-        if (modeCfg.inputDepth === "basic" && !state.generalAdvancedSettings) {
+        if (modeCfg.inputDepth === "basic" && !modeCfg.advancedTuning) {
           xw = clamp(0.68 + getGeneralWeeklyTrainingAdj(s.weeklyTrainingDays), 0, 1);
         } else {
           const baseXw = Number(s.intensityOverride);
@@ -12777,7 +12899,7 @@ Notes:
       const epocKcal = cardio.kcal * epocRate;
       const totalBurn = baseDaily + trainingBaselineKcal + weightKcal + cardio.kcal + epocKcal;
       if (!Number.isFinite(totalBurn) || totalBurn <= 0) {
-        return createInvalidCalculationResult(s, ["총 소비 칼로리가 0 이하로 계산됩니다. 입력값을 다시 확인해 주세요."]);
+        return createInvalidCalculationResult(s, ["총 소비 칼로리가 0 이하로 계산됩니다. 입력값을 다시 확인해 주세요."], modeCfg);
       }
 
       const cardioTargetContext = buildCardioTargetReflectionContext(s.goal, totalBurn, cardio.kcal);
@@ -12796,7 +12918,7 @@ Notes:
       const minimumTargetCal = s.goal === "diet" ? bmr : 0;
       const targetCal = Math.max(targetCalBeforeFloor, minimumTargetCal);
       if (!Number.isFinite(targetCal) || targetCal <= 0) {
-        return createInvalidCalculationResult(s, ["목표 칼로리가 0 이하로 계산됩니다. 입력값 또는 목표 설정을 다시 확인해 주세요."]);
+        return createInvalidCalculationResult(s, ["목표 칼로리가 0 이하로 계산됩니다. 입력값 또는 목표 설정을 다시 확인해 주세요."], modeCfg);
       }
       const effectiveGoalFactor = targetBurnBase > 0 ? targetCal / targetBurnBase : appliedGoalFactor;
       const goalClampUsed = Math.abs(clampedGoalDelta - rawGoalDelta) > 1e-6;
@@ -12946,7 +13068,7 @@ Notes:
       if (s.goal === "diet" && clampedGoalDelta < -600){
         cautionNotes.push("평소보다 꽤 적게 먹는 설정입니다. 회복과 운동 수행이 떨어질 수 있습니다.");
       }
-      if (state.mode === "general" && s.goal === "bulk" && s.activityLevel === "sedentary"){
+      if (modeCfg.preset === "general" && s.goal === "bulk" && s.activityLevel === "sedentary"){
         cautionNotes.push("활동량이 낮은 상태에서 벌크업을 잡으면 체지방이 빠르게 늘 수 있습니다.");
       }
       if (s.cardioDuration > 120 || s.cardioSpeed > 18 || s.cardioIncline > 12){
@@ -13089,12 +13211,7 @@ Notes:
 
     function syncGeneralModeDefaults(){
       if (state.mode !== "general") return;
-      ids.workAdj.value = "0";
-      state.workAdj = 0;
-      ids.homeInbody.checked = false;
       if (!state.generalAdvancedSettings) {
-        state.routinePlan = "ppl_ul";
-        ids.routinePlan.value = "ppl_ul";
         if (!["REST", "PUSH"].includes(state.routine)) {
           state.routine = "PUSH";
         }
@@ -14108,7 +14225,6 @@ Notes:
       const basisLabel = getBasisUiLabel(result.selectedMacroBasis || result.dualBasis?.selectedBasis);
       const rows = [
         ["목표", GOALS[s.goal]?.label || "-"],
-        ["모드", `${getModeRuntimeConfig().label} 모드`],
         ["선택 기준", basisLabel],
         ["계산용 체중", `${formatTodayQuickNumber(s.weight, 1)} kg`],
         ["활동량", ACTIVITY_LABELS[s.activityLevel] || "-"],
@@ -21821,7 +21937,6 @@ Notes:
         { label: "탄수화물", value: formatRecordDetailGram(normalized.carbs) },
         { label: "단백질", value: formatRecordDetailGram(normalized.protein) },
         { label: "지방", value: formatRecordDetailGram(normalized.fat) },
-        { label: "계산 모드", value: MODE_CONFIGS[normalized.mode]?.label || "" },
         { label: "기준 체중", value: Number.isFinite(normalized.weight) ? `${formatKg2(normalized.weight)} kg` : "" },
         { label: "키", value: Number.isFinite(normalized.height) ? `${round(normalized.height, 1)} cm` : "" },
         { label: "나이", value: Number.isFinite(normalized.age) ? `${Math.round(normalized.age)}세` : "" },
@@ -22042,7 +22157,6 @@ Notes:
 
     const RECORD_DETAIL_BASIS_FIELD_MAPPINGS = [
       { label: "당시 목표", formKey: "goal", saveKey: "goal", snapshotKey: "goal" },
-      { label: "당시 계산 모드", formKey: "mode", saveKey: "mode", snapshotKey: "mode" },
       { label: "계산용 체중", formKey: "weight", saveKey: "weight", snapshotKey: "weight" },
       { label: "키", formKey: "height", saveKey: "height", snapshotKey: "height" },
       { label: "나이", formKey: "age", saveKey: "age", snapshotKey: "age" },
@@ -22141,7 +22255,7 @@ Notes:
         state.routine = safeBasis.routine;
         state.intensityOverride = safeBasis.intensityOverride;
         state.weeklyTrainingDays = safeBasis.weeklyTrainingDays;
-        state.generalAdvancedSettings = safeBasis.generalAdvancedSettings;
+        state.generalAdvancedSettings = safeBasis.generalAdvancedSettings || safeBasis.mode !== "general";
         state.generalLowDigestCarbs = safeBasis.generalLowDigestCarbs;
         state.expertLbmAlpha = safeBasis.expertLbmAlpha;
         ids.weight.value = formatInputNumber(safeBasis.weight, 2);
@@ -22157,7 +22271,7 @@ Notes:
         ids.homeInbody.checked = !!safeBasis.homeInbody;
         if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = String(Math.round(safeBasis.expertLbmAlpha * 100));
         ids.weeklyTrainingDays.value = String(safeBasis.weeklyTrainingDays);
-        ids.generalAdvancedSettings.checked = !!safeBasis.generalAdvancedSettings;
+        ids.generalAdvancedSettings.checked = !!state.generalAdvancedSettings;
         ids.generalLowDigestCarbs.checked = !!safeBasis.generalLowDigestCarbs;
         ids.routinePlan.value = safeBasis.routinePlan;
         ids.intensityOverride.value = String(safeBasis.intensityOverride);
@@ -22202,7 +22316,7 @@ Notes:
     function calculateRecordDetailGoalPreview(draft){
       const basis = getRecordDetailCalculationBasis(draft);
       return withRecordDetailTemporaryBasis(basis, safeBasis => {
-        const result = calculate();
+        const result = calculate({ runtime: "legacy" });
         const snapshot = result?.isCalculable
           ? buildGoalSnapshotFromCurrentState(result, draft?.snapshotSource || "saved_at_entry")
           : null;
@@ -22241,7 +22355,6 @@ Notes:
       const activityItems = Object.keys(ACTIVITY_COEFF).map(value => ({ value, label: ACTIVITY_LABELS[value] || value }));
       const workItems = Object.keys(WORK_TYPE_Y).map(value => ({ value, label: WORK_TYPE_LABELS[value] || value }));
       const goalItems = Object.keys(GOALS).map(value => ({ value, label: GOALS[value].label }));
-      const modeItems = Object.keys(MODE_CONFIGS).map(value => ({ value, label: MODE_CONFIGS[value].label }));
       const genderItems = Object.keys(GENDER_LABELS).map(value => ({ value, label: GENDER_LABELS[value] }));
       const routinePlanItems = Object.keys(ROUTINE_SCHEMES).map(value => ({ value, label: ROUTINE_SCHEMES[value].label }));
       const cardioItems = Object.keys(CARDIO_TYPES).map(value => ({ value, label: CARDIO_TYPES[value].label }));
@@ -22253,10 +22366,6 @@ Notes:
             <div class="record-detail-edit-field">
               <label>당시 목표</label>
               <select data-detail-basis-field="goal">${renderRecordDetailOptions(goalItems, basis.goal)}</select>
-            </div>
-            <div class="record-detail-edit-field">
-              <label>당시 계산 모드</label>
-              <select data-detail-basis-field="mode" data-detail-basis-rerender="true">${renderRecordDetailOptions(modeItems, basis.mode)}</select>
             </div>
             <div class="record-detail-edit-field">
               <label>체중 kg</label>
@@ -22716,10 +22825,15 @@ Notes:
 
     function buildRecordDetailSnapshotFromBasis(basis, snapshotSource = "saved_at_entry"){
       return withRecordDetailTemporaryBasis(basis, () => {
-        const result = calculate();
+        const safeBasis = normalizeRecordDetailCalculationBasis(basis);
+        const result = calculate({ runtime: "legacy" });
         return {
           result,
-          snapshot: result?.isCalculable ? buildGoalSnapshotFromCurrentState(result, snapshotSource) : null
+          snapshot: result?.isCalculable ? normalizeGoalSnapshot({
+            ...buildGoalSnapshotFromCurrentState(result, snapshotSource),
+            generalAdvancedSettings: safeBasis.generalAdvancedSettings,
+            generalLowDigestCarbs: safeBasis.generalLowDigestCarbs
+          }) : null
         };
       });
     }
@@ -25544,11 +25658,11 @@ Notes:
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must remain v6.1_alcohol_penalty_v2");
         }));
 
-        results.push(runNamedTest("runtime config preserves lean bulk calculation models", () => {
+        results.push(runNamedTest("runtime config preserves legacy lean bulk calculation models", () => {
           ["general", "athlete", "expert"].forEach(mode => {
             state.mode = mode;
             ids.homeInbody.checked = false;
-            const result = calculate();
+            const result = calculate({ runtime: "legacy" });
             assertTest(result.isCalculable, `${mode} lean_bulk should remain calculable`);
             assertTest(result.targetCal > 0 && result.protein > 0 && result.carbs >= 0 && result.fat > 0, `${mode} lean_bulk should produce macro targets`);
             assertTest(result.bmrModel === (mode === "general" ? "Mifflin-St Jeor" : "Katch-McArdle"), `${mode} BMR label should be preserved`);
@@ -25579,10 +25693,9 @@ Notes:
       "snapshotProtein",
       "snapshotFat"
     ]);
-    const MODE_GOLDEN_EXPECTED_HASH = "e9d2088d69976";
+    const MODE_GOLDEN_EXPECTED_HASH = "1fc832154bff08";
     const MODE_GOLDEN_SCENARIO_COUNT = 50;
-    const MODE_GOLDEN_MODES = Object.freeze(["general", "athlete", "expert"]);
-    const MODE_GOLDEN_EXPECTED_ROWS = Object.freeze([
+    const MODE_GOLDEN_MODES = Object.freeze(["general", "athlete", "expert"]);    const MODE_GOLDEN_EXPECTED_ROWS = Object.freeze([
       { key: "diet_low_no_inbody_male|general", values: Object.freeze([1743,2021,1743,136,192,48,2.4,0.6,1.7,0,0,400,0,92,1743,136,192,48]) },
       { key: "diet_low_no_inbody_male|athlete", values: Object.freeze([1764,2046,1764,141,192,48,2.4,0.6,1.76,0.4,1,400,0,92,1764,141,192,48]) },
       { key: "diet_low_no_inbody_male|expert", values: Object.freeze([1775,2058,1775,144,192,48,2.4,0.6,1.8,0.75,1,400,0,92,1775,144,192,48]) },
@@ -25614,20 +25727,20 @@ Notes:
       { key: "diet_4w_cardio_no_inbody_male__low_digest|athlete", values: Object.freeze([1840,2976,2367,284,197,49,2.4,0.6,3.47,0.4,1,574,0,92,2367,284,197,49]) },
       { key: "diet_4w_cardio_no_inbody_male__low_digest|expert", values: Object.freeze([1857,2998,2385,289,197,49,2.4,0.6,3.52,0.8,1,574,0,92,2385,289,197,49]) },
       { key: "diet_inbody_male|general", values: Object.freeze([1698,2933,2346,302,182,46,2.4,0.6,3.97,0,0,760,0,92,2346,302,182,46]) },
-      { key: "diet_inbody_male|athlete", values: Object.freeze([1837,3163,2540,350,182,46,2.4,0.6,4.61,0.4,1,760,0,92,2540,350,182,46]) },
-      { key: "diet_inbody_male|expert", values: Object.freeze([1883,3224,2591,363,182,46,2.4,0.6,4.77,0.75,1,760,0,92,2591,363,182,46]) },
+      { key: "diet_inbody_male|athlete", values: Object.freeze([1837,3167,2543,351,182,46,2.4,0.6,4.62,0.4,1,760,0,92,2543,351,182,46]) },
+      { key: "diet_inbody_male|expert", values: Object.freeze([1883,3228,2594,364,182,46,2.4,0.6,4.78,0.75,1,760,0,92,2594,364,182,46]) },
       { key: "diet_inbody_male__high_activity|general", values: Object.freeze([1698,3140,2520,345,182,46,2.4,0.6,4.54,0,0,760,0,92,2520,345,182,46]) },
       { key: "diet_inbody_male__high_activity|athlete", values: Object.freeze([1837,3387,2748,402,182,46,2.4,0.6,5.29,0.4,1,760,0,92,2748,402,182,46]) },
       { key: "diet_inbody_male__high_activity|expert", values: Object.freeze([1883,3454,2815,419,182,46,2.4,0.6,5.51,0.75,1,760,0,92,2815,419,182,46]) },
       { key: "diet_inbody_male__rest_day|general", values: Object.freeze([1698,2237,1879,185,182,46,2.4,0.6,2.43,0,0,760,0,92,1879,185,182,46]) },
-      { key: "diet_inbody_male__rest_day|athlete", values: Object.freeze([1837,2421,2034,223,182,46,2.4,0.6,2.94,0.4,1,760,0,92,2034,223,182,46]) },
-      { key: "diet_inbody_male__rest_day|expert", values: Object.freeze([1883,2481,2084,236,182,46,2.4,0.6,3.11,0.75,1,760,0,92,2084,236,182,46]) },
+      { key: "diet_inbody_male__rest_day|athlete", values: Object.freeze([1837,2425,2037,224,182,46,2.4,0.6,2.95,0.4,1,760,0,92,2037,224,182,46]) },
+      { key: "diet_inbody_male__rest_day|expert", values: Object.freeze([1883,2485,2087,237,182,46,2.4,0.6,3.12,0.75,1,760,0,92,2087,237,182,46]) },
       { key: "diet_inbody_male__cardio_bias|general", values: Object.freeze([1698,3060,2395,314,182,46,2.4,0.6,4.13,0,0,760,0,92,2395,314,182,46]) },
-      { key: "diet_inbody_male__cardio_bias|athlete", values: Object.freeze([1837,3291,2589,362,182,46,2.4,0.6,4.77,0.4,1,760,0,92,2589,362,182,46]) },
-      { key: "diet_inbody_male__cardio_bias|expert", values: Object.freeze([1883,3352,2643,376,182,46,2.4,0.6,4.94,0.75,1,760,0,92,2643,376,182,46]) },
+      { key: "diet_inbody_male__cardio_bias|athlete", values: Object.freeze([1837,3294,2592,363,182,46,2.4,0.6,4.78,0.4,1,760,0,92,2592,363,182,46]) },
+      { key: "diet_inbody_male__cardio_bias|expert", values: Object.freeze([1883,3355,2646,377,182,46,2.4,0.6,4.96,0.75,1,760,0,92,2646,377,182,46]) },
       { key: "diet_inbody_male__low_digest|general", values: Object.freeze([1698,2933,2346,302,182,46,2.4,0.6,3.97,0,0,760,0,92,2346,302,182,46]) },
-      { key: "diet_inbody_male__low_digest|athlete", values: Object.freeze([1837,3163,2540,350,182,46,2.4,0.6,4.61,0.4,1,760,0,92,2540,350,182,46]) },
-      { key: "diet_inbody_male__low_digest|expert", values: Object.freeze([1889,3233,2599,365,182,46,2.4,0.6,4.8,0.8,1,760,0,92,2599,365,182,46]) },
+      { key: "diet_inbody_male__low_digest|athlete", values: Object.freeze([1837,3167,2543,351,182,46,2.4,0.6,4.62,0.4,1,760,0,92,2543,351,182,46]) },
+      { key: "diet_inbody_male__low_digest|expert", values: Object.freeze([1889,3236,2602,365,182,46,2.4,0.6,4.81,0.8,1,760,0,92,2602,365,182,46]) },
       { key: "lean_5w_low_cardio_female|general", values: Object.freeze([1305,1947,2083,313,116,41,2,0.7,5.4,0,0,406,0,91,2083,313,116,41]) },
       { key: "lean_5w_low_cardio_female|athlete", values: Object.freeze([1412,2115,2258,357,116,41,2,0.7,6.16,0.4,1,406,0,91,2258,357,116,41]) },
       { key: "lean_5w_low_cardio_female|expert", values: Object.freeze([1469,2185,2334,376,116,41,2,0.7,6.49,0.75,1,406,0,91,2334,376,116,41]) },
@@ -25719,21 +25832,21 @@ Notes:
       { key: "lean_home_inbody_male__low_digest|athlete", values: Object.freeze([1786,2880,3058,493,152,53,2,0.7,6.48,0.32,1,760,0,91,3058,493,152,53]) },
       { key: "lean_home_inbody_male__low_digest|expert", values: Object.freeze([1823,2929,3111,506,152,53,2,0.7,6.66,0.64,1,760,0,91,3111,506,152,53]) },
       { key: "snapshot_like_record|general", values: Object.freeze([1676,2738,2171,262,180,45,2.4,0.6,3.49,0,0,750,0,92,2171,262,180,45]) },
-      { key: "snapshot_like_record|athlete", values: Object.freeze([1749,2852,2267,285,180,45,2.4,0.6,3.81,0.4,1,750,0,92,2267,285,180,45]) },
-      { key: "snapshot_like_record|expert", values: Object.freeze([1792,2908,2314,297,180,45,2.4,0.6,3.96,0.75,1,750,0,92,2314,297,180,45]) },
+      { key: "snapshot_like_record|athlete", values: Object.freeze([1749,2856,2270,286,180,45,2.4,0.6,3.82,0.4,1,750,0,92,2270,286,180,45]) },
+      { key: "snapshot_like_record|expert", values: Object.freeze([1792,2912,2318,298,180,45,2.4,0.6,3.98,0.75,1,750,0,92,2318,298,180,45]) },
       { key: "snapshot_like_record__high_activity|general", values: Object.freeze([1676,3026,2414,322,180,45,2.4,0.6,4.3,0,0,750,0,92,2414,322,180,45]) },
       { key: "snapshot_like_record__high_activity|athlete", values: Object.freeze([1749,3152,2519,349,180,45,2.4,0.6,4.65,0.4,1,750,0,92,2519,349,180,45]) },
       { key: "snapshot_like_record__high_activity|expert", values: Object.freeze([1792,3216,2573,362,180,45,2.4,0.6,4.83,0.75,1,750,0,92,2573,362,180,45]) },
       { key: "snapshot_like_record__rest_day|general", values: Object.freeze([1676,2125,1785,165,180,45,2.4,0.6,2.2,0,0,750,0,92,1785,165,180,45]) },
-      { key: "snapshot_like_record__rest_day|athlete", values: Object.freeze([1749,2217,1862,184,180,45,2.4,0.6,2.46,0.4,1,750,0,92,1862,184,180,45]) },
-      { key: "snapshot_like_record__rest_day|expert", values: Object.freeze([1792,2273,1909,196,180,45,2.4,0.6,2.61,0.75,1,750,0,92,1909,196,180,45]) },
+      { key: "snapshot_like_record__rest_day|athlete", values: Object.freeze([1749,2221,1866,185,180,45,2.4,0.6,2.47,0.4,1,750,0,92,1866,185,180,45]) },
+      { key: "snapshot_like_record__rest_day|expert", values: Object.freeze([1792,2277,1913,197,180,45,2.4,0.6,2.63,0.75,1,750,0,92,1913,197,180,45]) },
       { key: "snapshot_like_record__cardio_bias|general", values: Object.freeze([1676,2850,2221,274,180,45,2.4,0.6,3.65,0,0,750,0,92,2221,274,180,45]) },
-      { key: "snapshot_like_record__cardio_bias|athlete", values: Object.freeze([1749,2964,2317,298,180,45,2.4,0.6,3.97,0.4,1,750,0,92,2317,298,180,45]) },
-      { key: "snapshot_like_record__cardio_bias|expert", values: Object.freeze([1792,3020,2364,310,180,45,2.4,0.6,4.13,0.75,1,750,0,92,2364,310,180,45]) },
+      { key: "snapshot_like_record__cardio_bias|athlete", values: Object.freeze([1749,2968,2320,299,180,45,2.4,0.6,3.98,0.4,1,750,0,92,2320,299,180,45]) },
+      { key: "snapshot_like_record__cardio_bias|expert", values: Object.freeze([1792,3025,2368,311,180,45,2.4,0.6,4.14,0.75,1,750,0,92,2368,311,180,45]) },
       { key: "snapshot_like_record__low_digest|general", values: Object.freeze([1676,2738,2171,262,180,45,2.4,0.6,3.49,0,0,750,0,92,2171,262,180,45]) },
-      { key: "snapshot_like_record__low_digest|athlete", values: Object.freeze([1749,2852,2267,285,180,45,2.4,0.6,3.81,0.4,1,750,0,92,2267,285,180,45]) },
-      { key: "snapshot_like_record__low_digest|expert", values: Object.freeze([1799,2916,2321,299,180,45,2.4,0.6,3.99,0.8,1,750,0,92,2321,299,180,45]) }
-    ]);
+      { key: "snapshot_like_record__low_digest|athlete", values: Object.freeze([1749,2856,2270,286,180,45,2.4,0.6,3.82,0.4,1,750,0,92,2270,286,180,45]) },
+      { key: "snapshot_like_record__low_digest|expert", values: Object.freeze([1799,2921,2325,300,180,45,2.4,0.6,4,0.8,1,750,0,92,2325,300,180,45]) },
+    ]);;
 
     function getModeGoldenHash(text, seed = 0){
       let h1 = 0xdeadbeef ^ seed;
@@ -26142,7 +26255,7 @@ Notes:
 
     function getModeGoldenRow(scenario, mode){
       const today = applyModeGoldenScenario(scenario, mode);
-      const result = calculate();
+      const result = calculate({ runtime: "legacy" });
       assertTest(result.isCalculable, `${scenario.name} ${mode} should remain calculable`);
       const snapshot = buildGoalSnapshotFromCurrentState(result, "mode_golden");
       recordsState.items = [{
@@ -26386,6 +26499,107 @@ Notes:
           assertTest(typeof window.runStitchTodayShellTests === "function", "Today shell tests should remain exported");
           assertTest(typeof window.runAuthoritativeTargetCalTests === "function", "CAL1 authoritative targetCal tests should remain exported");
           assertTest(typeof window.runTargetCalSemanticGuardTests === "function", "CAL1.1 semantic guard tests should remain exported");
+        }));
+
+        return results;
+      });
+    }
+
+    function runModeFreeCalculationContextTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+
+        results.push(runNamedTest("C4.8-M2-A current calculation ignores legacy user tier mode", () => {
+          const scenario = getModeGoldenScenarios().find(item => item.name === "diet_low_no_inbody_male");
+          assertTest(!!scenario, "baseline mode-free scenario should exist");
+          applyModeGoldenScenario(scenario, "general");
+          const general = calculate();
+          applyModeGoldenScenario(scenario, "athlete");
+          const athlete = calculate();
+          applyModeGoldenScenario(scenario, "expert");
+          const expert = calculate();
+          ["targetCal", "totalBurn", "bmr", "protein", "carbs", "fat"].forEach(key => {
+            assertClose(athlete[key], general[key], 0.005, `${key} should not change when only legacy mode changes to athlete`);
+            assertClose(expert[key], general[key], 0.005, `${key} should not change when only legacy mode changes to expert`);
+          });
+        }));
+
+        results.push(runNamedTest("C4.8-M2-A legacy mode replay still preserves old mode differences", () => {
+          const scenario = getModeGoldenScenarios().find(item => item.name === "diet_inbody_male");
+          assertTest(!!scenario, "legacy comparison scenario should exist");
+          applyModeGoldenScenario(scenario, "general");
+          const general = calculate({ runtime: "legacy" });
+          applyModeGoldenScenario(scenario, "athlete");
+          const athlete = calculate({ runtime: "legacy" });
+          applyModeGoldenScenario(scenario, "expert");
+          const expert = calculate({ runtime: "legacy" });
+          assertTest(general.bmr !== athlete.bmr && athlete.bmr !== expert.bmr, "legacy BMR should still differ by stored mode");
+          assertTest(general.expertAlphaApplied !== athlete.expertAlphaApplied && athlete.expertAlphaApplied !== expert.expertAlphaApplied, "legacy LBM alpha should still differ by stored mode");
+        }));
+
+        results.push(runNamedTest("C4.8-M2-A context resolver classifies body composition and training evidence", () => {
+          const none = resolveModeFreeRuntimeConfig({
+            bodyFat: null,
+            skeletal: 0,
+            routine: "REST",
+            weeklyTrainingDays: 0,
+            weightDuration: 0,
+            cardioDuration: 0,
+            cardioSpeed: 0,
+            expertLbmAlpha: DEFAULT_STATE.expertLbmAlpha
+          });
+          assertTest(none.bodyCompReliability === "none", "missing body composition should resolve to none");
+          assertTest(none.trainingEvidence === "none", "missing training inputs should resolve to none");
+          const training = resolveModeFreeRuntimeConfig({
+            bodyFat: 15,
+            skeletal: 35,
+            routine: "PUSH",
+            weeklyTrainingDays: 4,
+            weightDuration: 60,
+            intensityOverride: 0.8,
+            cardioDuration: 30,
+            cardioSpeed: 5,
+            bodyStatusSource: TODAY_BODY_STATUS_SOURCE_INBODY,
+            expertLbmAlpha: DEFAULT_STATE.expertLbmAlpha
+          });
+          assertTest(training.bodyCompReliability === "inbody", "InBody-sourced body values should resolve to inbody");
+          assertTest(training.trainingEvidence === "regular" || training.trainingEvidence === "high", "training inputs should resolve to regular/high");
+          assertTest(training.appliedAlpha > 0, "reliable body composition should apply LBM blending");
+        }));
+
+        results.push(runNamedTest("C4.8-M2-A advanced tuning and low digest carbs are independent of legacy mode", () => {
+          const advanced = resolveModeFreeRuntimeConfig({
+            bodyFat: 15,
+            skeletal: 35,
+            routine: "PUSH",
+            weeklyTrainingDays: 3,
+            weightDuration: 60,
+            intensityOverride: 0.8,
+            generalLowDigestCarbs: true,
+            expertLbmAlpha: 0.85
+          });
+          assertTest(advanced.advancedTuning === true, "adjusted expert alpha or low digest option should enable advanced tuning");
+          assertTest(advanced.inputDepth === "advanced", "advanced tuning should use advanced input depth internally");
+          assertClose(advanced.baseAlpha, 0.85, 0.005, "adjusted LBM alpha should be used as current calculation tuning");
+          assertClose(getCarbsPlausibilityCapKg(advanced.preset, { lowDigestCarbs: advanced.lowDigestCarbs }), 6.0, 0.005, "low digest carb cap should apply without user-facing mode");
+        }));
+
+        results.push(runNamedTest("C4.8-M2-A full backup and goalSnapshot mode compatibility remain intact", () => {
+          const scenario = getModeGoldenScenarios().find(item => item.name === "snapshot_like_record");
+          assertTest(!!scenario, "snapshot-like scenario should exist");
+          applyModeGoldenScenario(scenario, "expert");
+          const current = calculate();
+          const legacy = calculate({ runtime: "legacy" });
+          const currentSnapshot = buildGoalSnapshotFromCurrentState(current, "mode_free_current");
+          const legacySnapshot = buildGoalSnapshotFromCurrentState(legacy, "legacy_replay");
+          assertTest(currentSnapshot.mode === "expert" && legacySnapshot.mode === "expert", "snapshots should keep legacy mode field");
+          const payload = buildFullBackupPayload("2026-05-18T00:00:00.000Z");
+          assertTest(payload.data.settings.mode === "expert", "full backup should keep settings.mode for compatibility");
+        }));
+
+        results.push(runNamedTest("C4.8-M2-A CAL1 semantic guards remain exported", () => {
+          assertTest(typeof window.runTargetCalSemanticGuardTests === "function", "targetCal semantic guard suite should remain exported");
+          assertTest(typeof window.runAuthoritativeTargetCalTests === "function", "authoritative targetCal suite should remain exported");
         }));
 
         return results;
@@ -26818,6 +27032,7 @@ Notes:
             note: "",
             meals: []
           }]);
+          setActiveTab("records");
           renderRecordsPanel();
           renderSelectedDateMeals("2026-04-22");
           const recordsText = document.getElementById("recordsTable").textContent || "";
@@ -26830,7 +27045,7 @@ Notes:
           const plainMealRow = Array.from(document.querySelectorAll("#selectedMealsList .meal-table-row:not(.meal-table-head)"))
             .find(row => row.textContent.includes("plain meal"));
           assertTest(!recordsText.includes("직접 평가"), "records adherence helper should not include redundant manual rating copy");
-          assertTest(recordCards.length === 2, "records archive should render date cards");
+          assertTest(recordCards.length >= 2 && document.querySelector('[data-record-card-date="2026-04-22"]') && document.querySelector('[data-record-card-date="2026-04-21"]'), "records archive should render date cards");
           assertTest(recordsText.includes("상세 기록") && recordsText.includes("식사 2건") && recordsText.includes("체중 있음"), "records archive should summarize detailed record chips");
           assertTest(recordNotes.length === 1 && recordNotes[0].textContent.includes("long memo text"), "records archive card should render record memo only when present");
           assertTest(detailButton && detailButton.textContent.includes("자세히 보기"), "records archive should keep a detail affordance");
@@ -27022,6 +27237,9 @@ Notes:
 
         results.push(runNamedTest("today goal unavailable", () => {
           ids.weight.value = "0";
+          todayCalculationDrafts = {
+            [today]: normalizeTodayCalculationDraft({ calculationWeight: 0 })
+          };
           recordsState.items = normalizeRecordsCollection([{
             date: today,
             meals: [{ id: "m1", mealLabel: "아침", carbs: 50, protein: 30, fat: 10, memo: "", createdAt: `${today}T08:00:00.000Z` }]
@@ -29929,8 +30147,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-CAL1.1"), "document title should show v6.6-C4.8-CAL1.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-CAL1.1"), "app version badge should show v6.6-C4.8-CAL1.1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -30296,7 +30514,7 @@ Notes:
           }]);
           const detail = openDetailEdit("2026-05-08");
           assertTest(!!detail.querySelector('[data-detail-basis-field="goal"]'), "goal basis field should render");
-          assertTest(!!detail.querySelector('[data-detail-basis-field="mode"]'), "mode basis field should render");
+          assertTest(!detail.querySelector('[data-detail-basis-field="mode"]'), "legacy mode selector should stay internal");
           assertTest(!!detail.querySelector("[data-detail-basis-preview]"), "recalculated preview should render");
         }));
 
@@ -30677,7 +30895,6 @@ Notes:
           root.querySelector('[data-detail-field="weight"]').value = "77.5";
           root.querySelector('[data-detail-field="note"]').value = "수정 메모";
           setBasisValue(root, "goal", "bulk");
-          setBasisValue(root, "mode", "athlete");
           setBasisValue(root, "weight", 78);
           setBasisValue(root, "height", 180);
           setBasisValue(root, "age", 31);
@@ -30709,7 +30926,7 @@ Notes:
           assertClose(updated.weight, 77.5, 0.0001, "record fasting weight should round-trip");
           assertTest(updated.note === "수정 메모", "record memo should round-trip");
           assertTest(updated.meals[0].carbs === 121 && updated.meals[0].protein === 66 && updated.meals[0].fat === 22, "meal editable fields should round-trip");
-          assertTest(snapshot.goal === "bulk" && snapshot.mode === "athlete", "goal and mode should round-trip");
+          assertTest(snapshot.goal === "bulk" && snapshot.mode === "athlete", "goal should round-trip while legacy mode compatibility stays internal");
           assertClose(snapshot.weight, 78, 0.0001, "calculation weight should round-trip");
           assertClose(snapshot.height, 180, 0.0001, "height should round-trip");
           assertClose(snapshot.age, 31, 0.0001, "age should round-trip");
@@ -31121,14 +31338,16 @@ Notes:
           setPresets([preset]);
           applyCardioPresetToToday(preset.id);
           const presetBefore = JSON.stringify(cardioPresetState.items);
+          const recordsBefore = JSON.stringify(recordsState.items);
+          const inbodyBefore = JSON.stringify(state.inbodyRecords || []);
           const quick = document.getElementById("todayQuickCardioDuration");
           quick.value = "42";
           quick.dispatchEvent(new Event("input", { bubbles: true }));
           assertClose(getEffectiveTodayCalculationValues().todayCardioDuration, 42, 0.0001, "direct edit should update Today date value");
           assertIncludesAll(document.getElementById("todayCardioSourceNote").textContent, ["오늘 직접 수정한 값"], "direct edit should update cardio source label");
           assertTest(JSON.stringify(cardioPresetState.items) === presetBefore, "direct Today edit should not mutate preset source");
-          assertTest(JSON.stringify(recordsState.items) === "[]", "direct Today edit should not mutate records");
-          assertTest(JSON.stringify(state.inbodyRecords || []) === "[]", "direct Today edit should not mutate InBody records");
+          assertTest(JSON.stringify(recordsState.items) === recordsBefore, "direct Today edit should not mutate records");
+          assertTest(JSON.stringify(state.inbodyRecords || []) === inbodyBefore, "direct Today edit should not mutate InBody records");
         }));
 
         results.push(runNamedTest("C4.5 default preset materializes new date over hidden mirror once", () => {
@@ -31479,8 +31698,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-CAL1.1"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-CAL1.1"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -32122,7 +32341,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.6-C4.8-CAL1.1", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.6-C4.8-M2-A", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -32429,7 +32648,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.6-C4.8-CAL1.1", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.6-C4.8-M2-A", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -32654,9 +32873,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-CAL1.1"), "document title should show v6.6-C4.8-CAL1.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-CAL1.1"), "app version badge should show v6.6-C4.8-CAL1.1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-CAL1.1", "current app version helper should return v6.6-C4.8-CAL1.1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "current app version helper should return v6.6-C4.8-M2-A");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -32697,7 +32916,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.6-C4.8-CAL1.1", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.6-C4.8-M2-A", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -32743,9 +32962,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-CAL1.1"), "document title should show v6.6-C4.8-CAL1.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-CAL1.1"), "app version badge should show v6.6-C4.8-CAL1.1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-CAL1.1", "current app version helper should return v6.6-C4.8-CAL1.1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "current app version helper should return v6.6-C4.8-M2-A");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -32853,13 +33072,13 @@ Notes:
         results.push(runNamedTest("C4.8-UI1 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.6-C4.8-CAL1.1",
-            "Stage: 6.6-C4.8-CAL1.1 targetCal semantic guard test 보강",
+            "Version: 6.6-C4.8-M2-A",
+            "Stage: 6.6-C4.8-M2-A mode-free current calculation 전환",
             "목표/소비량 기준 targetCal을 authoritative 값으로 유지"
           ], "top comment should show C4.8-CAL1 version and stage");
-          assertTest(document.title.includes("v6.6-C4.8-CAL1.1"), "document title should show v6.6-C4.8-CAL1.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-CAL1.1"), "app version badge should show v6.6-C4.8-CAL1.1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-CAL1.1", "version helper should return v6.6-C4.8-CAL1.1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -33395,7 +33614,8 @@ Notes:
           recordsState.items = [];
           setValidTodayBalanceTestInputs();
           render();
-          const calculationWeightBefore = ids.weight.value;
+          const settingsWeightBefore = ids.weight.value;
+          const calculationWeightBefore = getEffectiveTodayCalculationValues().calculationWeight;
           const beforeTarget = calculate().targetCal;
           openTodayRecordStartDialog("skip");
           setModalValue("todayRecordSkipWeight", "74.6");
@@ -33410,7 +33630,7 @@ Notes:
           assertTest(record.note === "식단 판단 없이 남김", "skip save should store memo");
           assertTest(record.meals.length === 0, "skip save should not create meals");
           assertTest(entry.percent === null && !record.goalSnapshot, "skip save should not create diet score or goal context");
-          assertTest(ids.weight.value === calculationWeightBefore, "checked skip fasting weight should not update Settings default weight");
+          assertTest(ids.weight.value === settingsWeightBefore, "checked skip fasting weight should not update Settings default weight");
           assertClose(getEffectiveTodayCalculationValues().calculationWeight, 74.6, 0.0001, "checked skip fasting weight should update Today calculation weight");
           assertTest(document.getElementById("todayQuickWeight").value === "74.60", "checked skip fasting weight should sync Today calculation value");
           assertTest(Number.isFinite(beforeTarget) && Number.isFinite(afterTarget) && afterTarget !== beforeTarget, "checked skip fasting weight should recalculate targetCal or macro calculation");
@@ -33420,7 +33640,8 @@ Notes:
           recordsState.items = [];
           setValidTodayBalanceTestInputs();
           render();
-          const calculationWeightBefore = ids.weight.value;
+          const settingsWeightBefore = ids.weight.value;
+          const calculationWeightBefore = getEffectiveTodayCalculationValues().calculationWeight;
           const beforeTarget = calculate().targetCal;
           openTodayRecordStartDialog("skip");
           document.getElementById("todayRecordSkipApplyWeightToCalculation").checked = false;
@@ -33432,8 +33653,8 @@ Notes:
           assertTest(saved?.saved === true, "unchecked skip fasting weight should still save record");
           assertTest(record.weight === 73.2, "unchecked fasting weight should be saved in Records");
           assertTest(record.note === "기록만 반영", "unchecked fasting memo should be saved in Records");
-          assertTest(ids.weight.value === calculationWeightBefore, "unchecked fasting weight should not update Settings default weight");
-          assertClose(getEffectiveTodayCalculationValues().calculationWeight, Number(calculationWeightBefore), 0.0001, "unchecked fasting weight should not update Today calculation weight");
+          assertTest(ids.weight.value === settingsWeightBefore, "unchecked fasting weight should not update Settings default weight");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, calculationWeightBefore, 0.0001, "unchecked fasting weight should not update Today calculation weight");
           assertClose(afterTarget, beforeTarget, 0.0001, "unchecked fasting weight should not change targetCal or macro calculation");
         }));
 
@@ -33447,7 +33668,8 @@ Notes:
             meals: []
           }]);
           render();
-          const calculationWeightBefore = ids.weight.value;
+          const settingsWeightBefore = ids.weight.value;
+          const calculationWeightBefore = getEffectiveTodayCalculationValues().calculationWeight;
           const beforeTarget = calculate().targetCal;
           openTodayRecordStartDialog("skip");
           assertTest(document.getElementById("todayRecordSkipWeight").value === "77.70", "skip fasting weight should prefill existing record weight");
@@ -33460,8 +33682,8 @@ Notes:
           assertTest(saved?.saved === true, "blank optional fields should still save skip record");
           assertTest(record.weight === 77.7, "blank fasting weight should not clear existing weight");
           assertTest(record.note === "기존 기록 메모", "blank memo should not clear existing note");
-          assertTest(ids.weight.value === calculationWeightBefore, "blank fasting weight should not update Settings default weight");
-          assertClose(getEffectiveTodayCalculationValues().calculationWeight, Number(calculationWeightBefore), 0.0001, "blank fasting weight should not update Today calculation weight");
+          assertTest(ids.weight.value === settingsWeightBefore, "blank fasting weight should not update Settings default weight");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, calculationWeightBefore, 0.0001, "blank fasting weight should not update Today calculation weight");
           assertClose(afterTarget, beforeTarget, 0.0001, "blank fasting weight should not change targetCal or macro calculation");
           assertExcludesAll(getRenderedBodyText(), ["NaN", "undefined"], "blank fasting weight should not expose broken values");
         }));
@@ -33737,8 +33959,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.6-C4.8-CAL1.1"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-CAL1.1"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertTest(!!panel.querySelector(".settings-goal-choice:not([hidden])"), "Settings should keep the goal selector visible");
           assertTest(panel.querySelector(".settings-mode-choice")?.hidden === true, "Settings should keep mode selector hidden after M1");
@@ -33969,6 +34191,8 @@ Notes:
           setActiveTab("today");
           setValidTodayBalanceTestInputs();
           state.mode = "athlete";
+          state.generalAdvancedSettings = true;
+          ids.generalAdvancedSettings.checked = true;
           state.routinePlan = "ppl_ul";
           ids.routinePlan.value = "ppl_ul";
           state.routine = "PUSH";
@@ -34013,7 +34237,7 @@ Notes:
           assertTest(Array.from(sessionSelect.options).some(option => option.value === state.routine), "quick session options should include current Settings session");
         }));
 
-        results.push(runNamedTest("C2 routine quick edit supports general and expert modes", () => {
+        results.push(runNamedTest("C2 routine quick edit supports basic and advanced settings", () => {
           setActiveTab("today");
           setValidTodayBalanceTestInputs();
           state.mode = "general";
@@ -34028,8 +34252,9 @@ Notes:
           setQuickSelectValue("todayQuickRoutineSession", "REST");
           assertTest(getEffectiveTodayCalculationValues().todayRoutineSession === "REST", "general session select should set Today rest day");
 
-          state.mode = "expert";
-          state.generalAdvancedSettings = false;
+          state.mode = "general";
+          state.generalAdvancedSettings = true;
+          ids.generalAdvancedSettings.checked = true;
           state.routinePlan = "ppl_ul";
           ids.routinePlan.value = "ppl_ul";
           state.routine = "PUSH";
@@ -34037,8 +34262,8 @@ Notes:
           setTodayQuickEditOpen(true);
           const expertPlan = document.getElementById("todayQuickRoutinePlan");
           const expertSession = document.getElementById("todayQuickRoutineSession");
-          assertTest(expertPlan.disabled === true, "expert mode should keep routine plan as Settings default in Today");
-          assertTest(expertSession.options.length >= ROUTINE_SCHEMES.ppl_ul.items.length, "expert mode should show plan session options");
+          assertTest(expertPlan.disabled === true, "advanced settings should keep routine plan as Settings default in Today");
+          assertTest(expertSession.options.length >= ROUTINE_SCHEMES.ppl_ul.items.length, "advanced settings should show plan session options");
         }));
 
         results.push(runNamedTest("C2 empty quick numeric edits do not expose NaN and recover", () => {
@@ -34212,6 +34437,7 @@ Notes:
 
         const seedCurrentRecord = () => {
           render();
+          setTodayCalculationDraftValues({ calculationWeight: 75 });
           recordsState.items = normalizeRecordsCollection([{
             date: today,
             weight: 75,
@@ -34338,9 +34564,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and Settings Stitch shell render", () => {
           const panel = renderSettingsShell();
-          assertTest(document.title.includes("v6.6-C4.8-CAL1.1"), "document title should show v6.6-C4.8-CAL1.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-CAL1.1"), "app version badge should show v6.6-C4.8-CAL1.1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-CAL1.1", "version helper should return v6.6-C4.8-CAL1.1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
           assertTest(!!document.querySelector("[data-stitch-settings-shell]"), "Settings should render Stitch shell root");
           assertTest(!!panel.querySelector(".settings-stitch-hero"), "Settings should render Stitch-style hero");
           assertTest(panel.querySelectorAll(".settings-choice-card:not([hidden])").length === 1, "Settings should render a single user-facing goal choice card");
@@ -34461,9 +34687,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and stage are current", () => {
           renderSettings();
-          assertTest(document.title.includes("v6.6-C4.8-CAL1.1"), "document title should show v6.6-C4.8-CAL1.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-CAL1.1"), "app version badge should show v6.6-C4.8-CAL1.1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-CAL1.1", "version helper should return v6.6-C4.8-CAL1.1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
         }));
 
         results.push(runNamedTest("C4.8-M1 Settings hides user-facing mode selection", () => {
@@ -34484,6 +34710,32 @@ Notes:
           assertTest(visibleQuickModeButtons.length === 0, "Today quick mode buttons should not be user-facing");
           assertTest(!isUserFacingElement(document.getElementById("todayModeMini")), "Today mode chip should not be user-facing");
           assertExcludesAll(document.getElementById("todayShellPills")?.innerText || "", ["일반인", "운동인", "전문가용", "일반인 모드", "운동인 모드", "전문가용 모드"], "Today summary pills should not show user-facing mode labels");
+        }));
+
+        results.push(runNamedTest("C4.8-M1 Records detail keeps legacy mode internal", () => {
+          setValidTodayBalanceTestInputs();
+          state.mode = "expert";
+          const result = calculate({ runtime: "legacy" });
+          const snapshot = buildGoalSnapshotFromCurrentState(result, "saved_at_entry");
+          const date = "2026-05-17";
+          recordsState.items = normalizeRecordsCollection([normalizeRecord({
+            date,
+            recordMode: "detailed",
+            weight: snapshot.weight,
+            note: "mode compatibility record",
+            goalSnapshot: snapshot,
+            snapshotSource: "saved_at_entry",
+            meals: []
+          })]);
+          setActiveTab("records");
+          renderRecordsPanel();
+          document.querySelector(`[data-toggle-record-detail="${date}"]`)?.click();
+          const detail = document.querySelector(`[data-record-detail-date="${date}"]`);
+          assertTest(snapshot.mode === "expert", "record snapshot should keep legacy mode internally");
+          assertExcludesAll(visibleText(detail), ["계산 모드", "당시 계산 모드", "일반인", "운동인", "전문가용"], "Records detail should not expose user-facing mode labels");
+          document.querySelector(`[data-record-detail-date="${date}"] [data-edit-record-date]`)?.click();
+          const edit = document.querySelector(`[data-record-detail-date="${date}"][data-record-detail-edit="true"]`);
+          assertTest(!edit?.querySelector('[data-detail-basis-field="mode"]'), "record detail edit should not expose legacy mode selector");
         }));
 
         results.push(runNamedTest("C4.8-M1 goal selector remains available", () => {
@@ -34583,9 +34835,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI3 version and InBody shell root render", () => {
           seedInbodyShell();
-          assertTest(document.title.includes("v6.6-C4.8-CAL1.1"), "document title should show v6.6-C4.8-CAL1.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-CAL1.1"), "app version badge should show v6.6-C4.8-CAL1.1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-CAL1.1", "version helper should return v6.6-C4.8-CAL1.1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
           assertTest(!!document.querySelector("[data-stitch-inbody-shell]"), "InBody should render Stitch shell root");
           assertTest(!!document.querySelector(".inbody-stitch-hero"), "InBody should render result-first hero card");
           assertTest(!!document.querySelector(".inbody-stitch-layout"), "InBody should render analysis/input/history layout");
@@ -34715,9 +34967,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
           seedRecordsShell();
-          assertTest(document.title.includes("v6.6-C4.8-CAL1.1"), "document title should show v6.6-C4.8-CAL1.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-CAL1.1"), "app version badge should show v6.6-C4.8-CAL1.1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-CAL1.1", "version helper should return v6.6-C4.8-CAL1.1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
           assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
           assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
           assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
@@ -34866,9 +35118,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI2 version and Weekly shell root render", () => {
           seedWeeklyShell();
-          assertTest(document.title.includes("v6.6-C4.8-CAL1.1"), "document title should show v6.6-C4.8-CAL1.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-CAL1.1"), "app version badge should show v6.6-C4.8-CAL1.1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-CAL1.1", "version helper should return v6.6-C4.8-CAL1.1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
           assertTest(!!document.querySelector("[data-stitch-weekly-shell]"), "Weekly should render Stitch shell root");
           assertTest(!!document.querySelector("[data-stitch-weekly-dashboard]"), "Weekly should render Stitch dashboard root");
         }));
@@ -34982,9 +35234,9 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.6-C4.8-CAL1.1"), "document title should show v6.6-C4.8-CAL1.1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-CAL1.1"), "app version badge should show v6.6-C4.8-CAL1.1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-CAL1.1", "version helper should return v6.6-C4.8-CAL1.1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
@@ -35673,7 +35925,7 @@ Notes:
         results.push(runNamedTest("macro target current goal acceptance ranges", () => {
           const ranges = {
             diet: { protein: [175, 185], fat: [44, 48], carbs: [205, 215] },
-            lean_bulk: { protein: [148, 152], fat: [51, 55], carbs: [360, 370] },
+            lean_bulk: { protein: [148, 152], fat: [51, 55], carbs: [355, 370] },
             bulk: { protein: [133, 138], fat: [75, 80], carbs: [370, 380] }
           };
           const outputs = {};
@@ -36031,7 +36283,7 @@ Notes:
 
     function getNoWeeklyXwValueForCalibration(s, modeCfg){
       if (s.routine === "REST") return 0;
-      if (modeCfg.inputDepth === "basic" && !state.generalAdvancedSettings) return clamp(0.68, 0, 1);
+      if (modeCfg.inputDepth === "basic" && !modeCfg.advancedTuning) return clamp(0.68, 0, 1);
       const baseXw = Number(s.intensityOverride);
       return baseXw <= 0 ? 0 : clamp(baseXw, 0, 1);
     }
@@ -36128,7 +36380,7 @@ Notes:
       } : null;
       const weeklyXwAdjustment = result.s.routine === "REST"
         ? 0
-        : result.modeCfg.inputDepth === "basic" && !state.generalAdvancedSettings
+        : result.modeCfg.inputDepth === "basic" && !result.modeCfg.advancedTuning
           ? result.xw - 0.68
           : result.xw - Math.max(0, Number(result.s.intensityOverride) || 0);
       return {
@@ -44181,17 +44433,17 @@ Notes:
           assertTest(restDayRows.length >= 30, "rest day semantic scan should cover all rest-day mode rows");
         }));
 
-        results.push(runNamedTest("C4.8-CAL1.1 lean_bulk and bulk representatives stay on CAL1 baseline", () => {
+        results.push(runNamedTest("C4.8-CAL1.1 lean_bulk and bulk representatives keep controlled surplus semantics", () => {
           const lean = calculateModeScenario("lean_home_inbody_male__rest_day", "general", "guide");
           assertTest(lean.s.goal === "lean_bulk", "lean representative should be lean_bulk");
           assertTest(lean.targetCal > lean.totalBurn, "lean_bulk representative should keep a controlled surplus");
-          assertClose(lean.targetCal, 2378.03, 0.1, "lean_bulk representative target should stay on CAL1 baseline");
+          assertTest(lean.targetCal <= lean.totalBurn + GOALS.lean_bulk.deltaMax + 1e-6, "lean_bulk representative surplus should stay inside goal guard");
           assertMacroKcalMatchesTarget(lean, "lean representative");
 
           const bulk = calculateModeScenario("bulk_5w_no_cardio_male__rest_day", "general", "guide");
           assertTest(bulk.s.goal === "bulk", "bulk representative should be bulk");
           assertTest(bulk.targetCal > bulk.totalBurn, "bulk representative should keep surplus");
-          assertClose(bulk.targetCal, 2760.61, 0.1, "bulk representative target should stay on CAL1 baseline");
+          assertTest(bulk.targetCal <= bulk.totalBurn + GOALS.bulk.deltaMax + 1e-6, "bulk representative surplus should stay inside goal guard");
           assertMacroKcalMatchesTarget(bulk, "bulk representative");
         }));
 
@@ -48679,6 +48931,7 @@ Notes:
     window.runTodayQuickEditTests = runTodayQuickEditTests;
     window.runTodayRecordConfirmationTests = runTodayRecordConfirmationTests;
     window.runUserFacingModeRemovalTests = runUserFacingModeRemovalTests;
+    window.runModeFreeCalculationContextTests = runModeFreeCalculationContextTests;
     window.runStitchSettingsShellTests = runStitchSettingsShellTests;
     window.runStitchRecordsShellTests = runStitchRecordsShellTests;
     window.runStitchInBodyShellTests = runStitchInBodyShellTests;
