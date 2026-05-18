@@ -1,8 +1,11 @@
 <!--
-Version: 6.6-C4.8-UI5-F
-Stage: 6.6-C4.8-UI5-F Settings 접힘형 그룹 밀도 정리
+Version: 6.6-C4.8-UI5-G
+Stage: 6.6-C4.8-UI5-G 최근 흐름 저기록 화면 밀도 정리
 Date: 2026-05-18
 Notes:
+- C4.8-UI5-G 최근 흐름 저기록 / 빈 상태의 chart와 achievement 카드 밀도를 정리
+- 모바일에서 대기 카드와 빈 차트가 과하게 커지는 문제를 줄이고 필요한 기록을 짧게 안내
+- 최근 흐름 계산 / recentContext / Coach / backup schema 변경 없음
 - C4.8-UI5-F Settings 기본 프로필 / 생활 패턴 / 운동 기준 / 전문가 설정을 접힘형 그룹으로 정리
 - Settings가 모바일에서 긴 관리폼처럼 보이는 문제를 줄이고 Stitch식 항목 카드 흐름에 가깝게 보정
 - 기능 로직 / 계산식 / backup schema 변경 없음
@@ -249,7 +252,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.8-UI5-F</title>
+  <title>탄단지 다이어리 v6.6-C4.8-UI5-G</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -6575,6 +6578,38 @@ Notes:
       font-size:17px;
       font-weight:950;
     }
+    .recent-flow-empty-kickers{
+      display:flex;
+      justify-content:center;
+      gap:8px;
+      margin-top:8px;
+      flex-wrap:wrap;
+    }
+    .recent-flow-empty-kickers span{
+      display:inline-flex;
+      align-items:center;
+      min-height:26px;
+      padding:5px 10px;
+      border-radius:999px;
+      border:1px solid color-mix(in srgb, var(--line) 72%, white 28%);
+      background:rgba(255,255,255,.74);
+      color:color-mix(in srgb, var(--deep) 72%, var(--muted) 28%);
+      font-size:12px;
+      font-weight:900;
+    }
+    .recent-flow-overview.is-low-data{
+      gap:18px;
+    }
+    .recent-flow-overview.is-low-data .recent-flow-trend-card{
+      min-height:0;
+    }
+    .recent-flow-overview.is-low-data .recent-flow-chart-wrap{
+      min-height:196px;
+    }
+    .recent-flow-overview.is-low-data .recent-flow-chart-empty{
+      min-height:194px;
+      padding:22px;
+    }
     .recent-flow-side-stack{
       display:grid;
       gap:20px;
@@ -6650,6 +6685,17 @@ Notes:
       color:var(--muted);
       font-size:13px;
       line-height:1.5;
+    }
+    .recent-flow-achievement-card.is-empty{
+      padding:20px 22px;
+    }
+    .recent-flow-achievement-card.is-empty p{
+      margin-top:8px;
+    }
+    .recent-flow-achievement-card .recent-flow-achievement-empty-mark{
+      font-size:24px;
+      letter-spacing:0;
+      line-height:1.08;
     }
     .recent-flow-summary-card,
     .recent-flow-points{
@@ -8837,6 +8883,39 @@ Notes:
         min-height:220px;
         height:220px;
       }
+      .recent-flow-overview.is-low-data{
+        gap:14px;
+      }
+      .recent-flow-overview.is-low-data .recent-flow-trend-card{
+        padding:16px;
+      }
+      .recent-flow-overview.is-low-data .recent-flow-chart-wrap,
+      .recent-flow-overview.is-low-data .recent-flow-chart-empty{
+        min-height:116px;
+        height:auto;
+      }
+      .recent-flow-overview.is-low-data .recent-flow-chart-empty{
+        padding:12px 12px;
+        gap:4px;
+      }
+      .recent-flow-overview.is-low-data .recent-flow-card-head{
+        gap:10px;
+        margin-bottom:12px;
+      }
+      .recent-flow-overview.is-low-data .recent-flow-achievement-card{
+        padding:16px;
+      }
+      .recent-flow-overview.is-low-data .recent-flow-achievement-card .recent-flow-achievement-empty-mark{
+        font-size:22px;
+      }
+      .recent-flow-empty-kickers{
+        gap:6px;
+      }
+      .recent-flow-empty-kickers span{
+        min-height:22px;
+        padding:3px 8px;
+        font-size:11px;
+      }
       .recent-flow-dashboard-grid{
         display:flex;
         flex-direction:column;
@@ -8906,7 +8985,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.8-UI5-F</span>
+               <span class="app-version">v6.6-C4.8-UI5-G</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -11000,7 +11079,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-UI5-F";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-UI5-G";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -23686,8 +23765,12 @@ Notes:
       if (!records.length) {
         return `
           <div class="recent-flow-chart-empty">
-            <strong>기록이 아직 부족합니다.</strong>
-            <span>식사와 체중 기록이 쌓이면 흐름을 시각화합니다.</span>
+            <strong>흐름을 만들 기록이 필요합니다.</strong>
+            <span>식사와 체중을 함께 기록하면 차트가 열립니다.</span>
+            <div class="recent-flow-empty-kickers" aria-label="필요한 기록">
+              <span>식사 기록</span>
+              <span>체중 기록</span>
+            </div>
           </div>
         `;
       }
@@ -23825,6 +23908,8 @@ Notes:
       const points = getRecentFlowPointItems(selectedWindow, selectedRangeDays);
       const goalLine = getRecentFlowGoalBreakdown(selectedWindow);
       const achievement = getRecentFlowAchievement(selectedWindow);
+      const hasTrendRecords = getRecentFlowDisplayRecords(selectedWindow, Math.min(28, Math.max(1, selectedRangeDays))).length > 0;
+      const hasAchievement = Number.isFinite(achievement.value);
       const selectedProblemAction = getRecentFlowProblemDateAction(selectedWindow, currentResult);
       const windowCards = RECENT_FLOW_UI_CARD_DAYS.map(days => {
         const window = context.windows?.[days];
@@ -23850,7 +23935,7 @@ Notes:
         `;
       }).join("");
       host.innerHTML = `
-        <div class="recent-flow-overview" data-stitch-weekly-dashboard>
+        <div class="recent-flow-overview ${hasTrendRecords ? "has-data" : "is-low-data"}" data-stitch-weekly-dashboard>
           <div class="recent-flow-range-row">
             <div class="recent-flow-range-controls" aria-label="기록 범위 선택">
               ${RECENT_FLOW_RANGE_DAYS.map(days => `
@@ -23882,10 +23967,10 @@ Notes:
                 <h4>평균 영양 섭취</h4>
                 ${renderRecentFlowMacroBars(selectedWindow)}
               </section>
-              <section class="recent-flow-achievement-card">
+              <section class="recent-flow-achievement-card ${hasAchievement ? "" : "is-empty"}">
                 <div>목표 달성률</div>
-                <strong>${Number.isFinite(achievement.value) ? `${round(achievement.value)}%` : "-"}</strong>
-                <span>${escapeHtml(achievement.label)}</span>
+                <strong class="${hasAchievement ? "" : "recent-flow-achievement-empty-mark"}">${hasAchievement ? `${round(achievement.value)}%` : escapeHtml(achievement.label)}</strong>
+                ${hasAchievement ? `<span>${escapeHtml(achievement.label)}</span>` : ""}
                 <p>${escapeHtml(achievement.sub)}</p>
               </section>
             </aside>
@@ -30273,8 +30358,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI5-F"), "document title should show v6.6-C4.8-UI5-F");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-F"), "app version badge should show v6.6-C4.8-UI5-F");
+          assertTest(document.title.includes("v6.6-C4.8-UI5-G"), "document title should show v6.6-C4.8-UI5-G");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-G"), "app version badge should show v6.6-C4.8-UI5-G");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -31824,8 +31909,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI5-F"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-F"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-UI5-G"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-G"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -32467,7 +32552,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.6-C4.8-UI5-F", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.6-C4.8-UI5-G", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -32774,7 +32859,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.6-C4.8-UI5-F", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.6-C4.8-UI5-G", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -32999,9 +33084,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI5-F"), "document title should show v6.6-C4.8-UI5-F");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-F"), "app version badge should show v6.6-C4.8-UI5-F");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-F", "current app version helper should return v6.6-C4.8-UI5-F");
+          assertTest(document.title.includes("v6.6-C4.8-UI5-G"), "document title should show v6.6-C4.8-UI5-G");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-G"), "app version badge should show v6.6-C4.8-UI5-G");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-G", "current app version helper should return v6.6-C4.8-UI5-G");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -33042,7 +33127,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.6-C4.8-UI5-F", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.6-C4.8-UI5-G", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -33088,9 +33173,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI5-F"), "document title should show v6.6-C4.8-UI5-F");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-F"), "app version badge should show v6.6-C4.8-UI5-F");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-F", "current app version helper should return v6.6-C4.8-UI5-F");
+          assertTest(document.title.includes("v6.6-C4.8-UI5-G"), "document title should show v6.6-C4.8-UI5-G");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-G"), "app version badge should show v6.6-C4.8-UI5-G");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-G", "current app version helper should return v6.6-C4.8-UI5-G");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -33195,16 +33280,16 @@ Notes:
         };
         const visibleBodyText = () => getRenderedBodyText();
 
-        results.push(runNamedTest("C4.8-UI5-F version stage and badges are updated", () => {
+        results.push(runNamedTest("C4.8-UI5-G version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.6-C4.8-UI5-F",
-            "Stage: 6.6-C4.8-UI5-F Settings 접힘형 그룹 밀도 정리",
-            "Settings 기본 프로필 / 생활 패턴 / 운동 기준 / 전문가 설정을 접힘형 그룹으로 정리"
-          ], "top comment should show C4.8-UI5-F version and stage");
-          assertTest(document.title.includes("v6.6-C4.8-UI5-F"), "document title should show v6.6-C4.8-UI5-F");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-F"), "app version badge should show v6.6-C4.8-UI5-F");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-F", "version helper should return v6.6-C4.8-UI5-F");
+            "Version: 6.6-C4.8-UI5-G",
+            "Stage: 6.6-C4.8-UI5-G 최근 흐름 저기록 화면 밀도 정리",
+            "최근 흐름 저기록 / 빈 상태의 chart와 achievement 카드 밀도를 정리"
+          ], "top comment should show C4.8-UI5-G version and stage");
+          assertTest(document.title.includes("v6.6-C4.8-UI5-G"), "document title should show v6.6-C4.8-UI5-G");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-G"), "app version badge should show v6.6-C4.8-UI5-G");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-G", "version helper should return v6.6-C4.8-UI5-G");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -33272,6 +33357,7 @@ Notes:
         results.push(runNamedTest("C4.7-B3 Settings copy keeps defaults and Data Management distinction", () => {
           setActiveTab("settings");
           render();
+          getSettingsDisclosureGroups().forEach(group => setSettingsDisclosureGroupOpen(group, true));
           const text = panelText("settingsPanel");
           assertIncludesAll(text, [
             "목표 설정",
@@ -34085,8 +34171,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.6-C4.8-UI5-F"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-F"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-UI5-G"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-G"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertTest(!!panel.querySelector(".settings-goal-choice:not([hidden])"), "Settings should keep the goal selector visible");
           assertTest(!panel.querySelector(".settings-mode-choice"), "Settings should remove mode selector residue after M2-D");
@@ -34687,9 +34773,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and Settings Stitch shell render", () => {
           const panel = renderSettingsShell();
-          assertTest(document.title.includes("v6.6-C4.8-UI5-F"), "document title should show v6.6-C4.8-UI5-F");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-F"), "app version badge should show v6.6-C4.8-UI5-F");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-F", "version helper should return v6.6-C4.8-UI5-F");
+          assertTest(document.title.includes("v6.6-C4.8-UI5-G"), "document title should show v6.6-C4.8-UI5-G");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-G"), "app version badge should show v6.6-C4.8-UI5-G");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-G", "version helper should return v6.6-C4.8-UI5-G");
           assertTest(!!document.querySelector("[data-stitch-settings-shell]"), "Settings should render Stitch shell root");
           assertTest(!!panel.querySelector(".settings-stitch-hero"), "Settings should render Stitch-style hero");
           assertTest(panel.querySelectorAll(".settings-choice-card:not([hidden])").length === 1, "Settings should render a single user-facing goal choice card");
@@ -34828,9 +34914,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M2-D version and stage are current", () => {
           renderSettings();
-          assertTest(document.title.includes("v6.6-C4.8-UI5-F"), "document title should show v6.6-C4.8-UI5-F");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-F"), "app version badge should show v6.6-C4.8-UI5-F");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-F", "version helper should return v6.6-C4.8-UI5-F");
+          assertTest(document.title.includes("v6.6-C4.8-UI5-G"), "document title should show v6.6-C4.8-UI5-G");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-G"), "app version badge should show v6.6-C4.8-UI5-G");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-G", "version helper should return v6.6-C4.8-UI5-G");
         }));
 
         results.push(runNamedTest("C4.8-M2-D Settings removes user-facing mode selection DOM", () => {
@@ -34973,9 +35059,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI3 version and InBody shell root render", () => {
           seedInbodyShell();
-          assertTest(document.title.includes("v6.6-C4.8-UI5-F"), "document title should show v6.6-C4.8-UI5-F");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-F"), "app version badge should show v6.6-C4.8-UI5-F");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-F", "version helper should return v6.6-C4.8-UI5-F");
+          assertTest(document.title.includes("v6.6-C4.8-UI5-G"), "document title should show v6.6-C4.8-UI5-G");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-G"), "app version badge should show v6.6-C4.8-UI5-G");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-G", "version helper should return v6.6-C4.8-UI5-G");
           assertTest(!!document.querySelector("[data-stitch-inbody-shell]"), "InBody should render Stitch shell root");
           assertTest(!!document.querySelector(".inbody-stitch-hero"), "InBody should render result-first hero card");
           assertTest(!!document.querySelector(".inbody-stitch-layout"), "InBody should render analysis/input/history layout");
@@ -35105,9 +35191,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
           seedRecordsShell();
-          assertTest(document.title.includes("v6.6-C4.8-UI5-F"), "document title should show v6.6-C4.8-UI5-F");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-F"), "app version badge should show v6.6-C4.8-UI5-F");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-F", "version helper should return v6.6-C4.8-UI5-F");
+          assertTest(document.title.includes("v6.6-C4.8-UI5-G"), "document title should show v6.6-C4.8-UI5-G");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-G"), "app version badge should show v6.6-C4.8-UI5-G");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-G", "version helper should return v6.6-C4.8-UI5-G");
           assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
           assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
           assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
@@ -35256,9 +35342,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI2 version and Weekly shell root render", () => {
           seedWeeklyShell();
-          assertTest(document.title.includes("v6.6-C4.8-UI5-F"), "document title should show v6.6-C4.8-UI5-F");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-F"), "app version badge should show v6.6-C4.8-UI5-F");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-F", "version helper should return v6.6-C4.8-UI5-F");
+          assertTest(document.title.includes("v6.6-C4.8-UI5-G"), "document title should show v6.6-C4.8-UI5-G");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-G"), "app version badge should show v6.6-C4.8-UI5-G");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-G", "version helper should return v6.6-C4.8-UI5-G");
           assertTest(!!document.querySelector("[data-stitch-weekly-shell]"), "Weekly should render Stitch shell root");
           assertTest(!!document.querySelector("[data-stitch-weekly-dashboard]"), "Weekly should render Stitch dashboard root");
         }));
@@ -35315,7 +35401,9 @@ Notes:
           renderWeeklyPanel(calculate());
           const panel = document.getElementById("weeklyPanel");
           assertTest(!!panel.querySelector(".recent-flow-chart-empty"), "empty weekly state should show chart empty state");
-          assertIncludesAll(panel.textContent || "", ["기록이 아직 부족합니다", "분석이 어렵습니다", "칼로리는 아직 바꾸지 마세요"], "empty weekly state should keep conservative copy");
+          assertTest(panel.querySelector(".recent-flow-overview")?.classList.contains("is-low-data"), "empty weekly state should use low-data compact layout");
+          assertTest(!!panel.querySelector(".recent-flow-achievement-card.is-empty"), "empty achievement card should use compact empty state");
+          assertIncludesAll(panel.textContent || "", ["흐름을 만들 기록이 필요합니다", "식사 기록", "체중 기록", "분석 대기"], "empty weekly state should keep conservative copy");
         }));
 
         results.push(runNamedTest("C4.8-UI2 Weekly shell does not regress Today Records backup exports", () => {
@@ -35372,9 +35460,9 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI5-F"), "document title should show v6.6-C4.8-UI5-F");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-F"), "app version badge should show v6.6-C4.8-UI5-F");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-F", "version helper should return v6.6-C4.8-UI5-F");
+          assertTest(document.title.includes("v6.6-C4.8-UI5-G"), "document title should show v6.6-C4.8-UI5-G");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI5-G"), "app version badge should show v6.6-C4.8-UI5-G");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI5-G", "version helper should return v6.6-C4.8-UI5-G");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
