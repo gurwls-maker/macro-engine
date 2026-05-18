@@ -1,8 +1,13 @@
 <!--
-Version: 6.6-C4.8-UI2
-Stage: 6.6-C4.8-UI2 최근 흐름 Shell 이식
-Date: 2026-05-17
+Version: 6.6-C4.8-UI3
+Stage: 6.6-C4.8-UI3 InBody 측정 Shell 이식
+Date: 2026-05-18
 Notes:
+- C4.8-UI3 InBody 탭을 Stitch 톤의 측정 결과 / 기록 / Today 적용 Shell로 재배치
+- InBody 입력 / 저장 / 기록 목록 / Today 적용 / 간단 해석 기능 유지
+- 최신 측정일 / 지난 측정 대비 / 간단 해석 / 기록 목록을 Stitch식 카드 구조에 배치
+- InBody 원본 기록과 Today 몸 상태 적용 책임 분리 유지
+- 산식 / Coach / recentContext / InBody gate / dual basis / schema-import-export 변경 없음
 - C4.8-UI2 최근 흐름 / Weekly 탭을 Stitch 톤의 기록 흐름 확인 Shell로 재배치
 - 최근 3/7/14/28일 흐름, 기록 부족 안내, recent Coach 기능 유지
 - 그래프는 현재 기록 데이터와 맞는 점수/체중 흐름만 반영하고 억지 추가하지 않음
@@ -184,7 +189,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.8-UI2</title>
+  <title>탄단지 다이어리 v6.6-C4.8-UI3</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -5184,6 +5189,337 @@ Notes:
       letter-spacing:0;
       text-transform:none;
     }
+    .inbody-stitch-shell{
+      display:grid;
+      gap:18px;
+    }
+    .inbody-stitch-hero{
+      padding:22px;
+      border-radius:24px;
+      background:linear-gradient(180deg,rgba(255,252,247,.96),rgba(255,252,247,.88));
+      box-shadow:0 14px 34px rgba(28,36,48,.06);
+    }
+    .inbody-stitch-hero-head,
+    .inbody-card-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:16px;
+      min-width:0;
+    }
+    .inbody-stitch-heading h2,
+    .inbody-card-head h3{
+      margin:0;
+      letter-spacing:-.03em;
+      color:var(--deep);
+    }
+    .inbody-stitch-heading p{
+      margin:6px 0 0;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.55;
+      word-break:keep-all;
+      overflow-wrap:anywhere;
+    }
+    .inbody-latest-date-pill{
+      flex:0 0 auto;
+      display:grid;
+      gap:4px;
+      min-width:154px;
+      padding:10px 12px;
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      border-radius:16px;
+      background:rgba(255,255,255,.76);
+      text-align:right;
+    }
+    .inbody-latest-date-pill span,
+    .inbody-card-sub{
+      color:var(--muted);
+      font-size:11px;
+      font-weight:900;
+      line-height:1.35;
+    }
+    .inbody-latest-date-pill strong{
+      color:var(--deep);
+      font-size:16px;
+      line-height:1.2;
+      font-weight:950;
+    }
+    .inbody-stitch-kpi-grid{
+      display:grid;
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      gap:16px;
+      margin-top:28px;
+    }
+    .inbody-stitch-kpi-card{
+      min-width:0;
+      min-height:156px;
+      padding:20px;
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      border-radius:18px;
+      background:rgba(255,255,255,.86);
+      box-shadow:0 12px 26px rgba(28,36,48,.055);
+      display:grid;
+      align-content:space-between;
+      gap:12px;
+    }
+    .inbody-kpi-token{
+      width:38px;
+      height:38px;
+      border-radius:999px;
+      background:var(--teal-soft);
+      display:grid;
+      place-items:center;
+      color:#087d73;
+    }
+    .inbody-kpi-token svg{
+      width:22px;
+      height:22px;
+      fill:none;
+      stroke:currentColor;
+      stroke-width:2.15;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    .inbody-kpi-token.aqua{background:#dffbf7;color:#087d73}
+    .inbody-kpi-token.warm{background:#f2ece6;color:#6e5138}
+    .inbody-kpi-token.mint{background:#e4fbf4;color:#11836f}
+    .inbody-kpi-token.coral{background:#ffe9e7;color:#c1504d}
+    .inbody-kpi-label{
+      color:var(--text);
+      font-size:13px;
+      font-weight:900;
+      line-height:1.35;
+    }
+    .visually-hidden{
+      position:absolute!important;
+      width:1px!important;
+      height:1px!important;
+      padding:0!important;
+      margin:-1px!important;
+      overflow:hidden!important;
+      clip:rect(0,0,0,0)!important;
+      white-space:nowrap!important;
+      border:0!important;
+    }
+    .inbody-kpi-value{
+      color:var(--deep);
+      font-size:31px;
+      line-height:1;
+      letter-spacing:-.04em;
+      font-weight:950;
+      white-space:nowrap;
+    }
+    .inbody-kpi-value small{
+      color:var(--text);
+      font-size:13px;
+      letter-spacing:0;
+      font-weight:900;
+    }
+    .inbody-stitch-actions{
+      display:flex;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      gap:10px;
+      margin-top:18px;
+    }
+    .inbody-stitch-actions .primary-btn,
+    .inbody-stitch-actions .secondary-btn{
+      min-height:38px;
+      padding:9px 14px;
+      font-size:13px;
+    }
+    .inbody-stitch-layout{
+      display:grid;
+      grid-template-columns:minmax(0,1.5fr) minmax(320px,.85fr);
+      gap:18px;
+      align-items:start;
+    }
+    .inbody-stitch-main{
+      display:grid;
+      gap:18px;
+      min-width:0;
+    }
+    .inbody-stitch-side{
+      min-width:0;
+    }
+    .inbody-trend-card,
+    .inbody-input-card,
+    .inbody-history-card{
+      padding:20px;
+      border-radius:24px;
+      background:rgba(255,252,247,.94);
+      box-shadow:0 12px 28px rgba(28,36,48,.055);
+    }
+    .inbody-delta-grid{
+      display:grid;
+      gap:0;
+      margin-top:18px;
+      border-top:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+      border-bottom:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+    }
+    .inbody-delta-row{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      align-items:center;
+      gap:16px;
+      padding:14px 0;
+      border-bottom:1px dashed color-mix(in srgb, var(--line) 76%, white 24%);
+      color:var(--text);
+      font-size:13px;
+      font-weight:850;
+    }
+    .inbody-delta-row:last-child{
+      border-bottom:none;
+    }
+    .inbody-delta-value{
+      color:var(--deep);
+      font-size:16px;
+      font-weight:950;
+      white-space:nowrap;
+    }
+    .inbody-delta-value.good{
+      color:var(--teal);
+    }
+    .inbody-delta-value.warn{
+      color:#b36b27;
+    }
+    .inbody-observation-card{
+      display:grid;
+      grid-template-columns:auto minmax(0,1fr);
+      gap:14px;
+      align-items:start;
+      margin-top:18px;
+      padding:16px;
+      border-radius:18px;
+      color:#ecfffb;
+      background:linear-gradient(135deg,#15243b,#1b3453);
+      border-left:4px solid var(--teal);
+      box-shadow:0 12px 28px rgba(28,36,48,.09);
+    }
+    .inbody-observation-card strong{
+      display:block;
+      font-size:15px;
+      line-height:1.35;
+      font-weight:950;
+      margin-bottom:4px;
+    }
+    .inbody-observation-card p{
+      margin:0;
+      font-size:13px;
+      line-height:1.65;
+      color:rgba(236,255,251,.82);
+      word-break:keep-all;
+      overflow-wrap:anywhere;
+    }
+    .inbody-observation-icon{
+      width:28px;
+      height:28px;
+      border-radius:999px;
+      display:grid;
+      place-items:center;
+      color:#72eadc;
+      background:rgba(114,234,220,.12);
+    }
+    .inbody-observation-icon svg{
+      width:18px;
+      height:18px;
+      fill:none;
+      stroke:currentColor;
+      stroke-width:2;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    .inbody-summary-rows{
+      position:absolute;
+      width:1px;
+      height:1px;
+      padding:0;
+      margin:-1px;
+      overflow:hidden;
+      clip:rect(0,0,0,0);
+      white-space:nowrap;
+      border:0;
+    }
+    .inbody-form-grid{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(0,1fr));
+      gap:12px;
+      margin-top:18px;
+    }
+    .inbody-form-grid .field{
+      margin:0;
+    }
+    .inbody-save-field{
+      display:grid;
+      align-content:end;
+    }
+    .inbody-save-field .primary-btn{
+      min-height:43px;
+    }
+    .inbody-history-card{
+      position:sticky;
+      top:96px;
+    }
+    .inbody-history-card.inbody-records-collapsible{
+      background:rgba(255,252,247,.94);
+    }
+    .inbody-history-card .table-like{
+      max-height:620px;
+      overflow:auto;
+    }
+    #inbodyRecordList .inbody-record{
+      align-items:start;
+      border-radius:16px;
+      background:rgba(255,255,255,.72);
+      border:1px solid color-mix(in srgb, var(--line) 78%, white 22%);
+      margin-bottom:10px;
+      padding:12px;
+    }
+    #inbodyRecordList .table-head{
+      display:none;
+    }
+    #inbodyRecordList .inbody-record-values{
+      grid-template-columns:1fr;
+      gap:6px;
+    }
+    #inbodyRecordList .inbody-record-date{
+      color:var(--deep);
+      font-size:14px;
+      font-weight:950;
+    }
+    #inbodyRecordList .inbody-record-metrics{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:850;
+      line-height:1.35;
+    }
+    #inbodyRecordList .inbody-record-metrics span{
+      padding:4px 7px;
+      border-radius:999px;
+      background:rgba(245,238,228,.72);
+    }
+    #inbodyRecordList .inbody-record-warning-dot{
+      display:inline-block;
+      width:8px;
+      height:8px;
+      margin-left:6px;
+      border-radius:999px;
+      background:#d7695f;
+      vertical-align:middle;
+    }
+    #inbodyRecordList .inbody-record-actions{
+      margin-top:10px;
+      gap:8px;
+    }
+    #inbodyRecordList .inbody-record-actions .secondary-btn{
+      min-height:auto;
+      padding:8px 10px;
+      font-size:12px;
+    }
     .section-title-actions{
       margin-left:auto;
       display:flex;
@@ -7215,6 +7551,75 @@ Notes:
       }
       #inbodyPanel .kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
       #inbodyPanel .kpi{grid-column:auto;min-height:118px}
+      .inbody-stitch-hero,
+      .inbody-trend-card,
+      .inbody-input-card,
+      .inbody-history-card{
+        padding:12px;
+        border-radius:20px;
+      }
+      .inbody-stitch-hero-head,
+      .inbody-card-head{
+        flex-direction:column;
+        gap:10px;
+      }
+      .inbody-latest-date-pill{
+        width:100%;
+        min-width:0;
+        text-align:left;
+      }
+      .inbody-stitch-kpi-grid{
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        gap:10px;
+        margin-top:14px;
+      }
+      .inbody-stitch-kpi-card{
+        min-height:112px;
+        padding:12px;
+        border-radius:16px;
+        gap:8px;
+      }
+      .inbody-kpi-token{
+        width:34px;
+        height:34px;
+      }
+      .inbody-kpi-token svg{
+        width:19px;
+        height:19px;
+      }
+      .inbody-kpi-value{
+        font-size:24px;
+      }
+      .inbody-stitch-actions{
+        justify-content:stretch;
+        gap:8px;
+        margin-top:12px;
+      }
+      .inbody-stitch-actions .primary-btn,
+      .inbody-stitch-actions .secondary-btn{
+        flex:1 1 150px;
+        min-height:36px;
+        padding:8px 10px;
+      }
+      .inbody-stitch-layout{
+        grid-template-columns:1fr;
+      }
+      .inbody-form-grid{
+        grid-template-columns:1fr;
+      }
+      .inbody-history-card{
+        position:static;
+      }
+      .inbody-history-card .table-like{
+        max-height:none;
+      }
+      .inbody-delta-row{
+        grid-template-columns:1fr;
+        gap:4px;
+      }
+      .inbody-delta-value{
+        justify-self:start;
+      }
       #inbodyRecordList .inbody-record-values{
         grid-template-columns:1fr;
         gap:6px;
@@ -7931,7 +8336,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.8-UI2</span>
+               <span class="app-version">v6.6-C4.8-UI3</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -8858,56 +9263,129 @@ Notes:
       </div>
     </section>
     <section class="tab-panel" id="inbodyPanel" hidden>
-      <section class="panel">
-        <div class="section-title-row">
-          <div>
-            <div class="eyebrow">InBody</div>
-            <h2>InBody</h2>
+      <div class="inbody-stitch-shell" data-stitch-inbody-shell>
+        <section class="panel inbody-stitch-hero">
+          <div class="inbody-stitch-hero-head">
+            <div class="inbody-stitch-heading">
+              <div class="eyebrow">측정 결과</div>
+              <h2>InBody 결과</h2>
+              <p>원본 측정 기록을 확인하고 필요할 때 Today 몸 상태에 적용합니다. 날짜별 기록은 Records에서 봅니다.</p>
+            </div>
+            <div class="inbody-latest-date-pill">
+              <span>최신 측정일</span>
+              <strong id="inbodyLatestDateInline">-</strong>
+            </div>
           </div>
-          <div class="section-title-actions">
+          <div class="inbody-stitch-kpi-grid">
+            <div class="inbody-stitch-kpi-card">
+              <div class="inbody-kpi-token aqua" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <rect x="5.6" y="4.6" width="12.8" height="14.8" rx="2.8" fill="currentColor" stroke="none"></rect>
+                  <rect x="8.1" y="7" width="7.8" height="4.6" rx="1.8" fill="rgba(255,255,255,.92)" stroke="none"></rect>
+                  <path d="M9.8 9.8c.6-.9 1.3-1.3 2.2-1.3s1.6.4 2.2 1.3" stroke="currentColor"></path>
+                  <path d="M12 9.7l1.7-1.3" stroke="currentColor"></path>
+                  <path d="M8.9 16.2h6.2" stroke="rgba(255,255,255,.82)"></path>
+                </svg>
+              </div>
+              <div class="inbody-kpi-label"><span class="visually-hidden">최신 </span>체중</div>
+              <div class="inbody-kpi-value"><span id="inbodyLatestWeight">-</span> <small>kg</small></div>
+            </div>
+            <div class="inbody-stitch-kpi-card">
+              <div class="inbody-kpi-token warm" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <rect x="4.4" y="8.4" width="2.6" height="7.2" rx="1" fill="currentColor" stroke="none"></rect>
+                  <rect x="7.4" y="7.2" width="2.4" height="9.6" rx=".9" fill="currentColor" stroke="none"></rect>
+                  <rect x="14.2" y="7.2" width="2.4" height="9.6" rx=".9" fill="currentColor" stroke="none"></rect>
+                  <rect x="17" y="8.4" width="2.6" height="7.2" rx="1" fill="currentColor" stroke="none"></rect>
+                  <path d="M9.9 12h4.2" stroke="currentColor"></path>
+                </svg>
+              </div>
+              <div class="inbody-kpi-label"><span class="visually-hidden">최신 </span>골격근량</div>
+              <div class="inbody-kpi-value"><span id="inbodyLatestMuscle">-</span> <small>kg</small></div>
+            </div>
+            <div class="inbody-stitch-kpi-card">
+              <div class="inbody-kpi-token mint" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 3.8C9.4 7 7.1 10 7.1 13.1a4.9 4.9 0 0 0 9.8 0C16.9 10 14.6 7 12 3.8Z" fill="currentColor" stroke="none"></path>
+                  <path d="M10.2 13.9c.5 1.1 2.1 1.5 3.3.5" stroke="rgba(255,255,255,.9)"></path>
+                </svg>
+              </div>
+              <div class="inbody-kpi-label"><span class="visually-hidden">최신 </span>체지방량</div>
+              <div class="inbody-kpi-value"><span id="inbodyLatestFat">-</span> <small>kg</small></div>
+            </div>
+            <div class="inbody-stitch-kpi-card">
+              <div class="inbody-kpi-token coral" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <circle cx="8" cy="8" r="2.1" fill="currentColor" stroke="none"></circle>
+                  <circle cx="16" cy="16" r="2.1" fill="currentColor" stroke="none"></circle>
+                  <path d="M17.3 6.7L6.7 17.3"></path>
+                </svg>
+              </div>
+              <div class="inbody-kpi-label"><span class="visually-hidden">최신 </span>체지방률</div>
+              <div class="inbody-kpi-value"><span id="inbodyLatestBodyFatPercent">-</span> <small>%</small></div>
+            </div>
+          </div>
+          <div class="inbody-stitch-actions">
+            <button class="primary-btn" id="applyLatestInbodyFromInbodyBtn" type="button">최신 InBody 적용</button>
             <button class="secondary-btn" id="viewInbodyRecordsBtn" type="button">InBody 기록 보기</button>
           </div>
-          <div class="section-title-note">날짜별 기록은 Records에서 봅니다.</div>
-        </div>
-        <div class="grid-3">
-          <div class="field"><label>측정일</label><input id="inbodyDate" type="date"></div>
-          <div class="field"><label>체중 (kg)</label><input id="inbodyWeight" type="number" min="30" max="200" step="0.01"></div>
-          <div class="field"><label>골격근량 (kg)</label><input id="inbodySkeletalMuscle" type="number" min="10" max="70" step="0.01"></div>
-          <div class="field"><label>체지방량 (kg)</label><input id="inbodyBodyFat" type="number" min="0" max="100" step="0.01"><div class="inbody-derived-hint" id="inbodyBodyFatPercentHint"></div></div>
-          <div class="field"><label>체지방률 (%)</label><input id="inbodyBodyFatPercent" type="number" min="0" max="60" step="0.1"><div class="inbody-derived-hint" id="inbodyBodyFatHint"></div><div id="inbodyWarning" class="inbody-warning"></div></div>
-          <div class="field"><label>&nbsp;</label><button class="primary-btn" id="saveInbodyBtn" type="button">저장</button></div>
-        </div>
-        <div id="inbodyFeedback"></div>
-        <div class="kpi-grid">
-          <div class="kpi">
-            <div class="big" id="inbodyLatestWeight">-</div>
-            <div class="label">최신 체중</div>
-            <div class="sub">kg</div>
+        </section>
+
+        <div class="inbody-stitch-layout">
+          <div class="inbody-stitch-main">
+            <section class="panel inbody-trend-card">
+              <div class="inbody-card-head">
+                <div>
+                  <div class="eyebrow">변화</div>
+                  <h3>지난 측정 대비</h3>
+                </div>
+                <span class="inbody-card-sub" id="inbodyTrendDateLabel">기준: -</span>
+              </div>
+              <div class="inbody-delta-grid" id="inbodyDeltaCards"></div>
+              <div class="inbody-observation-card">
+                <div class="inbody-observation-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path d="M12 8v5"></path>
+                    <path d="M12 16h.01"></path>
+                  </svg>
+                </div>
+                <div>
+                  <strong>중립 관찰</strong>
+                  <p id="inbodyInsightText">아직 InBody 기록이 없습니다.</p>
+                </div>
+              </div>
+              <div class="rows inbody-summary-rows" id="inbodySummaryRows"></div>
+            </section>
+
+            <section class="panel inbody-input-card">
+              <div class="inbody-card-head">
+                <div>
+                  <div class="eyebrow">측정 입력</div>
+                  <h3>InBody 기록 추가</h3>
+                </div>
+                <span class="inbody-card-sub">원본 기록으로 저장</span>
+              </div>
+              <div class="inbody-form-grid">
+                <div class="field"><label>측정일</label><input id="inbodyDate" type="date"></div>
+                <div class="field"><label>체중 (kg)</label><input id="inbodyWeight" type="number" min="30" max="200" step="0.01"></div>
+                <div class="field"><label>골격근량 (kg)</label><input id="inbodySkeletalMuscle" type="number" min="10" max="70" step="0.01"></div>
+                <div class="field"><label>체지방량 (kg)</label><input id="inbodyBodyFat" type="number" min="0" max="100" step="0.01"><div class="inbody-derived-hint" id="inbodyBodyFatPercentHint"></div></div>
+                <div class="field"><label>체지방률 (%)</label><input id="inbodyBodyFatPercent" type="number" min="0" max="60" step="0.1"><div class="inbody-derived-hint" id="inbodyBodyFatHint"></div><div id="inbodyWarning" class="inbody-warning"></div></div>
+                <div class="field inbody-save-field"><label>저장</label><button class="primary-btn" id="saveInbodyBtn" type="button">InBody 저장</button></div>
+              </div>
+              <div id="inbodyFeedback"></div>
+            </section>
           </div>
-          <div class="kpi protein">
-            <div class="big" id="inbodyLatestMuscle">-</div>
-            <div class="label">최신 골격근량</div>
-            <div class="sub">kg</div>
-          </div>
-          <div class="kpi carb">
-            <div class="big" id="inbodyLatestFat">-</div>
-            <div class="label">최신 체지방량</div>
-            <div class="sub">kg</div>
-          </div>
-          <div class="kpi fat">
-            <div class="big" id="inbodyLatestBodyFatPercent">-</div>
-            <div class="label">최신 체지방률</div>
-            <div class="sub">%</div>
-          </div>
+
+          <aside class="inbody-stitch-side">
+            <details class="panel inbody-records-collapsible inbody-history-card" id="inbodyRecordsDetails" open>
+              <summary>최근 InBody 기록 <span>Records에서 날짜별 기록과 함께 봅니다. 하단 목록에서 수정·삭제할 수 있습니다.</span></summary>
+              <div class="table-like" id="inbodyRecordList"></div>
+            </details>
+          </aside>
         </div>
-        <div class="analysis-card">
-          <div class="rows" id="inbodySummaryRows"></div>
-        </div>
-        <details class="analysis-card inbody-records-collapsible" id="inbodyRecordsDetails">
-          <summary>최근 InBody 기록 <span>Records에서 날짜별 기록과 함께 봅니다.</span></summary>
-          <div class="table-like" id="inbodyRecordList"></div>
-        </details>
-      </section>
+      </div>
     </section>
     <section class="tab-panel" id="settingsPanel" hidden>
       <div class="settings-stack">
@@ -9951,7 +10429,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-UI2";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-UI3";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -18722,6 +19200,31 @@ Notes:
       return { loaded: true, latest };
     }
 
+    function applyLatestInbodyFromInbodyPanel(){
+      const latest = getLatestInbodyForTodayInput();
+      const feedback = document.getElementById("inbodyFeedback");
+      if (!latest) {
+        if (feedback) feedback.innerHTML = `<div class="notice warn"><h4>InBody 기록 없음</h4><ul><li>적용할 InBody 기록이 없습니다.</li></ul></div>`;
+        return { loaded: false, reason: "no_inbody_records" };
+      }
+      const applied = applyInbodyRecordToTodayBodyStatus(latest, { loadType: TODAY_BODY_STATUS_LOAD_LATEST });
+      if (!applied.applied) return { loaded: false, reason: applied.reason };
+      suppressTodayRecordAutoSync = true;
+      try {
+        render();
+      } finally {
+        suppressTodayRecordAutoSync = false;
+      }
+      const nextFeedback = document.getElementById("inbodyFeedback");
+      if (nextFeedback) {
+        nextFeedback.innerHTML = `<div class="notice"><h4>Today 몸 상태에 적용</h4><ul><li>최신 InBody 값을 Today 몸 상태에 적용했습니다.</li></ul>${buildTodayResultFeedbackActionHtml({
+          type: "today-result",
+          summary: getTodayResultFeedbackSummary(calculate(), { weight: latest.weight })
+        })}</div>`;
+      }
+      return { loaded: true, latest, applied };
+    }
+
     function saveTodayInputWeightToRecord(options = {}){
       const today = getTodayDateString();
       const weight = normalizeWeightValue(getEffectiveTodayCalculationValues().calculationWeight);
@@ -23384,16 +23887,18 @@ Notes:
         ${sorted.map(record => {
           const realIndex = state.inbodyRecords.findIndex(r => r.date === record.date);
           const suspiciousIcon = record.isSuspicious
-            ? ` <span title="입력값 조합이 일반적인 체성분 범위를 벗어났습니다">⚠️</span>`
+            ? ` <span class="inbody-record-warning-dot" aria-label="주의" title="입력값 조합이 일반적인 체성분 범위를 벗어났습니다"></span>`
             : "";
           return `
             <div class="table-row inbody-record">
               <div class="inbody-record-values">
-                <div>${escapeHtml(record.date)}${suspiciousIcon}</div>
-                <div>${formatKg2(record.weight)} kg</div>
-                <div>${formatKg2(record.skeletalMuscle)} kg</div>
-                <div>${formatKg2(record.bodyFat)} kg</div>
-                <div>${Number.isFinite(getDisplayBodyFatPercent(record)) ? `${getDisplayBodyFatPercent(record).toFixed(2)}%` : "-"}</div>
+                <div class="inbody-record-date">${escapeHtml(record.date)}${suspiciousIcon}</div>
+                <div class="inbody-record-metrics">
+                  <span>체중 ${formatKg2(record.weight)}kg</span>
+                  <span>골격근량 ${formatKg2(record.skeletalMuscle)}kg</span>
+                  <span>체지방량 ${formatKg2(record.bodyFat)}kg</span>
+                  <span>체지방률 ${Number.isFinite(getDisplayBodyFatPercent(record)) ? `${getDisplayBodyFatPercent(record).toFixed(2)}%` : "-"}</span>
+                </div>
                 <div class="inbody-record-warning">${record.warning ? escapeHtml(record.warning) : ""}</div>
               </div>
               <div class="inbody-record-actions">
@@ -23489,6 +23994,28 @@ Notes:
       document.getElementById("inbodyLatestMuscle").textContent = latest ? formatKg2(latest.skeletalMuscle) : "-";
       document.getElementById("inbodyLatestFat").textContent = latest ? formatKg2(latest.bodyFat) : "-";
       document.getElementById("inbodyLatestBodyFatPercent").textContent = Number.isFinite(latestBodyFatPercent) ? latestBodyFatPercent.toFixed(2) : "-";
+      const latestDateInline = document.getElementById("inbodyLatestDateInline");
+      if (latestDateInline) latestDateInline.textContent = latest ? latest.date : "-";
+      const trendDateLabel = document.getElementById("inbodyTrendDateLabel");
+      if (trendDateLabel) trendDateLabel.textContent = latest ? `기준: ${latest.date}` : "기준: -";
+      const insight = getInbodyInsight(trendContext);
+      const insightText = document.getElementById("inbodyInsightText");
+      if (insightText) insightText.textContent = insight;
+      const deltaCards = document.getElementById("inbodyDeltaCards");
+      if (deltaCards) {
+        const rows = [
+          { label: "체중 변화", value: delta?.weightDiff, unit: "kg", tone: delta && delta.weightDiff < 0 ? "good" : "" },
+          { label: "골격근량 변화", value: delta?.muscleDiff, unit: "kg", tone: delta && delta.muscleDiff > 0 ? "good" : "" },
+          { label: "체지방량 변화", value: delta?.fatDiff, unit: "kg", tone: delta && delta.fatDiff < 0 ? "good" : "" },
+          { label: "체지방률 변화", value: delta?.bodyFatPercentDiff, unit: "%", tone: delta && delta.bodyFatPercentDiff < 0 ? "good" : "" }
+        ];
+        deltaCards.innerHTML = rows.map(row => {
+          const value = Number.isFinite(row.value)
+            ? `${row.value > 0 ? "+" : ""}${row.unit === "%" ? row.value.toFixed(2) : row.value.toFixed(2)}${row.unit}`
+            : "-";
+          return `<div class="inbody-delta-row"><span>${row.label}</span><strong class="inbody-delta-value ${row.tone}">${value}</strong></div>`;
+        }).join("");
+      }
       const rows = document.getElementById("inbodySummaryRows");
       if (!rows) return;
       rows.innerHTML = `
@@ -23496,7 +24023,7 @@ Notes:
         <div class="row"><div class="key">체중 변화</div><div class="value">${delta ? formatSignedKg2(delta.weightDiff) : "-"}</div></div>
         <div class="row"><div class="key">골격근량 변화</div><div class="value">${delta ? formatSignedKg2(delta.muscleDiff) : "-"}</div></div>
         <div class="row"><div class="key">체지방량 변화</div><div class="value">${delta ? formatSignedKg2(delta.fatDiff) : "-"}</div></div>
-        <div class="row"><div class="key">중립 관찰</div><div class="value">${escapeHtml(getInbodyInsight(trendContext))}</div></div>
+        <div class="row"><div class="key">중립 관찰</div><div class="value">${escapeHtml(insight)}</div></div>
       `;
       renderInbodyRecordList();
       updateInbodyWarning();
@@ -23899,6 +24426,7 @@ Notes:
       document.getElementById("loadLatestInbodyToTodayBtn").addEventListener("click", loadLatestInbodyToTodayInputs);
       document.getElementById("saveTodayInputBtn").addEventListener("click", () => saveTodayInputWeightToRecord());
       document.getElementById("saveTodayInputWithInbodyBtn").addEventListener("click", saveTodayInputWithInbody);
+      document.getElementById("applyLatestInbodyFromInbodyBtn")?.addEventListener("click", applyLatestInbodyFromInbodyPanel);
       document.getElementById("viewInbodyRecordsBtn").addEventListener("click", () => openRecordsForInbodyDate());
       document.getElementById("saveInbodyBtn").addEventListener("click", saveInbodyRecord);
       document.getElementById("inbodyFeedback")?.addEventListener("click", event => {
@@ -27932,8 +28460,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
+          assertTest(document.title.includes("v6.6-C4.8-UI3"), "document title should show v6.6-C4.8-UI3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI3"), "app version badge should show v6.6-C4.8-UI3");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -29482,8 +30010,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-UI3"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI3"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -30125,7 +30653,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.6-C4.8-UI2", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.6-C4.8-UI3", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -30432,7 +30960,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.6-C4.8-UI2", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.6-C4.8-UI3", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -30657,9 +31185,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI2", "current app version helper should return v6.6-C4.8-UI2");
+          assertTest(document.title.includes("v6.6-C4.8-UI3"), "document title should show v6.6-C4.8-UI3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI3"), "app version badge should show v6.6-C4.8-UI3");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI3", "current app version helper should return v6.6-C4.8-UI3");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -30700,7 +31228,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.6-C4.8-UI2", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.6-C4.8-UI3", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -30746,9 +31274,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI2", "current app version helper should return v6.6-C4.8-UI2");
+          assertTest(document.title.includes("v6.6-C4.8-UI3"), "document title should show v6.6-C4.8-UI3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI3"), "app version badge should show v6.6-C4.8-UI3");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI3", "current app version helper should return v6.6-C4.8-UI3");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -30856,13 +31384,13 @@ Notes:
         results.push(runNamedTest("C4.8-UI1 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.6-C4.8-UI2",
-            "Stage: 6.6-C4.8-UI2 최근 흐름 Shell 이식",
+            "Version: 6.6-C4.8-UI3",
+            "Stage: 6.6-C4.8-UI3 InBody 측정 Shell 이식",
             "최근 흐름 / Weekly 탭을 Stitch 톤의 기록 흐름 확인 Shell로 재배치"
           ], "top comment should show C4.8-UI2 version and stage");
-          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI2", "version helper should return v6.6-C4.8-UI2");
+          assertTest(document.title.includes("v6.6-C4.8-UI3"), "document title should show v6.6-C4.8-UI3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI3"), "app version badge should show v6.6-C4.8-UI3");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI3", "version helper should return v6.6-C4.8-UI3");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -31740,8 +32268,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-UI3"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI3"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertIncludesAll(panel.textContent || "", ["목표 및 모드", "기본 프로필", "기본 생활 패턴", "운동 기준", "전문가 설정", "데이터 관리"], "Settings visible sections should remain default/profile oriented and include data management");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").closest(".settings-group").contains(document.getElementById("cardioPresetSettingsHost")), "cardio presets should remain inside training defaults group");
@@ -32302,6 +32830,123 @@ Notes:
       });
     }
 
+    function runStitchInBodyShellTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const today = getTodayDateString();
+        const previous = shiftDateString(today, -21);
+        const forbiddenTerms = [
+          "goalSnapshot",
+          "draft",
+          "source meta",
+          "schema",
+          "payload",
+          "localStorage",
+          "helper",
+          "policy",
+          "pending",
+          "one-shot",
+          "selectedBasis",
+          "actual",
+          "fallback",
+          "materialize"
+        ];
+        const seedInbodyShell = () => {
+          setValidTodayBalanceTestInputs();
+          state.inbodyRecords = [
+            {
+              date: previous,
+              weight: 76.4,
+              skeletalMuscle: 34.4,
+              bodyFat: 16.2,
+              bodyFatPercent: 21.2,
+              warning: "",
+              isSuspicious: false
+            },
+            {
+              date: today,
+              weight: 75.2,
+              skeletalMuscle: 35.1,
+              bodyFat: 14.8,
+              bodyFatPercent: 19.7,
+              warning: "",
+              isSuspicious: false
+            }
+          ];
+          setActiveTab("inbody");
+          render();
+        };
+
+        results.push(runNamedTest("C4.8-UI3 version and InBody shell root render", () => {
+          seedInbodyShell();
+          assertTest(document.title.includes("v6.6-C4.8-UI3"), "document title should show v6.6-C4.8-UI3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI3"), "app version badge should show v6.6-C4.8-UI3");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI3", "version helper should return v6.6-C4.8-UI3");
+          assertTest(!!document.querySelector("[data-stitch-inbody-shell]"), "InBody should render Stitch shell root");
+          assertTest(!!document.querySelector(".inbody-stitch-hero"), "InBody should render result-first hero card");
+          assertTest(!!document.querySelector(".inbody-stitch-layout"), "InBody should render analysis/input/history layout");
+        }));
+
+        results.push(runNamedTest("C4.8-UI3 latest result date KPI and comparison areas render", () => {
+          seedInbodyShell();
+          const panel = document.getElementById("inbodyPanel");
+          assertTest((document.getElementById("inbodyLatestDateInline")?.textContent || "").includes(today), "latest measured date should show near result title");
+          assertTest(document.querySelectorAll(".inbody-stitch-kpi-card").length === 4, "InBody hero should render four result cards");
+          assertIncludesAll(panel.textContent || "", ["체중", "골격근량", "체지방량", "체지방률", "지난 측정 대비", "중립 관찰"], "InBody shell should expose result and comparison sections");
+          assertTest(document.querySelectorAll(".inbody-delta-row").length === 4, "comparison area should render weight/muscle/fat/fat-percent rows");
+          assertTest((document.getElementById("inbodyInsightText")?.textContent || "").length > 0, "neutral observation should render insight text");
+        }));
+
+        results.push(runNamedTest("C4.8-UI3 InBody input and record list remain reachable", () => {
+          seedInbodyShell();
+          ["inbodyDate", "inbodyWeight", "inbodySkeletalMuscle", "inbodyBodyFat", "inbodyBodyFatPercent", "saveInbodyBtn", "inbodyRecordList"].forEach(id => {
+            assertTest(!!document.getElementById(id), `${id} should remain mounted`);
+          });
+          assertTest(document.querySelectorAll("#inbodyRecordList .inbody-record").length === 2, "InBody record history should render existing records");
+          assertTest(!!document.querySelector("#inbodyRecordList [data-load-inbody]"), "record edit action should remain");
+          assertTest(!!document.querySelector("#inbodyRecordList [data-delete-inbody]"), "record delete action should remain");
+        }));
+
+        results.push(runNamedTest("C4.8-UI3 latest InBody apply keeps original records and updates Today values", () => {
+          seedInbodyShell();
+          setTodayCalculationDraftValues({
+            calculationWeight: 80,
+            skeletalMuscle: 38,
+            bodyFatMass: 12,
+            bodyFatPercent: 15
+          });
+          render();
+          const beforeRecords = JSON.stringify(state.inbodyRecords);
+          const beforeWeight = getEffectiveTodayCalculationValues().calculationWeight;
+          document.getElementById("applyLatestInbodyFromInbodyBtn")?.click();
+          const afterValues = getEffectiveTodayCalculationValues();
+          assertClose(afterValues.calculationWeight, 75.2, 0.0001, "latest InBody apply should update Today calculation weight");
+          assertClose(afterValues.skeletalMuscle, 35.1, 0.0001, "latest InBody apply should update Today skeletal muscle");
+          assertTest(afterValues.calculationWeight !== beforeWeight, "latest InBody apply should change Today value when different");
+          assertTest(JSON.stringify(state.inbodyRecords) === beforeRecords, "latest InBody apply should not mutate InBody original records");
+          assertTest((document.getElementById("inbodyFeedback")?.textContent || "").includes("Today 몸 상태에 적용"), "InBody panel should show apply feedback");
+        }));
+
+        results.push(runNamedTest("C4.8-UI3 InBody copy avoids internal terms and remains mobile safe", () => {
+          seedInbodyShell();
+          const panel = document.getElementById("inbodyPanel");
+          assertExcludesAll(panel.textContent || "", forbiddenTerms, "InBody visible copy should not expose internal terms");
+          assertTest(panel.scrollWidth <= document.documentElement.clientWidth + 2 || document.documentElement.clientWidth > 390, "InBody shell should not create horizontal overflow");
+        }));
+
+        results.push(runNamedTest("C4.8-UI3 other Stitch shells and backup suites remain exported", () => {
+          seedInbodyShell();
+          assertTest(typeof window.runStitchTodayShellTests === "function", "Today shell suite should remain exported");
+          assertTest(typeof window.runStitchRecordsShellTests === "function", "Records shell suite should remain exported");
+          assertTest(typeof window.runStitchWeeklyShellTests === "function", "Weekly shell suite should remain exported");
+          assertTest(typeof window.runSmartRestoreImportTests === "function", "smart restore suite should remain exported");
+          assertTest(typeof window.runDataManagementBackupTests === "function", "data management suite should remain exported");
+        }));
+
+        return results;
+      });
+    }
+
     function runStitchRecordsShellTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -32366,9 +33011,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
           seedRecordsShell();
-          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI2", "version helper should return v6.6-C4.8-UI2");
+          assertTest(document.title.includes("v6.6-C4.8-UI3"), "document title should show v6.6-C4.8-UI3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI3"), "app version badge should show v6.6-C4.8-UI3");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI3", "version helper should return v6.6-C4.8-UI3");
           assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
           assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
           assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
@@ -32517,9 +33162,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI2 version and Weekly shell root render", () => {
           seedWeeklyShell();
-          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI2", "version helper should return v6.6-C4.8-UI2");
+          assertTest(document.title.includes("v6.6-C4.8-UI3"), "document title should show v6.6-C4.8-UI3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI3"), "app version badge should show v6.6-C4.8-UI3");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI3", "version helper should return v6.6-C4.8-UI3");
           assertTest(!!document.querySelector("[data-stitch-weekly-shell]"), "Weekly should render Stitch shell root");
           assertTest(!!document.querySelector("[data-stitch-weekly-dashboard]"), "Weekly should render Stitch dashboard root");
         }));
@@ -32633,9 +33278,9 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.6-C4.8-UI2"), "document title should show v6.6-C4.8-UI2");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI2"), "app version badge should show v6.6-C4.8-UI2");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI2", "version helper should return v6.6-C4.8-UI2");
+          assertTest(document.title.includes("v6.6-C4.8-UI3"), "document title should show v6.6-C4.8-UI3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-UI3"), "app version badge should show v6.6-C4.8-UI3");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-UI3", "version helper should return v6.6-C4.8-UI3");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
@@ -46010,6 +46655,7 @@ Notes:
     window.runTodayQuickEditTests = runTodayQuickEditTests;
     window.runTodayRecordConfirmationTests = runTodayRecordConfirmationTests;
     window.runStitchRecordsShellTests = runStitchRecordsShellTests;
+    window.runStitchInBodyShellTests = runStitchInBodyShellTests;
     window.runStitchWeeklyShellTests = runStitchWeeklyShellTests;
     window.runStitchTodayShellTests = runStitchTodayShellTests;
     window.runInBodyRecordApplyTests = runInBodyRecordApplyTests;
