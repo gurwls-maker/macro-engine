@@ -1,8 +1,11 @@
 <!--
-Version: 6.6-C4.8-M2-A
-Stage: 6.6-C4.8-M2-A mode-free current calculation 전환
+Version: 6.6-C4.8-M2-B
+Stage: 6.6-C4.8-M2-B calculation context preset 앵커 제거
 Date: 2026-05-18
 Notes:
+- C4.8-M2-B current calculation에서 legacy general/athlete/expert preset 앵커 제거
+- protein/carb cap을 사용자 등급이 아니라 training evidence / body composition / advanced tuning 기준으로 산출
+- legacy mode runtime은 별도 호환 경로로 유지
 - C4.8-M2-A current calculation을 사용자 등급 mode 중심에서 실제 입력 기반 calculation context로 전환
 - legacy mode는 Records snapshot / backup 호환용으로 유지
 - CAL1 targetCal semantic guard 유지
@@ -216,7 +219,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.8-M2-A</title>
+  <title>탄단지 다이어리 v6.6-C4.8-M2-B</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -8778,7 +8781,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.8-M2-A</span>
+               <span class="app-version">v6.6-C4.8-M2-B</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -10934,7 +10937,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-M2-A";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-M2-B";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -12051,11 +12054,17 @@ Notes:
     }
 
     function getCarbsPlausibilityCapKg(mode = state.mode, options = {}){
-      const lowDigestCarbs = options.lowDigestCarbs === true || (mode === "general" && state.generalLowDigestCarbs);
+      const runtimeConfig = mode && typeof mode === "object" ? mode : null;
+      const modeKey = runtimeConfig ? runtimeConfig.preset : mode;
+      const lowDigestCarbs = options.lowDigestCarbs === true
+        || runtimeConfig?.lowDigestCarbs === true
+        || (!runtimeConfig && modeKey === "general" && state.generalLowDigestCarbs);
       if (lowDigestCarbs){
         return 6.0;
       }
-      return PLAUSIBILITY_CAPS.carbsKg[mode] ?? PLAUSIBILITY_CAPS.carbsKg.general;
+      const contextCap = Number(runtimeConfig?.carbsCapKg);
+      if (Number.isFinite(contextCap) && contextCap > 0) return contextCap;
+      return PLAUSIBILITY_CAPS.carbsKg[modeKey] ?? PLAUSIBILITY_CAPS.carbsKg.general;
     }
 
     function getGoalTargetFloor(goal, totalBurn){
@@ -12108,9 +12117,10 @@ Notes:
       const baseFatKg = FAT_HARD_CAP_KG;
       const carbsKg = Math.max(baseCarbsKg, Number(rule.carbsKg) || baseCarbsKg);
       const fatKg = Math.max(baseFatKg, Number(rule.fatKg) || baseFatKg);
+      const modeKey = mode && typeof mode === "object" ? (mode.preset || mode.calculationContextTier || "input_context") : mode;
       return {
         goal,
-        mode,
+        mode: modeKey,
         carbsKg,
         fatKg,
         carbsCapG: carbsKg * safeWeight,
@@ -12218,10 +12228,34 @@ Notes:
       return "light";
     }
 
-    function getModeFreePresetFromContext(context){
-      if (context.advancedTuning.enabled) return "expert";
-      if (context.trainingEvidence === "regular" || context.trainingEvidence === "high" || context.bodyCompositionReliability === "inbody" || context.bodyCompositionReliability === "home") return "athlete";
-      return "general";
+    function resolveCalculationContextTier(context){
+      if (context?.advancedTuning?.enabled) return "advanced";
+      if (context?.trainingEvidence === "regular" || context?.trainingEvidence === "high") return "training";
+      if (context?.bodyCompositionReliability === "inbody" || context?.bodyCompositionReliability === "home") return "measured";
+      return "basic";
+    }
+
+    function resolveContextProteinCapKg(context){
+      const hasTrainingEvidence = context?.trainingEvidence === "regular" || context?.trainingEvidence === "high";
+      const hasBodyCompositionEvidence = ["partial", "home", "inbody"].includes(context?.bodyCompositionReliability);
+      if (context?.advancedTuning?.enabled || hasTrainingEvidence || hasBodyCompositionEvidence) {
+        return PLAUSIBILITY_CAPS.proteinKg.athlete;
+      }
+      return PLAUSIBILITY_CAPS.proteinKg.general;
+    }
+
+    function resolveContextCarbsCapKg(context){
+      if (context?.advancedTuning?.lowDigestCarbs) return 6.0;
+      if (context?.trainingEvidence === "regular" || context?.trainingEvidence === "high") {
+        return PLAUSIBILITY_CAPS.carbsKg.athlete;
+      }
+      return PLAUSIBILITY_CAPS.carbsKg.general;
+    }
+
+    function resolveContextUiDensity(context){
+      if (context?.advancedTuning?.enabled) return "full";
+      if (context?.trainingEvidence === "regular" || context?.trainingEvidence === "high") return "standard";
+      return "compact";
     }
 
     function resolveModeFreeRuntimeConfig(sourceState = state){
@@ -12230,8 +12264,7 @@ Notes:
         trainingEvidence: resolveTrainingEvidence(sourceState),
         advancedTuning: resolveAdvancedTuning(sourceState)
       };
-      const preset = getModeFreePresetFromContext(context);
-      const base = MODE_CONFIGS[preset] || MODE_CONFIGS.general;
+      const calculationContextTier = resolveCalculationContextTier(context);
       const hasBodyCompInput = context.bodyCompositionReliability !== "none";
       const reliabilityFactor = context.bodyCompositionReliability === "home" ? HOME_INBODY_RELIABILITY_FACTOR : 1;
       const baseAlpha = !hasBodyCompInput
@@ -12244,24 +12277,27 @@ Notes:
         ? "advanced"
         : (context.trainingEvidence === "regular" || context.trainingEvidence === "high" ? "training" : "basic");
       return {
-        preset,
+        preset: "input_context",
         label: "입력 기반",
-        className: base.className,
+        className: "mode-general",
         skeletalEditable: hasBodyCompInput,
-        desc: base.desc,
+        desc: "",
         inputDepth,
+        calculationContextTier,
         calculationProfile: appliedAlpha > 0 ? "input_lbm_blend" : "input_basic",
         bodyCompReliability: context.bodyCompositionReliability,
         trainingEvidence: context.trainingEvidence,
         advancedTuning: context.advancedTuning.enabled,
         explanationDepth: context.advancedTuning.enabled ? "full" : (inputDepth === "training" ? "standard" : "brief"),
-        uiDensity: base.uiDensity,
+        uiDensity: resolveContextUiDensity(context),
         homeInbody: context.bodyCompositionReliability === "home",
         baseAlpha,
         reliabilityFactor,
         appliedAlpha,
         bmrModel: appliedAlpha > 0 ? "katch_mcardle" : "mifflin_st_jeor",
         lowDigestCarbs: context.advancedTuning.lowDigestCarbs,
+        proteinCapKg: resolveContextProteinCapKg(context),
+        carbsCapKg: resolveContextCarbsCapKg(context),
         calculationContext: context
       };
     }
@@ -12505,12 +12541,14 @@ Notes:
 
     function applyPlausibilityLayer(config){
       const { s, targetCal, protein, carbs, fat, fatTargetContext } = config;
-      const mode = config.mode || state.mode;
+      const runtimeConfig = config.modeCfg || (config.mode && typeof config.mode === "object" ? config.mode : null);
+      const mode = typeof config.mode === "string" ? config.mode : (runtimeConfig?.preset || state.mode);
       const macroCapPolicy = config.macroCapPolicy || "production";
-      const lowDigestCarbs = config.lowDigestCarbs === true;
-      const macroSoftRange = macroCapPolicy === "hard_cap" ? null : getGoalAwareMacroSoftRange(s.goal, mode, s.weight, { lowDigestCarbs });
-      const proteinCap = (PLAUSIBILITY_CAPS.proteinKg[mode] ?? PLAUSIBILITY_CAPS.proteinKg.general) * s.weight;
-      const carbsCapKg = macroSoftRange?.carbsKg ?? getCarbsPlausibilityCapKg(mode, { lowDigestCarbs });
+      const lowDigestCarbs = config.lowDigestCarbs === true || runtimeConfig?.lowDigestCarbs === true;
+      const macroSoftRange = macroCapPolicy === "hard_cap" ? null : getGoalAwareMacroSoftRange(s.goal, runtimeConfig || mode, s.weight, { lowDigestCarbs });
+      const proteinCapKg = Number(runtimeConfig?.proteinCapKg);
+      const proteinCap = (Number.isFinite(proteinCapKg) && proteinCapKg > 0 ? proteinCapKg : (PLAUSIBILITY_CAPS.proteinKg[mode] ?? PLAUSIBILITY_CAPS.proteinKg.general)) * s.weight;
+      const carbsCapKg = macroSoftRange?.carbsKg ?? getCarbsPlausibilityCapKg(runtimeConfig || mode, { lowDigestCarbs });
       const fatCapKg = macroSoftRange?.fatKg ?? PLAUSIBILITY_CAPS.fatKg;
       const carbsCap = carbsCapKg * s.weight;
       const fatCap = macroSoftRange
@@ -12597,6 +12635,7 @@ Notes:
         fat: fatTarget,
         fatTargetContext,
         mode: modeCfg?.preset || state.mode,
+        modeCfg,
         lowDigestCarbs: modeCfg?.lowDigestCarbs === true,
         macroCapPolicy: options.macroCapPolicy || "production"
       });
@@ -13068,7 +13107,10 @@ Notes:
       if (s.goal === "diet" && clampedGoalDelta < -600){
         cautionNotes.push("평소보다 꽤 적게 먹는 설정입니다. 회복과 운동 수행이 떨어질 수 있습니다.");
       }
-      if (modeCfg.preset === "general" && s.goal === "bulk" && s.activityLevel === "sedentary"){
+      const hasSparseTrainingEvidence = modeCfg.trainingEvidence === "none"
+        || modeCfg.trainingEvidence === "light"
+        || (modeCfg.inputDepth === "basic" && !modeCfg.advancedTuning);
+      if (hasSparseTrainingEvidence && s.goal === "bulk" && s.activityLevel === "sedentary"){
         cautionNotes.push("활동량이 낮은 상태에서 벌크업을 잡으면 체지방이 빠르게 늘 수 있습니다.");
       }
       if (s.cardioDuration > 120 || s.cardioSpeed > 18 || s.cardioIncline > 12){
@@ -26509,7 +26551,7 @@ Notes:
       return withRecordTestSandbox(() => {
         const results = [];
 
-        results.push(runNamedTest("C4.8-M2-A current calculation ignores legacy user tier mode", () => {
+        results.push(runNamedTest("C4.8-M2-B current calculation ignores legacy user tier mode", () => {
           const scenario = getModeGoldenScenarios().find(item => item.name === "diet_low_no_inbody_male");
           assertTest(!!scenario, "baseline mode-free scenario should exist");
           applyModeGoldenScenario(scenario, "general");
@@ -26524,7 +26566,7 @@ Notes:
           });
         }));
 
-        results.push(runNamedTest("C4.8-M2-A legacy mode replay still preserves old mode differences", () => {
+        results.push(runNamedTest("C4.8-M2-B legacy runtime remains isolated from current calculation", () => {
           const scenario = getModeGoldenScenarios().find(item => item.name === "diet_inbody_male");
           assertTest(!!scenario, "legacy comparison scenario should exist");
           applyModeGoldenScenario(scenario, "general");
@@ -26537,7 +26579,7 @@ Notes:
           assertTest(general.expertAlphaApplied !== athlete.expertAlphaApplied && athlete.expertAlphaApplied !== expert.expertAlphaApplied, "legacy LBM alpha should still differ by stored mode");
         }));
 
-        results.push(runNamedTest("C4.8-M2-A context resolver classifies body composition and training evidence", () => {
+        results.push(runNamedTest("C4.8-M2-B context resolver classifies body composition and training evidence", () => {
           const none = resolveModeFreeRuntimeConfig({
             bodyFat: null,
             skeletal: 0,
@@ -26567,7 +26609,7 @@ Notes:
           assertTest(training.appliedAlpha > 0, "reliable body composition should apply LBM blending");
         }));
 
-        results.push(runNamedTest("C4.8-M2-A advanced tuning and low digest carbs are independent of legacy mode", () => {
+        results.push(runNamedTest("C4.8-M2-B advanced tuning and low digest carbs are independent of legacy mode", () => {
           const advanced = resolveModeFreeRuntimeConfig({
             bodyFat: 15,
             skeletal: 35,
@@ -26580,11 +26622,12 @@ Notes:
           });
           assertTest(advanced.advancedTuning === true, "adjusted expert alpha or low digest option should enable advanced tuning");
           assertTest(advanced.inputDepth === "advanced", "advanced tuning should use advanced input depth internally");
+          assertTest(advanced.preset === "input_context", "current calculation should not resolve through legacy user-tier presets");
           assertClose(advanced.baseAlpha, 0.85, 0.005, "adjusted LBM alpha should be used as current calculation tuning");
-          assertClose(getCarbsPlausibilityCapKg(advanced.preset, { lowDigestCarbs: advanced.lowDigestCarbs }), 6.0, 0.005, "low digest carb cap should apply without user-facing mode");
+          assertClose(getCarbsPlausibilityCapKg(advanced, { lowDigestCarbs: advanced.lowDigestCarbs }), 6.0, 0.005, "low digest carb cap should apply without user-facing mode");
         }));
 
-        results.push(runNamedTest("C4.8-M2-A full backup and goalSnapshot mode compatibility remain intact", () => {
+        results.push(runNamedTest("C4.8-M2-B full backup and goalSnapshot compatibility stay outside current preset selection", () => {
           const scenario = getModeGoldenScenarios().find(item => item.name === "snapshot_like_record");
           assertTest(!!scenario, "snapshot-like scenario should exist");
           applyModeGoldenScenario(scenario, "expert");
@@ -26597,7 +26640,7 @@ Notes:
           assertTest(payload.data.settings.mode === "expert", "full backup should keep settings.mode for compatibility");
         }));
 
-        results.push(runNamedTest("C4.8-M2-A CAL1 semantic guards remain exported", () => {
+        results.push(runNamedTest("C4.8-M2-B CAL1 semantic guards remain exported", () => {
           assertTest(typeof window.runTargetCalSemanticGuardTests === "function", "targetCal semantic guard suite should remain exported");
           assertTest(typeof window.runAuthoritativeTargetCalTests === "function", "authoritative targetCal suite should remain exported");
         }));
@@ -30147,8 +30190,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
+          assertTest(document.title.includes("v6.6-C4.8-M2-B"), "document title should show v6.6-C4.8-M2-B");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-B"), "app version badge should show v6.6-C4.8-M2-B");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -31698,8 +31741,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-M2-B"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-B"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -32341,7 +32384,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.6-C4.8-M2-A", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.6-C4.8-M2-B", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -32648,7 +32691,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.6-C4.8-M2-A", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.6-C4.8-M2-B", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -32873,9 +32916,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "current app version helper should return v6.6-C4.8-M2-A");
+          assertTest(document.title.includes("v6.6-C4.8-M2-B"), "document title should show v6.6-C4.8-M2-B");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-B"), "app version badge should show v6.6-C4.8-M2-B");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-B", "current app version helper should return v6.6-C4.8-M2-B");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -32916,7 +32959,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.6-C4.8-M2-A", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.6-C4.8-M2-B", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -32962,9 +33005,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "current app version helper should return v6.6-C4.8-M2-A");
+          assertTest(document.title.includes("v6.6-C4.8-M2-B"), "document title should show v6.6-C4.8-M2-B");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-B"), "app version badge should show v6.6-C4.8-M2-B");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-B", "current app version helper should return v6.6-C4.8-M2-B");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -33072,13 +33115,13 @@ Notes:
         results.push(runNamedTest("C4.8-UI1 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.6-C4.8-M2-A",
-            "Stage: 6.6-C4.8-M2-A mode-free current calculation 전환",
+            "Version: 6.6-C4.8-M2-B",
+            "Stage: 6.6-C4.8-M2-B calculation context preset 앵커 제거",
             "목표/소비량 기준 targetCal을 authoritative 값으로 유지"
           ], "top comment should show C4.8-CAL1 version and stage");
-          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
+          assertTest(document.title.includes("v6.6-C4.8-M2-B"), "document title should show v6.6-C4.8-M2-B");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-B"), "app version badge should show v6.6-C4.8-M2-B");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-B", "version helper should return v6.6-C4.8-M2-B");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -33959,8 +34002,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-M2-B"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-B"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertTest(!!panel.querySelector(".settings-goal-choice:not([hidden])"), "Settings should keep the goal selector visible");
           assertTest(panel.querySelector(".settings-mode-choice")?.hidden === true, "Settings should keep mode selector hidden after M1");
@@ -34564,9 +34607,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and Settings Stitch shell render", () => {
           const panel = renderSettingsShell();
-          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
+          assertTest(document.title.includes("v6.6-C4.8-M2-B"), "document title should show v6.6-C4.8-M2-B");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-B"), "app version badge should show v6.6-C4.8-M2-B");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-B", "version helper should return v6.6-C4.8-M2-B");
           assertTest(!!document.querySelector("[data-stitch-settings-shell]"), "Settings should render Stitch shell root");
           assertTest(!!panel.querySelector(".settings-stitch-hero"), "Settings should render Stitch-style hero");
           assertTest(panel.querySelectorAll(".settings-choice-card:not([hidden])").length === 1, "Settings should render a single user-facing goal choice card");
@@ -34687,9 +34730,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and stage are current", () => {
           renderSettings();
-          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
+          assertTest(document.title.includes("v6.6-C4.8-M2-B"), "document title should show v6.6-C4.8-M2-B");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-B"), "app version badge should show v6.6-C4.8-M2-B");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-B", "version helper should return v6.6-C4.8-M2-B");
         }));
 
         results.push(runNamedTest("C4.8-M1 Settings hides user-facing mode selection", () => {
@@ -34835,9 +34878,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI3 version and InBody shell root render", () => {
           seedInbodyShell();
-          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
+          assertTest(document.title.includes("v6.6-C4.8-M2-B"), "document title should show v6.6-C4.8-M2-B");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-B"), "app version badge should show v6.6-C4.8-M2-B");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-B", "version helper should return v6.6-C4.8-M2-B");
           assertTest(!!document.querySelector("[data-stitch-inbody-shell]"), "InBody should render Stitch shell root");
           assertTest(!!document.querySelector(".inbody-stitch-hero"), "InBody should render result-first hero card");
           assertTest(!!document.querySelector(".inbody-stitch-layout"), "InBody should render analysis/input/history layout");
@@ -34967,9 +35010,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
           seedRecordsShell();
-          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
+          assertTest(document.title.includes("v6.6-C4.8-M2-B"), "document title should show v6.6-C4.8-M2-B");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-B"), "app version badge should show v6.6-C4.8-M2-B");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-B", "version helper should return v6.6-C4.8-M2-B");
           assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
           assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
           assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
@@ -35118,9 +35161,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI2 version and Weekly shell root render", () => {
           seedWeeklyShell();
-          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
+          assertTest(document.title.includes("v6.6-C4.8-M2-B"), "document title should show v6.6-C4.8-M2-B");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-B"), "app version badge should show v6.6-C4.8-M2-B");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-B", "version helper should return v6.6-C4.8-M2-B");
           assertTest(!!document.querySelector("[data-stitch-weekly-shell]"), "Weekly should render Stitch shell root");
           assertTest(!!document.querySelector("[data-stitch-weekly-dashboard]"), "Weekly should render Stitch dashboard root");
         }));
@@ -35234,9 +35277,9 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M2-A"), "document title should show v6.6-C4.8-M2-A");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-A"), "app version badge should show v6.6-C4.8-M2-A");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-A", "version helper should return v6.6-C4.8-M2-A");
+          assertTest(document.title.includes("v6.6-C4.8-M2-B"), "document title should show v6.6-C4.8-M2-B");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-B"), "app version badge should show v6.6-C4.8-M2-B");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-B", "version helper should return v6.6-C4.8-M2-B");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
