@@ -1,8 +1,12 @@
 <!--
-Version: 6.7-A3
-Stage: 6.7-A3 알코올 kcal 계산기
+Version: 6.7-A4
+Stage: 6.7-A4 전날 식사 불러오기
 Date: 2026-05-19
 Notes:
+- v6.7-A4 Records 선택 날짜에 전날 식사를 한 번에 불러오는 흐름 추가
+- 전날 식사는 새 식사 id와 선택 날짜 시간으로 복사하고 기존 식사 저장 구조 유지
+- 중복 식사는 반복 복사하지 않음
+- 식사 저장 구조 / 산식 / Coach / recentContext 변경 없음
 - v6.7-A3 Records 식사 입력 / Today 상세 기록에서 도수·용량 기반 알코올 kcal 계산 지원
 - 계산값은 알코올 kcal 입력칸에 한 번 채우고 기존 식사 저장 흐름 유지
 - v6.7-A2 저장한 식사 템플릿 / 최근 식사 불러오기 흐름 유지
@@ -265,7 +269,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.7-A3</title>
+  <title>탄단지 다이어리 v6.7-A4</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -1976,6 +1980,8 @@ Notes:
       display:flex;
       align-items:center;
       justify-content:flex-end;
+      flex-wrap:wrap;
+      gap:8px;
       margin-top:-2px;
       margin-bottom:2px;
     }
@@ -9383,7 +9389,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.7-A3</span>
+               <span class="app-version">v6.7-A4</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -10171,6 +10177,7 @@ Notes:
               <h2>식사 기록 저장</h2>
               <div class="meal-reuse-inline">
                 <button class="secondary-btn meal-reuse-trigger" id="recordMealReuseBtn" type="button" data-open-meal-reuse="record-direct">최근 식사 불러오기</button>
+                <button class="secondary-btn meal-reuse-trigger" id="copyPreviousMealsBtn" type="button" data-copy-previous-meals>전날 식사 불러오기</button>
               </div>
               <div class="record-grid records-meal-input-grid">
                 <div class="field meal-label-field">
@@ -11628,7 +11635,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.7-A3";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.7-A4";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -16986,6 +16993,73 @@ Notes:
       saveMealTemplates();
       renderMealReuseList();
       return { deleted: before !== mealTemplateState.items.length };
+    }
+
+    function getCopyableMealList(record){
+      return (record?.meals || []).filter(meal => {
+        const energy = calculateMealEnergy(meal);
+        return energy.totalKcal > 0 || String(meal.memo || "").trim().length > 0;
+      });
+    }
+
+    function getCopiedMealCreatedAtForDate(sourceMeal, targetDate, index = 0){
+      const sourceDate = new Date(sourceMeal?.createdAt || "");
+      const fallbackHour = 8 + index * 4;
+      if (Number.isNaN(sourceDate.getTime())) {
+        return `${targetDate}T${String(Math.min(23, fallbackHour)).padStart(2, "0")}:00:00.000Z`;
+      }
+      const sourceIso = sourceDate.toISOString();
+      return `${targetDate}${sourceIso.slice(10)}`;
+    }
+
+    function createCopiedMealForDate(sourceMeal, targetDate, index = 0){
+      return normalizeMeal({
+        ...sourceMeal,
+        id: createMealId(),
+        createdAt: getCopiedMealCreatedAtForDate(sourceMeal, targetDate, index)
+      }, index);
+    }
+
+    function copyPreviousMealsToDate(targetDate = getSelectedRecordDate()){
+      const normalizedTargetDate = normalizeDateString(targetDate);
+      if (!normalizedTargetDate) {
+        setRecordFeedback("bad", "식사를 불러올 날짜를 먼저 선택해 주세요.");
+        render();
+        return { copied: false, reason: "missing_target_date", count: 0 };
+      }
+      const sourceDate = shiftDateString(normalizedTargetDate, -1);
+      const sourceMeals = getCopyableMealList(getRecordByDate(sourceDate));
+      if (!sourceMeals.length) {
+        setRecordFeedback("warn", "전날에 불러올 식사 기록이 없습니다.");
+        render();
+        return { copied: false, reason: "no_previous_meals", count: 0, sourceDate };
+      }
+      const targetRecord = ensureRecordByDate(normalizedTargetDate);
+      const existingSignatures = new Set((targetRecord?.meals || []).map(getMealTemplateSignature));
+      const copiedMeals = sourceMeals
+        .filter(meal => !existingSignatures.has(getMealTemplateSignature(meal)))
+        .map((meal, index) => createCopiedMealForDate(meal, normalizedTargetDate, index))
+        .filter(Boolean);
+      if (!copiedMeals.length) {
+        setRecordFeedback("warn", "이미 같은 식사가 선택 날짜에 있습니다.");
+        render();
+        return { copied: false, reason: "duplicate", count: 0, sourceDate };
+      }
+      const nextMeals = [...(targetRecord?.meals || []), ...copiedMeals];
+      upsertRecord({
+        date: normalizedTargetDate,
+        recordMode: "detailed",
+        meals: nextMeals
+      });
+      persistAutoAdherenceForDate(normalizedTargetDate, calculate(), {
+        snapshotSource: targetRecord?.goalSnapshot ? targetRecord.snapshotSource : "saved_at_entry"
+      });
+      syncRecordInputsForDate(normalizedTargetDate, {
+        preferredMealLabel: getSuggestedMealLabel(normalizedTargetDate)
+      });
+      setRecordFeedback("ok", `전날 식사 ${copiedMeals.length}개를 선택 날짜에 불러왔습니다.`);
+      render();
+      return { copied: true, count: copiedMeals.length, sourceDate, targetDate: normalizedTargetDate, meals: copiedMeals };
     }
 
     function getAlcoholCalcElements(context = "record"){
@@ -26295,6 +26369,11 @@ Notes:
           applyAlcoholCalcToMealInput(alcoholCalcButton.getAttribute("data-apply-alcohol-calc") || "record");
           return;
         }
+        const copyPreviousMealsButton = event.target.closest("[data-copy-previous-meals]");
+        if (copyPreviousMealsButton) {
+          copyPreviousMealsToDate(getSelectedRecordDate());
+          return;
+        }
         const mealReuseButton = event.target.closest("[data-open-meal-reuse]");
         if (mealReuseButton) {
           openMealReuseDialog(mealReuseButton.getAttribute("data-open-meal-reuse") || "record-direct");
@@ -31434,8 +31513,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-A3"), "document title should show v6.7-A3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A3"), "app version badge should show v6.7-A3");
+          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -32985,8 +33064,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-A3"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A3"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.7-A4"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -33645,7 +33724,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.7-A3", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.7-A4", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -33958,7 +34037,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.7-A3", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.7-A4", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -34183,9 +34262,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-A3"), "document title should show v6.7-A3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A3"), "app version badge should show v6.7-A3");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A3", "current app version helper should return v6.7-A3");
+          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "current app version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -34226,7 +34305,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.7-A3", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.7-A4", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -34272,9 +34351,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-A3"), "document title should show v6.7-A3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A3"), "app version badge should show v6.7-A3");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A3", "current app version helper should return v6.7-A3");
+          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "current app version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -34379,15 +34458,15 @@ Notes:
         };
         const visibleBodyText = () => getRenderedBodyText();
 
-        results.push(runNamedTest("v6.7-A3 version stage and badges are updated", () => {
+        results.push(runNamedTest("v6.7-A4 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.7-A3",
-            "Stage: 6.7-A3"
-          ], "top comment should show v6.7-A3 version and stage");
-          assertTest(document.title.includes("v6.7-A3"), "document title should show v6.7-A3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A3"), "app version badge should show v6.7-A3");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A3", "version helper should return v6.7-A3");
+            "Version: 6.7-A4",
+            "Stage: 6.7-A4"
+          ], "top comment should show v6.7-A4 version and stage");
+          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -34604,7 +34683,7 @@ Notes:
           createdAt: `${yesterday}T12:10:00.000Z`
         };
 
-        results.push(runNamedTest("v6.7-A3 recent meal reuse lists saved meals", () => {
+        results.push(runNamedTest("v6.7-A4 recent meal reuse lists saved meals", () => {
           recordsState.items = normalizeRecordsCollection([{ date: yesterday, recordMode: "detailed", meals: [reusableMeal] }]);
           const candidates = getRecentReusableMealCandidates();
           assertTest(candidates.length === 1, "one reusable meal should be listed");
@@ -34615,7 +34694,7 @@ Notes:
           closeMealReuseDialog();
         }));
 
-        results.push(runNamedTest("v6.7-A3 recent meal reuse fills Today detailed inputs without saving", () => {
+        results.push(runNamedTest("v6.7-A4 recent meal reuse fills Today detailed inputs without saving", () => {
           recordsState.items = normalizeRecordsCollection([{ date: yesterday, recordMode: "detailed", meals: [reusableMeal] }]);
           openTodayRecordStartDialog("detailed");
           openMealReuseDialog("today-start");
@@ -34632,7 +34711,7 @@ Notes:
           closeTodayRecordStartDialog();
         }));
 
-        results.push(runNamedTest("v6.7-A3 recent meal reuse fills Records meal form and keeps normal save path", () => {
+        results.push(runNamedTest("v6.7-A4 recent meal reuse fills Records meal form and keeps normal save path", () => {
           recordsState.items = normalizeRecordsCollection([
             { date: yesterday, recordMode: "detailed", meals: [reusableMeal] },
             { date: today, recordMode: "detailed", meals: [] }
@@ -34651,7 +34730,7 @@ Notes:
           assertTest((getRecordByDate(today)?.meals || []).length === beforeMeals + 1, "saving after reuse should add one meal");
         }));
 
-        results.push(runNamedTest("v6.7-A3 recent meal reuse copy stays user-facing", () => {
+        results.push(runNamedTest("v6.7-A4 recent meal reuse copy stays user-facing", () => {
           recordsState.items = normalizeRecordsCollection([{ date: yesterday, recordMode: "detailed", meals: [reusableMeal] }]);
           openMealReuseDialog("record-direct");
           const text = document.getElementById("mealReuseOverlay")?.textContent || "";
@@ -34687,7 +34766,7 @@ Notes:
           saveMealTemplates();
         };
 
-        results.push(runNamedTest("v6.7-A3 recent meal can be saved as reusable template", () => {
+        results.push(runNamedTest("v6.7-A4 recent meal can be saved as reusable template", () => {
           seedRecentMeal();
           const saved = saveReusableMealAsTemplate(yesterday, "template-source-lunch");
           assertTest(saved.saved === true, "recent meal should save as template");
@@ -34699,7 +34778,7 @@ Notes:
           closeMealReuseDialog();
         }));
 
-        results.push(runNamedTest("v6.7-A3 duplicate template save is ignored", () => {
+        results.push(runNamedTest("v6.7-A4 duplicate template save is ignored", () => {
           seedRecentMeal();
           saveReusableMealAsTemplate(yesterday, "template-source-lunch");
           const duplicate = saveReusableMealAsTemplate(yesterday, "template-source-lunch");
@@ -34708,7 +34787,7 @@ Notes:
           assertTest((mealTemplateState.feedback || "").includes("이미 저장"), "duplicate feedback should be user-facing");
         }));
 
-        results.push(runNamedTest("v6.7-A3 template fills Today detailed inputs without saving", () => {
+        results.push(runNamedTest("v6.7-A4 template fills Today detailed inputs without saving", () => {
           seedRecentMeal();
           const saved = saveReusableMealAsTemplate(yesterday, "template-source-lunch");
           openTodayRecordStartDialog("detailed");
@@ -34725,7 +34804,7 @@ Notes:
           closeTodayRecordStartDialog();
         }));
 
-        results.push(runNamedTest("v6.7-A3 template fills Records meal form and keeps save path", () => {
+        results.push(runNamedTest("v6.7-A4 template fills Records meal form and keeps save path", () => {
           seedRecentMeal();
           const saved = saveReusableMealAsTemplate(yesterday, "template-source-lunch");
           recordsState.items = normalizeRecordsCollection([
@@ -34745,7 +34824,7 @@ Notes:
           assertTest((getRecordByDate(today)?.meals || []).length === beforeMeals + 1, "saving after template apply should add one meal");
         }));
 
-        results.push(runNamedTest("v6.7-A3 template delete clears storage when empty", () => {
+        results.push(runNamedTest("v6.7-A4 template delete clears storage when empty", () => {
           seedRecentMeal();
           const saved = saveReusableMealAsTemplate(yesterday, "template-source-lunch");
           const deleted = deleteMealTemplate(saved.template.id);
@@ -34754,7 +34833,7 @@ Notes:
           assertTest(!readStoredValue(MEAL_TEMPLATE_STORAGE_KEY), "empty template list should remove localStorage key");
         }));
 
-        results.push(runNamedTest("v6.7-A3 full backup restores meal templates", () => {
+        results.push(runNamedTest("v6.7-A4 full backup restores meal templates", () => {
           seedRecentMeal();
           const saved = saveReusableMealAsTemplate(yesterday, "template-source-lunch");
           const payload = buildFullBackupPayload("2026-05-19T00:00:00.000Z");
@@ -34766,7 +34845,7 @@ Notes:
           assertTest(mealTemplateState.items[0].id === saved.template.id, "restored meal template should keep id");
         }));
 
-        results.push(runNamedTest("v6.7-A3 records-only import preserves meal templates", () => {
+        results.push(runNamedTest("v6.7-A4 records-only import preserves meal templates", () => {
           seedRecentMeal();
           saveReusableMealAsTemplate(yesterday, "template-source-lunch");
           const before = JSON.stringify(serializeMealTemplateState());
@@ -34775,7 +34854,7 @@ Notes:
           assertTest(JSON.stringify(serializeMealTemplateState()) === before, "records-only import should preserve meal templates");
         }));
 
-        results.push(runNamedTest("v6.7-A3 reset and sandbox clear meal templates", () => {
+        results.push(runNamedTest("v6.7-A4 reset and sandbox clear meal templates", () => {
           seedRecentMeal();
           saveReusableMealAsTemplate(yesterday, "template-source-lunch");
           resetState();
@@ -34783,7 +34862,7 @@ Notes:
           assertTest(!readStoredValue(MEAL_TEMPLATE_STORAGE_KEY), "reset should clear meal template storage");
         }));
 
-        results.push(runNamedTest("v6.7-A3 template UI avoids internal terms", () => {
+        results.push(runNamedTest("v6.7-A4 template UI avoids internal terms", () => {
           seedRecentMeal();
           saveReusableMealAsTemplate(yesterday, "template-source-lunch");
           openMealReuseDialog("record-direct");
@@ -34796,12 +34875,114 @@ Notes:
       });
     }
 
+    function runPreviousMealCopyTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const targetDate = "2026-05-19";
+        const previousDate = shiftDateString(targetDate, -1);
+        const previousMeals = [
+          {
+            id: "prev-breakfast",
+            mealLabel: "아침",
+            carbs: 58,
+            protein: 34,
+            fat: 14,
+            alcoholKcal: 0,
+            otherKcal: 80,
+            memo: "전날 아침",
+            createdAt: `${previousDate}T08:10:00.000Z`
+          },
+          {
+            id: "prev-dinner",
+            mealLabel: "저녁",
+            carbs: 72,
+            protein: 45,
+            fat: 18,
+            alcoholKcal: 120,
+            otherKcal: 0,
+            memo: "전날 저녁",
+            createdAt: `${previousDate}T19:30:00.000Z`
+          }
+        ];
+        const seedPreviousMeals = () => {
+          recordsState.items = normalizeRecordsCollection([
+            { date: previousDate, recordMode: "detailed", meals: previousMeals },
+            { date: targetDate, recordMode: "detailed", meals: [] }
+          ]);
+          ids.recordDate.value = targetDate;
+          syncRecordInputsForDate(targetDate);
+          setRecordModeForSelectedDate("detailed");
+        };
+
+        results.push(runNamedTest("v6.7-A4 previous meals copy selected date meals with new ids", () => {
+          seedPreviousMeals();
+          const copied = copyPreviousMealsToDate(targetDate);
+          const targetRecord = getRecordByDate(targetDate);
+          assertTest(copied.copied === true && copied.count === 2, "previous day copy should add two meals");
+          assertTest(targetRecord.recordMode === "detailed", "copy should keep selected date as detailed record");
+          assertTest(targetRecord.meals.length === 2, "target date should receive previous meals");
+          assertTest(targetRecord.meals.every(meal => !previousMeals.some(source => source.id === meal.id)), "copied meals should receive new ids");
+          assertTest(targetRecord.meals.every(meal => meal.createdAt.slice(0, 10) === targetDate), "copied meals should use target date timestamps");
+          assertTest(targetRecord.meals[0].carbs === 58 && targetRecord.meals[1].alcoholKcal === 120, "macro and extra kcal values should be copied");
+          assertTest(targetRecord.meals[0].memo === "전날 아침" && targetRecord.meals[1].memo === "전날 저녁", "meal memos should be copied");
+        }));
+
+        results.push(runNamedTest("v6.7-A4 previous meals copy skips duplicate meals", () => {
+          seedPreviousMeals();
+          const first = copyPreviousMealsToDate(targetDate);
+          const second = copyPreviousMealsToDate(targetDate);
+          const targetRecord = getRecordByDate(targetDate);
+          assertTest(first.copied === true, "first copy should succeed");
+          assertTest(second.copied === false && second.reason === "duplicate", "second copy should be skipped as duplicate");
+          assertTest(targetRecord.meals.length === 2, "duplicate copy should not add meals again");
+        }));
+
+        results.push(runNamedTest("v6.7-A4 previous meals copy reports empty previous day", () => {
+          recordsState.items = normalizeRecordsCollection([{ date: targetDate, recordMode: "detailed", meals: [] }]);
+          ids.recordDate.value = targetDate;
+          syncRecordInputsForDate(targetDate);
+          const copied = copyPreviousMealsToDate(targetDate);
+          assertTest(copied.copied === false && copied.reason === "no_previous_meals", "copy should report when previous day has no meals");
+          assertTest((getRecordByDate(targetDate)?.meals || []).length === 0, "empty previous day should not change target meals");
+          assertTest((recordsState.feedback?.message || "").includes("전날"), "empty previous day feedback should mention previous day");
+        }));
+
+        results.push(runNamedTest("v6.7-A4 previous meals copy preserves manual save path", () => {
+          seedPreviousMeals();
+          copyPreviousMealsToDate(targetDate);
+          ids.mealLabel.value = "간식";
+          ids.mealCarbs.value = "20";
+          ids.mealProtein.value = "12";
+          ids.mealFat.value = "6";
+          ids.mealAlcoholKcal.value = "";
+          ids.mealOtherKcal.value = "";
+          ids.mealMemo.value = "";
+          const saved = saveMealEntry();
+          const targetRecord = getRecordByDate(targetDate);
+          assertTest(saved.saved === true, "manual meal save should still work after previous day copy");
+          assertTest(targetRecord.meals.length === 3, "manual save should append after copied meals");
+          assertTest(targetRecord.meals.some(meal => meal.mealLabel === "간식"), "manual meal label should be preserved");
+        }));
+
+        results.push(runNamedTest("v6.7-A4 previous meals copy UI stays user-facing", () => {
+          setActiveTab("records");
+          render();
+          const button = document.querySelector("[data-copy-previous-meals]");
+          assertTest(!!button && button.textContent.includes("전날 식사 불러오기"), "previous meals copy button should be visible in Records meal input");
+          const recordsText = document.getElementById("recordsPanel")?.textContent || "";
+          assertExcludesAll(recordsText, ["draft", "source meta", "schema", "helper", "policy", "actual", "selectedBasis", "payload", "localStorage"], "previous meals copy UI should not expose internal terms");
+        }));
+
+        return results;
+      });
+    }
+
     function runAlcoholKcalCalculatorTests(){
       return withRecordTestSandbox(() => {
         const results = [];
         const today = getTodayDateString();
 
-        results.push(runNamedTest("v6.7-A3 alcohol calculator uses ethanol volume formula", () => {
+        results.push(runNamedTest("v6.7-A4 alcohol calculator uses ethanol volume formula", () => {
           const beer = calculateAlcoholKcalFromDrink({ volumeMl: 500, abvPercent: 5, servings: 1 });
           assertTest(!!beer, "beer calculator should return a result");
           assertClose(beer.pureAlcoholGrams, 19.725, 0.001, "pure alcohol grams should use 0.789g/ml density");
@@ -34810,7 +34991,7 @@ Notes:
           assertTest(wine.roundedKcal === 258, "servings should multiply alcohol kcal");
         }));
 
-        results.push(runNamedTest("v6.7-A3 Records alcohol calculator fills only alcohol kcal input", () => {
+        results.push(runNamedTest("v6.7-A4 Records alcohol calculator fills only alcohol kcal input", () => {
           setActiveTab("records");
           render();
           ids.recordDate.value = today;
@@ -34827,7 +35008,7 @@ Notes:
           assertIncludesAll(resultText, ["138", "순수 알코올"], "Records calculator should show result summary");
         }));
 
-        results.push(runNamedTest("v6.7-A3 Today detailed alcohol calculator fills only detailed input", () => {
+        results.push(runNamedTest("v6.7-A4 Today detailed alcohol calculator fills only detailed input", () => {
           openTodayRecordStartDialog("detailed");
           document.getElementById("todayRecordAlcoholVolumeMl").value = "360";
           document.getElementById("todayRecordAlcoholAbvPercent").value = "16.9";
@@ -34839,7 +35020,7 @@ Notes:
           closeTodayRecordStartDialog();
         }));
 
-        results.push(runNamedTest("v6.7-A3 invalid alcohol calculator values do not overwrite input", () => {
+        results.push(runNamedTest("v6.7-A4 invalid alcohol calculator values do not overwrite input", () => {
           ids.mealAlcoholKcal.value = "77";
           document.getElementById("mealAlcoholVolumeMl").value = "";
           document.getElementById("mealAlcoholAbvPercent").value = "5";
@@ -34850,7 +35031,7 @@ Notes:
           assertIncludesAll(document.getElementById("mealAlcoholCalcResult")?.textContent || "", ["계산값"], "invalid calculator should keep neutral helper text");
         }));
 
-        results.push(runNamedTest("v6.7-A3 alcohol calculator UI stays user-facing and compact", () => {
+        results.push(runNamedTest("v6.7-A4 alcohol calculator UI stays user-facing and compact", () => {
           setActiveTab("records");
           render();
           const text = document.querySelector("[data-alcohol-calc='record']")?.textContent || "";
@@ -35550,8 +35731,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.7-A3"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A3"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.7-A4"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertTest(!!panel.querySelector(".settings-goal-choice:not([hidden])"), "Settings should keep the goal selector visible");
           assertTest(!panel.querySelector(".settings-mode-choice"), "Settings should remove mode selector residue after M2-D");
@@ -36152,9 +36333,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and Settings Stitch shell render", () => {
           const panel = renderSettingsShell();
-          assertTest(document.title.includes("v6.7-A3"), "document title should show v6.7-A3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A3"), "app version badge should show v6.7-A3");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A3", "version helper should return v6.7-A3");
+          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-settings-shell]"), "Settings should render Stitch shell root");
           assertTest(!!panel.querySelector(".settings-stitch-hero"), "Settings should render Stitch-style hero");
           assertTest(panel.querySelectorAll(".settings-choice-card:not([hidden])").length === 1, "Settings should render a single user-facing goal choice card");
@@ -36293,9 +36474,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M2-D version and stage are current", () => {
           renderSettings();
-          assertTest(document.title.includes("v6.7-A3"), "document title should show v6.7-A3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A3"), "app version badge should show v6.7-A3");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A3", "version helper should return v6.7-A3");
+          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.8-M2-D Settings removes user-facing mode selection DOM", () => {
@@ -36438,9 +36619,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI3 version and InBody shell root render", () => {
           seedInbodyShell();
-          assertTest(document.title.includes("v6.7-A3"), "document title should show v6.7-A3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A3"), "app version badge should show v6.7-A3");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A3", "version helper should return v6.7-A3");
+          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-inbody-shell]"), "InBody should render Stitch shell root");
           assertTest(!!document.querySelector(".inbody-stitch-hero"), "InBody should render result-first hero card");
           assertTest(!!document.querySelector(".inbody-stitch-layout"), "InBody should render analysis/input/history layout");
@@ -36570,9 +36751,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
           seedRecordsShell();
-          assertTest(document.title.includes("v6.7-A3"), "document title should show v6.7-A3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A3"), "app version badge should show v6.7-A3");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A3", "version helper should return v6.7-A3");
+          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
           assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
           assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
@@ -36721,9 +36902,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI2 version and Weekly shell root render", () => {
           seedWeeklyShell();
-          assertTest(document.title.includes("v6.7-A3"), "document title should show v6.7-A3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A3"), "app version badge should show v6.7-A3");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A3", "version helper should return v6.7-A3");
+          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-weekly-shell]"), "Weekly should render Stitch shell root");
           assertTest(!!document.querySelector("[data-stitch-weekly-dashboard]"), "Weekly should render Stitch dashboard root");
         }));
@@ -36855,9 +37036,9 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.7-A3"), "document title should show v6.7-A3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A3"), "app version badge should show v6.7-A3");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-A3", "version helper should return v6.7-A3");
+          assertTest(document.title.includes("v6.7-A4"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-A4"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-A4", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
@@ -50738,6 +50919,7 @@ Notes:
     window.runCardioPresetApplyTests = runCardioPresetApplyTests;
     window.runMealReuseShortcutTests = runMealReuseShortcutTests;
     window.runMealTemplateFavoriteTests = runMealTemplateFavoriteTests;
+    window.runPreviousMealCopyTests = runPreviousMealCopyTests;
     window.runAlcoholKcalCalculatorTests = runAlcoholKcalCalculatorTests;
     window.runTodayRecordStartTests = runTodayRecordStartTests;
     window.runRecordStartWeightFlowTests = runRecordStartWeightFlowTests;
