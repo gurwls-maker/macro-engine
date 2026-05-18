@@ -1,8 +1,11 @@
 <!--
-Version: 6.6-C4.8-M1
-Stage: 6.6-C4.8-M1 사용자-facing 모드 선택 제거
+Version: 6.6-C4.8-M2-1
+Stage: 6.6-C4.8-M2-1 mode별 golden 계산 테스트 구축
 Date: 2026-05-18
 Notes:
+- C4.8-M2-1 general / athlete / expert mode별 대표 계산 결과 golden 테스트 추가
+- M2 mode 역할 분해 전 계산 기준 고정
+- 계산식 / Records snapshot / backup schema / Coach / dual basis 변경 없음
 - C4.8-M1 Settings / Today에서 일반인·운동인·전문가 선택 UI 제거
 - 내부 mode 호환은 유지
 - 전문가 모드 기능은 전문가 설정 / 고급 설정으로 흡수
@@ -199,7 +202,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.8-M1</title>
+  <title>탄단지 다이어리 v6.6-C4.8-M2-1</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -8761,7 +8764,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.8-M1</span>
+               <span class="app-version">v6.6-C4.8-M2-1</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -10917,7 +10920,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-M1";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-M2-1";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -25546,6 +25549,611 @@ Notes:
       });
     }
 
+    const MODE_GOLDEN_RESULT_FIELDS = Object.freeze([
+      "bmr",
+      "totalBurn",
+      "targetCal",
+      "carbs",
+      "protein",
+      "fat",
+      "proteinGPerKg",
+      "fatGPerKg",
+      "carbGPerKg",
+      "lbmAlpha",
+      "bodyCompositionApplied",
+      "carbCap",
+      "plausibilityLimited",
+      "adherencePercent",
+      "snapshotTargetCal",
+      "snapshotCarbs",
+      "snapshotProtein",
+      "snapshotFat"
+    ]);
+    const MODE_GOLDEN_EXPECTED_HASH = "dcea18a4f4aca";
+    const MODE_GOLDEN_SCENARIO_COUNT = 50;
+    const MODE_GOLDEN_MODES = Object.freeze(["general", "athlete", "expert"]);
+
+    function getModeGoldenHash(text, seed = 0){
+      let h1 = 0xdeadbeef ^ seed;
+      let h2 = 0x41c6ce57 ^ seed;
+      const source = String(text || "");
+      for (let i = 0; i < source.length; i += 1) {
+        const ch = source.charCodeAt(i);
+        h1 = Math.imul(h1 ^ ch, 2654435761);
+        h2 = Math.imul(h2 ^ ch, 1597334677);
+      }
+      h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+      h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+      return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+    }
+
+    function getModeGoldenBaseScenarios(){
+      return [
+        {
+          name: "diet_low_no_inbody_male",
+          goal: "diet",
+          weight: 80,
+          height: 178,
+          age: 35,
+          gender: "male",
+          bodyFat: 20,
+          skeletal: 34,
+          activityLevel: "sedentary",
+          workType: "office",
+          workAdj: 0,
+          weeklyTrainingDays: 1,
+          routinePlan: "ppl_ul",
+          routine: "REST",
+          intensityOverride: 0,
+          weightDuration: 0,
+          cardioType: "treadmill_walk",
+          cardioDuration: 0,
+          cardioSpeed: 0,
+          cardioIncline: 0,
+          homeInbody: false,
+          expertLbmAlpha: 0.75
+        },
+        {
+          name: "diet_4w_cardio_no_inbody_male",
+          goal: "diet",
+          weight: 82,
+          height: 176,
+          age: 34,
+          gender: "male",
+          bodyFat: 18,
+          skeletal: 36,
+          activityLevel: "moderate",
+          workType: "office",
+          workAdj: 0,
+          weeklyTrainingDays: 4,
+          routinePlan: "ppl_ul",
+          routine: "PUSH",
+          intensityOverride: 0.82,
+          weightDuration: 70,
+          cardioType: "treadmill_walk",
+          cardioDuration: 35,
+          cardioSpeed: 5.5,
+          cardioIncline: 4,
+          homeInbody: false,
+          expertLbmAlpha: 0.75
+        },
+        {
+          name: "diet_inbody_male",
+          goal: "diet",
+          weight: 76,
+          height: 174,
+          age: 31,
+          gender: "male",
+          bodyFat: 13.8,
+          skeletal: 37.2,
+          activityLevel: "active",
+          workType: "mixed",
+          workAdj: 0.03,
+          weeklyTrainingDays: 5,
+          routinePlan: "ppl_ul",
+          routine: "PULL",
+          intensityOverride: 0.88,
+          weightDuration: 75,
+          cardioType: "treadmill_run",
+          cardioDuration: 20,
+          cardioSpeed: 8.2,
+          cardioIncline: 1,
+          homeInbody: false,
+          expertLbmAlpha: 0.75
+        },
+        {
+          name: "lean_5w_low_cardio_female",
+          goal: "lean_bulk",
+          weight: 58,
+          height: 165,
+          age: 29,
+          gender: "female",
+          bodyFat: 22,
+          skeletal: 24.8,
+          activityLevel: "moderate",
+          workType: "office",
+          workAdj: 0,
+          weeklyTrainingDays: 5,
+          routinePlan: "ppl_ul",
+          routine: "LEGS",
+          intensityOverride: 0.92,
+          weightDuration: 65,
+          cardioType: "treadmill_walk",
+          cardioDuration: 15,
+          cardioSpeed: 4.8,
+          cardioIncline: 2,
+          homeInbody: false,
+          expertLbmAlpha: 0.75
+        },
+        {
+          name: "bulk_5w_no_cardio_male",
+          goal: "bulk",
+          weight: 82,
+          height: 180,
+          age: 27,
+          gender: "male",
+          bodyFat: 14,
+          skeletal: 39,
+          activityLevel: "active",
+          workType: "office",
+          workAdj: 0,
+          weeklyTrainingDays: 5,
+          routinePlan: "ppl_ul",
+          routine: "UPPER",
+          intensityOverride: 0.85,
+          weightDuration: 80,
+          cardioType: "treadmill_walk",
+          cardioDuration: 0,
+          cardioSpeed: 0,
+          cardioIncline: 0,
+          homeInbody: false,
+          expertLbmAlpha: 0.75
+        },
+        {
+          name: "high_work_training_male",
+          goal: "diet",
+          weight: 88,
+          height: 181,
+          age: 38,
+          gender: "male",
+          bodyFat: 24,
+          skeletal: 36,
+          activityLevel: "very_active",
+          workType: "heavy_field",
+          workAdj: 0.08,
+          weeklyTrainingDays: 3,
+          routinePlan: "split3",
+          routine: "LEGS",
+          intensityOverride: 0.9,
+          weightDuration: 60,
+          cardioType: "outdoor_run",
+          cardioDuration: 25,
+          cardioSpeed: 8.5,
+          cardioIncline: 0,
+          homeInbody: false,
+          expertLbmAlpha: 0.75
+        },
+        {
+          name: "low_bodyfat_male",
+          goal: "lean_bulk",
+          weight: 70,
+          height: 172,
+          age: 26,
+          gender: "male",
+          bodyFat: 8,
+          skeletal: 36,
+          activityLevel: "active",
+          workType: "mixed",
+          workAdj: 0,
+          weeklyTrainingDays: 5,
+          routinePlan: "ppl_ul",
+          routine: "LOWER",
+          intensityOverride: 0.95,
+          weightDuration: 75,
+          cardioType: "treadmill_walk",
+          cardioDuration: 20,
+          cardioSpeed: 5,
+          cardioIncline: 5,
+          homeInbody: false,
+          expertLbmAlpha: 0.8
+        },
+        {
+          name: "high_bodyfat_female",
+          goal: "diet",
+          weight: 73,
+          height: 162,
+          age: 42,
+          gender: "female",
+          bodyFat: 35,
+          skeletal: 23,
+          activityLevel: "sedentary",
+          workType: "office",
+          workAdj: 0,
+          weeklyTrainingDays: 2,
+          routinePlan: "ppl_ul",
+          routine: "PUSH",
+          intensityOverride: 0.7,
+          weightDuration: 45,
+          cardioType: "treadmill_walk",
+          cardioDuration: 30,
+          cardioSpeed: 4.5,
+          cardioIncline: 3,
+          homeInbody: false,
+          expertLbmAlpha: 0.75
+        },
+        {
+          name: "lean_home_inbody_male",
+          goal: "lean_bulk",
+          weight: 76,
+          height: 175,
+          age: 33,
+          gender: "male",
+          bodyFat: 16,
+          skeletal: 36,
+          activityLevel: "active",
+          workType: "office",
+          workAdj: 0,
+          weeklyTrainingDays: 4,
+          routinePlan: "ppl_ul",
+          routine: "PULL",
+          intensityOverride: 0.82,
+          weightDuration: 70,
+          cardioType: "treadmill_walk",
+          cardioDuration: 20,
+          cardioSpeed: 5.2,
+          cardioIncline: 3,
+          homeInbody: true,
+          expertLbmAlpha: 0.75
+        },
+        {
+          name: "snapshot_like_record",
+          goal: "diet",
+          weight: 75,
+          height: 173,
+          age: 32,
+          gender: "male",
+          bodyFat: 18,
+          skeletal: 35,
+          activityLevel: "moderate",
+          workType: "field",
+          workAdj: 0.04,
+          weeklyTrainingDays: 4,
+          routinePlan: "ppl_ul",
+          routine: "PUSH",
+          intensityOverride: 0.8,
+          weightDuration: 60,
+          cardioType: "treadmill_walk",
+          cardioDuration: 30,
+          cardioSpeed: 5,
+          cardioIncline: 8,
+          homeInbody: false,
+          expertLbmAlpha: 0.75
+        }
+      ];
+    }
+
+    function getModeGoldenScenarioVariants(base){
+      return [
+        { ...base },
+        {
+          ...base,
+          name: `${base.name}__high_activity`,
+          activityLevel: "very_active",
+          workType: "heavy_field",
+          workAdj: Math.max(Number(base.workAdj) || 0, 0.05)
+        },
+        {
+          ...base,
+          name: `${base.name}__rest_day`,
+          routine: "REST",
+          intensityOverride: 0,
+          weightDuration: 0,
+          weeklyTrainingDays: 0,
+          cardioDuration: 0,
+          cardioSpeed: 0,
+          cardioIncline: 0
+        },
+        {
+          ...base,
+          name: `${base.name}__cardio_bias`,
+          cardioType: "treadmill_run",
+          cardioDuration: Math.max(30, Number(base.cardioDuration) || 0),
+          cardioSpeed: 8.2,
+          cardioIncline: 1
+        },
+        {
+          ...base,
+          name: `${base.name}__low_digest`,
+          generalLowDigestCarbs: true,
+          expertLbmAlpha: Math.max(Number(base.expertLbmAlpha) || 0.75, 0.8)
+        }
+      ];
+    }
+
+    function getModeGoldenScenarios(){
+      return getModeGoldenBaseScenarios().flatMap(getModeGoldenScenarioVariants);
+    }
+
+    function resetModeGoldenCalculationState(){
+      Object.assign(state, { ...DEFAULT_STATE, renderedRoutineKey: "", renderedGoalKey: "" });
+      uiState.activeTab = "today";
+      uiState.selectedMacroBasis = "guide";
+      recordsState.items = [];
+      recordsState.feedback = null;
+      dataManagementState.feedback = null;
+      dataManagementState.pendingImport = null;
+      cardioPresetState = normalizeCardioPresetState();
+      cardioPresetDialogOpen = false;
+      todayCalculationDrafts = {};
+      pendingInbodyTodayApplyChoice = null;
+      pendingRecordWeightTodayApplyChoice = null;
+    }
+
+    function applyModeGoldenScenario(scenario, mode){
+      resetModeGoldenCalculationState();
+      const today = getTodayDateString();
+      const safeScenario = { ...scenario };
+      state.mode = mode;
+      state.goal = safeScenario.goal;
+      state.routinePlan = safeScenario.routinePlan || "ppl_ul";
+      state.routine = safeScenario.routine || "PUSH";
+      state.weeklyTrainingDaysManual = true;
+      state.weeklyTrainingDays = Number(safeScenario.weeklyTrainingDays);
+      state.generalAdvancedSettings = !!safeScenario.generalAdvancedSettings;
+      state.generalLowDigestCarbs = !!safeScenario.generalLowDigestCarbs;
+      state.homeInbody = !!safeScenario.homeInbody;
+      state.expertLbmAlpha = clamp(Number(safeScenario.expertLbmAlpha) || DEFAULT_STATE.expertLbmAlpha, EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max);
+      state.renderedRoutineKey = "";
+      state.renderedGoalKey = "";
+
+      ids.weight.value = String(safeScenario.weight);
+      ids.height.value = String(safeScenario.height);
+      ids.age.value = String(safeScenario.age);
+      ids.gender.value = safeScenario.gender;
+      ids.bodyFat.value = String(safeScenario.bodyFat);
+      if (ids.bodyFatMass) ids.bodyFatMass.value = String(round(safeScenario.weight * safeScenario.bodyFat / 100, 2));
+      ids.skeletal.value = String(safeScenario.skeletal);
+      ids.activityLevel.value = safeScenario.activityLevel;
+      ids.workType.value = safeScenario.workType;
+      ids.workAdj.value = String(safeScenario.workAdj);
+      ids.homeInbody.checked = !!safeScenario.homeInbody;
+      if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = String(Math.round(state.expertLbmAlpha * 100));
+      ids.weeklyTrainingDays.value = String(safeScenario.weeklyTrainingDays);
+      ids.weeklyTrainingDays.readOnly = false;
+      ids.generalAdvancedSettings.checked = !!safeScenario.generalAdvancedSettings;
+      ids.generalLowDigestCarbs.checked = !!safeScenario.generalLowDigestCarbs;
+      ids.routinePlan.value = state.routinePlan;
+      ids.intensityOverride.value = String(safeScenario.intensityOverride);
+      ids.weightDuration.value = String(safeScenario.weightDuration);
+      ids.cardioType.value = safeScenario.cardioType;
+      ids.cardioDuration.value = String(safeScenario.cardioDuration);
+      ids.cardioSpeed.value = String(safeScenario.cardioSpeed);
+      ids.cardioIncline.value = String(safeScenario.cardioIncline);
+
+      todayCalculationDrafts = {};
+      todayCalculationDrafts[today] = normalizeTodayCalculationDraft({
+        calculationWeight: safeScenario.weight,
+        skeletalMuscle: safeScenario.skeletal,
+        bodyFatMass: round(safeScenario.weight * safeScenario.bodyFat / 100, 2),
+        bodyFatPercent: safeScenario.bodyFat,
+        todayActivityLevel: safeScenario.activityLevel,
+        todayWorkType: safeScenario.workType,
+        todayRoutineSession: safeScenario.routine,
+        todayIntensityOverride: safeScenario.intensityOverride,
+        todayWeightDuration: safeScenario.weightDuration,
+        todayCardioType: safeScenario.cardioType,
+        todayCardioDuration: safeScenario.cardioDuration,
+        todayCardioSpeed: safeScenario.cardioSpeed,
+        todayCardioIncline: safeScenario.cardioIncline
+      });
+      recordsState.items = [];
+      return today;
+    }
+
+    function buildModeGoldenMealsForResult(result){
+      const targetCarbs = Math.max(0, Number(result.carbs) || 0);
+      const targetProtein = Math.max(0, Number(result.protein) || 0);
+      const targetFat = Math.max(0, Number(result.fat) || 0);
+      return [
+        {
+          id: "mode-golden-meal-1",
+          mealLabel: "mode-golden-a",
+          carbs: round(targetCarbs * 0.46, 1),
+          protein: round(targetProtein * 0.46, 1),
+          fat: round(targetFat * 0.46, 1),
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: ""
+        },
+        {
+          id: "mode-golden-meal-2",
+          mealLabel: "mode-golden-b",
+          carbs: round(targetCarbs * 0.46, 1),
+          protein: round(targetProtein * 0.46, 1),
+          fat: round(targetFat * 0.46, 1),
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: ""
+        }
+      ];
+    }
+
+    function getModeGoldenRow(scenario, mode){
+      const today = applyModeGoldenScenario(scenario, mode);
+      const result = calculate();
+      assertTest(result.isCalculable, `${scenario.name} ${mode} should remain calculable`);
+      const snapshot = buildGoalSnapshotFromCurrentState(result, "mode_golden");
+      recordsState.items = [{
+        date: today,
+        recordMode: "detailed",
+        weight: result.s.weight,
+        adherence: "medium",
+        note: "mode golden fixture",
+        meals: buildModeGoldenMealsForResult(result),
+        goalSnapshot: snapshot
+      }];
+      const score = getDailyAdherenceScore(today, result, { goalSnapshot: snapshot });
+      const safeWeight = Math.max(1, Number(result.s.weight) || 1);
+      const values = [
+        round(result.bmr),
+        round(result.totalBurn),
+        round(result.targetCal),
+        round(result.carbs),
+        round(result.protein),
+        round(result.fat),
+        round(result.proteinKgApplied, 2),
+        round(result.fat / safeWeight, 2),
+        round(result.carbs / safeWeight, 2),
+        round(result.expertAlphaApplied, 2),
+        result.expertAlphaApplied > 0 ? 1 : 0,
+        round(result.carbCap),
+        result.plausibility?.plausibilityLimited ? 1 : 0,
+        Number.isFinite(score?.percent) ? round(score.percent) : -1,
+        round(snapshot?.targetCal || 0),
+        round(snapshot?.carbs || 0),
+        round(snapshot?.protein || 0),
+        round(snapshot?.fat || 0)
+      ];
+      return {
+        key: `${scenario.name}|${mode}`,
+        scenario: scenario.name,
+        mode,
+        result,
+        snapshot,
+        score,
+        values
+      };
+    }
+
+    function buildModeGoldenRows(){
+      const scenarios = getModeGoldenScenarios();
+      const rows = [];
+      scenarios.forEach(scenario => {
+        MODE_GOLDEN_MODES.forEach(mode => {
+          rows.push(getModeGoldenRow(scenario, mode));
+        });
+      });
+      return rows;
+    }
+
+    function assertModeGoldenValues(actual, expected, label){
+      assertTest(Array.isArray(actual) && actual.length === expected.length, `${label} golden vector should have ${expected.length} fields`);
+      expected.forEach((expectedValue, index) => {
+        assertClose(actual[index], expectedValue, 0.005, `${label} ${MODE_GOLDEN_RESULT_FIELDS[index]} should match golden`);
+      });
+    }
+
+    function runModeGoldenCalculationTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const rows = buildModeGoldenRows();
+        const rowsByKey = new Map(rows.map(row => [row.key, row]));
+        const serializedRows = rows.map(row => ({ key: row.key, values: row.values }));
+        const currentHash = getModeGoldenHash(JSON.stringify(serializedRows));
+
+        results.push(runNamedTest("C4.8-M2-1 mode golden scenario matrix is complete and finite", () => {
+          assertTest(getModeGoldenScenarios().length === MODE_GOLDEN_SCENARIO_COUNT, "mode golden should define 50 scenarios");
+          assertTest(rows.length === MODE_GOLDEN_SCENARIO_COUNT * MODE_GOLDEN_MODES.length, "mode golden should produce 150 mode rows");
+          rows.forEach(row => {
+            assertTest(row.values.length === MODE_GOLDEN_RESULT_FIELDS.length, `${row.key} should include every golden field`);
+            assertTest(row.values.every(value => Number.isFinite(value)), `${row.key} should have finite golden values`);
+          });
+        }));
+
+        results.push(runNamedTest("C4.8-M2-1 golden hash matches current calculation baseline", () => {
+          assertTest(currentHash === MODE_GOLDEN_EXPECTED_HASH, `mode golden hash should remain ${MODE_GOLDEN_EXPECTED_HASH}, got ${currentHash}`);
+        }));
+
+        results.push(runNamedTest("C4.8-M2-1 golden anchor values remain stable", () => {
+          const anchors = {
+            "diet_low_no_inbody_male|general": [1743, 2021, 2160, 240, 192, 48, 2.4, 0.6, 3, 0, 0, 400, 0, 92, 2160, 240, 192, 48],
+            "diet_low_no_inbody_male|athlete": [1764, 2046, 2160, 240, 192, 48, 2.4, 0.6, 3, 0.4, 1, 400, 0, 92, 2160, 240, 192, 48],
+            "diet_low_no_inbody_male|expert": [1775, 2058, 2160, 240, 192, 48, 2.4, 0.6, 3, 0.75, 1, 400, 0, 92, 2160, 240, 192, 48],
+            "lean_home_inbody_male|general": [1694, 2729, 3215, 532, 152, 53, 2, 0.7, 7, 0, 0, 760, 0, 91, 3215, 532, 152, 53],
+            "lean_home_inbody_male|athlete": [1786, 2880, 3215, 532, 152, 53, 2, 0.7, 7, 0.32, 1, 760, 0, 91, 3215, 532, 152, 53],
+            "lean_home_inbody_male|expert": [1819, 2923, 3215, 532, 152, 53, 2, 0.7, 7, 0.6, 1, 760, 0, 91, 3215, 532, 152, 53],
+            "snapshot_like_record__high_activity|general": [1676, 3026, 3225, 525, 180, 45, 2.4, 0.6, 7, 0, 0, 750, 0, 92, 3225, 525, 180, 45],
+            "snapshot_like_record__high_activity|athlete": [1749, 3152, 3225, 525, 180, 45, 2.4, 0.6, 7, 0.4, 1, 750, 0, 92, 3225, 525, 180, 45],
+            "snapshot_like_record__high_activity|expert": [1792, 3216, 3225, 525, 180, 45, 2.4, 0.6, 7, 0.75, 1, 750, 0, 92, 3225, 525, 180, 45]
+          };
+          Object.entries(anchors).forEach(([key, expected]) => {
+            assertTest(rowsByKey.has(key), `${key} anchor row should exist`);
+            assertModeGoldenValues(rowsByKey.get(key).values, expected, key);
+          });
+        }));
+
+        results.push(runNamedTest("C4.8-M2-1 mode BMR TDEE and LBM alpha differences are preserved", () => {
+          const general = rowsByKey.get("diet_inbody_male|general");
+          const athlete = rowsByKey.get("diet_inbody_male|athlete");
+          const expert = rowsByKey.get("diet_inbody_male|expert");
+          assertTest(general && athlete && expert, "diet inbody comparison rows should exist");
+          assertTest(general.values[0] !== athlete.values[0] && athlete.values[0] !== expert.values[0], "BMR should not collapse across modes");
+          assertTest(general.values[1] !== athlete.values[1] && athlete.values[1] !== expert.values[1], "total burn should not collapse across modes");
+          assertClose(general.values[9], 0, 0.005, "general should keep zero LBM alpha");
+          assertClose(athlete.values[9], 0.4, 0.005, "athlete should keep blended LBM alpha");
+          assertClose(expert.values[9], 0.75, 0.005, "expert should keep configured LBM alpha");
+        }));
+
+        results.push(runNamedTest("C4.8-M2-1 home InBody reliability remains non-general only", () => {
+          const general = rowsByKey.get("lean_home_inbody_male|general");
+          const athlete = rowsByKey.get("lean_home_inbody_male|athlete");
+          const expert = rowsByKey.get("lean_home_inbody_male|expert");
+          assertTest(general && athlete && expert, "home InBody rows should exist");
+          assertClose(general.values[9], 0, 0.005, "general home InBody should keep alpha zero");
+          assertClose(athlete.values[9], MODE_LBM_ALPHA.athlete * HOME_INBODY_RELIABILITY_FACTOR, 0.005, "athlete home InBody should lower alpha");
+          assertClose(expert.values[9], 0.75 * HOME_INBODY_RELIABILITY_FACTOR, 0.005, "expert home InBody should lower alpha");
+          assertTest(general.values[10] === 0 && athlete.values[10] === 1 && expert.values[10] === 1, "home InBody body composition flag should differ by mode");
+        }));
+
+        results.push(runNamedTest("C4.8-M2-1 bulk macro cap and snapshot mode compatibility remain fixed", () => {
+          const keys = [
+            "bulk_5w_no_cardio_male__high_activity|general",
+            "bulk_5w_no_cardio_male__high_activity|athlete",
+            "bulk_5w_no_cardio_male__high_activity|expert"
+          ];
+          keys.forEach(key => assertTest(rowsByKey.has(key), `${key} should exist`));
+          assertModeGoldenValues(rowsByKey.get(keys[0]).values, [1815, 3117, 3477, 574, 148, 66, 1.8, 0.8, 7, 0, 0, 820, 0, 89, 3477, 574, 148, 66], keys[0]);
+          assertModeGoldenValues(rowsByKey.get(keys[1]).values, [1932, 3330, 3580, 600, 148, 66, 1.8, 0.8, 7.32, 0.4, 1, 820, 0, 89, 3580, 600, 148, 66], keys[1]);
+          assertModeGoldenValues(rowsByKey.get(keys[2]).values, [1966, 3380, 3630, 612, 148, 66, 1.8, 0.8, 7.47, 0.75, 1, 820, 0, 89, 3630, 612, 148, 66], keys[2]);
+          MODE_GOLDEN_MODES.forEach(mode => {
+            const row = rowsByKey.get(`snapshot_like_record|${mode}`);
+            assertTest(row.snapshot.mode === mode, `${mode} goalSnapshot should keep mode`);
+            assertClose(row.snapshot.targetCal, row.result.targetCal, 0.005, `${mode} snapshot targetCal should match result`);
+            assertClose(row.snapshot.carbs, row.result.carbs, 0.005, `${mode} snapshot carbs should match result`);
+            assertClose(row.snapshot.protein, row.result.protein, 0.005, `${mode} snapshot protein should match result`);
+            assertClose(row.snapshot.fat, row.result.fat, 0.005, `${mode} snapshot fat should match result`);
+          });
+        }));
+
+        results.push(runNamedTest("C4.8-M2-1 full backup restore keeps settings mode in calculation path", () => {
+          const scenario = getModeGoldenScenarios().find(item => item.name === "snapshot_like_record");
+          assertTest(!!scenario, "snapshot-like scenario should exist");
+          applyModeGoldenScenario(scenario, "expert");
+          const before = calculate();
+          const payload = buildFullBackupPayload("2026-05-18T00:00:00.000Z");
+          const normalized = normalizeFullBackupPayload(payload);
+          resetState();
+          restoreFullBackupData(normalized);
+          assertTest(state.mode === "expert", "full backup restore should preserve settings.mode");
+          const after = calculate();
+          assertClose(after.targetCal, before.targetCal, 0.005, "restored expert mode should keep targetCal");
+          assertClose(after.bmr, before.bmr, 0.005, "restored expert mode should keep BMR");
+          assertClose(after.expertAlphaApplied, before.expertAlphaApplied, 0.005, "restored expert mode should keep alpha");
+        }));
+
+        results.push(runNamedTest("C4.8-M2-1 user-facing mode removal and shell suites remain exported", () => {
+          assertTest(typeof window.runUserFacingModeRemovalTests === "function", "M1 user-facing mode removal tests should remain exported");
+          assertTest(typeof window.runStitchSettingsShellTests === "function", "Settings shell tests should remain exported");
+          assertTest(typeof window.runStitchInBodyShellTests === "function", "InBody shell tests should remain exported");
+          assertTest(typeof window.runStitchWeeklyShellTests === "function", "Weekly shell tests should remain exported");
+          assertTest(typeof window.runStitchRecordsShellTests === "function", "Records shell tests should remain exported");
+          assertTest(typeof window.runStitchTodayShellTests === "function", "Today shell tests should remain exported");
+        }));
+
+        return results;
+      });
+    }
+
     function runRecordMigrationTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -29083,8 +29691,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M1"), "document title should show v6.6-C4.8-M1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M1"), "app version badge should show v6.6-C4.8-M1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -30633,8 +31241,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M1"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M1"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -31276,7 +31884,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.6-C4.8-M1", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.6-C4.8-M2-1", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -31583,7 +32191,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.6-C4.8-M1", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.6-C4.8-M2-1", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -31808,9 +32416,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M1"), "document title should show v6.6-C4.8-M1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M1"), "app version badge should show v6.6-C4.8-M1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M1", "current app version helper should return v6.6-C4.8-M1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "current app version helper should return v6.6-C4.8-M2-1");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -31851,7 +32459,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.6-C4.8-M1", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.6-C4.8-M2-1", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -31897,9 +32505,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M1"), "document title should show v6.6-C4.8-M1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M1"), "app version badge should show v6.6-C4.8-M1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M1", "current app version helper should return v6.6-C4.8-M1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "current app version helper should return v6.6-C4.8-M2-1");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -32007,13 +32615,13 @@ Notes:
         results.push(runNamedTest("C4.8-UI1 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.6-C4.8-M1",
-            "Stage: 6.6-C4.8-M1 사용자-facing 모드 선택 제거",
+            "Version: 6.6-C4.8-M2-1",
+            "Stage: 6.6-C4.8-M2-1 mode별 golden 계산 테스트 구축",
             "최근 흐름 / Weekly 탭을 Stitch 톤의 기록 흐름 확인 Shell로 재배치"
           ], "top comment should show C4.8-UI2 version and stage");
-          assertTest(document.title.includes("v6.6-C4.8-M1"), "document title should show v6.6-C4.8-M1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M1"), "app version badge should show v6.6-C4.8-M1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M1", "version helper should return v6.6-C4.8-M1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -32891,8 +33499,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.6-C4.8-M1"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M1"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertTest(!!panel.querySelector(".settings-goal-choice:not([hidden])"), "Settings should keep the goal selector visible");
           assertTest(panel.querySelector(".settings-mode-choice")?.hidden === true, "Settings should keep mode selector hidden after M1");
@@ -33492,9 +34100,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and Settings Stitch shell render", () => {
           const panel = renderSettingsShell();
-          assertTest(document.title.includes("v6.6-C4.8-M1"), "document title should show v6.6-C4.8-M1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M1"), "app version badge should show v6.6-C4.8-M1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M1", "version helper should return v6.6-C4.8-M1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
           assertTest(!!document.querySelector("[data-stitch-settings-shell]"), "Settings should render Stitch shell root");
           assertTest(!!panel.querySelector(".settings-stitch-hero"), "Settings should render Stitch-style hero");
           assertTest(panel.querySelectorAll(".settings-choice-card:not([hidden])").length === 1, "Settings should render a single user-facing goal choice card");
@@ -33615,9 +34223,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and stage are current", () => {
           renderSettings();
-          assertTest(document.title.includes("v6.6-C4.8-M1"), "document title should show v6.6-C4.8-M1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M1"), "app version badge should show v6.6-C4.8-M1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M1", "version helper should return v6.6-C4.8-M1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
         }));
 
         results.push(runNamedTest("C4.8-M1 Settings hides user-facing mode selection", () => {
@@ -33678,6 +34286,7 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 key regression suites remain exported", () => {
           assertTest(typeof window.runModeRuntimeConfigTests === "function", "mode runtime config tests should remain exported");
+          assertTest(typeof window.runModeGoldenCalculationTests === "function", "mode golden calculation tests should remain exported");
           assertTest(typeof window.runDataManagementBackupTests === "function", "Data Management backup tests should remain exported");
           assertTest(typeof window.runStitchSettingsShellTests === "function", "Settings shell tests should remain exported");
           assertTest(typeof window.runStitchTodayShellTests === "function", "Today shell tests should remain exported");
@@ -33736,9 +34345,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI3 version and InBody shell root render", () => {
           seedInbodyShell();
-          assertTest(document.title.includes("v6.6-C4.8-M1"), "document title should show v6.6-C4.8-M1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M1"), "app version badge should show v6.6-C4.8-M1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M1", "version helper should return v6.6-C4.8-M1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
           assertTest(!!document.querySelector("[data-stitch-inbody-shell]"), "InBody should render Stitch shell root");
           assertTest(!!document.querySelector(".inbody-stitch-hero"), "InBody should render result-first hero card");
           assertTest(!!document.querySelector(".inbody-stitch-layout"), "InBody should render analysis/input/history layout");
@@ -33868,9 +34477,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
           seedRecordsShell();
-          assertTest(document.title.includes("v6.6-C4.8-M1"), "document title should show v6.6-C4.8-M1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M1"), "app version badge should show v6.6-C4.8-M1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M1", "version helper should return v6.6-C4.8-M1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
           assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
           assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
           assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
@@ -34019,9 +34628,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI2 version and Weekly shell root render", () => {
           seedWeeklyShell();
-          assertTest(document.title.includes("v6.6-C4.8-M1"), "document title should show v6.6-C4.8-M1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M1"), "app version badge should show v6.6-C4.8-M1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M1", "version helper should return v6.6-C4.8-M1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
           assertTest(!!document.querySelector("[data-stitch-weekly-shell]"), "Weekly should render Stitch shell root");
           assertTest(!!document.querySelector("[data-stitch-weekly-dashboard]"), "Weekly should render Stitch dashboard root");
         }));
@@ -34135,9 +34744,9 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M1"), "document title should show v6.6-C4.8-M1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M1"), "app version badge should show v6.6-C4.8-M1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M1", "version helper should return v6.6-C4.8-M1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
@@ -47480,6 +48089,7 @@ Notes:
     window.runTodayConsumptionTests = runTodayConsumptionTests;
     window.runTodayBalanceTests = runTodayBalanceTests;
     window.runModeRuntimeConfigTests = runModeRuntimeConfigTests;
+    window.runModeGoldenCalculationTests = runModeGoldenCalculationTests;
     window.runAdherenceScoringTests = runAdherenceScoringTests;
     window.runAdherenceUiTests = runAdherenceUiTests;
     window.runWeeklyAdherenceTests = runWeeklyAdherenceTests;
