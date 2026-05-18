@@ -1,8 +1,10 @@
 <!--
-Version: 6.6-C4.8-M2-1
-Stage: 6.6-C4.8-M2-1 mode별 golden 계산 테스트 구축
+Version: 6.6-C4.8-M2-2
+Stage: 6.6-C4.8-M2-2 mode golden 테스트 실패 진단 보강
 Date: 2026-05-18
 Notes:
+- C4.8-M2-2 mode별 golden 계산 테스트 실패 시 시나리오 / mode / 필드별 차이를 출력하도록 보강
+- 계산식 / golden baseline / Records snapshot / backup schema 변경 없음
 - C4.8-M2-1 general / athlete / expert mode별 대표 계산 결과 golden 테스트 추가
 - M2 mode 역할 분해 전 계산 기준 고정
 - 계산식 / Records snapshot / backup schema / Coach / dual basis 변경 없음
@@ -202,7 +204,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.6-C4.8-M2-1</title>
+  <title>탄단지 다이어리 v6.6-C4.8-M2-2</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -8764,7 +8766,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.6-C4.8-M2-1</span>
+               <span class="app-version">v6.6-C4.8-M2-2</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -10920,7 +10922,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-M2-1";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.6-C4.8-M2-2";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -25572,6 +25574,158 @@ Notes:
     const MODE_GOLDEN_EXPECTED_HASH = "dcea18a4f4aca";
     const MODE_GOLDEN_SCENARIO_COUNT = 50;
     const MODE_GOLDEN_MODES = Object.freeze(["general", "athlete", "expert"]);
+    const MODE_GOLDEN_EXPECTED_ROWS = Object.freeze([
+      { key: "diet_low_no_inbody_male|general", values: Object.freeze([1743,2021,2160,240,192,48,2.4,0.6,3,0,0,400,0,92,2160,240,192,48]) },
+      { key: "diet_low_no_inbody_male|athlete", values: Object.freeze([1764,2046,2160,240,192,48,2.4,0.6,3,0.4,1,400,0,92,2160,240,192,48]) },
+      { key: "diet_low_no_inbody_male|expert", values: Object.freeze([1775,2058,2160,240,192,48,2.4,0.6,3,0.75,1,400,0,92,2160,240,192,48]) },
+      { key: "diet_low_no_inbody_male__high_activity|general", values: Object.freeze([1743,2543,3440,560,192,48,2.4,0.6,7,0,0,800,0,92,3440,560,192,48]) },
+      { key: "diet_low_no_inbody_male__high_activity|athlete", values: Object.freeze([1764,2575,3440,560,192,48,2.4,0.6,7,0.4,1,800,0,92,3440,560,192,48]) },
+      { key: "diet_low_no_inbody_male__high_activity|expert", values: Object.freeze([1775,2590,3440,560,192,48,2.4,0.6,7,0.75,1,800,0,92,3440,560,192,48]) },
+      { key: "diet_low_no_inbody_male__rest_day|general", values: Object.freeze([1743,1986,2160,240,192,48,2.4,0.6,3,0,0,400,0,92,2160,240,192,48]) },
+      { key: "diet_low_no_inbody_male__rest_day|athlete", values: Object.freeze([1764,2011,2160,240,192,48,2.4,0.6,3,0.4,1,400,0,92,2160,240,192,48]) },
+      { key: "diet_low_no_inbody_male__rest_day|expert", values: Object.freeze([1775,2023,2160,240,192,48,2.4,0.6,3,0.75,1,400,0,92,2160,240,192,48]) },
+      { key: "diet_low_no_inbody_male__cardio_bias|general", values: Object.freeze([1743,2424,2800,400,192,48,2.4,0.6,5,0,0,560,0,92,2800,400,192,48]) },
+      { key: "diet_low_no_inbody_male__cardio_bias|athlete", values: Object.freeze([1764,2449,2800,400,192,48,2.4,0.6,5,0.4,1,560,0,92,2800,400,192,48]) },
+      { key: "diet_low_no_inbody_male__cardio_bias|expert", values: Object.freeze([1775,2461,2800,400,192,48,2.4,0.6,5,0.75,1,560,0,92,2800,400,192,48]) },
+      { key: "diet_low_no_inbody_male__low_digest|general", values: Object.freeze([1743,2021,2160,240,192,48,2.4,0.6,3,0,0,400,0,92,2160,240,192,48]) },
+      { key: "diet_low_no_inbody_male__low_digest|athlete", values: Object.freeze([1764,2046,2160,240,192,48,2.4,0.6,3,0.4,1,400,0,92,2160,240,192,48]) },
+      { key: "diet_low_no_inbody_male__low_digest|expert", values: Object.freeze([1776,2060,2160,240,192,48,2.4,0.6,3,0.8,1,400,0,92,2160,240,192,48]) },
+      { key: "diet_4w_cardio_no_inbody_male|general", values: Object.freeze([1755,2841,2870,410,197,49,2.4,0.6,5,0,0,574,0,92,2870,410,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male|athlete", values: Object.freeze([1840,2976,2870,410,197,49,2.4,0.6,5,0.4,1,574,0,92,2870,410,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male|expert", values: Object.freeze([1855,2995,2870,410,197,49,2.4,0.6,5,0.75,1,574,0,92,2870,410,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__high_activity|general", values: Object.freeze([1755,3227,3526,574,197,49,2.4,0.6,7,0,0,820,0,92,3526,574,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__high_activity|athlete", values: Object.freeze([1840,3381,3526,574,197,49,2.4,0.6,7,0.4,1,820,0,92,3526,574,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__high_activity|expert", values: Object.freeze([1855,3403,3526,574,197,49,2.4,0.6,7,0.75,1,820,0,92,3526,574,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__rest_day|general", values: Object.freeze([1755,2141,2214,246,197,49,2.4,0.6,3,0,0,410,0,92,2214,246,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__rest_day|athlete", values: Object.freeze([1840,2244,2214,246,197,49,2.4,0.6,3,0.4,1,410,0,92,2214,246,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__rest_day|expert", values: Object.freeze([1855,2263,2214,246,197,49,2.4,0.6,3,0.75,1,410,0,92,2214,246,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__cardio_bias|general", values: Object.freeze([1755,3059,2870,410,197,49,2.4,0.6,5,0,0,574,0,92,2870,410,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__cardio_bias|athlete", values: Object.freeze([1840,3195,2870,410,197,49,2.4,0.6,5,0.4,1,574,0,92,2870,410,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__cardio_bias|expert", values: Object.freeze([1855,3214,2870,410,197,49,2.4,0.6,5,0.75,1,574,0,92,2870,410,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__low_digest|general", values: Object.freeze([1755,2841,2870,410,197,49,2.4,0.6,5,0,0,574,0,92,2870,410,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__low_digest|athlete", values: Object.freeze([1840,2976,2870,410,197,49,2.4,0.6,5,0.4,1,574,0,92,2870,410,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__low_digest|expert", values: Object.freeze([1857,2998,2870,410,197,49,2.4,0.6,5,0.8,1,574,0,92,2870,410,197,49]) },
+      { key: "diet_inbody_male|general", values: Object.freeze([1698,2933,3268,532,182,46,2.4,0.6,7,0,0,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male|athlete", values: Object.freeze([1837,3163,3268,532,182,46,2.4,0.6,7,0.4,1,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male|expert", values: Object.freeze([1883,3224,3268,532,182,46,2.4,0.6,7,0.75,1,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male__high_activity|general", values: Object.freeze([1698,3140,3268,532,182,46,2.4,0.6,7,0,0,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male__high_activity|athlete", values: Object.freeze([1837,3387,3268,532,182,46,2.4,0.6,7,0.4,1,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male__high_activity|expert", values: Object.freeze([1883,3454,3268,532,182,46,2.4,0.6,7,0.75,1,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male__rest_day|general", values: Object.freeze([1698,2237,3268,532,182,46,2.4,0.6,7,0,0,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male__rest_day|athlete", values: Object.freeze([1837,2421,3268,532,182,46,2.4,0.6,7,0.4,1,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male__rest_day|expert", values: Object.freeze([1883,2481,3268,532,182,46,2.4,0.6,7,0.75,1,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male__cardio_bias|general", values: Object.freeze([1698,3060,3268,532,182,46,2.4,0.6,7,0,0,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male__cardio_bias|athlete", values: Object.freeze([1837,3291,3268,532,182,46,2.4,0.6,7,0.4,1,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male__cardio_bias|expert", values: Object.freeze([1883,3352,3268,532,182,46,2.4,0.6,7,0.75,1,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male__low_digest|general", values: Object.freeze([1698,2933,3268,532,182,46,2.4,0.6,7,0,0,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male__low_digest|athlete", values: Object.freeze([1837,3163,3268,532,182,46,2.4,0.6,7,0.4,1,760,0,92,3268,532,182,46]) },
+      { key: "diet_inbody_male__low_digest|expert", values: Object.freeze([1889,3233,3268,532,182,46,2.4,0.6,7,0.8,1,760,0,92,3268,532,182,46]) },
+      { key: "lean_5w_low_cardio_female|general", values: Object.freeze([1305,1947,2005,294,116,41,2,0.7,5.07,0,0,406,0,91,2005,294,116,41]) },
+      { key: "lean_5w_low_cardio_female|athlete", values: Object.freeze([1412,2115,2178,337,116,41,2,0.7,5.81,0.4,1,406,0,91,2178,337,116,41]) },
+      { key: "lean_5w_low_cardio_female|expert", values: Object.freeze([1469,2185,2251,355,116,41,2,0.7,6.13,0.75,1,406,0,91,2251,355,116,41]) },
+      { key: "lean_5w_low_cardio_female__high_activity|general", values: Object.freeze([1305,2234,2453,406,116,41,2,0.7,7,0,0,580,0,91,2453,406,116,41]) },
+      { key: "lean_5w_low_cardio_female__high_activity|athlete", values: Object.freeze([1412,2425,2498,417,116,41,2,0.7,7.19,0.4,1,580,0,91,2498,417,116,41]) },
+      { key: "lean_5w_low_cardio_female__high_activity|expert", values: Object.freeze([1469,2508,2584,439,116,41,2,0.7,7.56,0.75,1,580,0,91,2584,439,116,41]) },
+      { key: "lean_5w_low_cardio_female__rest_day|general", values: Object.freeze([1305,1592,1640,203,116,41,2,0.7,3.49,0,0,290,0,91,1640,203,116,41]) },
+      { key: "lean_5w_low_cardio_female__rest_day|athlete", values: Object.freeze([1412,1723,1775,236,116,41,2,0.7,4.07,0.4,1,290,0,91,1775,236,116,41]) },
+      { key: "lean_5w_low_cardio_female__rest_day|expert", values: Object.freeze([1469,1792,1846,254,116,41,2,0.7,4.38,0.75,1,290,0,91,1846,254,116,41]) },
+      { key: "lean_5w_low_cardio_female__cardio_bias|general", values: Object.freeze([1305,2179,2245,354,116,41,2,0.7,6.1,0,0,406,0,91,2245,354,116,41]) },
+      { key: "lean_5w_low_cardio_female__cardio_bias|athlete", values: Object.freeze([1412,2347,2418,397,116,41,2,0.7,6.85,0.4,1,406,0,91,2418,397,116,41]) },
+      { key: "lean_5w_low_cardio_female__cardio_bias|expert", values: Object.freeze([1469,2418,2490,406,116,45,2,0.77,7,0.75,1,406,0,91,2490,406,116,45]) },
+      { key: "lean_5w_low_cardio_female__low_digest|general", values: Object.freeze([1305,1947,2005,294,116,41,2,0.7,5.07,0,0,406,0,91,2005,294,116,41]) },
+      { key: "lean_5w_low_cardio_female__low_digest|athlete", values: Object.freeze([1412,2115,2178,337,116,41,2,0.7,5.81,0.4,1,406,0,91,2178,337,116,41]) },
+      { key: "lean_5w_low_cardio_female__low_digest|expert", values: Object.freeze([1477,2195,2261,358,116,41,2,0.7,6.17,0.8,1,406,0,91,2261,358,116,41]) },
+      { key: "bulk_5w_no_cardio_male|general", values: Object.freeze([1815,2863,3477,574,148,66,1.8,0.8,7,0,0,820,0,89,3477,574,148,66]) },
+      { key: "bulk_5w_no_cardio_male|athlete", values: Object.freeze([1932,3060,3477,574,148,66,1.8,0.8,7,0.4,1,820,0,89,3477,574,148,66]) },
+      { key: "bulk_5w_no_cardio_male|expert", values: Object.freeze([1966,3105,3477,574,148,66,1.8,0.8,7,0.75,1,820,0,89,3477,574,148,66]) },
+      { key: "bulk_5w_no_cardio_male__high_activity|general", values: Object.freeze([1815,3117,3477,574,148,66,1.8,0.8,7,0,0,820,0,89,3477,574,148,66]) },
+      { key: "bulk_5w_no_cardio_male__high_activity|athlete", values: Object.freeze([1932,3330,3580,600,148,66,1.8,0.8,7.32,0.4,1,820,0,89,3580,600,148,66]) },
+      { key: "bulk_5w_no_cardio_male__high_activity|expert", values: Object.freeze([1966,3380,3630,612,148,66,1.8,0.8,7.47,0.75,1,820,0,89,3630,612,148,66]) },
+      { key: "bulk_5w_no_cardio_male__rest_day|general", values: Object.freeze([1815,2360,3477,574,148,66,1.8,0.8,7,0,0,820,0,89,3477,574,148,66]) },
+      { key: "bulk_5w_no_cardio_male__rest_day|athlete", values: Object.freeze([1932,2512,3477,574,148,66,1.8,0.8,7,0.4,1,820,0,89,3477,574,148,66]) },
+      { key: "bulk_5w_no_cardio_male__rest_day|expert", values: Object.freeze([1966,2556,3477,574,148,66,1.8,0.8,7,0.75,1,820,0,89,3477,574,148,66]) },
+      { key: "bulk_5w_no_cardio_male__cardio_bias|general", values: Object.freeze([1815,3276,3526,586,148,66,1.8,0.8,7.15,0,0,820,0,89,3526,586,148,66]) },
+      { key: "bulk_5w_no_cardio_male__cardio_bias|athlete", values: Object.freeze([1932,3473,3723,636,148,66,1.8,0.8,7.75,0.4,1,820,0,89,3723,636,148,66]) },
+      { key: "bulk_5w_no_cardio_male__cardio_bias|expert", values: Object.freeze([1966,3518,3768,647,148,66,1.8,0.8,7.89,0.75,1,820,0,89,3768,647,148,66]) },
+      { key: "bulk_5w_no_cardio_male__low_digest|general", values: Object.freeze([1815,2863,3477,574,148,66,1.8,0.8,7,0,0,820,0,89,3477,574,148,66]) },
+      { key: "bulk_5w_no_cardio_male__low_digest|athlete", values: Object.freeze([1932,3060,3477,574,148,66,1.8,0.8,7,0.4,1,820,0,89,3477,574,148,66]) },
+      { key: "bulk_5w_no_cardio_male__low_digest|expert", values: Object.freeze([1971,3111,3477,574,148,66,1.8,0.8,7,0.8,1,820,0,89,3477,574,148,66]) },
+      { key: "high_work_training_male|general", values: Object.freeze([1826,3392,3784,616,211,53,2.4,0.6,7,0,0,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male|athlete", values: Object.freeze([1835,3453,3784,616,211,53,2.4,0.6,7,0.4,1,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male|expert", values: Object.freeze([1853,3478,3784,616,211,53,2.4,0.6,7,0.75,1,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male__high_activity|general", values: Object.freeze([1826,3392,3784,616,211,53,2.4,0.6,7,0,0,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male__high_activity|athlete", values: Object.freeze([1835,3453,3784,616,211,53,2.4,0.6,7,0.4,1,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male__high_activity|expert", values: Object.freeze([1853,3478,3784,616,211,53,2.4,0.6,7,0.75,1,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male__rest_day|general", values: Object.freeze([1826,2630,3784,616,211,53,2.4,0.6,7,0,0,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male__rest_day|athlete", values: Object.freeze([1835,2642,3784,616,211,53,2.4,0.6,7,0.4,1,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male__rest_day|expert", values: Object.freeze([1853,2668,3784,616,211,53,2.4,0.6,7,0.75,1,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male__cardio_bias|general", values: Object.freeze([1826,3468,3784,616,211,53,2.4,0.6,7,0,0,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male__cardio_bias|athlete", values: Object.freeze([1835,3529,3784,616,211,53,2.4,0.6,7,0.4,1,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male__cardio_bias|expert", values: Object.freeze([1853,3555,3784,616,211,53,2.4,0.6,7,0.75,1,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male__low_digest|general", values: Object.freeze([1826,3392,3784,616,211,53,2.4,0.6,7,0,0,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male__low_digest|athlete", values: Object.freeze([1835,3453,3784,616,211,53,2.4,0.6,7,0.4,1,880,0,92,3784,616,211,53]) },
+      { key: "high_work_training_male__low_digest|expert", values: Object.freeze([1855,3482,3784,616,211,53,2.4,0.6,7,0.8,1,880,0,92,3784,616,211,53]) },
+      { key: "low_bodyfat_male|general", values: Object.freeze([1650,2711,2961,490,140,49,2,0.7,7,0,0,700,0,91,2961,490,140,49]) },
+      { key: "low_bodyfat_male|athlete", values: Object.freeze([1803,2971,3060,515,140,49,2,0.7,7.35,0.4,1,700,0,91,3060,515,140,49]) },
+      { key: "low_bodyfat_male|expert", values: Object.freeze([1845,3027,3117,529,140,49,2,0.7,7.56,0.8,1,700,0,91,3117,529,140,49]) },
+      { key: "low_bodyfat_male__high_activity|general", values: Object.freeze([1650,2912,2999,500,140,49,2,0.7,7.14,0,0,700,0,91,2999,500,140,49]) },
+      { key: "low_bodyfat_male__high_activity|athlete", values: Object.freeze([1803,3191,3286,571,140,49,2,0.7,8.16,0.4,1,700,0,91,3286,571,140,49]) },
+      { key: "low_bodyfat_male__high_activity|expert", values: Object.freeze([1845,3252,3349,587,140,49,2,0.7,8.39,0.8,1,700,0,91,3349,587,140,49]) },
+      { key: "low_bodyfat_male__rest_day|general", values: Object.freeze([1650,2175,2961,490,140,49,2,0.7,7,0,0,700,0,91,2961,490,140,49]) },
+      { key: "low_bodyfat_male__rest_day|athlete", values: Object.freeze([1803,2376,2961,490,140,49,2,0.7,7,0.4,1,700,0,91,2961,490,140,49]) },
+      { key: "low_bodyfat_male__rest_day|expert", values: Object.freeze([1845,2431,2961,490,140,49,2,0.7,7,0.8,1,700,0,91,2961,490,140,49]) },
+      { key: "low_bodyfat_male__cardio_bias|general", values: Object.freeze([1650,2934,3022,505,140,49,2,0.7,7.22,0,0,700,0,91,3022,505,140,49]) },
+      { key: "low_bodyfat_male__cardio_bias|athlete", values: Object.freeze([1803,3195,3290,572,140,49,2,0.7,8.18,0.4,1,700,0,91,3290,572,140,49]) },
+      { key: "low_bodyfat_male__cardio_bias|expert", values: Object.freeze([1845,3250,3348,587,140,49,2,0.7,8.38,0.8,1,700,0,91,3348,587,140,49]) },
+      { key: "low_bodyfat_male__low_digest|general", values: Object.freeze([1650,2711,2961,490,140,49,2,0.7,7,0,0,700,0,91,2961,490,140,49]) },
+      { key: "low_bodyfat_male__low_digest|athlete", values: Object.freeze([1803,2971,3060,515,140,49,2,0.7,7.35,0.4,1,700,0,91,3060,515,140,49]) },
+      { key: "low_bodyfat_male__low_digest|expert", values: Object.freeze([1845,3027,3117,529,140,49,2,0.7,7.56,0.8,1,700,0,91,3117,529,140,49]) },
+      { key: "high_bodyfat_female|general", values: Object.freeze([1372,1963,2555,365,175,44,2.4,0.6,5,0,0,511,0,92,2555,365,175,44]) },
+      { key: "high_bodyfat_female|athlete", values: Object.freeze([1408,2008,2555,365,175,44,2.4,0.6,5,0.4,1,511,0,92,2555,365,175,44]) },
+      { key: "high_bodyfat_female|expert", values: Object.freeze([1419,2021,2555,365,175,44,2.4,0.6,5,0.75,1,511,0,92,2555,365,175,44]) },
+      { key: "high_bodyfat_female__high_activity|general", values: Object.freeze([1372,2374,3139,511,175,44,2.4,0.6,7,0,0,730,0,92,3139,511,175,44]) },
+      { key: "high_bodyfat_female__high_activity|athlete", values: Object.freeze([1408,2431,3139,511,175,44,2.4,0.6,7,0.4,1,730,0,92,3139,511,175,44]) },
+      { key: "high_bodyfat_female__high_activity|expert", values: Object.freeze([1419,2447,3139,511,175,44,2.4,0.6,7,0.75,1,730,0,92,3139,511,175,44]) },
+      { key: "high_bodyfat_female__rest_day|general", values: Object.freeze([1372,1564,1971,219,175,44,2.4,0.6,3,0,0,365,0,92,1971,219,175,44]) },
+      { key: "high_bodyfat_female__rest_day|athlete", values: Object.freeze([1408,1605,1971,219,175,44,2.4,0.6,3,0.4,1,365,0,92,1971,219,175,44]) },
+      { key: "high_bodyfat_female__rest_day|expert", values: Object.freeze([1419,1618,1971,219,175,44,2.4,0.6,3,0.75,1,365,0,92,1971,219,175,44]) },
+      { key: "high_bodyfat_female__cardio_bias|general", values: Object.freeze([1372,2173,2555,365,175,44,2.4,0.6,5,0,0,511,0,92,2555,365,175,44]) },
+      { key: "high_bodyfat_female__cardio_bias|athlete", values: Object.freeze([1408,2219,2555,365,175,44,2.4,0.6,5,0.4,1,511,0,92,2555,365,175,44]) },
+      { key: "high_bodyfat_female__cardio_bias|expert", values: Object.freeze([1419,2232,2555,365,175,44,2.4,0.6,5,0.75,1,511,0,92,2555,365,175,44]) },
+      { key: "high_bodyfat_female__low_digest|general", values: Object.freeze([1372,1963,2555,365,175,44,2.4,0.6,5,0,0,511,0,92,2555,365,175,44]) },
+      { key: "high_bodyfat_female__low_digest|athlete", values: Object.freeze([1408,2008,2555,365,175,44,2.4,0.6,5,0.4,1,511,0,92,2555,365,175,44]) },
+      { key: "high_bodyfat_female__low_digest|expert", values: Object.freeze([1421,2023,2555,365,175,44,2.4,0.6,5,0.8,1,511,0,92,2555,365,175,44]) },
+      { key: "lean_home_inbody_male|general", values: Object.freeze([1694,2729,3215,532,152,53,2,0.7,7,0,0,760,0,91,3215,532,152,53]) },
+      { key: "lean_home_inbody_male|athlete", values: Object.freeze([1786,2880,3215,532,152,53,2,0.7,7,0.32,1,760,0,91,3215,532,152,53]) },
+      { key: "lean_home_inbody_male|expert", values: Object.freeze([1819,2923,3215,532,152,53,2,0.7,7,0.6,1,760,0,91,3215,532,152,53]) },
+      { key: "lean_home_inbody_male__high_activity|general", values: Object.freeze([1694,2966,3215,532,152,53,2,0.7,7,0,0,760,0,91,3215,532,152,53]) },
+      { key: "lean_home_inbody_male__high_activity|athlete", values: Object.freeze([1786,3130,3224,534,152,53,2,0.7,7.03,0.32,1,760,0,91,3224,534,152,53]) },
+      { key: "lean_home_inbody_male__high_activity|expert", values: Object.freeze([1819,3177,3273,546,152,53,2,0.7,7.19,0.6,1,760,0,91,3273,546,152,53]) },
+      { key: "lean_home_inbody_male__rest_day|general", values: Object.freeze([1694,2202,3215,532,152,53,2,0.7,7,0,0,760,0,91,3215,532,152,53]) },
+      { key: "lean_home_inbody_male__rest_day|athlete", values: Object.freeze([1786,2322,3215,532,152,53,2,0.7,7,0.32,1,760,0,91,3215,532,152,53]) },
+      { key: "lean_home_inbody_male__rest_day|expert", values: Object.freeze([1819,2364,3215,532,152,53,2,0.7,7,0.6,1,760,0,91,3215,532,152,53]) },
+      { key: "lean_home_inbody_male__cardio_bias|general", values: Object.freeze([1694,2990,3215,532,152,53,2,0.7,7,0,0,760,0,91,3215,532,152,53]) },
+      { key: "lean_home_inbody_male__cardio_bias|athlete", values: Object.freeze([1786,3141,3235,537,152,53,2,0.7,7.07,0.32,1,760,0,91,3235,537,152,53]) },
+      { key: "lean_home_inbody_male__cardio_bias|expert", values: Object.freeze([1819,3184,3279,548,152,53,2,0.7,7.21,0.6,1,760,0,91,3279,548,152,53]) },
+      { key: "lean_home_inbody_male__low_digest|general", values: Object.freeze([1694,2729,3215,532,152,53,2,0.7,7,0,0,760,0,91,3215,532,152,53]) },
+      { key: "lean_home_inbody_male__low_digest|athlete", values: Object.freeze([1786,2880,3215,532,152,53,2,0.7,7,0.32,1,760,0,91,3215,532,152,53]) },
+      { key: "lean_home_inbody_male__low_digest|expert", values: Object.freeze([1823,2929,3215,532,152,53,2,0.7,7,0.64,1,760,0,91,3215,532,152,53]) },
+      { key: "snapshot_like_record|general", values: Object.freeze([1676,2738,3225,525,180,45,2.4,0.6,7,0,0,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record|athlete", values: Object.freeze([1749,2852,3225,525,180,45,2.4,0.6,7,0.4,1,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record|expert", values: Object.freeze([1792,2908,3225,525,180,45,2.4,0.6,7,0.75,1,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record__high_activity|general", values: Object.freeze([1676,3026,3225,525,180,45,2.4,0.6,7,0,0,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record__high_activity|athlete", values: Object.freeze([1749,3152,3225,525,180,45,2.4,0.6,7,0.4,1,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record__high_activity|expert", values: Object.freeze([1792,3216,3225,525,180,45,2.4,0.6,7,0.75,1,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record__rest_day|general", values: Object.freeze([1676,2125,3225,525,180,45,2.4,0.6,7,0,0,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record__rest_day|athlete", values: Object.freeze([1749,2217,3225,525,180,45,2.4,0.6,7,0.4,1,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record__rest_day|expert", values: Object.freeze([1792,2273,3225,525,180,45,2.4,0.6,7,0.75,1,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record__cardio_bias|general", values: Object.freeze([1676,2850,3225,525,180,45,2.4,0.6,7,0,0,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record__cardio_bias|athlete", values: Object.freeze([1749,2964,3225,525,180,45,2.4,0.6,7,0.4,1,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record__cardio_bias|expert", values: Object.freeze([1792,3020,3225,525,180,45,2.4,0.6,7,0.75,1,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record__low_digest|general", values: Object.freeze([1676,2738,3225,525,180,45,2.4,0.6,7,0,0,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record__low_digest|athlete", values: Object.freeze([1749,2852,3225,525,180,45,2.4,0.6,7,0.4,1,750,0,92,3225,525,180,45]) },
+      { key: "snapshot_like_record__low_digest|expert", values: Object.freeze([1799,2916,3225,525,180,45,2.4,0.6,7,0.8,1,750,0,92,3225,525,180,45]) }
+    ]);
 
     function getModeGoldenHash(text, seed = 0){
       let h1 = 0xdeadbeef ^ seed;
@@ -26036,11 +26190,82 @@ Notes:
       return rows;
     }
 
-    function assertModeGoldenValues(actual, expected, label){
-      assertTest(Array.isArray(actual) && actual.length === expected.length, `${label} golden vector should have ${expected.length} fields`);
-      expected.forEach((expectedValue, index) => {
-        assertClose(actual[index], expectedValue, 0.005, `${label} ${MODE_GOLDEN_RESULT_FIELDS[index]} should match golden`);
+    function getModeGoldenExpectedRowsByKey(){
+      return new Map(MODE_GOLDEN_EXPECTED_ROWS.map(row => [row.key, row.values]));
+    }
+
+    function getModeGoldenScenarioParts(key){
+      const parts = String(key || "").split("|");
+      return { scenario: parts[0] || "unknown", mode: parts[1] || "unknown" };
+    }
+
+    function compareModeGoldenScenarioResult(row, expectedValues, tolerance = 0.005){
+      const key = row?.key || "unknown|unknown";
+      const { scenario, mode } = getModeGoldenScenarioParts(key);
+      const actualValues = row?.values;
+      const mismatches = [];
+      if (!Array.isArray(actualValues) || !Array.isArray(expectedValues)) {
+        mismatches.push({ key, scenario, mode, field: "row", expected: Array.isArray(expectedValues) ? "array" : typeof expectedValues, actual: Array.isArray(actualValues) ? "array" : typeof actualValues, diff: "n/a", tolerance });
+        return mismatches;
+      }
+      if (actualValues.length !== expectedValues.length) {
+        mismatches.push({ key, scenario, mode, field: "fieldCount", expected: expectedValues.length, actual: actualValues.length, diff: actualValues.length - expectedValues.length, tolerance });
+      }
+      const maxLength = Math.max(actualValues.length, expectedValues.length);
+      for (let index = 0; index < maxLength; index += 1) {
+        const field = MODE_GOLDEN_RESULT_FIELDS[index] || `field${index}`;
+        const actual = actualValues[index];
+        const expected = expectedValues[index];
+        const actualNumber = Number(actual);
+        const expectedNumber = Number(expected);
+        const bothNumeric = Number.isFinite(actualNumber) && Number.isFinite(expectedNumber);
+        const diff = bothNumeric ? round(actualNumber - expectedNumber, 6) : "n/a";
+        const matched = bothNumeric ? Math.abs(actualNumber - expectedNumber) <= tolerance : actual === expected;
+        if (!matched) {
+          mismatches.push({ key, scenario, mode, field, expected, actual, diff, tolerance });
+        }
+      }
+      return mismatches;
+    }
+
+    function collectModeGoldenMismatches(actualRows, expectedRowsByKey = getModeGoldenExpectedRowsByKey(), tolerance = 0.005){
+      const mismatches = [];
+      const seenKeys = new Set();
+      (actualRows || []).forEach(row => {
+        const key = row?.key || "unknown|unknown";
+        seenKeys.add(key);
+        if (!expectedRowsByKey.has(key)) {
+          const { scenario, mode } = getModeGoldenScenarioParts(key);
+          mismatches.push({ key, scenario, mode, field: "row", expected: "stored golden row", actual: "unexpected row", diff: "n/a", tolerance });
+          return;
+        }
+        mismatches.push(...compareModeGoldenScenarioResult(row, expectedRowsByKey.get(key), tolerance));
       });
+      expectedRowsByKey.forEach((expectedValues, key) => {
+        if (!seenKeys.has(key)) {
+          const { scenario, mode } = getModeGoldenScenarioParts(key);
+          mismatches.push({ key, scenario, mode, field: "row", expected: "stored golden row", actual: "missing row", diff: "n/a", tolerance });
+        }
+      });
+      return mismatches;
+    }
+
+    function formatModeGoldenMismatchReport(mismatches, options = {}){
+      const limit = Number.isFinite(options.limit) ? Math.max(1, Math.floor(options.limit)) : 12;
+      const tolerance = Number.isFinite(options.tolerance) ? options.tolerance : 0.005;
+      if (!mismatches || mismatches.length === 0) {
+        return "No stored field mismatch was found; check row ordering, scenario generation, hash algorithm, or golden metadata.";
+      }
+      const visible = mismatches.slice(0, limit).map(item => (
+        `scenario=${item.scenario} mode=${item.mode} field=${item.field} expected=${item.expected} actual=${item.actual} diff=${item.diff} tolerance=${item.tolerance ?? tolerance}`
+      ));
+      const suffix = mismatches.length > limit ? ` ... +${mismatches.length - limit} more` : "";
+      return `mode golden mismatches (${visible.length}/${mismatches.length}, tolerance ${tolerance}): ${visible.join(" | ")}${suffix}`;
+    }
+
+    function assertModeGoldenValues(actual, expected, label){
+      const mismatches = compareModeGoldenScenarioResult({ key: label, values: actual }, expected);
+      assertTest(mismatches.length === 0, formatModeGoldenMismatchReport(mismatches, { limit: Math.max(1, mismatches.length) }));
     }
 
     function runModeGoldenCalculationTests(){
@@ -26050,6 +26275,7 @@ Notes:
         const rowsByKey = new Map(rows.map(row => [row.key, row]));
         const serializedRows = rows.map(row => ({ key: row.key, values: row.values }));
         const currentHash = getModeGoldenHash(JSON.stringify(serializedRows));
+        const expectedRowsByKey = getModeGoldenExpectedRowsByKey();
 
         results.push(runNamedTest("C4.8-M2-1 mode golden scenario matrix is complete and finite", () => {
           assertTest(getModeGoldenScenarios().length === MODE_GOLDEN_SCENARIO_COUNT, "mode golden should define 50 scenarios");
@@ -26058,10 +26284,12 @@ Notes:
             assertTest(row.values.length === MODE_GOLDEN_RESULT_FIELDS.length, `${row.key} should include every golden field`);
             assertTest(row.values.every(value => Number.isFinite(value)), `${row.key} should have finite golden values`);
           });
+          assertTest(MODE_GOLDEN_EXPECTED_ROWS.length === rows.length, "stored mode golden rows should cover the full matrix");
         }));
 
         results.push(runNamedTest("C4.8-M2-1 golden hash matches current calculation baseline", () => {
-          assertTest(currentHash === MODE_GOLDEN_EXPECTED_HASH, `mode golden hash should remain ${MODE_GOLDEN_EXPECTED_HASH}, got ${currentHash}`);
+          const mismatches = collectModeGoldenMismatches(serializedRows, expectedRowsByKey);
+          assertTest(currentHash === MODE_GOLDEN_EXPECTED_HASH, currentHash === MODE_GOLDEN_EXPECTED_HASH ? `mode golden hash should remain ${MODE_GOLDEN_EXPECTED_HASH}` : `mode golden hash should remain ${MODE_GOLDEN_EXPECTED_HASH}, got ${currentHash}. ${formatModeGoldenMismatchReport(mismatches, { limit: 18 })}`);
         }));
 
         results.push(runNamedTest("C4.8-M2-1 golden anchor values remain stable", () => {
@@ -29691,8 +29919,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-2"), "document title should show v6.6-C4.8-M2-2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-2"), "app version badge should show v6.6-C4.8-M2-2");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -31241,8 +31469,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-M2-2"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-2"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -31884,7 +32112,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.6-C4.8-M2-1", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.6-C4.8-M2-2", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -32191,7 +32419,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.6-C4.8-M2-1", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.6-C4.8-M2-2", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -32416,9 +32644,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "current app version helper should return v6.6-C4.8-M2-1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-2"), "document title should show v6.6-C4.8-M2-2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-2"), "app version badge should show v6.6-C4.8-M2-2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-2", "current app version helper should return v6.6-C4.8-M2-2");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -32459,7 +32687,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.6-C4.8-M2-1", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.6-C4.8-M2-2", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -32505,9 +32733,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "current app version helper should return v6.6-C4.8-M2-1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-2"), "document title should show v6.6-C4.8-M2-2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-2"), "app version badge should show v6.6-C4.8-M2-2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-2", "current app version helper should return v6.6-C4.8-M2-2");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -32615,13 +32843,13 @@ Notes:
         results.push(runNamedTest("C4.8-UI1 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.6-C4.8-M2-1",
-            "Stage: 6.6-C4.8-M2-1 mode별 golden 계산 테스트 구축",
+            "Version: 6.6-C4.8-M2-2",
+            "Stage: 6.6-C4.8-M2-2 mode golden 테스트 실패 진단 보강",
             "최근 흐름 / Weekly 탭을 Stitch 톤의 기록 흐름 확인 Shell로 재배치"
           ], "top comment should show C4.8-UI2 version and stage");
-          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-2"), "document title should show v6.6-C4.8-M2-2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-2"), "app version badge should show v6.6-C4.8-M2-2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-2", "version helper should return v6.6-C4.8-M2-2");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -33499,8 +33727,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.6-C4.8-M2-2"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-2"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertTest(!!panel.querySelector(".settings-goal-choice:not([hidden])"), "Settings should keep the goal selector visible");
           assertTest(panel.querySelector(".settings-mode-choice")?.hidden === true, "Settings should keep mode selector hidden after M1");
@@ -34100,9 +34328,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and Settings Stitch shell render", () => {
           const panel = renderSettingsShell();
-          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-2"), "document title should show v6.6-C4.8-M2-2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-2"), "app version badge should show v6.6-C4.8-M2-2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-2", "version helper should return v6.6-C4.8-M2-2");
           assertTest(!!document.querySelector("[data-stitch-settings-shell]"), "Settings should render Stitch shell root");
           assertTest(!!panel.querySelector(".settings-stitch-hero"), "Settings should render Stitch-style hero");
           assertTest(panel.querySelectorAll(".settings-choice-card:not([hidden])").length === 1, "Settings should render a single user-facing goal choice card");
@@ -34223,9 +34451,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and stage are current", () => {
           renderSettings();
-          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-2"), "document title should show v6.6-C4.8-M2-2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-2"), "app version badge should show v6.6-C4.8-M2-2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-2", "version helper should return v6.6-C4.8-M2-2");
         }));
 
         results.push(runNamedTest("C4.8-M1 Settings hides user-facing mode selection", () => {
@@ -34345,9 +34573,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI3 version and InBody shell root render", () => {
           seedInbodyShell();
-          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-2"), "document title should show v6.6-C4.8-M2-2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-2"), "app version badge should show v6.6-C4.8-M2-2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-2", "version helper should return v6.6-C4.8-M2-2");
           assertTest(!!document.querySelector("[data-stitch-inbody-shell]"), "InBody should render Stitch shell root");
           assertTest(!!document.querySelector(".inbody-stitch-hero"), "InBody should render result-first hero card");
           assertTest(!!document.querySelector(".inbody-stitch-layout"), "InBody should render analysis/input/history layout");
@@ -34477,9 +34705,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
           seedRecordsShell();
-          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-2"), "document title should show v6.6-C4.8-M2-2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-2"), "app version badge should show v6.6-C4.8-M2-2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-2", "version helper should return v6.6-C4.8-M2-2");
           assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
           assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
           assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
@@ -34628,9 +34856,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI2 version and Weekly shell root render", () => {
           seedWeeklyShell();
-          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-2"), "document title should show v6.6-C4.8-M2-2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-2"), "app version badge should show v6.6-C4.8-M2-2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-2", "version helper should return v6.6-C4.8-M2-2");
           assertTest(!!document.querySelector("[data-stitch-weekly-shell]"), "Weekly should render Stitch shell root");
           assertTest(!!document.querySelector("[data-stitch-weekly-dashboard]"), "Weekly should render Stitch dashboard root");
         }));
@@ -34744,9 +34972,9 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.6-C4.8-M2-1"), "document title should show v6.6-C4.8-M2-1");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-1"), "app version badge should show v6.6-C4.8-M2-1");
-          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-1", "version helper should return v6.6-C4.8-M2-1");
+          assertTest(document.title.includes("v6.6-C4.8-M2-2"), "document title should show v6.6-C4.8-M2-2");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.6-C4.8-M2-2"), "app version badge should show v6.6-C4.8-M2-2");
+          assertTest(getCurrentAppVersionLabel() === "v6.6-C4.8-M2-2", "version helper should return v6.6-C4.8-M2-2");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
