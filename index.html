@@ -1,8 +1,12 @@
 ﻿<!--
-Version: 6.7-D28
-Stage: 6.7-D28 Today 첫 화면 작업 카드 정리
+Version: 6.7-D29
+Stage: 6.7-D29 Today 식사 기록 카드 / 연속 입력 정리
 Date: 2026-05-19
 Notes:
+- v6.7-D29 Today 식사 기록 카드를 Stitch식 요약 + 식사 row 구조로 정리
+- 식사 추가는 기존 상세 기록이 있으면 기록 방식 재선택 없이 바로 이어 입력하도록 보강
+- 상세 식사 저장 후 모달을 유지해 다음 식사를 연속 입력할 수 있게 정리
+- 식사 저장 / Records / 계산식 / backup schema 변경 없음
 - v6.7-D28 Today 기록 상태를 별도 카드에서 오늘 작업 카드 안의 compact 상태/action으로 흡수
 - 오늘 먼저 할 일 하단의 반복 설명문을 제거하고 첫 화면 가로 밀도를 정리
 - Today 기록 갱신 기능 / 계산식 / Coach 판단 / backup schema 변경 없음
@@ -350,7 +354,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.7-D28</title>
+  <title>탄단지 다이어리 v6.7-D29</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -7833,6 +7837,11 @@ Notes:
       padding:18px;
       background:rgba(255,255,255,.54);
     }
+    .today-meal-filled{
+      border-style:solid;
+      padding:14px;
+      background:rgba(255,255,255,.46);
+    }
     .today-meal-empty strong,
     .today-meal-filled strong{
       display:block;
@@ -7873,6 +7882,86 @@ Notes:
       font-weight:900;
       line-height:1.15;
       word-break:keep-all;
+    }
+    .today-meal-list{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      margin-top:14px;
+    }
+    .today-meal-row{
+      display:grid;
+      grid-template-columns:auto minmax(0,1fr) auto;
+      align-items:center;
+      gap:12px;
+      min-width:0;
+      padding:10px 12px;
+      border-radius:16px;
+      background:color-mix(in srgb, var(--paper) 82%, white 18%);
+      border:1px solid color-mix(in srgb, var(--line) 72%, white 28%);
+    }
+    .today-meal-row-icon{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:36px;
+      height:36px;
+      border-radius:999px;
+      background:color-mix(in srgb, var(--mint) 36%, white 64%);
+      color:var(--teal);
+    }
+    .today-meal-row-icon svg{
+      width:17px;
+      height:17px;
+      stroke:currentColor;
+      fill:none;
+      stroke-width:2;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+    }
+    .today-meal-row-main{
+      min-width:0;
+    }
+    .today-meal-row-title{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      min-width:0;
+      color:var(--deep);
+      font-size:14px;
+      font-weight:900;
+      line-height:1.25;
+    }
+    .today-meal-row-title span{
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .today-meal-row-meta{
+      margin-top:3px;
+      color:var(--muted);
+      font-size:12px;
+      font-weight:700;
+      line-height:1.35;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .today-meal-row-energy{
+      color:var(--deep);
+      font-size:14px;
+      font-weight:900;
+      line-height:1.2;
+      white-space:nowrap;
+      text-align:right;
+    }
+    .today-meal-more{
+      color:var(--muted);
+      font-size:12px;
+      font-weight:800;
+      line-height:1.4;
+      padding:0 4px;
     }
     .today-meal-actions{
       position:relative;
@@ -9402,6 +9491,16 @@ Notes:
       .today-meal-compact{
         grid-template-columns:repeat(2,minmax(0,1fr));
       }
+      .today-meal-row{
+        grid-template-columns:auto minmax(0,1fr);
+      }
+      .today-meal-row-energy{
+        grid-column:2;
+        justify-self:start;
+        text-align:left;
+        font-size:12px;
+        color:var(--muted);
+      }
       .today-meal-actions,
       #todayMealPrimaryActionHost,
       #todayMealSecondaryActions{
@@ -9984,7 +10083,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.7-D28</span>
+               <span class="app-version">v6.7-D29</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -11356,7 +11455,7 @@ Notes:
             </div>
             <div class="record-start-actions">
               <button class="secondary-btn" type="button" data-record-start-close>닫기</button>
-              <button class="primary-btn" id="todayRecordDetailedSaveBtn" type="button">저장</button>
+              <button class="primary-btn" id="todayRecordDetailedSaveBtn" type="button">저장 후 계속</button>
             </div>
           </div>
         </div>
@@ -12247,7 +12346,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.7-D28";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.7-D29";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -17173,6 +17272,8 @@ Notes:
       overlay.setAttribute("aria-hidden", "false");
       document.body.classList.add("record-start-open");
       setTodayRecordStartStep(step);
+      const body = overlay.querySelector(".record-start-body");
+      if (body) body.scrollTop = 0;
     }
 
     function closeTodayRecordStartDialog(){
@@ -17286,8 +17387,8 @@ Notes:
         syncRecordInputsForDate(prepared.today);
         render();
         result.record = getRecordByDate(prepared.today);
-        setTodayInputFeedback("ok", getTodayRecordStartSavedMessages("상세 기록을 저장했습니다.", commonInput));
-        closeTodayRecordStartDialog();
+        resetTodayRecordDetailedMealFields();
+        setTodayRecordStartFeedback("ok", getTodayRecordStartSavedMessages("식사를 저장했습니다. 다음 식사를 이어 입력할 수 있습니다.", commonInput));
       } else {
         setTodayRecordStartFeedback("warn", recordsState.feedback?.message || "저장할 식사 내용을 입력해 주세요.");
       }
@@ -17351,6 +17452,32 @@ Notes:
       render();
       closeTodayRecordStartDialog();
       return { saved: true, record };
+    }
+
+    function getPreferredTodayRecordStartStep(){
+      const record = getRecordByDate(getTodayDateString());
+      if (record?.recordMode === "detailed" || (Array.isArray(record?.meals) && record.meals.length > 0)) return "detailed";
+      return "choices";
+    }
+
+    function resetTodayRecordDetailedMealFields(){
+      [
+        "todayRecordMealCarbs",
+        "todayRecordMealProtein",
+        "todayRecordMealFat",
+        "todayRecordMealAlcoholKcal",
+        "todayRecordMealOtherKcal",
+        "todayRecordMealMemo"
+      ].forEach(id => {
+        const input = document.getElementById(id);
+        if (input) input.value = "";
+      });
+      resetAlcoholCalcInputs("today-start");
+      const mealLabel = document.getElementById("todayRecordMealLabel");
+      if (mealLabel) mealLabel.value = getSuggestedMealLabel(getTodayDateString());
+      const body = document.querySelector(".record-start-body");
+      if (body) body.scrollTop = 0;
+      document.getElementById("todayRecordMealLabel")?.focus?.();
     }
 
     let mealReuseDialogContext = null;
@@ -22859,6 +22986,55 @@ Notes:
         : `<div class="warn warn"><h4>오늘 목표 확인</h4><ul><li>오늘 목표가 계산되어야 남은 양이 보입니다. 기본 정보를 확인해 주세요.</li></ul></div>`;
     }
 
+    function renderTodayMealRowIcon(){
+      return `
+        <span class="today-meal-row-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M7 3v7"></path><path d="M10 3v7"></path><path d="M7 10c0 1.7 3 1.7 3 0"></path><path d="M8.5 10v11"></path><path d="M16 3v18"></path><path d="M16 3c3 1.8 3 6.7 0 8.5"></path></svg>
+        </span>
+      `;
+    }
+
+    function getTodayMealRowMeta(meal){
+      const carbs = normalizeMacroValue(meal.carbs);
+      const protein = normalizeMacroValue(meal.protein);
+      const fat = normalizeMacroValue(meal.fat);
+      const alcoholKcal = normalizeMacroValue(meal.alcoholKcal);
+      const otherKcal = normalizeMacroValue(meal.otherKcal);
+      const parts = [];
+      if (carbs > 0) parts.push(`탄 ${formatCompactMacroValue(carbs, "g")}`);
+      if (protein > 0) parts.push(`단 ${formatCompactMacroValue(protein, "g")}`);
+      if (fat > 0) parts.push(`지 ${formatCompactMacroValue(fat, "g")}`);
+      if (alcoholKcal > 0) parts.push(`술 ${formatCompactMacroValue(alcoholKcal, "kcal")}`);
+      if (otherKcal > 0) parts.push(`기타 ${formatCompactMacroValue(otherKcal, "kcal")}`);
+      return parts.join(" · ") || "메모 기록";
+    }
+
+    function renderTodayMealRows(meals){
+      const visibleMeals = meals.slice(-4);
+      const hiddenCount = Math.max(0, meals.length - visibleMeals.length);
+      const rows = visibleMeals.map(meal => {
+        const energy = calculateMealEnergy(meal);
+        const memo = String(meal.memo || "").trim();
+        const title = [meal.mealLabel || "식사", memo].filter(Boolean).join(" · ");
+        return `
+          <div class="today-meal-row">
+            ${renderTodayMealRowIcon()}
+            <div class="today-meal-row-main">
+              <div class="today-meal-row-title"><span>${escapeHtml(title)}</span></div>
+              <div class="today-meal-row-meta">${escapeHtml(getTodayMealRowMeta(meal))}</div>
+            </div>
+            <div class="today-meal-row-energy">${formatCompactMacroValue(energy.totalKcal, "kcal")}</div>
+          </div>
+        `;
+      }).join("");
+      return `
+        <div class="today-meal-list">
+          ${rows}
+          ${hiddenCount ? `<div class="today-meal-more">외 ${hiddenCount}건은 기록 보기에서 확인할 수 있습니다.</div>` : ""}
+        </div>
+      `;
+    }
+
     function renderTodayMealPanel(balance){
       const host = document.getElementById("todayMealSummary");
       const primaryHost = document.getElementById("todayMealPrimaryActionHost");
@@ -22872,7 +23048,7 @@ Notes:
       const totals = getMealTotalsForDate(today);
       if (startButton.parentElement !== primaryHost) primaryHost.appendChild(startButton);
       const startLabel = startButton.querySelector("span");
-      if (startLabel) startLabel.textContent = mealCount ? "식사 추가" : "기록 시작하기";
+      if (startLabel) startLabel.textContent = mealCount ? "식사 추가하기" : "기록 시작하기";
       if (!mealCount) {
         host.innerHTML = `
           <div class="today-meal-empty">
@@ -22881,7 +23057,7 @@ Notes:
           </div>
         `;
         secondaryHost.innerHTML = record
-          ? `<button class="secondary-btn" type="button" data-open-today-record>기록 보기</button>`
+          ? `<button class="secondary-btn" type="button" data-open-today-record>기록 전체보기</button>`
           : "";
         return;
       }
@@ -22896,9 +23072,10 @@ Notes:
             <div class="today-meal-stat"><div class="k">단백질</div><div class="v">${formatCompactMacroValue(totals.protein, "g")}</div></div>
             <div class="today-meal-stat"><div class="k">지방</div><div class="v">${formatCompactMacroValue(totals.fat, "g")}</div></div>
           </div>
+          ${renderTodayMealRows(meals)}
         </div>
       `;
-      secondaryHost.innerHTML = `<button class="secondary-btn" type="button" data-open-today-record>기록 보기</button>`;
+      secondaryHost.innerHTML = `<button class="secondary-btn" type="button" data-open-today-record>기록 전체보기</button>`;
     }
 
     function renderMacroBasisUi(result, showPlaceholder){
@@ -27374,7 +27551,7 @@ Notes:
         if (!trigger) return;
         openCalculationSettings();
       });
-      document.getElementById("todayRecordStartBtn")?.addEventListener("click", () => openTodayRecordStartDialog());
+      document.getElementById("todayRecordStartBtn")?.addEventListener("click", () => openTodayRecordStartDialog(getPreferredTodayRecordStartStep()));
       document.getElementById("todayRecordStartClose")?.addEventListener("click", closeTodayRecordStartDialog);
       document.getElementById("todayRecordStartOverlay")?.addEventListener("click", event => {
         if (event.target === event.currentTarget) closeTodayRecordStartDialog();
@@ -32593,8 +32770,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-D28"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D28"), "app version badge should show v6.7-A4");
+          assertTest(document.title.includes("v6.7-D29"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D29"), "app version badge should show v6.7-A4");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -33244,7 +33421,7 @@ Notes:
           };
         };
 
-        results.push(runNamedTest("v6.7-D28 unchanged record detail save does not rewrite snapshot or queue refresh", () => {
+        results.push(runNamedTest("v6.7-D29 unchanged record detail save does not rewrite snapshot or queue refresh", () => {
           prepareSettings();
           const today = getTodayDateString();
           const { record } = makeRecordWithBasis({ weeklyTrainingDays: 1 }, { date: today });
@@ -34213,8 +34390,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-D28"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D28"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.7-D29"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D29"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -34873,7 +35050,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.7-D28", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.7-D29", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -35186,7 +35363,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.7-D28", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.7-D29", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -35411,9 +35588,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-D28"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D28"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D28", "current app version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D29"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D29"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D29", "current app version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -35454,7 +35631,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.7-D28", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.7-D29", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -35500,9 +35677,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-D28"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D28"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D28", "current app version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D29"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D29"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D29", "current app version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -35610,12 +35787,12 @@ Notes:
         results.push(runNamedTest("v6.7-D3 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.7-D28",
-            "Stage: 6.7-D28"
+            "Version: 6.7-D29",
+            "Stage: 6.7-D29"
           ], "top comment should show v6.7-A4 version and stage");
-          assertTest(document.title.includes("v6.7-D28"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D28"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D28", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D29"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D29"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D29", "version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -36293,7 +36470,11 @@ Notes:
           assertTest(record.meals[0].carbs === 82 && record.meals[0].protein === 36 && record.meals[0].fat === 14, "detailed modal save should preserve macros");
           assertTest(record.meals[0].otherKcal === 80, "detailed modal save should preserve other kcal");
           assertTest(!!record.goalSnapshot, "detailed modal save should keep existing snapshot flow");
-          assertTest(!isOpen(), "successful detailed save should close modal");
+          assertTest(isOpen(), "successful detailed save should keep modal open for the next meal");
+          assertTest(!document.getElementById("todayRecordStartDetailed").classList.contains("hidden"), "successful detailed save should stay on the detailed meal form");
+          assertTest(document.getElementById("todayRecordMealCarbs").value === "" && document.getElementById("todayRecordMealProtein").value === "" && document.getElementById("todayRecordMealFat").value === "", "successful detailed save should clear meal macro fields for the next entry");
+          assertIncludesAll(document.getElementById("todayRecordStartFeedback").textContent || "", ["식사를 저장했습니다", "이어 입력"], "successful detailed save should explain continuous entry");
+          closeTodayRecordStartDialog();
         }));
 
         results.push(runNamedTest("today record start detailed validation stays in modal", () => {
@@ -36313,7 +36494,7 @@ Notes:
           closeTodayRecordStartDialog();
         }));
 
-        results.push(runNamedTest("v6.7-D28 today detailed record exposes full meal labels and top feedback host", () => {
+        results.push(runNamedTest("v6.7-D29 today detailed record exposes full meal labels and top feedback host", () => {
           openTodayRecordStartDialog("detailed");
           const options = Array.from(document.querySelectorAll("#todayRecordMealLabel option")).map(option => option.value);
           assertTest(JSON.stringify(options) === JSON.stringify(MEAL_LABEL_OPTIONS), "today detailed meal label select should use configured meal labels");
@@ -36326,7 +36507,7 @@ Notes:
           closeTodayRecordStartDialog();
         }));
 
-        results.push(runNamedTest("v6.7-D28 today detailed numeric typing keeps modal open", () => {
+        results.push(runNamedTest("v6.7-D29 today detailed numeric typing keeps modal open", () => {
           openTodayRecordStartDialog("detailed");
           [
             "todayRecordMealCarbs",
@@ -36351,7 +36532,7 @@ Notes:
           closeTodayRecordStartDialog();
         }));
 
-        results.push(runNamedTest("v6.7-D28 today alcohol calculator is a separate wide card", () => {
+        results.push(runNamedTest("v6.7-D29 today alcohol calculator is a separate wide card", () => {
           openTodayRecordStartDialog("detailed");
           const calc = document.querySelector("[data-alcohol-calc='today-start']");
           const alcoholField = document.getElementById("todayRecordMealAlcoholKcal")?.closest(".field");
@@ -36360,6 +36541,37 @@ Notes:
           assertTest(!alcoholField?.contains(calc), "today alcohol calculator should not be nested inside the alcohol kcal input card");
           const summaryText = calc.querySelector("summary")?.textContent || "";
           assertIncludesAll(summaryText, ["알코올 계산기", "도수", "용량"], "today alcohol calculator summary should be short and discoverable");
+          closeTodayRecordStartDialog();
+        }));
+
+        results.push(runNamedTest("v6.7-D29 Today meal card shows Stitch-style meal rows", () => {
+          recordsState.items = [];
+          upsertRecord({
+            date: today,
+            recordMode: "detailed",
+            meals: [
+              { id: "d29-meal-1", mealLabel: "기상", carbs: 10, protein: 12, fat: 3, memo: "프로틴" },
+              { id: "d29-meal-2", mealLabel: "아침", carbs: 45, protein: 22, fat: 14, memo: "요거트" },
+              { id: "d29-meal-3", mealLabel: "점심", carbs: 38, protein: 50, fat: 10, memo: "샐러드" }
+            ]
+          });
+          render();
+          const panel = document.getElementById("todayMealPanel");
+          assertTest(panel.querySelectorAll(".today-meal-row").length === 3, "Today meal card should show recent meal rows");
+          assertIncludesAll(panel.textContent || "", ["기상", "아침", "점심", "식사 추가하기", "기록 전체보기"], "Today meal card should keep labels and actions visible");
+        }));
+
+        results.push(runNamedTest("v6.7-D29 Today meal add opens detailed form without repeating mode choice", () => {
+          recordsState.items = [];
+          upsertRecord({
+            date: today,
+            recordMode: "detailed",
+            meals: [{ id: "d29-meal-existing", mealLabel: "아침", carbs: 45, protein: 22, fat: 14, memo: "" }]
+          });
+          render();
+          document.getElementById("todayRecordStartBtn").click();
+          assertTest(!document.getElementById("todayRecordStartDetailed").classList.contains("hidden"), "meal add should open the detailed form directly when today's detailed record exists");
+          assertTest(document.getElementById("todayRecordStartChoices").classList.contains("hidden"), "meal add should not ask for record mode again");
           closeTodayRecordStartDialog();
         }));
 
@@ -36930,8 +37142,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.7-D28"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D28"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.7-D29"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D29"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertTest(!!panel.querySelector(".settings-goal-choice:not([hidden])"), "Settings should keep the goal selector visible");
           assertTest(!panel.querySelector(".settings-mode-choice"), "Settings should remove mode selector residue after M2-D");
@@ -37093,7 +37305,7 @@ Notes:
           assertTest(footerTop >= Math.max(bodyBottom, sideBottom) - 1, "quick edit footer should sit below the main grid content");
         }));
 
-        results.push(runNamedTest("v6.7-D28 Today quick numeric one-digit edit keeps panel open", () => {
+        results.push(runNamedTest("v6.7-D29 Today quick numeric one-digit edit keeps panel open", () => {
           setActiveTab("today");
           setValidTodayBalanceTestInputs();
           render();
@@ -37547,9 +37759,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and Settings Stitch shell render", () => {
           const panel = renderSettingsShell();
-          assertTest(document.title.includes("v6.7-D28"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D28"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D28", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D29"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D29"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D29", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-settings-shell]"), "Settings should render Stitch shell root");
           assertTest(!!panel.querySelector(".settings-stitch-hero"), "Settings should render Stitch-style hero");
           assertTest(panel.querySelectorAll(".settings-choice-card:not([hidden])").length === 1, "Settings should render a single user-facing goal choice card");
@@ -37688,9 +37900,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M2-D version and stage are current", () => {
           renderSettings();
-          assertTest(document.title.includes("v6.7-D28"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D28"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D28", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D29"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D29"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D29", "version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.8-M2-D Settings removes user-facing mode selection DOM", () => {
@@ -37833,9 +38045,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI3 version and InBody shell root render", () => {
           seedInbodyShell();
-          assertTest(document.title.includes("v6.7-D28"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D28"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D28", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D29"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D29"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D29", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-inbody-shell]"), "InBody should render Stitch shell root");
           assertTest(!!document.querySelector(".inbody-stitch-hero"), "InBody should render result-first hero card");
           assertTest(!!document.querySelector(".inbody-stitch-layout"), "InBody should render analysis/input/history layout");
@@ -37851,7 +38063,7 @@ Notes:
           assertTest((document.getElementById("inbodyInsightText")?.textContent || "").length > 0, "neutral observation should render insight text");
         }));
 
-        results.push(runNamedTest("v6.7-D28 InBody trend avoids duplicate hidden summary copy", () => {
+        results.push(runNamedTest("v6.7-D29 InBody trend avoids duplicate hidden summary copy", () => {
           seedInbodyShell();
           const panelText = document.getElementById("inbodyPanel")?.textContent || "";
           const legacyRowsText = (document.getElementById("inbodySummaryRows")?.textContent || "").trim();
@@ -38120,9 +38332,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
           seedRecordsShell();
-          assertTest(document.title.includes("v6.7-D28"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D28"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D28", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D29"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D29"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D29", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
           assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
           assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
@@ -38271,9 +38483,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI2 version and Weekly shell root render", () => {
           seedWeeklyShell();
-          assertTest(document.title.includes("v6.7-D28"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D28"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D28", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D29"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D29"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D29", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-weekly-shell]"), "Weekly should render Stitch shell root");
           assertTest(!!document.querySelector("[data-stitch-weekly-dashboard]"), "Weekly should render Stitch dashboard root");
         }));
@@ -38461,15 +38673,15 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.7-D28"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D28"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D28", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D29"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D29"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D29", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
         }));
 
-        results.push(runNamedTest("v6.7-D28 Today record status is absorbed into the work card", () => {
+        results.push(runNamedTest("v6.7-D29 Today record status is absorbed into the work card", () => {
           const hero = document.querySelector(".today-work-hero");
           const shell = document.querySelector(".today-stitch-hero");
           const status = document.getElementById("todayRecordStatusPanel");
@@ -38569,7 +38781,8 @@ Notes:
           }]);
           render();
           const filledText = document.getElementById("todayMealPanel")?.textContent || "";
-          assertIncludesAll(filledText, ["식사 2건", "아침", "점심", "식사 추가", "기록 보기"], "filled meal card should summarize meals and offer add/view actions");
+          assertIncludesAll(filledText, ["식사 2건", "아침", "점심", "식사 추가하기", "기록 전체보기"], "filled meal card should summarize meals and offer add/view actions");
+          assertTest(document.querySelectorAll("#todayMealPanel .today-meal-row").length === 2, "filled meal card should render meal rows inside Today");
         }));
 
         results.push(runNamedTest("C4.8-UI0 dual basis and quick edit still update results", () => {
@@ -50421,7 +50634,7 @@ Notes:
           assertExcludesAll(cards.text, ["단백질부터 채우세요", "다음 식사", "고기, 생선, 계란, 두부"], "adherence component should not repeat Coach action");
         }));
 
-        results.push(runNamedTest("v6.7-D28 Coach dark panel keeps readable copy contrast", () => {
+        results.push(runNamedTest("v6.7-D29 Coach dark panel keeps readable copy contrast", () => {
           const rules = Array.from(document.styleSheets)
             .flatMap(sheet => {
               try {
@@ -50437,7 +50650,7 @@ Notes:
           assertExcludesAll(`${blockCopyRule} ${inbodyHintRule}`, ["color: var(--ink)", "color: var(--deep)"], "Coach dark panel copy should not fall back to regular body text colors");
         }));
 
-        results.push(runNamedTest("v6.7-D28 adherence score shows compact evidence and tucks extras away", () => {
+        results.push(runNamedTest("v6.7-D29 adherence score shows compact evidence and tucks extras away", () => {
           const today = getTodayDateString();
           recordsState.items = normalizeRecordsCollection([{
             date: today,
