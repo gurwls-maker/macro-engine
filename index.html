@@ -1,8 +1,11 @@
 <!--
-Version: 6.7-D64
-Stage: 6.7-D64 Records 날짜 레일 / 상세 영역 비율 정리
+Version: 6.7-D65
+Stage: 6.7-D65 Records 빈 상태 상세 표면 정리
 Date: 2026-05-19
 Notes:
+- v6.7-D65 Records 빈 상태에서 선택 날짜 합산/식사 목록이 0값 카드처럼 보이지 않도록 empty review 표면으로 정리
+- 기록이 생긴 뒤 날짜 선택 / 상세 / 합산 / 식사 목록 기능은 유지
+- 기능 로직 / Records 저장 / 계산식 / backup schema 변경 없음
 - v6.7-D64 Records 저장된 날짜 레일을 더 compact하게 줄이고 오른쪽 기록 상세/합산 영역을 넓혀 Stitch형 정보 우선순위에 맞춤
 - v6.7-D63 Records 상세 수정에서 변경 없는 저장은 전체 Today 계산 렌더를 타지 않고 Records 패널만 닫도록 보정
 - 아무것도 바꾸지 않은 저장으로 Today 기록 갱신 필요 안내가 새로 생기지 않도록 회귀 테스트 추가
@@ -455,7 +458,7 @@ Notes:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
-  <title>탄단지 다이어리 v6.7-D64</title>
+  <title>탄단지 다이어리 v6.7-D65</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -6317,6 +6320,9 @@ Notes:
     #recordsPanel .records-stitch-layout .records-review-shell > .records-detail-host:empty{
       display:none;
     }
+    #recordsPanel .records-stitch-layout .records-review-shell.is-empty > .records-quality-panel{
+      display:none;
+    }
     #recordsPanel .records-stitch-layout .records-review-shell:has(.record-archive-detail) > .records-quality-panel{
       display:none;
     }
@@ -6441,6 +6447,52 @@ Notes:
       color:var(--deep);
       font-size:12px;
       font-weight:800;
+    }
+    .records-empty-detail{
+      display:block;
+      padding:18px;
+      border:1px dashed color-mix(in srgb, var(--accent-strong) 24%, var(--line) 76%);
+      border-radius:22px;
+      background:linear-gradient(135deg, rgba(255,252,247,.86), rgba(238,250,247,.64));
+    }
+    .records-empty-detail h3,
+    .records-empty-detail h2,
+    .records-empty-detail p{
+      margin:0;
+    }
+    .records-empty-detail h3{
+      color:var(--accent-strong);
+      font-size:11px;
+      font-weight:950;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+    }
+    .records-empty-detail h2{
+      margin-top:5px;
+      color:var(--deep);
+      font-size:19px;
+      line-height:1.28;
+      font-weight:950;
+    }
+    .records-empty-detail p{
+      margin-top:7px;
+      max-width:48ch;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.55;
+      font-weight:750;
+      word-break:keep-all;
+    }
+    .records-selected-empty{
+      padding:16px;
+      border:1px dashed color-mix(in srgb, var(--line) 80%, white 20%);
+      border-radius:16px;
+      background:rgba(255,252,247,.58);
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.55;
+      font-weight:800;
+      word-break:keep-all;
     }
     #recordsPanel .records-review-shell .record-detail-grid{
       grid-template-columns:repeat(4,minmax(0,1fr));
@@ -10783,7 +10835,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.7-D64</span>
+               <span class="app-version">v6.7-D65</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -13033,7 +13085,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.7-D64";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.7-D65";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -23568,10 +23620,20 @@ Notes:
       `;
     }
 
-    function renderMealRecordSection(selectedDate){
+    function setRecordsReviewArchiveState(hasArchiveRecords){
+      const isEmpty = !hasArchiveRecords;
+      document.querySelector(".records-review-shell")?.classList.toggle("is-empty", isEmpty);
+      const summaryPanel = document.querySelector(".selected-meals-summary-panel");
+      const listPanel = document.querySelector(".selected-meals-list-panel");
+      if (summaryPanel) summaryPanel.hidden = isEmpty;
+      if (listPanel) listPanel.hidden = isEmpty;
+    }
+
+    function renderMealRecordSection(selectedDate, options = {}){
+      const hasArchiveRecords = options.hasArchiveRecords !== false;
       document.getElementById("selectedMealsDateLabel").textContent = selectedDate || "-";
-      renderSelectedDateMealTotals(selectedDate);
-      renderSelectedDateMeals(selectedDate);
+      renderSelectedDateMealTotals(selectedDate, { hasArchiveRecords });
+      renderSelectedDateMeals(selectedDate, { hasArchiveRecords });
     }
 
     function renderTodayIntakeBalanceText(remainingValue, targetValue, key){
@@ -24320,10 +24382,19 @@ Notes:
       el.classList.add("hidden");
     }
 
-    function renderSelectedDateMealTotals(date){
+    function renderSelectedDateMealTotals(date, options = {}){
+      const hasArchiveRecords = options.hasArchiveRecords !== false;
+      const totalsHost = document.getElementById("selectedMealTotals");
+      const warningHost = document.getElementById("mealSoftWarningHost");
+      if (!totalsHost) return;
+      if (!hasArchiveRecords) {
+        totalsHost.innerHTML = `<div class="records-selected-empty">기록이 저장되면 선택 날짜의 식사 합산이 표시됩니다.</div>`;
+        if (warningHost) warningHost.innerHTML = "";
+        return;
+      }
       const totals = getMealTotalsForDate(date);
       const target = getSelectedDateMealTarget(date);
-      document.getElementById("selectedMealTotals").innerHTML = [
+      totalsHost.innerHTML = [
         ["탄수화물", totals.carbs, target?.carbs, "carbs", "g"],
         ["단백질", totals.protein, target?.protein, "protein", "g"],
         ["지방", totals.fat, target?.fat, "fat", "g"],
@@ -24349,14 +24420,21 @@ Notes:
       }).join("");
 
       const warning = getMealSoftLimitMessage(ensureRecordByDate(date)?.meals.length || 0);
-      document.getElementById("mealSoftWarningHost").innerHTML = warning
+      if (warningHost) warningHost.innerHTML = warning
         ? `<div class="warn warn"><h4>기록 확인</h4><ul><li>${warning}</li></ul></div>`
         : "";
     }
 
-    function renderSelectedDateMeals(date){
+    function renderSelectedDateMeals(date, options = {}){
+      const hasArchiveRecords = options.hasArchiveRecords !== false;
       const record = ensureRecordByDate(date);
       const host = document.getElementById("selectedMealsList");
+      if (!host) return;
+      if (!hasArchiveRecords) {
+        host.classList.remove("meal-list-expanded");
+        host.innerHTML = `<div class="records-selected-empty">기록이 저장되면 선택 날짜의 식사 목록이 표시됩니다.</div>`;
+        return;
+      }
       if (!record.meals.length) {
         host.classList.remove("meal-list-expanded");
         host.innerHTML = `<div class="meal-empty">선택한 날짜에 저장된 식사가 아직 없습니다. 식사 직후 바로 기록해 두면 섭취량과 하루 총합을 확인하기 쉽습니다.</div>`;
@@ -24508,9 +24586,13 @@ Notes:
       return { date: selectedDate, status, title, copy, extra, chips, mealCount, hasWeight, hasGoalSnapshot };
     }
 
-    function renderRecordQualitySummary(){
+    function renderRecordQualitySummary(options = {}){
       const host = document.getElementById("recordQualitySummaryHost");
       if (!host) return;
+      if (options.hasArchiveRecords === false) {
+        host.innerHTML = "";
+        return;
+      }
       const summary = getRecordQualitySummaryForDate(getSelectedRecordDate());
       host.innerHTML = `
         <div class="record-quality-summary" data-record-quality-status="${summary.status}">
@@ -25562,7 +25644,7 @@ Notes:
       if (!records.length) {
         host.innerHTML = `
           <div class="record-archive-empty">
-            아직 저장된 날짜별 기록이 없습니다. Today의 기록 시작하기에서 오늘 기록을 남기면 이곳에 날짜별로 정리됩니다.
+            아직 저장된 날짜별 기록이 없습니다.
           </div>
         `;
         return;
@@ -25600,6 +25682,16 @@ Notes:
     function renderRecordArchiveDetailHost(records){
       const host = document.getElementById("recordArchiveDetailHost");
       if (!host) return;
+      if (!records.length) {
+        host.innerHTML = `
+          <section class="records-empty-detail" aria-label="기록 없음">
+            <h3>기록 확인</h3>
+            <h2>아직 확인할 기록이 없습니다.</h2>
+            <p>위 기록 방식 카드에서 체중만 기록, 간단 기록, 상세 기록 중 하나로 오늘 기록을 시작해 주세요.</p>
+          </section>
+        `;
+        return;
+      }
       const detailDate = normalizeDateString(uiState.recordsDetailDate);
       if (!detailDate) {
         host.innerHTML = "";
@@ -26002,6 +26094,7 @@ Notes:
       const { sorted, recent7, previous7 } = getRecentWindows();
       const archiveRecords = getRecordsArchiveRecords(sorted);
       const selectedDate = getSelectedRecordDate();
+      const hasArchiveRecords = archiveRecords.length > 0;
       const detailDate = normalizeDateString(uiState.recordsDetailDate);
       if (detailDate && !archiveRecords.some(record => normalizeDateString(record.date) === detailDate)) {
         uiState.recordsDetailDate = null;
@@ -26015,9 +26108,10 @@ Notes:
       const recentAvg = averageWeight(recent7);
       const prevAvg = averageWeight(previous7);
       const trend = recent7.length && previous7.length ? round(recentAvg - prevAvg, 2) : 0;
+      setRecordsReviewArchiveState(hasArchiveRecords);
       renderRecordModeChips();
       renderRecordAdherenceInputState();
-      renderRecordQualitySummary();
+      renderRecordQualitySummary({ hasArchiveRecords });
 
       document.getElementById("recordsCount").textContent = archiveRecords.length.toLocaleString();
       document.getElementById("recentAvgWeight").textContent = recent7.length ? round(recentAvg, 2).toFixed(2) : "-";
@@ -26044,7 +26138,7 @@ Notes:
         ? `<div class="notice"><h4>백업 권장</h4><ul><li>최근 기록이 쌓였습니다. 기본 설정의 데이터 관리에서 전체 백업을 만들어 두면 기록과 설정을 함께 보관할 수 있습니다.</li></ul></div>`
         : "";
 
-      renderMealRecordSection(selectedDate);
+      renderMealRecordSection(selectedDate, { hasArchiveRecords });
     }
 
     const RECENT_FLOW_UI_CARD_DAYS = [3, 7, 14, 28];
@@ -33459,8 +33553,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-D64"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D64"), "app version badge should show v6.7-A4");
+          assertTest(document.title.includes("v6.7-D65"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D65"), "app version badge should show v6.7-A4");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -34129,7 +34223,7 @@ Notes:
           assertTest(!pendingRecordWeightTodayApplyChoice, "unchanged detail save should not queue a Records weight prompt");
         }));
 
-        results.push(runNamedTest("v6.7-D64 unchanged record detail save does not create a Today refresh prompt", () => {
+        results.push(runNamedTest("v6.7-D65 unchanged record detail save does not create a Today refresh prompt", () => {
           resetState();
           prepareSettings();
           const today = getTodayDateString();
@@ -35111,8 +35205,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-D64"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D64"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.7-D65"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D65"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("v6.7-D54 Records detail reduces nested summary and keeps meal surfaces in review area", () => {
@@ -35778,7 +35872,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.7-D64", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.7-D65", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -36091,7 +36185,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.7-D64", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.7-D65", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -36316,9 +36410,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-D64"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D64"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D64", "current app version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D65"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D65"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D65", "current app version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -36359,7 +36453,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.7-D64", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.7-D65", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -36405,9 +36499,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-D64"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D64"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D64", "current app version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D65"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D65"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D65", "current app version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -36517,12 +36611,12 @@ Notes:
         results.push(runNamedTest("v6.7-D3 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.7-D64",
-            "Stage: 6.7-D64"
+            "Version: 6.7-D65",
+            "Stage: 6.7-D65"
           ], "top comment should show current version and stage");
-          assertTest(document.title.includes("v6.7-D64"), "document title should show v6.7-D64");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D64"), "app version badge should show v6.7-D64");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D64", "version helper should return v6.7-D64");
+          assertTest(document.title.includes("v6.7-D65"), "document title should show v6.7-D65");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D65"), "app version badge should show v6.7-D65");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D65", "version helper should return v6.7-D65");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -36553,7 +36647,9 @@ Notes:
             "백업은 기본 설정의 데이터 관리에서 진행합니다.",
             "기록만 내보내기도 데이터 관리에 있습니다."
           ], "Records direct management should keep essential short copy");
-          assertIncludesAll(text, ["선택 날짜 합산", "선택 날짜 식사 목록"], "Records selected-date summary/list should remain visible in the side stack");
+          assertIncludesAll(text, ["기록 확인", "아직 확인할 기록이 없습니다."], "empty Records should show one review empty-state surface");
+          assertTest(document.querySelector(".selected-meals-summary-panel")?.hidden === true, "empty Records should not show selected-date totals before a record exists");
+          assertTest(document.querySelector(".selected-meals-list-panel")?.hidden === true, "empty Records should not show selected-date meal list before a record exists");
           const recordsSurfaceRules = Array.from(document.styleSheets)
             .flatMap(sheet => {
               try { return Array.from(sheet.cssRules || []); } catch(error) { return []; }
@@ -37884,8 +37980,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.7-D64"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D64"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.7-D65"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D65"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertTest(!!panel.querySelector(".settings-goal-choice:not([hidden])"), "Settings should keep the goal selector visible");
           assertTest(!panel.querySelector(".settings-mode-choice"), "Settings should remove mode selector residue after M2-D");
@@ -38098,7 +38194,7 @@ Notes:
           assertTest(document.activeElement?.id === "todayQuickRoutineSession", "routine session change should keep focus after render");
         }));
 
-        results.push(runNamedTest("v6.7-D64 Today quick edit stays open across ordinary render", () => {
+        results.push(runNamedTest("v6.7-D65 Today quick edit stays open across ordinary render", () => {
           setActiveTab("today");
           setValidTodayBalanceTestInputs();
           render();
@@ -38557,9 +38653,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and Settings Stitch shell render", () => {
           const panel = renderSettingsShell();
-          assertTest(document.title.includes("v6.7-D64"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D64"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D64", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D65"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D65"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D65", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-settings-shell]"), "Settings should render Stitch shell root");
           assertTest(!!panel.querySelector(".settings-stitch-hero"), "Settings should render Stitch-style hero");
           assertTest(panel.querySelectorAll(".settings-choice-card:not([hidden])").length === 1, "Settings should render a single user-facing goal choice card");
@@ -38698,9 +38794,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M2-D version and stage are current", () => {
           renderSettings();
-          assertTest(document.title.includes("v6.7-D64"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D64"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D64", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D65"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D65"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D65", "version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.8-M2-D Settings removes user-facing mode selection DOM", () => {
@@ -38843,9 +38939,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI3 version and InBody shell root render", () => {
           seedInbodyShell();
-          assertTest(document.title.includes("v6.7-D64"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D64"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D64", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D65"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D65"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D65", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-inbody-shell]"), "InBody should render Stitch shell root");
           assertTest(!!document.querySelector(".inbody-stitch-hero"), "InBody should render result-first hero card");
           assertTest(!!document.querySelector(".inbody-stitch-layout"), "InBody should render analysis/input/history layout");
@@ -39130,9 +39226,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
           seedRecordsShell();
-          assertTest(document.title.includes("v6.7-D64"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D64"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D64", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D65"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D65"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D65", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
           assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
           assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
@@ -39161,6 +39257,25 @@ Notes:
           document.querySelector('[data-open-today-record-start="detailed"]')?.click();
           assertTest(!document.getElementById("todayRecordStartDetailed").classList.contains("hidden"), "detailed card should open detailed step");
           closeTodayRecordStartDialog();
+        }));
+
+        results.push(runNamedTest("v6.7-D65 empty Records review uses a single empty-state surface", () => {
+          setValidTodayBalanceTestInputs();
+          recordsState.items = [];
+          state.inbodyRecords = [];
+          ids.recordDate.value = today;
+          uiState.recordsDetailDate = null;
+          uiState.recordsDetailEditMode = false;
+          uiState.recordsDetailDraft = null;
+          setActiveTab("records");
+          render();
+          const review = document.querySelector(".records-review-shell");
+          assertTest(!!document.querySelector(".records-empty-detail"), "empty Records should show one review empty-state card");
+          assertTest(review?.classList.contains("is-empty"), "empty Records review should be marked as empty");
+          assertTest(document.querySelector(".selected-meals-summary-panel")?.hidden === true, "empty Records should hide selected date meal totals panel");
+          assertTest(document.querySelector(".selected-meals-list-panel")?.hidden === true, "empty Records should hide selected date meal list panel");
+          assertTest(document.querySelectorAll("#selectedMealTotals .meal-summary-card").length === 0, "empty Records should not expose zero-value macro cards");
+          assertIncludesAll(document.querySelector(".records-empty-detail")?.textContent || "", ["아직 확인할 기록이 없습니다.", "위 기록 방식 카드"], "empty Records review should guide starting a record without adding another action");
         }));
 
         results.push(runNamedTest("C4.8-UI1 archive list detail and direct management remain mounted", () => {
@@ -39292,9 +39407,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI2 version and Weekly shell root render", () => {
           seedWeeklyShell();
-          assertTest(document.title.includes("v6.7-D64"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D64"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D64", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D65"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D65"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D65", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-weekly-shell]"), "Weekly should render Stitch shell root");
           assertTest(!!document.querySelector("[data-stitch-weekly-dashboard]"), "Weekly should render Stitch dashboard root");
         }));
@@ -39483,9 +39598,9 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.7-D64"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D64"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D64", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D65"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D65"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D65", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
