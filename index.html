@@ -1,8 +1,13 @@
-<!--
-Version: 6.7-D25
-Stage: 6.7-D25 InBody 중복 관찰 요약 정리
+﻿<!--
+Version: 6.7-D26
+Stage: 6.7-D26 Today 기록 입력 모달 흐름 정리
 Date: 2026-05-19
 Notes:
+- v6.7-D26 Today 상세 기록 모달의 식사 구분 옵션과 공복 체중 노출 위치를 정리
+- 도수·용량 알코올 계산기를 별도 compact 카드로 분리하고 클릭 affordance를 보강
+- Today 계산값 카드의 모바일 390px 입력 겹침과 숫자 입력 중 panel collapse를 보강
+- Records 상세 무변경 저장이 당시 계산 기준을 불필요하게 다시 쓰지 않도록 보강
+- 식사 저장 / Records 수정 / 계산식 / backup schema 변경 없음
 - v6.7-D25 InBody 탭의 숨김 요약 DOM이 중립 관찰 / 변화 텍스트를 중복 보유하지 않게 정리
 - InBody 측정 결과 / 지난 측정 대비 / 간단 해석 / 기록 목록 기능 유지
 - InBody 원본 기록 / Today 적용 / 계산식 / backup schema 변경 없음
@@ -339,7 +344,7 @@ Notes:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>탄단지 다이어리 v6.7-D25</title>
+  <title>탄단지 다이어리 v6.7-D26</title>
   <style>
     :root{
       --bg:#f5eee5;
@@ -2046,6 +2051,10 @@ Notes:
       gap:12px;
     }
     .record-start-grid .field.wide{grid-column:1 / -1}
+    .record-start-weight-card{
+      display:grid;
+      gap:8px;
+    }
     .meal-reuse-inline{
       display:flex;
       align-items:center;
@@ -2065,23 +2074,54 @@ Notes:
       margin-top:8px;
     }
     .alcohol-kcal-helper{
-      margin-top:10px;
+      margin-top:0;
       border:1px solid color-mix(in srgb, var(--line) 78%, transparent);
       border-radius:16px;
       background:color-mix(in srgb, var(--paper) 82%, var(--panel-soft) 18%);
       overflow:hidden;
+    }
+    .alcohol-kcal-card{
+      border-style:dashed;
+      background:color-mix(in srgb, var(--paper) 86%, var(--panel-soft) 14%);
     }
     .alcohol-kcal-helper summary{
       display:flex;
       align-items:center;
       justify-content:space-between;
       gap:10px;
-      padding:10px 12px;
+      min-height:48px;
+      padding:11px 13px;
       color:var(--text);
       cursor:pointer;
       font-size:12px;
       font-weight:900;
       list-style:none;
+    }
+    .alcohol-kcal-helper summary::after{
+      content:"";
+      flex:0 0 auto;
+      width:8px;
+      height:8px;
+      border-right:2px solid currentColor;
+      border-bottom:2px solid currentColor;
+      transform:rotate(45deg);
+      opacity:.62;
+      transition:transform .18s ease;
+    }
+    .alcohol-kcal-helper[open] summary::after{
+      transform:rotate(225deg) translate(-1px,-1px);
+    }
+    .alcohol-kcal-summary-copy{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      min-width:0;
+    }
+    .alcohol-kcal-summary-copy span:last-child{
+      color:var(--muted);
+      font-size:11px;
+      font-weight:800;
+      line-height:1.35;
     }
     .alcohol-kcal-helper summary::-webkit-details-marker{
       display:none;
@@ -9298,7 +9338,18 @@ Notes:
           "side"
           "footer";
       }
+      .today-calc-settings-card .today-quick-edit-panel{
+        grid-template-columns:1fr;
+        grid-template-areas:
+          "fields"
+          "side"
+          "footer";
+        column-gap:0;
+      }
       .today-quick-edit-fields{
+        grid-template-columns:1fr;
+      }
+      .today-calc-settings-card .today-quick-edit-fields{
         grid-template-columns:1fr;
       }
       .today-section-head,
@@ -9852,7 +9903,7 @@ Notes:
       <div class="card hero-main">
         <h1>
               탄단지 다이어리
-               <span class="app-version">v6.7-D25</span>
+               <span class="app-version">v6.7-D26</span>
          </h1>
         <p class="lead">
           나를 위한 영양 코치
@@ -11103,6 +11154,7 @@ Notes:
         <button class="record-start-close" id="todayRecordStartClose" type="button" aria-label="닫기">×</button>
       </div>
       <div class="record-start-body">
+        <div id="todayRecordStartFeedback"></div>
         <div class="record-start-step" id="todayRecordStartChoices">
           <div class="record-start-choice-grid">
             <button class="record-start-card" type="button" data-record-start-step="detailed">
@@ -11142,14 +11194,28 @@ Notes:
               </div>
             </div>
             <div class="record-start-grid">
+              <div class="field wide record-start-weight-card">
+                <label for="todayRecordDetailedWeight">오늘 공복 체중</label>
+                <input id="todayRecordDetailedWeight" type="number" min="30" max="200" step="0.01" inputmode="decimal">
+                <div class="hint">기록에 남기는 체중입니다.</div>
+                <label class="record-start-apply" for="todayRecordDetailedApplyWeightToCalculation">
+                  <input id="todayRecordDetailedApplyWeightToCalculation" type="checkbox" checked>
+                  <span class="record-start-apply-copy">
+                    <span class="record-start-apply-title">오늘 계산에도 반영</span>
+                    <span>체크하면 오늘 권장 탄단지와 남은 양도 이 체중으로 다시 계산됩니다.</span>
+                  </span>
+                </label>
+              </div>
               <div class="field">
                 <label>식사 구분</label>
                 <select id="todayRecordMealLabel">
+                  <option value="기상">기상</option>
                   <option value="아침">아침</option>
                   <option value="점심">점심</option>
                   <option value="저녁">저녁</option>
                   <option value="간식">간식</option>
-                  <option value="외식">외식</option>
+                  <option value="야식">야식</option>
+                  <option value="술">술</option>
                   <option value="기타">기타</option>
                 </select>
               </div>
@@ -11168,46 +11234,39 @@ Notes:
               <div class="field">
                 <label>알코올 kcal</label>
                 <input id="todayRecordMealAlcoholKcal" type="number" min="0" step="1" inputmode="decimal">
-                <details class="alcohol-kcal-helper" data-alcohol-calc="today-start">
-                  <summary>도수·용량으로 알코올 kcal 계산</summary>
-                  <div class="alcohol-kcal-body">
-                    <div class="alcohol-kcal-grid">
-                      <label>용량 ml
-                        <input id="todayRecordAlcoholVolumeMl" type="number" min="0" step="1" inputmode="decimal" data-alcohol-calc-field="volume">
-                      </label>
-                      <label>도수 %
-                        <input id="todayRecordAlcoholAbvPercent" type="number" min="0" max="100" step="0.1" inputmode="decimal" data-alcohol-calc-field="abv">
-                      </label>
-                      <label>수량
-                        <input id="todayRecordAlcoholServings" type="number" min="0" step="0.1" value="1" inputmode="decimal" data-alcohol-calc-field="servings">
-                      </label>
-                    </div>
-                    <div class="alcohol-kcal-result">
-                      <span id="todayRecordAlcoholCalcResult">계산값을 입력하면 kcal가 표시됩니다.</span>
-                      <button class="secondary-btn" type="button" data-apply-alcohol-calc="today-start">kcal 입력</button>
-                    </div>
-                  </div>
-                </details>
               </div>
               <div class="field">
                 <label>기타 칼로리 kcal</label>
                 <input id="todayRecordMealOtherKcal" type="number" min="0" step="1" inputmode="decimal">
               </div>
+              <details class="field wide alcohol-kcal-helper alcohol-kcal-card" data-alcohol-calc="today-start">
+                <summary>
+                  <span class="alcohol-kcal-summary-copy">
+                    <span>알코올 계산기</span>
+                    <span>도수와 용량으로 kcal를 계산합니다.</span>
+                  </span>
+                </summary>
+                <div class="alcohol-kcal-body">
+                  <div class="alcohol-kcal-grid">
+                    <label>용량 ml
+                      <input id="todayRecordAlcoholVolumeMl" type="number" min="0" step="1" inputmode="decimal" data-alcohol-calc-field="volume">
+                    </label>
+                    <label>도수 %
+                      <input id="todayRecordAlcoholAbvPercent" type="number" min="0" max="100" step="0.1" inputmode="decimal" data-alcohol-calc-field="abv">
+                    </label>
+                    <label>수량
+                      <input id="todayRecordAlcoholServings" type="number" min="0" step="0.1" value="1" inputmode="decimal" data-alcohol-calc-field="servings">
+                    </label>
+                  </div>
+                  <div class="alcohol-kcal-result">
+                    <span id="todayRecordAlcoholCalcResult">계산값을 입력하면 kcal가 표시됩니다.</span>
+                    <button class="secondary-btn" type="button" data-apply-alcohol-calc="today-start">kcal 입력</button>
+                  </div>
+                </div>
+              </details>
               <div class="field wide">
                 <label>식사 메모</label>
                 <input id="todayRecordMealMemo" type="text" maxlength="80" placeholder="보충제, 외식, 식사 관련 메모 등">
-              </div>
-              <div class="field">
-                <label for="todayRecordDetailedWeight">오늘 공복 체중</label>
-                <input id="todayRecordDetailedWeight" type="number" min="30" max="200" step="0.01" inputmode="decimal">
-                <div class="hint">기록에 남기는 체중입니다.</div>
-                <label class="record-start-apply" for="todayRecordDetailedApplyWeightToCalculation">
-                  <input id="todayRecordDetailedApplyWeightToCalculation" type="checkbox" checked>
-                  <span class="record-start-apply-copy">
-                    <span class="record-start-apply-title">오늘 계산에도 반영</span>
-                    <span>체크하면 오늘 권장 탄단지와 남은 양도 이 체중으로 다시 계산됩니다.</span>
-                  </span>
-                </label>
               </div>
               <div class="field wide">
                 <label for="todayRecordDetailedMemo">오늘 메모</label>
@@ -11297,7 +11356,6 @@ Notes:
           </div>
         </div>
 
-        <div id="todayRecordStartFeedback"></div>
       </div>
     </div>
   </div>
@@ -12108,7 +12166,7 @@ Notes:
     }
 
     function getCurrentAppVersionLabel(){
-      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.7-D25";
+      return (document.querySelector(".app-version")?.textContent || "").trim() || "v6.7-D26";
     }
 
     function normalizeInbodyRecordCollection(raw = []){
@@ -15539,6 +15597,18 @@ Notes:
       renderTodayQuickEditResultSummary(result, showPlaceholder);
     }
 
+    function refreshTodayQuickEditLiveSummary(){
+      const result = calculate();
+      const showPlaceholder = !result.isCalculable;
+      renderTodayInbodyFillControls();
+      renderTodayCardioPresetControls();
+      renderTodayCalculationBasisSummary(result, showPlaceholder);
+      renderTodayResultProximitySummaries(result, showPlaceholder);
+      renderTodayQuickEditResultSummary(result, showPlaceholder);
+      renderTodayShellSummary(result, showPlaceholder);
+      renderMacroBasisUi(result, showPlaceholder);
+    }
+
     function setTodayQuickEditOpen(open){
       const panel = document.getElementById("todayQuickEditPanel");
       const button = document.getElementById("todayQuickEditToggle");
@@ -15586,7 +15656,17 @@ Notes:
         }
       }
       setTodayCalculationDraftValues(values);
+      if (event?.type === "input" && quick.tagName !== "SELECT") {
+        refreshTodayQuickEditLiveSummary();
+        return;
+      }
+      const shouldReopen = isTodayQuickEditOpen();
+      const focusId = quick.id;
       render();
+      if (shouldReopen) {
+        setTodayQuickEditOpen(true);
+        document.getElementById(focusId)?.focus({ preventScroll: true });
+      }
     }
 
     function handleTodayQuickRoutinePlanChange(event){
@@ -16957,7 +17037,7 @@ Notes:
       const focusTarget = step === "choices"
         ? document.querySelector("[data-record-start-step]")
         : step === "detailed"
-          ? document.getElementById("todayRecordMealCarbs")
+          ? document.getElementById("todayRecordDetailedWeight")
           : step === "simple"
             ? document.querySelector("#todayRecordSimpleChoices button.active")
             : document.getElementById("todayRecordSkipWeight");
@@ -23916,6 +23996,49 @@ Notes:
       return normalizeRecordDetailCalculationBasis(raw, fallback);
     }
 
+    function getRecordDetailCalculationBasisSignature(basis){
+      const safeBasis = normalizeRecordDetailCalculationBasis(basis);
+      const keys = [
+        "mode",
+        "goal",
+        "weight",
+        "height",
+        "age",
+        "gender",
+        "bodyFat",
+        "bodyFatMass",
+        "skeletal",
+        "activityLevel",
+        "workType",
+        "workAdj",
+        "homeInbody",
+        "expertLbmAlpha",
+        "weeklyTrainingDays",
+        "generalAdvancedSettings",
+        "generalLowDigestCarbs",
+        "routinePlan",
+        "routine",
+        "intensityOverride",
+        "weightDuration",
+        "cardioType",
+        "cardioDuration",
+        "cardioSpeed",
+        "cardioIncline"
+      ];
+      const signature = {};
+      keys.forEach(key => {
+        const value = safeBasis[key];
+        signature[key] = typeof value === "number" && Number.isFinite(value)
+          ? Math.round(value * 10000) / 10000
+          : value;
+      });
+      return JSON.stringify(signature);
+    }
+
+    function areRecordDetailCalculationBasesEquivalent(a, b){
+      return getRecordDetailCalculationBasisSignature(a) === getRecordDetailCalculationBasisSignature(b);
+    }
+
     const RECORD_DETAIL_BASIS_FIELD_MAPPINGS = [
       { label: "당시 목표", formKey: "goal", saveKey: "goal", snapshotKey: "goal" },
       { label: "계산용 체중", formKey: "weight", saveKey: "weight", snapshotKey: "weight" },
@@ -24606,8 +24729,16 @@ Notes:
       const mode = getEditableRecordMode(currentDraft);
       const weightRaw = String(root.querySelector('[data-detail-field="weight"]')?.value || "").trim();
       const note = String(root.querySelector('[data-detail-field="note"]')?.value || "").trim();
-      const basis = resolveRecordDetailAutoWeeklyTrainingDays(currentDraft.date, readRecordDetailBasisFromForm(root, currentDraft));
-      const calculated = buildRecordDetailSnapshotFromBasis(basis, currentDraft.snapshotSource || "saved_at_entry");
+      const originalBasis = getRecordDetailCalculationBasis(currentDraft);
+      const formBasis = readRecordDetailBasisFromForm(root, currentDraft);
+      const basisChanged = !areRecordDetailCalculationBasesEquivalent(formBasis, originalBasis);
+      const shouldRecalculateBasis = basisChanged || !currentDraft.goalSnapshot;
+      const basis = shouldRecalculateBasis
+        ? resolveRecordDetailAutoWeeklyTrainingDays(currentDraft.date, formBasis)
+        : formBasis;
+      const calculated = shouldRecalculateBasis
+        ? buildRecordDetailSnapshotFromBasis(basis, currentDraft.snapshotSource || "saved_at_entry")
+        : { snapshot: currentDraft.goalSnapshot, result: null };
       const meals = Array.from(root.querySelectorAll("[data-detail-meal-row]"))
         .filter(row => !isRecordDetailMealDraftEmpty(row))
         .map((row, index) => normalizeMeal({
@@ -24749,6 +24880,35 @@ Notes:
       renderRecordsPanel();
     }
 
+    function getRecordDetailMealsSignature(meals = []){
+      return JSON.stringify((Array.isArray(meals) ? meals : []).map((meal, index) => {
+        const normalized = normalizeMeal(meal, index);
+        return normalized ? {
+          mealLabel: normalized.mealLabel,
+          carbs: Math.round(normalized.carbs * 10000) / 10000,
+          protein: Math.round(normalized.protein * 10000) / 10000,
+          fat: Math.round(normalized.fat * 10000) / 10000,
+          alcoholKcal: Math.round(normalized.alcoholKcal * 10000) / 10000,
+          otherKcal: Math.round(normalized.otherKcal * 10000) / 10000,
+          memo: normalized.memo
+        } : null;
+      }));
+    }
+
+    function areRecordDetailDraftsEquivalent(existing, draft){
+      const left = normalizeRecord(existing || {});
+      const right = normalizeRecord(draft || {});
+      if (!left.date || left.date !== right.date) return false;
+      if (left.recordMode !== right.recordMode) return false;
+      if (hasMeaningfulRecordWeightDifference(left.weight, right.weight, 0.0001)) return false;
+      if (Number.isFinite(left.weight) !== Number.isFinite(right.weight)) return false;
+      if (String(left.note || "") !== String(right.note || "")) return false;
+      if ((left.goalSnapshot || right.goalSnapshot) && !areGoalSnapshotsEquivalent(left.goalSnapshot, right.goalSnapshot)) return false;
+      if (left.recordMode === "simple" && left.adherence !== right.adherence) return false;
+      if (left.recordMode === "detailed" && getRecordDetailMealsSignature(left.meals) !== getRecordDetailMealsSignature(right.meals)) return false;
+      return true;
+    }
+
     function saveRecordDetailDraft(){
       const draft = updateRecordDetailDraftFromForm();
       if (!draft) return { saved: false, reason: "missing_draft" };
@@ -24761,6 +24921,15 @@ Notes:
         return { saved: false, reason: "invalid_weight" };
       }
       const existing = getRecordByDate(draft.date);
+      if (existing && areRecordDetailDraftsEquivalent(existing, draft)) {
+        uiState.recordsDetailEditMode = false;
+        uiState.recordsDetailDraft = null;
+        uiState.recordsDetailDate = draft.date;
+        syncRecordInputsForDate(draft.date);
+        setRecordFeedback("ok", `${draft.date} 변경 없이 닫았습니다.`);
+        render();
+        return { saved: false, reason: "unchanged", unchanged: true, record: existing };
+      }
       const preview = calculateRecordDetailGoalPreview(draft);
       const nextGoalSnapshot = preview.snapshot || draft.goalSnapshot || existing?.goalSnapshot || null;
       if (mode === "detailed" && !nextGoalSnapshot) {
@@ -32285,8 +32454,8 @@ Notes:
         const macroLabels = ["단백질 부족", "탄수 부족", "고지방", "술 영향", "기타 칼로리"];
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-D25"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D25"), "app version badge should show v6.7-A4");
+          assertTest(document.title.includes("v6.7-D26"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D26"), "app version badge should show v6.7-A4");
         }));
 
         results.push(runNamedTest("UX2-8 active tab state stays singular", () => {
@@ -32935,6 +33104,25 @@ Notes:
             })
           };
         };
+
+        results.push(runNamedTest("v6.7-D26 unchanged record detail save does not rewrite snapshot or queue refresh", () => {
+          prepareSettings();
+          const today = getTodayDateString();
+          const { record } = makeRecordWithBasis({ weeklyTrainingDays: 1 }, { date: today });
+          recordsState.items = normalizeRecordsCollection([record]);
+          state.weeklyTrainingDaysManual = false;
+          ids.weeklyTrainingDays.value = "1";
+          render();
+          const beforeRecord = JSON.stringify(getRecordByDate(today));
+          const beforeSnapshot = JSON.stringify(getRecordByDate(today).goalSnapshot);
+          openDetailEdit(today);
+          const saved = saveRecordDetailDraft();
+          const afterRecord = JSON.stringify(getRecordByDate(today));
+          assertTest(saved.unchanged === true && saved.reason === "unchanged", "unchanged detail save should report no-op");
+          assertTest(afterRecord === beforeRecord, "unchanged detail save should not rewrite the record");
+          assertTest(JSON.stringify(getRecordByDate(today).goalSnapshot) === beforeSnapshot, "unchanged detail save should keep the original snapshot");
+          assertTest(!pendingRecordWeightTodayApplyChoice, "unchanged detail save should not queue a Records weight prompt");
+        }));
 
         results.push(runNamedTest("C4.3.1 record detail weekly session and duration edits persist and recalculate", () => {
           prepareSettings();
@@ -33886,8 +34074,8 @@ Notes:
         const px = value => Number.parseFloat(String(value || "0")) || 0;
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-D25"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D25"), "app version badge should show C4.7-B3");
+          assertTest(document.title.includes("v6.7-D26"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D26"), "app version badge should show C4.7-B3");
         }));
 
         results.push(runNamedTest("C4.5.5-D Records detail view keeps structure with compact density", () => {
@@ -34546,7 +34734,7 @@ Notes:
           assertTest(payload.app === "macro-engine", "full backup should identify the app");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
-          assertTest(payload.appVersion === "v6.7-D25", "full backup should include current app version");
+          assertTest(payload.appVersion === "v6.7-D26", "full backup should include current app version");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
@@ -34859,7 +35047,7 @@ Notes:
         try {
           results.push(runNamedTest("C4.7-B2.2 full backup payload includes meals and excludes temporary UI state", () => {
             const payload = seedBackupSource();
-            assertTest(payload.appVersion === "v6.7-D25", "full backup should include C4.7-B3 app version");
+            assertTest(payload.appVersion === "v6.7-D26", "full backup should include C4.7-B3 app version");
             assertTest(Array.isArray(payload.data.records) && payload.data.records[0]?.date === backupDate, "full backup should store records in data.records");
             assertTest(payload.data.records[0].meals.length === 1, "full backup should include data.records[].meals");
             assertIncludesAll(JSON.stringify(payload), ["from full backup", backupPreset.id], "full backup should include meals and app data");
@@ -35084,9 +35272,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-D25"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D25"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D25", "current app version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D26"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D26"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D26", "current app version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B1 Records weight mismatch copy uses Today and Records responsibilities", () => {
@@ -35127,7 +35315,7 @@ Notes:
           const payload = buildFullBackupPayload("2026-05-15T00:00:00.000Z");
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup kind should remain full-backup");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup version should remain stable");
-          assertTest(payload.appVersion === "v6.7-D25", "full backup should use the current app version label");
+          assertTest(payload.appVersion === "v6.7-D26", "full backup should use the current app version label");
           assertTest(payload.data && payload.data.settings && Array.isArray(payload.data.records) && Array.isArray(payload.data.inbodyRecords), "full backup data shape should remain intact");
         }));
 
@@ -35173,9 +35361,9 @@ Notes:
         };
 
         results.push(runNamedTest("C4.7-B3 version labels are updated", () => {
-          assertTest(document.title.includes("v6.7-D25"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D25"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D25", "current app version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D26"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D26"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D26", "current app version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
@@ -35283,12 +35471,12 @@ Notes:
         results.push(runNamedTest("v6.7-D3 version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
-            "Version: 6.7-D25",
-            "Stage: 6.7-D25"
+            "Version: 6.7-D26",
+            "Stage: 6.7-D26"
           ], "top comment should show v6.7-A4 version and stage");
-          assertTest(document.title.includes("v6.7-D25"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D25"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D25", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D26"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D26"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D26", "version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -35986,6 +36174,56 @@ Notes:
           closeTodayRecordStartDialog();
         }));
 
+        results.push(runNamedTest("v6.7-D26 today detailed record exposes full meal labels and top feedback host", () => {
+          openTodayRecordStartDialog("detailed");
+          const options = Array.from(document.querySelectorAll("#todayRecordMealLabel option")).map(option => option.value);
+          assertTest(JSON.stringify(options) === JSON.stringify(MEAL_LABEL_OPTIONS), "today detailed meal label select should use configured meal labels");
+          assertTest(options.includes("기상") && options.includes("야식") && options.includes("술"), "today detailed meal label select should include wake/night/alcohol labels");
+          const body = document.querySelector(".record-start-body");
+          assertTest(body?.firstElementChild?.id === "todayRecordStartFeedback", "record start feedback should live near the top of the modal body");
+          const weightField = document.getElementById("todayRecordDetailedWeight")?.closest(".field");
+          const mealField = document.getElementById("todayRecordMealLabel")?.closest(".field");
+          assertTest(!!(weightField.compareDocumentPosition(mealField) & Node.DOCUMENT_POSITION_FOLLOWING), "fasting weight should be visible before meal macro fields");
+          closeTodayRecordStartDialog();
+        }));
+
+        results.push(runNamedTest("v6.7-D26 today detailed numeric typing keeps modal open", () => {
+          openTodayRecordStartDialog("detailed");
+          [
+            "todayRecordMealCarbs",
+            "todayRecordMealProtein",
+            "todayRecordMealFat",
+            "todayRecordMealAlcoholKcal",
+            "todayRecordMealOtherKcal",
+            "todayRecordDetailedWeight",
+            "todayRecordAlcoholVolumeMl",
+            "todayRecordAlcoholAbvPercent",
+            "todayRecordAlcoholServings"
+          ].forEach(id => {
+            const input = document.getElementById(id);
+            assertTest(!!input, `${id} should exist`);
+            input.value = "";
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.value = "1";
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+            assertTest(isOpen(), `${id} typing should not close the record modal`);
+          });
+          closeTodayRecordStartDialog();
+        }));
+
+        results.push(runNamedTest("v6.7-D26 today alcohol calculator is a separate wide card", () => {
+          openTodayRecordStartDialog("detailed");
+          const calc = document.querySelector("[data-alcohol-calc='today-start']");
+          const alcoholField = document.getElementById("todayRecordMealAlcoholKcal")?.closest(".field");
+          assertTest(!!calc, "today alcohol calculator should exist");
+          assertTest(calc.classList.contains("wide") && calc.classList.contains("alcohol-kcal-card"), "today alcohol calculator should render as a separate wide card");
+          assertTest(!alcoholField?.contains(calc), "today alcohol calculator should not be nested inside the alcohol kcal input card");
+          const summaryText = calc.querySelector("summary")?.textContent || "";
+          assertIncludesAll(summaryText, ["알코올 계산기", "도수", "용량"], "today alcohol calculator summary should be short and discoverable");
+          closeTodayRecordStartDialog();
+        }));
+
         results.push(runNamedTest("today record start simple save stores manual simple record only", () => {
           recordsState.items = [];
           render();
@@ -36553,8 +36791,8 @@ Notes:
           setActiveTab("settings");
           render();
           const panel = document.getElementById("settingsPanel");
-          assertTest(document.title.includes("v6.7-D25"), "document title should show C4.7-B3");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D25"), "app version should show C4.7-B3");
+          assertTest(document.title.includes("v6.7-D26"), "document title should show C4.7-B3");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D26"), "app version should show C4.7-B3");
           assertTest(document.getElementById("tabSettings").textContent === "기본 설정", "Settings tab label should stay 기본 설정");
           assertTest(!!panel.querySelector(".settings-goal-choice:not([hidden])"), "Settings should keep the goal selector visible");
           assertTest(!panel.querySelector(".settings-mode-choice"), "Settings should remove mode selector residue after M2-D");
@@ -36714,6 +36952,21 @@ Notes:
           const bodyBottom = fields.getBoundingClientRect().bottom;
           const sideBottom = side.getBoundingClientRect().bottom;
           assertTest(footerTop >= Math.max(bodyBottom, sideBottom) - 1, "quick edit footer should sit below the main grid content");
+        }));
+
+        results.push(runNamedTest("v6.7-D26 Today quick numeric one-digit edit keeps panel open", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          render();
+          setTodayQuickEditOpen(true);
+          const input = document.getElementById("todayQuickWeight");
+          assertTest(!!input, "Today calculation weight input should exist");
+          input.value = "1";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          const panel = document.getElementById("todayQuickEditPanel");
+          assertTest(!!panel && !panel.classList.contains("hidden"), "one-digit numeric quick edit should not collapse the Today calculation panel");
+          assertTest(document.getElementById("todayQuickEditToggle")?.getAttribute("aria-expanded") === "true", "one-digit numeric quick edit should keep expanded state");
+          assertTest(document.getElementById("todayCalcSettingsCard")?.textContent.includes("오늘 계산값"), "Today calculation card should remain visible after one-digit edit");
         }));
 
         results.push(runNamedTest("C4.2 Today calculation exposes owned value fields", () => {
@@ -37155,9 +37408,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M1 version and Settings Stitch shell render", () => {
           const panel = renderSettingsShell();
-          assertTest(document.title.includes("v6.7-D25"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D25"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D25", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D26"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D26"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D26", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-settings-shell]"), "Settings should render Stitch shell root");
           assertTest(!!panel.querySelector(".settings-stitch-hero"), "Settings should render Stitch-style hero");
           assertTest(panel.querySelectorAll(".settings-choice-card:not([hidden])").length === 1, "Settings should render a single user-facing goal choice card");
@@ -37296,9 +37549,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-M2-D version and stage are current", () => {
           renderSettings();
-          assertTest(document.title.includes("v6.7-D25"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D25"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D25", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D26"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D26"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D26", "version helper should return v6.7-A4");
         }));
 
         results.push(runNamedTest("C4.8-M2-D Settings removes user-facing mode selection DOM", () => {
@@ -37441,9 +37694,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI3 version and InBody shell root render", () => {
           seedInbodyShell();
-          assertTest(document.title.includes("v6.7-D25"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D25"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D25", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D26"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D26"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D26", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-inbody-shell]"), "InBody should render Stitch shell root");
           assertTest(!!document.querySelector(".inbody-stitch-hero"), "InBody should render result-first hero card");
           assertTest(!!document.querySelector(".inbody-stitch-layout"), "InBody should render analysis/input/history layout");
@@ -37459,7 +37712,7 @@ Notes:
           assertTest((document.getElementById("inbodyInsightText")?.textContent || "").length > 0, "neutral observation should render insight text");
         }));
 
-        results.push(runNamedTest("v6.7-D25 InBody trend avoids duplicate hidden summary copy", () => {
+        results.push(runNamedTest("v6.7-D26 InBody trend avoids duplicate hidden summary copy", () => {
           seedInbodyShell();
           const panelText = document.getElementById("inbodyPanel")?.textContent || "";
           const legacyRowsText = (document.getElementById("inbodySummaryRows")?.textContent || "").trim();
@@ -37728,9 +37981,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI1 version and Records shell root render", () => {
           seedRecordsShell();
-          assertTest(document.title.includes("v6.7-D25"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D25"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D25", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D26"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D26"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D26", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-records-shell]"), "Records should render Stitch shell root");
           assertTest(!!document.querySelector(".records-entry-shell"), "Records shell should render Stitch-style record choice area");
           assertTest(document.querySelectorAll(".records-entry-card").length === 3, "Records shell should render three large record choice cards");
@@ -37879,9 +38132,9 @@ Notes:
 
         results.push(runNamedTest("C4.8-UI2 version and Weekly shell root render", () => {
           seedWeeklyShell();
-          assertTest(document.title.includes("v6.7-D25"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D25"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D25", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D26"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D26"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D26", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-weekly-shell]"), "Weekly should render Stitch shell root");
           assertTest(!!document.querySelector("[data-stitch-weekly-dashboard]"), "Weekly should render Stitch dashboard root");
         }));
@@ -38069,9 +38322,9 @@ Notes:
         ];
 
         results.push(runNamedTest("C4.8-UI0 version and Stitch shell root render", () => {
-          assertTest(document.title.includes("v6.7-D25"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D25"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.7-D25", "version helper should return v6.7-A4");
+          assertTest(document.title.includes("v6.7-D26"), "document title should show v6.7-A4");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.7-D26"), "app version badge should show v6.7-A4");
+          assertTest(getCurrentAppVersionLabel() === "v6.7-D26", "version helper should return v6.7-A4");
           assertTest(!!document.querySelector("[data-stitch-today-shell]"), "Today should render Stitch shell root");
           assertTest(document.getElementById("todayMealPrimaryActionHost")?.contains(document.getElementById("todayRecordStartBtn")), "record start action should live in the Today meal card");
           assertTest(document.getElementById("todayShellActionHost")?.contains(document.getElementById("todaySettingsBtn")), "settings action should live in the shell action area");
