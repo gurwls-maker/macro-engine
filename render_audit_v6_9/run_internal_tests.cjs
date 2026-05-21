@@ -6,16 +6,32 @@ const Module = require("node:module");
 const root = path.resolve(__dirname, "..");
 const debugDir = path.join(__dirname, "_debug");
 const profileDir = path.join(debugDir, "edge_test_profile");
-const bundledNodeModules = "C:/Users/dw/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules";
-const bundledPnpmModules = [
-  "C:/Users/dw/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/.pnpm/playwright-core@1.60.0/node_modules"
-];
 
 fs.mkdirSync(profileDir, { recursive: true });
-if (fs.existsSync(bundledNodeModules)) {
-  process.env.NODE_PATH = [bundledNodeModules, ...bundledPnpmModules.filter(item => fs.existsSync(item)), process.env.NODE_PATH].filter(Boolean).join(path.delimiter);
+
+function addNodeModuleCandidatesFrom(nodeModulesPath, targets){
+  if (!nodeModulesPath || !fs.existsSync(nodeModulesPath)) return;
+  targets.add(nodeModulesPath);
+  const pnpmPath = path.join(nodeModulesPath, ".pnpm");
+  if (!fs.existsSync(pnpmPath)) return;
+  fs.readdirSync(pnpmPath, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && entry.name.startsWith("playwright-core@"))
+    .forEach(entry => targets.add(path.join(pnpmPath, entry.name, "node_modules")));
+}
+
+function configurePortableNodePath(){
+  const targets = new Set();
+  addNodeModuleCandidatesFrom(path.join(root, "node_modules"), targets);
+  addNodeModuleCandidatesFrom(path.resolve(path.dirname(process.execPath), "..", "node_modules"), targets);
+  const homeDir = process.env.USERPROFILE || process.env.HOME;
+  if (homeDir) {
+    addNodeModuleCandidatesFrom(path.join(homeDir, ".cache", "codex-runtimes", "codex-primary-runtime", "dependencies", "node", "node_modules"), targets);
+  }
+  process.env.NODE_PATH = [...targets, process.env.NODE_PATH].filter(Boolean).join(path.delimiter);
   Module._initPaths();
 }
+
+configurePortableNodePath();
 const { chromium } = require("playwright");
 
 const mimeTypes = {
@@ -162,15 +178,28 @@ function createServer(){
   const port = server.address().port;
   let context;
   try {
-    context = await chromium.launchPersistentContext(profileDir, {
-      channel: "msedge",
+    const launchOptions = {
       headless: true,
       args: [
         "--disable-gpu",
         "--no-first-run",
         "--disable-background-networking"
       ]
-    });
+    };
+    const channels = [...new Set([process.env.PLAYWRIGHT_BROWSER_CHANNEL, "msedge", "chrome", ""].filter(channel => channel !== undefined))];
+    let lastError = null;
+    for (const channel of channels) {
+      try {
+        context = await chromium.launchPersistentContext(profileDir, {
+          ...launchOptions,
+          ...(channel ? { channel } : {})
+        });
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!context) throw lastError || new Error("Unable to launch a Playwright browser");
     const page = context.pages()[0] || await context.newPage();
     await page.setViewportSize({ width: frameWidth + 80, height: frameHeight + 80 });
     await page.goto(`http://127.0.0.1:${port}/__internal_test_runner.html`, { waitUntil: "load", timeout: 30000 });

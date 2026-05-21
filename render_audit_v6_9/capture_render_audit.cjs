@@ -3,17 +3,13 @@ const http = require("node:http");
 const Module = require("node:module");
 const path = require("node:path");
 
-const root = "D:/Projects/macro-engine";
-const rootPath = path.resolve(root);
+const rootPath = path.resolve(__dirname, "..");
+const root = rootPath;
 const auditDir = path.join(root, "render_audit_v6_9");
 const pageDir = path.join(auditDir, "pages");
 const shotDir = path.join(auditDir, "screenshots");
 const debugDir = path.join(auditDir, "_debug");
 const profileDir = path.join(debugDir, "edge_profile");
-const bundledNodeModules = "C:/Users/dw/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules";
-const bundledPnpmModules = [
-  "C:/Users/dw/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/.pnpm/playwright-core@1.60.0/node_modules"
-];
 const prefix = "runstep_macro_v1_";
 const today = "2026-05-21";
 
@@ -21,10 +17,30 @@ fs.mkdirSync(pageDir, { recursive: true });
 fs.mkdirSync(shotDir, { recursive: true });
 fs.mkdirSync(debugDir, { recursive: true });
 fs.mkdirSync(profileDir, { recursive: true });
-if (fs.existsSync(bundledNodeModules)) {
-  process.env.NODE_PATH = [bundledNodeModules, ...bundledPnpmModules.filter(item => fs.existsSync(item)), process.env.NODE_PATH].filter(Boolean).join(path.delimiter);
+
+function addNodeModuleCandidatesFrom(nodeModulesPath, targets){
+  if (!nodeModulesPath || !fs.existsSync(nodeModulesPath)) return;
+  targets.add(nodeModulesPath);
+  const pnpmPath = path.join(nodeModulesPath, ".pnpm");
+  if (!fs.existsSync(pnpmPath)) return;
+  fs.readdirSync(pnpmPath, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && entry.name.startsWith("playwright-core@"))
+    .forEach(entry => targets.add(path.join(pnpmPath, entry.name, "node_modules")));
+}
+
+function configurePortableNodePath(){
+  const targets = new Set();
+  addNodeModuleCandidatesFrom(path.join(root, "node_modules"), targets);
+  addNodeModuleCandidatesFrom(path.resolve(path.dirname(process.execPath), "..", "node_modules"), targets);
+  const homeDir = process.env.USERPROFILE || process.env.HOME;
+  if (homeDir) {
+    addNodeModuleCandidatesFrom(path.join(homeDir, ".cache", "codex-runtimes", "codex-primary-runtime", "dependencies", "node", "node_modules"), targets);
+  }
+  process.env.NODE_PATH = [...targets, process.env.NODE_PATH].filter(Boolean).join(path.delimiter);
   Module._initPaths();
 }
+
+configurePortableNodePath();
 const { chromium } = require("playwright");
 
 const d = day => `2026-05-${String(day).padStart(2, "0")}`;
@@ -412,15 +428,28 @@ async function runRenderAudit() {
   let browser;
   let context;
   try {
-    browser = await chromium.launch({
-      channel: "msedge",
+    const launchOptions = {
       headless: true,
       args: [
         "--disable-gpu",
         "--no-first-run",
         "--disable-background-networking"
       ]
-    });
+    };
+    const channels = [...new Set([process.env.PLAYWRIGHT_BROWSER_CHANNEL, "msedge", "chrome", ""].filter(channel => channel !== undefined))];
+    let lastError = null;
+    for (const channel of channels) {
+      try {
+        browser = await chromium.launch({
+          ...launchOptions,
+          ...(channel ? { channel } : {})
+        });
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!browser) throw lastError || new Error("Unable to launch a Playwright browser");
     context = await browser.newContext();
     const manifest = [];
     for (const item of captures) {
