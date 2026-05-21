@@ -1,6 +1,7 @@
 # v6.9 Render Audit
 
 v6.9 기준 화면/회귀 검증을 위한 렌더 감사 산출물입니다.
+현재 정리 기준은 `512aa82 fix: v6.9 QA 러너 이식성 및 모바일 도움말 overflow 보정`입니다.
 
 ## 포함 범위
 
@@ -34,6 +35,7 @@ node .\render_audit_v6_9\run_internal_tests.cjs
 - 데스크톱 브라우저 내부 테스트: 95 suites / 903 cases / 0 failed
 - 모바일 390px 대상 테스트: 11 suites / 96 cases / 0 failed
 - 렌더 감사 스크린샷: 41 states
+- `v6.9` tag는 `f0fa736`에 있으며, 이후 커밋은 post-tag hotfix / QA support 성격입니다.
 
 ## 확인 포인트
 
