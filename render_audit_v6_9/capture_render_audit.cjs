@@ -405,7 +405,7 @@ async function capture(context, baseUrl, name, payloadName, actionName, width, h
   return shotPath;
 }
 
-(async () => {
+async function runRenderAudit() {
   const server = createServer();
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -436,7 +436,29 @@ async function capture(context, baseUrl, name, payloadName, actionName, width, h
     if (browser) await browser.close();
     await new Promise(resolve => server.close(resolve));
   }
-})().catch(error => {
-  console.error(error);
-  process.exitCode = 1;
-});
+}
+
+if (require.main === module) {
+  runRenderAudit().catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  root,
+  rootPath,
+  auditDir,
+  pageDir,
+  shotDir,
+  debugDir,
+  prefix,
+  today,
+  payloads,
+  actionScripts,
+  captures,
+  makePage,
+  createServer,
+  chromium,
+  runRenderAudit
+};
