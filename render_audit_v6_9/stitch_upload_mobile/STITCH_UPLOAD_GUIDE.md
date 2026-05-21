@@ -8,6 +8,10 @@
 - 모든 이미지는 `images/` 안에 번호 prefix로 정렬되어 있습니다.
 - `DESIGN.md`는 Stitch의 `기존 DESIGN.md 붙여넣기` 칸에 그대로 넣기 위한 문서입니다.
 
+## 20장 첨부 제한이 걸릴 때
+
+Stitch가 파일을 최대 20장까지만 받으면 `images/`의 원본 PNG 167장을 올리지 말고 `contact_sheets/images/` 안의 JPG 17장만 올립니다. 각 JPG는 여러 모바일 화면을 390px 원본 폭 그대로 묶은 컨택트 시트입니다.
+
 ## Stitch 입력칸별 처리
 
 - 기존 DESIGN.md 붙여넣기: 이 폴더의 `DESIGN.md` 내용을 그대로 붙여 넣습니다.
