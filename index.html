@@ -1,8 +1,12 @@
 ﻿<!--
 Version: 6.9
-Stage: 6.9-F v6.9 최종 회귀 마감
+Stage: 6.9-G 운동강도 hidden 값 hotfix
 Date: 2026-05-21
 Notes:
+- v6.9-G 업무 보정 / 훈련 강도 슬라이더를 Today 계산값 편집 흐름에 배치
+- v6.9-G 확장 OFF에서는 숨은 전역 강도값이 Today 계산 / Records snapshot에 새지 않도록 보정
+- v6.9-G Today 세션이 휴식/REST일 때 웨이트 시간을 0으로 고정하고 입력을 잠금
+- v6.9-G Today 슬라이더 입력은 프레임/지연 저장 단위로 갱신해 기록 갱신 신호와 계산 미리보기 과다 호출을 억제
 - v6.9-F 최종 회귀 마감: v6.9 샘플2 UI 정리 단계 전체 테스트 통과 기준으로 마감
 - v6.9-E 모바일 390px에서 Today 작업 요약 pill이 잘리지 않도록 1열 wrap 및 shell block 기준 보강
 - v6.9-D InBody / Records / Settings shell에서 쓰는 누락 색상 토큰을 정리해 샘플2 표면 안정성 보강
@@ -1977,12 +1981,52 @@ Notes:
     .today-quick-edit-panel .field{
       min-width:0;
     }
+    .today-quick-field-host{
+      display:contents;
+    }
     .today-quick-edit-panel label{
       display:block;
       margin-bottom:6px;
       font-size:12px;
       font-weight:900;
       color:var(--deep);
+    }
+    .today-quick-edit-panel #workAdjField > label,
+    .today-quick-edit-panel #todayQuickIntensityField > label{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      min-height:20px;
+      margin-bottom:8px;
+      line-height:18px;
+      white-space:nowrap;
+    }
+    .today-quick-edit-panel .slider-label-text{
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .today-quick-edit-panel .slider-help-wrap{
+      flex:0 0 18px;
+      width:18px;
+      height:18px;
+      vertical-align:middle;
+    }
+    .today-quick-edit-panel .slider-help-wrap .help-tip{
+      left:0;
+      top:calc(100% + 8px);
+      transform:none;
+      width:min(300px, calc(100vw - 56px));
+      white-space:normal;
+    }
+    .today-quick-edit-panel .slider-help-wrap .help-tip::before{
+      left:8px;
+      top:-6px;
+      transform:rotate(45deg);
+    }
+    .today-quick-edit-panel #workAdjField .scale,
+    .today-quick-edit-panel #workAdjField .hint{
+      display:none;
     }
     .today-quick-edit-panel input,
     .today-quick-edit-panel select{
@@ -1995,6 +2039,29 @@ Notes:
       color:var(--ink);
       font:inherit;
       font-weight:800;
+    }
+    .today-quick-edit-panel .slider-row{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      align-items:center;
+      gap:10px;
+    }
+    .today-quick-edit-panel output{
+      min-width:44px;
+      font-size:12px;
+      font-weight:900;
+      color:var(--deep);
+      text-align:right;
+    }
+    .today-quick-edit-panel .scale{
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      margin-top:6px;
+      font-size:10.5px;
+      line-height:1.35;
+      color:var(--muted);
+      flex-wrap:wrap;
     }
     .today-quick-edit-side{
       grid-area:side;
@@ -2094,11 +2161,15 @@ Notes:
     }
     .today-quick-routine-card{
       align-self:stretch;
+      grid-column:span 2;
     }
     .today-quick-routine-selects{
       display:grid;
       grid-template-columns:repeat(2,minmax(0,1fr));
       gap:8px;
+    }
+    .today-quick-routine-selects.simple{
+      grid-template-columns:1fr;
     }
     .today-quick-routine-card select{
       min-height:36px;
@@ -10306,6 +10377,9 @@ Notes:
       .today-calc-settings-card .today-quick-edit-fields{
         grid-template-columns:1fr;
       }
+      .today-quick-routine-card{
+        grid-column:1 / -1;
+      }
       .today-section-head,
       .today-quick-edit-section-head{
         flex-direction:column;
@@ -11224,6 +11298,7 @@ Notes:
                 <option value="heavy_field">고강도 현장</option>
               </select>
             </div>
+            <div class="today-quick-field-host" id="todayQuickWorkAdjHost"></div>
             <div class="today-quick-edit-section-head today-section-head today-cardio-preset-head">
               <div class="today-quick-edit-section-title today-section-title">오늘 운동</div>
               <div class="today-cardio-preset-actions today-section-actions">
@@ -11231,9 +11306,29 @@ Notes:
                 <button class="secondary-btn" id="todayApplyCardioPresetBtn" type="button">프리셋 적용</button>
               </div>
             </div>
+            <div class="field today-quick-routine-card">
+              <label for="todayQuickRoutinePlan">루틴 / 세션</label>
+              <div class="today-quick-routine-selects">
+                <select id="todayQuickRoutinePlan" aria-label="루틴"></select>
+                <select id="todayQuickRoutineSession" aria-label="세션"></select>
+              </div>
+            </div>
             <div class="field">
               <label for="todayQuickWeightDuration">웨이트 시간</label>
               <input id="todayQuickWeightDuration" type="number" min="0" max="180" step="5" inputmode="decimal">
+            </div>
+            <div class="field today-quick-intensity-field hidden" id="todayQuickIntensityField">
+              <label for="todayQuickIntensityOverride">
+                <span class="slider-label-text">훈련 강도 보정</span>
+                <span class="help-wrap slider-help-wrap" tabindex="0" role="button" aria-label="훈련 강도 보정 설명">
+                  <span class="help-dot">?</span>
+                  <span class="help-tip" id="todayQuickIntensityHelpTip"></span>
+                </span>
+              </label>
+              <div class="slider-row">
+                <input id="todayQuickIntensityOverride" type="range" min="0" max="1" step="0.01" value="0.80">
+                <output id="todayQuickIntensityOut">0.80</output>
+              </div>
             </div>
             <div class="field">
               <label for="todayQuickCardioType">오늘 유산소</label>
@@ -11259,13 +11354,6 @@ Notes:
           </div>
           <div class="today-quick-edit-side">
             <div class="today-quick-edit-result" id="todayQuickEditResultSummary" aria-live="polite"></div>
-            <div class="field today-quick-routine-card">
-              <label for="todayQuickRoutinePlan">루틴 / 세션</label>
-              <div class="today-quick-routine-selects">
-                <select id="todayQuickRoutinePlan" aria-label="루틴"></select>
-                <select id="todayQuickRoutineSession" aria-label="세션"></select>
-              </div>
-            </div>
           </div>
           <div class="today-quick-edit-footer">
             <div class="mini-note">오늘 수정값은 이 날짜에 유지됩니다.</div>
@@ -12863,6 +12951,8 @@ Notes:
     let suppressTodayRecordAutoSync = false;
     let pendingInbodyTodayApplyChoice = null;
     let pendingRecordWeightTodayApplyChoice = null;
+    let todayCalculationDraftSaveTimer = null;
+    let todayQuickEditLiveSummaryFrame = null;
     const ADHERENCE_SCORING_VERSION = "v6.1_alcohol_penalty_v2";
     const RECENT_CONTEXT_WINDOWS = [1, 3, 7, 14, 28];
     const RECORD_MODES = ["weight_only", "simple", "detailed"];
@@ -13005,6 +13095,28 @@ Notes:
         return;
       }
       localStorage.setItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY), JSON.stringify(Object.fromEntries(entries)));
+    }
+
+    function scheduleTodayCalculationDraftsSave(delay = 120){
+      if (typeof window.setTimeout !== "function" || typeof window.clearTimeout !== "function") {
+        saveTodayCalculationDrafts();
+        return;
+      }
+      if (todayCalculationDraftSaveTimer !== null) {
+        window.clearTimeout(todayCalculationDraftSaveTimer);
+      }
+      todayCalculationDraftSaveTimer = window.setTimeout(() => {
+        todayCalculationDraftSaveTimer = null;
+        saveTodayCalculationDrafts();
+      }, delay);
+    }
+
+    function flushTodayCalculationDraftsSave(){
+      if (todayCalculationDraftSaveTimer !== null && typeof window.clearTimeout === "function") {
+        window.clearTimeout(todayCalculationDraftSaveTimer);
+      }
+      todayCalculationDraftSaveTimer = null;
+      saveTodayCalculationDrafts();
     }
 
     function createCardioPresetId(){
@@ -13650,6 +13762,16 @@ Notes:
       return { source: null, label: "" };
     }
 
+    function getSettingsDefaultTodayIntensityOverride(routineSession = state.routine || DEFAULT_STATE.routine){
+      if (ids.generalAdvancedSettings?.checked || state.generalAdvancedSettings) {
+        return normalizeTodayCalculationNumber(ids.intensityOverride?.value) ?? DEFAULT_STATE.intensityOverride;
+      }
+      const items = getGeneralRoutineItems();
+      const fallback = items.find(item => item.value !== "REST") || items[0] || { value: DEFAULT_STATE.routine, xw: DEFAULT_STATE.intensityOverride };
+      const entry = items.find(item => item.value === routineSession) || fallback;
+      return normalizeTodayCalculationNumber(entry.xw) ?? DEFAULT_STATE.intensityOverride;
+    }
+
     function getSettingsCalculationDefaults(){
       const weight = normalizeTodayCalculationNumber(ids.weight?.value) ?? DEFAULT_STATE.weight;
       const bodyFatPercent = normalizeTodayCalculationNumber(ids.bodyFat?.value);
@@ -13658,6 +13780,7 @@ Notes:
       const activityLevel = isAllowedOption(ids.activityLevel?.value, Object.keys(ACTIVITY_COEFF)) ? ids.activityLevel.value : DEFAULT_STATE.activityLevel;
       const workType = isAllowedOption(ids.workType?.value, Object.keys(WORK_TYPE_Y)) ? ids.workType.value : DEFAULT_STATE.workType;
       const cardioType = isAllowedOption(ids.cardioType?.value, Object.keys(CARDIO_TYPES)) ? ids.cardioType.value : DEFAULT_STATE.cardioType;
+      const todayRoutineSession = state.routine || DEFAULT_STATE.routine;
       return {
         calculationWeight: weight,
         skeletalMuscle: normalizeTodayCalculationNumber(ids.skeletal?.value) ?? DEFAULT_STATE.skeletal,
@@ -13665,8 +13788,8 @@ Notes:
         bodyFatMass,
         todayActivityLevel: activityLevel,
         todayWorkType: workType,
-        todayRoutineSession: state.routine || DEFAULT_STATE.routine,
-        todayIntensityOverride: normalizeTodayCalculationNumber(ids.intensityOverride?.value) ?? DEFAULT_STATE.intensityOverride,
+        todayRoutineSession,
+        todayIntensityOverride: getSettingsDefaultTodayIntensityOverride(todayRoutineSession),
         todayWeightDuration: normalizeTodayCalculationNumber(ids.weightDuration?.value) ?? DEFAULT_STATE.weightDuration,
         todayCardioType: cardioType,
         todayCardioDuration: normalizeTodayCalculationNumber(ids.cardioDuration?.value) ?? DEFAULT_STATE.cardioDuration,
@@ -13789,6 +13912,10 @@ Notes:
       const draft = normalizeTodayCalculationDraft(todayCalculationDrafts[targetDate] || {});
       const values = { ...defaults, ...draft };
       values.todayRoutineSession = normalizeTodayRoutineSession(values.todayRoutineSession);
+      if (values.todayRoutineSession === "REST") {
+        values.todayIntensityOverride = 0;
+        values.todayWeightDuration = 0;
+      }
       if (!Number.isFinite(values.bodyFatPercent) && Number.isFinite(values.bodyFatMass) && Number.isFinite(values.calculationWeight) && values.calculationWeight > 0) {
         values.bodyFatPercent = values.bodyFatMass / values.calculationWeight * 100;
       }
@@ -13866,7 +13993,8 @@ Notes:
       const normalized = normalizeTodayCalculationDraft(current);
       if (Object.keys(normalized).length) todayCalculationDrafts[targetDate] = normalized;
       else delete todayCalculationDrafts[targetDate];
-      saveTodayCalculationDrafts();
+      if (options.deferSave) scheduleTodayCalculationDraftsSave();
+      else flushTodayCalculationDraftsSave();
     }
 
     function setTodayCalculationDraftField(field, value, options = {}){
@@ -15727,6 +15855,7 @@ Notes:
       });
       athleteRoutineField?.classList.toggle("hidden", !expanded);
       routineGeneralField?.classList.toggle("hidden", expanded);
+      routinePlanField?.classList.toggle("hidden", !expanded);
       intensityField?.classList.toggle("hidden", !expanded);
       document.getElementById("generalModeNotice").classList.add("hidden");
     }
@@ -15900,6 +16029,38 @@ Notes:
       }
     }
 
+    function ensureSliderHelpLabel(fieldId, labelText, tipId){
+      const field = document.getElementById(fieldId);
+      const label = field?.querySelector(":scope > label");
+      if (!label) return null;
+      if (!label.querySelector("[data-slider-label-text]")) {
+        label.textContent = "";
+        const text = document.createElement("span");
+        text.className = "slider-label-text";
+        text.setAttribute("data-slider-label-text", "true");
+        label.appendChild(text);
+
+        const help = document.createElement("span");
+        help.className = "help-wrap slider-help-wrap";
+        help.tabIndex = 0;
+        help.setAttribute("role", "button");
+        help.setAttribute("aria-label", `${labelText} 설명`);
+        help.innerHTML = `<span class="help-dot">?</span><span class="help-tip" id="${tipId}"></span>`;
+        label.appendChild(help);
+      }
+      const text = label.querySelector("[data-slider-label-text]");
+      if (text) text.textContent = labelText;
+      return document.getElementById(tipId);
+    }
+
+    function syncTodaySliderHelpLabels(){
+      const workTip = ensureSliderHelpLabel("workAdjField", "업무 강도 보정", "workAdjHelpTip");
+      if (workTip) {
+        const hint = document.getElementById("workAdjHint")?.textContent || "기본값 그대로로 봅니다. 필요할 때만 조정하세요.";
+        workTip.textContent = `활동량과 업무 유형만으로 부족할 때 조정합니다. -0.20은 한 단계 낮게, 0.00은 기본값 유지, +0.20은 한 단계 높게 봅니다. ${hint}`;
+      }
+    }
+
     function arrangeSettingsDefaultSections(){
       const mirrorHost = document.getElementById("settingsCalculationInputHost");
       const inputPanel = document.getElementById("todayInputPanel");
@@ -15917,7 +16078,7 @@ Notes:
 
       moveSettingsField("settingsLifestyleHost", "activityLevel", "기본 활동량");
       moveSettingsField("settingsLifestyleHost", "workType", "기본 업무 유형");
-      moveSettingsField("settingsLifestyleHost", "workAdj", "업무 보정");
+      moveSettingsField("todayQuickWorkAdjHost", "workAdj");
 
       moveSettingsField("settingsTrainingDefaultsHost", "generalAdvancedSettings");
       const generalAdvancedLabel = document.querySelector("#generalAdvancedField label span");
@@ -15925,6 +16086,7 @@ Notes:
       moveSettingsField("settingsTrainingDefaultsHost", "routinePlan", "루틴 종류");
       moveSettingsField("settingsTrainingDefaultsHost", "weeklyTrainingDays", "주간 웨이트일수");
       moveSettingsField("settingsTrainingDefaultsHost", "weightDuration", "기본 웨이트 시간 (분)");
+      syncTodaySliderHelpLabels();
     }
 
     function syncSettingsChoiceSummaries(){
@@ -16181,6 +16343,7 @@ Notes:
       { quickId: "todayQuickBodyFat", draftField: "bodyFatPercent", digits: 2 },
       { quickId: "todayQuickActivityLevel", draftField: "todayActivityLevel" },
       { quickId: "todayQuickWorkType", draftField: "todayWorkType" },
+      { quickId: "todayQuickIntensityOverride", draftField: "todayIntensityOverride", digits: 2 },
       { quickId: "todayQuickWeightDuration", draftField: "todayWeightDuration", digits: 0 },
       { quickId: "todayQuickCardioType", draftField: "todayCardioType" },
       { quickId: "todayQuickCardioDuration", draftField: "todayCardioDuration", digits: 0 },
@@ -16230,6 +16393,8 @@ Notes:
         quick.disabled = false;
       });
       syncTodayQuickRoutineControls(todayValues);
+      syncTodayQuickWeightDurationControl(todayValues);
+      syncTodayQuickIntensityControl(todayValues);
     }
 
     function renderTodayInbodyFillControls(){
@@ -16491,16 +16656,65 @@ Notes:
       return getRoutineItems();
     }
 
+    function getTodayQuickRoutineEntry(todayValues = getEffectiveTodayCalculationValues()){
+      const items = getTodayQuickRoutineItems();
+      const routineValue = todayValues?.todayRoutineSession || state.routine || DEFAULT_STATE.routine;
+      return items.find(item => item.value === routineValue) || items.find(item => item.value !== "REST") || items[0] || { value: "REST", label: "휴식", xw: 0 };
+    }
+
+    function syncTodayQuickRangeOutputs(){
+      const intensity = document.getElementById("todayQuickIntensityOverride");
+      const intensityOut = document.getElementById("todayQuickIntensityOut");
+      if (intensity && intensityOut) intensityOut.value = Number(intensity.value || 0).toFixed(2);
+      const workOut = document.getElementById("workAdjOut");
+      if (ids.workAdj && workOut) workOut.value = Number(ids.workAdj.value || 0).toFixed(2);
+    }
+
+    function syncTodayQuickWeightDurationControl(todayValues = getEffectiveTodayCalculationValues()){
+      const input = document.getElementById("todayQuickWeightDuration");
+      if (!input) return;
+      const isRestDay = todayValues.todayRoutineSession === "REST";
+      if (isRestDay && input.value !== "0") input.value = "0";
+      input.disabled = isRestDay;
+      input.setAttribute("aria-disabled", isRestDay ? "true" : "false");
+    }
+
+    function syncTodayQuickIntensityControl(todayValues = getEffectiveTodayCalculationValues()){
+      const field = document.getElementById("todayQuickIntensityField");
+      const input = document.getElementById("todayQuickIntensityOverride");
+      const tip = document.getElementById("todayQuickIntensityHelpTip");
+      if (!field || !input) return;
+      const isAdvanced = !!state.generalAdvancedSettings;
+      const entry = getTodayQuickRoutineEntry(todayValues);
+      const isRestDay = entry.value === "REST" || todayValues.todayRoutineSession === "REST";
+      field.classList.toggle("hidden", !isAdvanced);
+      input.disabled = !isAdvanced || isRestDay;
+      if (tip) {
+        if (!isAdvanced) {
+          tip.textContent = "운동 설정 확장을 켜면 세션별 훈련 강도를 직접 조절할 수 있습니다.";
+        } else if (isRestDay) {
+          tip.textContent = "REST를 선택하면 웨이트 강도와 시간은 계산에 반영되지 않습니다.";
+        } else {
+          const baseXw = Number(entry.xw ?? todayValues.todayIntensityOverride ?? DEFAULT_STATE.intensityOverride);
+          tip.textContent = `${entry.label || entry.value} 기본 강도는 ${Number.isFinite(baseXw) ? baseXw.toFixed(2) : "0.80"}이며, 필요하면 직접 조절할 수 있습니다.`;
+        }
+      }
+      syncTodayQuickRangeOutputs();
+    }
+
     function syncTodayQuickRoutineControls(todayValues = getEffectiveTodayCalculationValues()){
       const planSelect = document.getElementById("todayQuickRoutinePlan");
       const sessionSelect = document.getElementById("todayQuickRoutineSession");
       if (!planSelect || !sessionSelect) return;
       const isSimpleGeneral = !state.generalAdvancedSettings;
+      const selectWrap = planSelect.closest(".today-quick-routine-selects");
       const planItems = isSimpleGeneral
         ? [{ value: state.routinePlan || "ppl_ul", label: "기본 루틴" }]
         : Object.entries(ROUTINE_SCHEMES).map(([value, scheme]) => ({ value, label: scheme.label }));
       renderTodayQuickSelectOptions(planSelect, planItems, state.routinePlan);
       planSelect.disabled = true;
+      planSelect.classList.toggle("hidden", isSimpleGeneral);
+      selectWrap?.classList.toggle("simple", isSimpleGeneral);
 
       const sessionItems = getTodayQuickRoutineItems();
       const session = sessionItems.some(item => item.value === todayValues.todayRoutineSession)
@@ -16610,7 +16824,7 @@ Notes:
       renderTodayQuickEditResultSummary(result, showPlaceholder);
     }
 
-    function refreshTodayQuickEditLiveSummary(){
+    function runTodayQuickEditLiveSummary(){
       const result = calculate();
       const showPlaceholder = !result.isCalculable;
       renderTodayInbodyFillControls();
@@ -16618,8 +16832,30 @@ Notes:
       renderTodayCalculationBasisSummary(result, showPlaceholder);
       renderTodayResultProximitySummaries(result, showPlaceholder);
       renderTodayQuickEditResultSummary(result, showPlaceholder);
+      syncTodayQuickIntensityControl(getEffectiveTodayCalculationValues());
+      renderTodayRecordConfirmationStatus(result, showPlaceholder);
       renderTodayShellSummary(result, showPlaceholder);
       renderMacroBasisUi(result, showPlaceholder);
+    }
+
+    function refreshTodayQuickEditLiveSummary(){
+      if (todayQuickEditLiveSummaryFrame !== null && typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(todayQuickEditLiveSummaryFrame);
+      }
+      todayQuickEditLiveSummaryFrame = null;
+      runTodayQuickEditLiveSummary();
+    }
+
+    function scheduleTodayQuickEditLiveSummary(){
+      if (todayQuickEditLiveSummaryFrame !== null) return;
+      if (typeof window.requestAnimationFrame !== "function") {
+        refreshTodayQuickEditLiveSummary();
+        return;
+      }
+      todayQuickEditLiveSummaryFrame = window.requestAnimationFrame(() => {
+        todayQuickEditLiveSummaryFrame = null;
+        runTodayQuickEditLiveSummary();
+      });
     }
 
     function setTodayQuickEditOpen(open){
@@ -16637,6 +16873,7 @@ Notes:
         syncTodayQuickEditControls();
         renderTodayInbodyFillControls();
         renderTodayCardioPresetControls();
+        syncTodayQuickIntensityControl(getEffectiveTodayCalculationValues());
         renderTodayResultProximitySummaries(calculate(), false);
         renderTodayQuickEditResultSummary(calculate(), false);
       }
@@ -16671,9 +16908,12 @@ Notes:
           values.bodyFatMass = weight * percent / 100;
         }
       }
-      setTodayCalculationDraftValues(values);
+      const deferDraftSave = event?.type === "input" && quick.type === "range";
+      setTodayCalculationDraftValues(values, { deferSave: deferDraftSave });
+      syncTodayQuickRangeOutputs();
       if (event?.type === "input" && quick.tagName !== "SELECT") {
-        refreshTodayQuickEditLiveSummary();
+        if (quick.type === "range") scheduleTodayQuickEditLiveSummary();
+        else refreshTodayQuickEditLiveSummary();
         return;
       }
       const shouldReopen = isTodayQuickEditOpen();
@@ -16701,10 +16941,12 @@ Notes:
       const nextRoutine = event?.currentTarget?.value;
       if (!nextRoutine) return;
       const entry = getTodayQuickRoutineItems().find(item => item.value === nextRoutine);
-      setTodayCalculationDraftValues({
+      const nextValues = {
         todayRoutineSession: nextRoutine,
         todayIntensityOverride: Number.isFinite(Number(entry?.xw)) ? Number(entry.xw) : null
-      });
+      };
+      if (nextRoutine === "REST") nextValues.todayWeightDuration = 0;
+      setTodayCalculationDraftValues(nextValues);
       const shouldReopen = isTodayQuickEditOpen();
       const focusId = event?.currentTarget?.id;
       render();
@@ -18968,7 +19210,7 @@ Notes:
         weeklyTrainingDays: ids.weeklyTrainingDays.value,
         routinePlan: state.routinePlan,
         routine: s.routine,
-        intensityOverride: ids.intensityOverride.value,
+        intensityOverride: s.intensityOverride,
         weightDuration: s.weightDuration,
         cardioType: s.cardioType,
         cardioDuration: s.cardioDuration,
@@ -25246,7 +25488,7 @@ Notes:
         generalLowDigestCarbs: !!ids.generalLowDigestCarbs.checked,
         routinePlan: isAllowedOption(state.routinePlan, Object.keys(ROUTINE_SCHEMES)) ? state.routinePlan : DEFAULT_STATE.routinePlan,
         routine: todayValues.todayRoutineSession || DEFAULT_STATE.routine,
-        intensityOverride: parseRecordDetailNumber(ids.intensityOverride.value, DEFAULT_STATE.intensityOverride),
+        intensityOverride: parseRecordDetailNumber(todayValues.todayIntensityOverride, DEFAULT_STATE.intensityOverride),
         weightDuration: parseRecordDetailNumber(todayValues.todayWeightDuration, DEFAULT_STATE.weightDuration),
         cardioType: isAllowedOption(todayValues.todayCardioType, Object.keys(CARDIO_TYPES)) ? todayValues.todayCardioType : DEFAULT_STATE.cardioType,
         cardioDuration: parseRecordDetailNumber(todayValues.todayCardioDuration, DEFAULT_STATE.cardioDuration),
@@ -28256,6 +28498,7 @@ Notes:
       updateExpertAlphaUI();
       applyModeFreeAdvancedCopy();
       syncRoutineUI();
+      syncTodaySliderHelpLabels();
       syncGoalUI();
       renderMealLabelChips();
       renderAdvancedSettings();
@@ -28349,9 +28592,21 @@ Notes:
 
     // 6) initialization
     function bindEvents(){
-      ["weight","height","age","bodyFat","bodyFatMass","skeletal","gender","activityLevel","workType","workAdj","weeklyTrainingDays","weightDuration","cardioType","cardioDuration","cardioSpeed","cardioIncline"].forEach(id => {
+      ["weight","height","age","bodyFat","bodyFatMass","skeletal","gender","activityLevel","workType","weeklyTrainingDays","weightDuration","cardioType","cardioDuration","cardioSpeed","cardioIncline"].forEach(id => {
         ids[id].addEventListener("input", render);
         ids[id].addEventListener("change", render);
+      });
+      ids.workAdj.addEventListener("input", () => {
+        syncWorkAdjBounds();
+        updateWorkTypeText();
+        syncTodaySliderHelpLabels();
+        syncTodayQuickRangeOutputs();
+        scheduleTodayQuickEditLiveSummary();
+      });
+      ids.workAdj.addEventListener("change", () => {
+        const shouldReopen = isTodayQuickEditOpen();
+        render();
+        if (shouldReopen) setTodayQuickEditOpen(true);
       });
       ["recordWeight","recordAdherence","recordNote"].forEach(id => {
         ids[id].addEventListener("input", saveState);
@@ -30129,6 +30384,14 @@ Notes:
     function runModeFreeCalculationContextTests(){
       return withRecordTestSandbox(() => {
         const results = [];
+        const isVisibleInput = element => {
+          if (!element || element.hidden || element.getAttribute("aria-hidden") === "true") return false;
+          const style = window.getComputedStyle(element);
+          if (style.display === "none" || style.visibility === "hidden") return false;
+          const container = element.closest(".field, .settings-group, .settings-choice-card, section, article") || element;
+          const containerStyle = window.getComputedStyle(container);
+          return containerStyle.display !== "none" && containerStyle.visibility !== "hidden";
+        };
 
         results.push(runNamedTest("C4.8-M2-B current calculation ignores legacy user tier mode", () => {
           const scenario = getModeGoldenScenarios().find(item => item.name === "diet_low_no_inbody_male");
@@ -30207,14 +30470,6 @@ Notes:
         }));
 
         results.push(runNamedTest("C4.8-M2-C legacy mode should not hide current input depth controls", () => {
-          const isVisibleInput = element => {
-            if (!element || element.hidden || element.getAttribute("aria-hidden") === "true") return false;
-            const style = window.getComputedStyle(element);
-            if (style.display === "none" || style.visibility === "hidden") return false;
-            const container = element.closest(".field, .settings-group, .settings-choice-card, section, article") || element;
-            const containerStyle = window.getComputedStyle(container);
-            return containerStyle.display !== "none" && containerStyle.visibility !== "hidden";
-          };
           state.mode = "general";
           state.generalAdvancedSettings = false;
           ids.generalAdvancedSettings.checked = false;
@@ -30222,12 +30477,53 @@ Notes:
           setActiveTab("settings");
           render();
           assertTest(ids.homeInbody.checked === true, "home InBody toggle should not be reset by legacy general mode");
-          assertTest(document.getElementById("settingsLifestyleHost").contains(ids.workAdj), "work adjustment should stay visible as an input-based setting");
-          assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.routinePlan), "routine plan should stay visible as a training setting");
+          assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.routinePlan), "routine plan should stay mounted as an advanced training setting");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.generalAdvancedSettings), "advanced training toggle should stay visible");
-          assertTest(isVisibleInput(ids.workAdj), "work adjustment input should be user-facing in Settings");
-          assertTest(isVisibleInput(ids.routinePlan), "routine plan input should be user-facing in Settings");
+          assertTest(!isVisibleInput(ids.routinePlan), "routine plan input should stay hidden while advanced training is off");
           assertTest(isVisibleInput(ids.generalAdvancedSettings), "advanced training toggle should be user-facing in Settings");
+        }));
+
+        results.push(runNamedTest("C4.8-M2-C Today quick edit hosts work and intensity sliders", () => {
+          setValidTodayBalanceTestInputs();
+          state.mode = "general";
+          state.generalAdvancedSettings = true;
+          ids.generalAdvancedSettings.checked = true;
+          ids.intensityOverride.value = "0.77";
+          setActiveTab("today");
+          render();
+          setTodayQuickEditOpen(true);
+          assertTest(document.getElementById("todayQuickWorkAdjHost").contains(ids.workAdj), "work adjustment slider should be mounted in Today quick edit");
+          assertTest(!!document.getElementById("todayQuickIntensityOverride"), "intensity slider should be mounted in Today quick edit");
+          assertTest(isVisibleInput(ids.workAdj), "work adjustment slider should be user-facing in Today quick edit");
+          assertTest(isVisibleInput(document.getElementById("todayQuickIntensityOverride")), "intensity slider should be user-facing when advanced training is enabled");
+          assertTest(document.getElementById("todayQuickIntensityOut")?.value === "0.77", "Today intensity output should mirror the current slider value");
+          assertTest(isVisibleInput(document.getElementById("todayQuickRoutinePlan")), "routine plan should be user-facing when advanced training is enabled");
+        }));
+
+        results.push(runNamedTest("C4.8-M2-C simple training snapshot ignores hidden intensity slider", () => {
+          setValidTodayBalanceTestInputs();
+          state.mode = "general";
+          state.generalAdvancedSettings = false;
+          ids.generalAdvancedSettings.checked = false;
+          state.routine = "PUSH";
+          ids.weeklyTrainingDays.value = "4";
+          state.weeklyTrainingDays = 4;
+          ids.intensityOverride.value = "0.69";
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
+          const result = calculate();
+          const snapshot = buildGoalSnapshotFromCurrentState(result, "saved_at_entry");
+          const detailBasis = getRecordDetailCurrentCalculationBasis();
+          setActiveTab("today");
+          render();
+          setTodayQuickEditOpen(true);
+          assertClose(result.s.intensityOverride, 0.68, 0.0001, "simple training state should use the general routine base intensity");
+          assertClose(result.xw, 0.69, 0.0001, "applied Xw may still include weekly training adjustment");
+          assertClose(snapshot.intensityOverride, 0.68, 0.0001, "goalSnapshot should not copy the hidden global slider value");
+          assertClose(detailBasis.intensityOverride, 0.68, 0.0001, "record detail basis should not copy the hidden global slider value");
+          assertTest(!isVisibleInput(document.getElementById("todayQuickRoutinePlan")), "simple Today quick edit should hide routine plan");
+          assertTest(isVisibleInput(document.getElementById("todayQuickRoutineSession")), "simple Today quick edit should keep only exercise/rest session visible");
+          assertTest(!isVisibleInput(document.getElementById("todayQuickIntensityOverride")), "simple Today quick edit should hide manual intensity slider");
         }));
 
         results.push(runNamedTest("C4.8-M2-B full backup and goalSnapshot compatibility stay outside current preset selection", () => {
@@ -36918,15 +37214,15 @@ Notes:
         };
         const visibleBodyText = () => getRenderedBodyText();
 
-        results.push(runNamedTest("v6.7-D3 version stage and badges are updated", () => {
+        results.push(runNamedTest("v6.9-G version stage and badges are updated", () => {
           const header = Array.from(document.childNodes).find(node => node.nodeType === Node.COMMENT_NODE)?.nodeValue || "";
           assertIncludesAll(header, [
             "Version: 6.9",
-            "Stage: 6.9-F"
-          ], "top comment should show v6.7-A4 version and stage");
-          assertTest(document.title.includes("v6.9"), "document title should show v6.7-A4");
-          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.9"), "app version badge should show v6.7-A4");
-          assertTest(getCurrentAppVersionLabel() === "v6.9", "version helper should return v6.7-A4");
+            "Stage: 6.9-G"
+          ], "top comment should show v6.9-G version and stage");
+          assertTest(document.title.includes("v6.9"), "document title should show v6.9");
+          assertTest((document.querySelector(".app-version")?.textContent || "").includes("v6.9"), "app version badge should show v6.9");
+          assertTest(getCurrentAppVersionLabel() === "v6.9", "version helper should return v6.9");
         }));
 
         results.push(runNamedTest("C4.7-B3 Records copy stays short and keeps responsibilities", () => {
@@ -38488,11 +38784,56 @@ Notes:
           assertTest(document.activeElement?.id === "todayQuickRoutineSession", "routine session change should keep focus after render");
         }));
 
+        results.push(runNamedTest("v6.9-G Today quick sliders keep panel open and throttle live refresh", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          state.mode = "general";
+          state.generalAdvancedSettings = true;
+          ids.generalAdvancedSettings.checked = true;
+          state.routinePlan = "ppl_ul";
+          ids.routinePlan.value = "ppl_ul";
+          state.routine = "PUSH";
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
+          render();
+          setTodayQuickEditOpen(true);
+          const intensity = document.getElementById("todayQuickIntensityOverride");
+          assertTest(!!intensity, "Today intensity slider should exist");
+          intensity.focus();
+          intensity.value = "0.91";
+          intensity.dispatchEvent(new Event("input", { bubbles: true }));
+          intensity.value = "0.92";
+          intensity.dispatchEvent(new Event("input", { bubbles: true }));
+          assertTest(todayQuickEditLiveSummaryFrame !== null, "range input should schedule one live refresh frame instead of rendering synchronously on every tick");
+          assertTest(todayCalculationDraftSaveTimer !== null, "range input should defer Today draft storage writes while dragging");
+          refreshTodayQuickEditLiveSummary();
+          let panel = document.getElementById("todayQuickEditPanel");
+          assertTest(!!panel && !panel.classList.contains("hidden"), "intensity input should not collapse the Today calculation panel");
+          assertTest(document.getElementById("todayQuickEditToggle")?.getAttribute("aria-expanded") === "true", "intensity input should keep expanded state");
+          assertTest(document.getElementById("todayQuickIntensityOut")?.value === "0.92", "intensity output should mirror slider input");
+          assertClose(getEffectiveTodayCalculationValues().todayIntensityOverride, 0.92, 0.0001, "intensity slider should update Today-owned value");
+          intensity.dispatchEvent(new Event("change", { bubbles: true }));
+          assertTest(todayCalculationDraftSaveTimer === null, "range change should flush deferred Today draft storage writes");
+          panel = document.getElementById("todayQuickEditPanel");
+          assertTest(!!panel && !panel.classList.contains("hidden"), "intensity change should not collapse the Today calculation panel");
+
+          ids.workAdj.focus();
+          ids.workAdj.value = "0.05";
+          ids.workAdj.dispatchEvent(new Event("input", { bubbles: true }));
+          refreshTodayQuickEditLiveSummary();
+          panel = document.getElementById("todayQuickEditPanel");
+          assertTest(!!panel && !panel.classList.contains("hidden"), "work adjustment input should not collapse the Today calculation panel");
+          assertTest(document.getElementById("workAdjOut")?.value === "0.05", "work adjustment output should mirror slider input");
+          ids.workAdj.dispatchEvent(new Event("change", { bubbles: true }));
+          panel = document.getElementById("todayQuickEditPanel");
+          assertTest(!!panel && !panel.classList.contains("hidden"), "work adjustment change should reopen the Today calculation panel");
+        }));
+
         results.push(runNamedTest("C4.2 Today calculation exposes owned value fields", () => {
           setActiveTab("today");
           render();
           setTodayQuickEditOpen(true);
-          ["todayQuickWeight", "todayQuickSkeletal", "todayQuickBodyFatMass", "todayQuickBodyFat", "todayQuickActivityLevel", "todayQuickWorkType", "todayQuickWeightDuration", "todayQuickCardioType", "todayQuickCardioDuration", "todayQuickCardioSpeed", "todayQuickCardioIncline", "todayQuickRoutinePlan", "todayQuickRoutineSession"].forEach(id => {
+          ["todayQuickWeight", "todayQuickSkeletal", "todayQuickBodyFatMass", "todayQuickBodyFat", "todayQuickActivityLevel", "todayQuickWorkType", "todayQuickIntensityOverride", "todayQuickWeightDuration", "todayQuickCardioType", "todayQuickCardioDuration", "todayQuickCardioSpeed", "todayQuickCardioIncline", "todayQuickRoutinePlan", "todayQuickRoutineSession"].forEach(id => {
             assertTest(!!document.getElementById(id), `${id} should exist in quick edit`);
           });
           const panel = document.getElementById("todayQuickEditPanel");
@@ -38572,10 +38913,34 @@ Notes:
           assertTest(Number.isFinite(before.weightKcal) && Number.isFinite(after.weightKcal) && after.weightKcal !== before.weightKcal, "session change should update weight-related calculation");
         }));
 
+        results.push(runNamedTest("v6.9-G Today quick session updates intensity value and help copy", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          state.mode = "general";
+          state.generalAdvancedSettings = true;
+          ids.generalAdvancedSettings.checked = true;
+          state.routinePlan = "ppl_ul";
+          ids.routinePlan.value = "ppl_ul";
+          state.routine = "PUSH";
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
+          render();
+          setTodayQuickEditOpen(true);
+          setQuickSelectValue("todayQuickRoutineSession", "PULL");
+          const intensity = document.getElementById("todayQuickIntensityOverride");
+          const tip = document.getElementById("todayQuickIntensityHelpTip");
+          assertTest(!!intensity && !!tip, "Today intensity slider and help copy should exist");
+          assertClose(Number(intensity.value), 0.85, 0.0001, "PULL should sync its default intensity into the Today slider");
+          assertIncludesAll(tip.textContent || "", ["PULL", "0.85"], "intensity help copy should follow the selected session");
+          assertTest(!(tip.textContent || "").includes("PUSH"), "intensity help copy should not keep stale PUSH text after session change");
+        }));
+
         results.push(runNamedTest("C4.2 Settings routine plan refreshes Today session options", () => {
           setActiveTab("today");
           setValidTodayBalanceTestInputs();
-          state.mode = "athlete";
+          state.mode = "general";
+          state.generalAdvancedSettings = true;
+          ids.generalAdvancedSettings.checked = true;
           state.routinePlan = "split3";
           ids.routinePlan.value = "split3";
           state.routine = "PUSH";
@@ -38590,7 +38955,9 @@ Notes:
         results.push(runNamedTest("C2 Settings routine edits refresh quick edit dropdowns", () => {
           setActiveTab("settings");
           setValidTodayBalanceTestInputs();
-          state.mode = "athlete";
+          state.mode = "general";
+          state.generalAdvancedSettings = true;
+          ids.generalAdvancedSettings.checked = true;
           render();
           ids.routinePlan.value = "split3";
           ids.routinePlan.dispatchEvent(new Event("change", { bubbles: true }));
@@ -38613,10 +38980,17 @@ Notes:
           const generalPlan = document.getElementById("todayQuickRoutinePlan");
           const generalSession = document.getElementById("todayQuickRoutineSession");
           assertTest(generalPlan.disabled === true, "general basic mode should keep routine plan fixed");
+          assertTest(generalPlan.classList.contains("hidden"), "general basic mode should hide routine plan and show only exercise/rest");
           assertTest(Array.from(generalSession.options).some(option => option.value === "REST"), "general basic mode should offer rest session");
           assertTest(Array.from(generalSession.options).some(option => option.value === "PUSH"), "general basic mode should offer training session");
+          setQuickValue("todayQuickWeightDuration", "65");
           setQuickSelectValue("todayQuickRoutineSession", "REST");
+          const generalDuration = document.getElementById("todayQuickWeightDuration");
           assertTest(getEffectiveTodayCalculationValues().todayRoutineSession === "REST", "general session select should set Today rest day");
+          assertTest(generalDuration.disabled === true, "general rest day should disable Today weight duration input");
+          assertTest(generalDuration.value === "0", "general rest day should force Today weight duration input to zero");
+          assertClose(getEffectiveTodayCalculationValues().todayWeightDuration, 0, 0.0001, "general rest day should store Today weight duration as zero");
+          assertClose(calculate().s.weightDuration, 0, 0.0001, "general rest day should calculate with zero weight duration");
 
           state.mode = "general";
           state.generalAdvancedSettings = true;
@@ -38630,6 +39004,12 @@ Notes:
           const expertSession = document.getElementById("todayQuickRoutineSession");
           assertTest(expertPlan.disabled === true, "advanced settings should keep routine plan as Settings default in Today");
           assertTest(expertSession.options.length >= ROUTINE_SCHEMES.ppl_ul.items.length, "advanced settings should show plan session options");
+          setQuickValue("todayQuickWeightDuration", "70");
+          setQuickSelectValue("todayQuickRoutineSession", "REST");
+          const expertDuration = document.getElementById("todayQuickWeightDuration");
+          assertTest(expertDuration.disabled === true, "advanced rest day should disable Today weight duration input");
+          assertTest(expertDuration.value === "0", "advanced rest day should force Today weight duration input to zero");
+          assertClose(getEffectiveTodayCalculationValues().todayWeightDuration, 0, 0.0001, "advanced rest day should store Today weight duration as zero");
         }));
 
         results.push(runNamedTest("C2 empty quick numeric edits do not expose NaN and recover", () => {
@@ -38818,6 +39198,15 @@ Notes:
           return { current: settledCurrent, snapshot: getRecordByDate(today)?.goalSnapshot || null, synced: settledSync.synced ? settledSync : synced };
         };
 
+        const setQuickInputValue = (id, value) => {
+          const input = document.getElementById(id);
+          assertTest(!!input, `${id} quick input should exist`);
+          input.value = String(value);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          refreshTodayQuickEditLiveSummary();
+          return input;
+        };
+
         results.push(runNamedTest("C4.8-A2 missing Today record state renders in shell", () => {
           recordsState.items = [];
           render();
@@ -38847,6 +39236,62 @@ Notes:
           assertTest(!!panel && !panel.classList.contains("hidden") && panel.getAttribute("aria-hidden") === "false", "stale state should show the status card");
           const panelText = document.getElementById("todayRecordStatusPanel")?.textContent || "";
           assertIncludesAll(panelText, ["갱신 필요", "오늘 기준으로 기록 갱신"], "stale state should show update action");
+        }));
+
+        results.push(runNamedTest("v6.9-G Today quick slider edits refresh record update prompt without storage writes", () => {
+          state.mode = "general";
+          state.generalAdvancedSettings = true;
+          ids.generalAdvancedSettings.checked = true;
+          state.routinePlan = "ppl_ul";
+          ids.routinePlan.value = "ppl_ul";
+          state.routine = "PUSH";
+          ids.intensityOverride.value = "0.80";
+          const seeded = seedCurrentRecord();
+          render();
+          setTodayQuickEditOpen(true);
+          assertTest(getTodayRecordConfirmationState(calculate()).status === "current", "seeded today record should start current");
+          const recordsBefore = JSON.stringify(recordsState.items);
+          const intensity = document.getElementById("todayQuickIntensityOverride");
+          assertTest(!!intensity, "Today intensity slider should exist for record prompt test");
+          intensity.value = "0.95";
+          intensity.dispatchEvent(new Event("input", { bubbles: true }));
+          refreshTodayQuickEditLiveSummary();
+          const stateInfo = getTodayRecordConfirmationState(calculate());
+          const panel = document.getElementById("todayRecordStatusPanel");
+          assertTest(stateInfo.status === "stale", "slider change should mark today's detailed record stale");
+          assertTest((stateInfo.mismatchKeys || []).includes("intensityOverride"), "slider change should report intensityOverride mismatch");
+          assertTest(!!panel && !panel.classList.contains("hidden"), "stale slider change should show update prompt immediately after live refresh");
+          assertIncludesAll(panel.textContent || "", ["갱신 필요", "오늘 기준으로 기록 갱신"], "slider stale prompt should expose the update action");
+          assertTest(JSON.stringify(recordsState.items) === recordsBefore, "moving the slider should not write or update the record automatically");
+          assertTest(areGoalSnapshotsEquivalent(getRecordByDate(today)?.goalSnapshot, seeded.snapshot), "record snapshot should remain unchanged until the update button is used");
+          intensity.value = "0.80";
+          intensity.dispatchEvent(new Event("input", { bubbles: true }));
+          refreshTodayQuickEditLiveSummary();
+          const restoredStateInfo = getTodayRecordConfirmationState(calculate());
+          assertTest(restoredStateInfo.status === "current", "returning the intensity slider to the saved value should clear stale state");
+          assertTest(document.getElementById("todayRecordStatusPanel").classList.contains("hidden"), "matching intensity value should hide update prompt again");
+          intensity.dispatchEvent(new Event("change", { bubbles: true }));
+          assertTest(todayCalculationDraftSaveTimer === null, "restored slider change should flush deferred Today draft storage writes");
+          state.mode = "athlete";
+          state.generalAdvancedSettings = false;
+          ids.generalAdvancedSettings.checked = false;
+        }));
+
+        results.push(runNamedTest("v6.9-G Returning Today edits to the saved basis clears the update prompt", () => {
+          state.mode = "athlete";
+          state.generalAdvancedSettings = false;
+          ids.generalAdvancedSettings.checked = false;
+          seedCurrentRecord();
+          render();
+          setTodayQuickEditOpen(true);
+          setQuickInputValue("todayQuickWeight", "76");
+          let stateInfo = getTodayRecordConfirmationState(calculate());
+          assertTest(stateInfo.status === "stale", "changed Today weight should mark record stale");
+          assertTest(!document.getElementById("todayRecordStatusPanel").classList.contains("hidden"), "changed Today weight should show update prompt");
+          setQuickInputValue("todayQuickWeight", "75");
+          stateInfo = getTodayRecordConfirmationState(calculate());
+          assertTest(stateInfo.status === "current", "returning Today weight to the saved value should clear stale state");
+          assertTest(document.getElementById("todayRecordStatusPanel").classList.contains("hidden"), "matching Today value should hide update prompt again");
         }));
 
         results.push(runNamedTest("C4.8-A2 stale state appears after Today training and activity basis changes", () => {
@@ -40633,8 +41078,11 @@ Notes:
       ids.workType.value = "office";
       ids.workAdj.value = "0";
       ids.homeInbody.checked = false;
+      state.expertLbmAlpha = DEFAULT_STATE.expertLbmAlpha;
       if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = "75";
       ids.weeklyTrainingDays.value = "5";
+      state.generalAdvancedSettings = false;
+      state.generalLowDigestCarbs = false;
       ids.generalAdvancedSettings.checked = false;
       ids.generalLowDigestCarbs.checked = false;
       ids.routinePlan.value = "ppl_ul";
@@ -40665,8 +41113,11 @@ Notes:
           ids.workType.value = "office";
           ids.workAdj.value = "0";
           ids.homeInbody.checked = false;
+          state.expertLbmAlpha = DEFAULT_STATE.expertLbmAlpha;
           if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = "75";
           ids.weeklyTrainingDays.value = "0";
+          state.generalAdvancedSettings = false;
+          state.generalLowDigestCarbs = false;
           ids.generalAdvancedSettings.checked = false;
           ids.generalLowDigestCarbs.checked = false;
           ids.routinePlan.value = "ppl_ul";
@@ -40857,7 +41308,7 @@ Notes:
           const ranges = {
             diet: { protein: [175, 185], fat: [44, 48], carbs: [205, 215] },
             lean_bulk: { protein: [148, 152], fat: [51, 55], carbs: [355, 370] },
-            bulk: { protein: [133, 138], fat: [75, 80], carbs: [370, 380] }
+            bulk: { protein: [133, 138], fat: [74, 80], carbs: [370, 380] }
           };
           const outputs = {};
           Object.entries(ranges).forEach(([goal, goalRanges]) => {
