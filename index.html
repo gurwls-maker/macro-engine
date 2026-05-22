@@ -1241,19 +1241,6 @@ Notes:
     .hero-main .hero-meta{
       display:none;
     }
-    .hero-main .philosophy-banner{
-      margin-top:5px;
-      padding:0;
-      border-radius:0;
-      background:transparent;
-    }
-    .hero-main .philosophy-banner .summary-copy{
-      font-size:11px;
-      max-width:200px;
-    }
-    .hero-main .philosophy-banner .summary-toggle{
-      font-size:11px;
-    }
     .global-bar{
       grid-column:3;
       grid-row:1;
@@ -2651,64 +2638,6 @@ Notes:
       to{opacity:1;transform:translateY(0)}
     }
     .panel{padding:18px}
-    .philosophy-banner{
-      margin-top:6px;
-      padding:0;
-      border:none;
-      border-radius:0;
-      background:transparent;
-      min-height:0;
-      display:block;
-      overflow:visible;
-    }
-    .philosophy-banner:not([open]){
-      padding:0;
-    }
-    .philosophy-banner:not([open]) .summary-copy{
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .philosophy-banner summary{
-      display:flex;
-      align-items:center;
-      justify-content:flex-start;
-      gap:8px;
-      width:fit-content;
-      max-width:100%;
-      padding:2px 0;
-      cursor:pointer;
-      list-style:none;
-      font-weight:800;
-      color:var(--deep);
-    }
-    .philosophy-banner summary::-webkit-details-marker{display:none}
-    .philosophy-banner .summary-copy{
-      font-size:12px;
-      line-height:1.35;
-    }
-    .philosophy-banner .summary-toggle{
-      flex:0 0 auto;
-      font-size:12px;
-      color:var(--muted);
-    }
-    .philosophy-banner .details-body{
-      margin-top:8px;
-      padding:10px 12px;
-      border:1px solid var(--line);
-      border-radius:14px;
-      background:var(--surface-soft);
-    }
-    .philosophy-banner:not([open]) .details-body{
-      display:none;
-    }
-    .philosophy-banner ul{
-      margin:0;
-      padding-left:18px;
-      color:var(--muted);
-      font-size:13px;
-      line-height:1.7;
-    }
     .panel h2{
       margin:0 0 12px;
       font-size:18px;
@@ -2849,39 +2778,6 @@ Notes:
     }
     #settingsCalculationInputHost #todayInputPanel .section-head{
       padding-top:0;
-    }
-    #settingsCalculationPanel #todayInputPanel .settings-compact-disclosure{
-      gap:12px;
-    }
-    #settingsCalculationPanel #todayInputPanel .settings-compact-disclosure .input-group-head{
-      align-items:center;
-      gap:12px;
-    }
-    #settingsCalculationPanel #todayInputPanel .settings-compact-disclosure.is-collapsed .input-group-head{
-      padding-bottom:0;
-      border-bottom:none;
-    }
-    #settingsCalculationPanel #todayInputPanel .settings-compact-disclosure.is-collapsed .input-group-body{
-      display:none !important;
-    }
-    .settings-compact-toggle{
-      flex:0 0 auto;
-      min-height:32px;
-      padding:6px 10px;
-      border-radius:999px;
-      font-size:11.5px;
-      white-space:nowrap;
-    }
-    .settings-cardio-group .training-subsection{
-      margin-top:0;
-      padding-top:0;
-      border-top:none;
-    }
-    .settings-cardio-group .training-subsection-title{
-      display:none;
-    }
-    .settings-save-group .today-input-action-panel{
-      margin-top:0;
     }
     .inbody-derived-hint{
       margin-top:6px;
@@ -10091,12 +9987,6 @@ Notes:
         min-height:0;
         padding:10px 4px 8px;
       }
-      .hero-main .philosophy-banner{
-        border-radius:14px;
-      }
-      .hero-main .philosophy-banner .summary-copy{
-        max-width:100%;
-      }
       .global-bar{
         min-height:0;
         margin-top:0;
@@ -10794,18 +10684,11 @@ Notes:
       #kpiPanel .kpi.target{
         grid-column:1 / -1;
       }
-      #settingsCalculationPanel #todayInputPanel .settings-compact-disclosure .input-group-head{
-        align-items:stretch;
-        flex-direction:column;
-      }
       .settings-fields-grid{
         grid-template-columns:1fr;
       }
       .settings-host.settings-fields-grid{
         grid-template-columns:1fr;
-      }
-      .settings-compact-toggle{
-        width:100%;
       }
     }
     @media (max-width:900px){
@@ -12843,6 +12726,8 @@ Notes:
     };
 
     const DEFAULT_STATE = {
+      // Internal legacy/storage axis only. The user-facing mode selector is gone;
+      // current calculations are driven by actual inputs and advanced toggles.
       mode: "general",
       weight: 75,
       height: 173,
@@ -12987,6 +12872,8 @@ Notes:
     let todayCalculationDraftSaveTimer = null;
     let todayQuickEditLiveSummaryFrame = null;
     const ADHERENCE_SCORING_VERSION = "v6.1_alcohol_penalty_v2";
+    // Engine keeps 1-day context for Today/Records daily coach checks.
+    // Recent Flow tab itself only exposes 3/7/14/28 as user-facing ranges.
     const RECENT_CONTEXT_WINDOWS = [1, 3, 7, 14, 28];
     const RECORD_MODES = ["weight_only", "simple", "detailed"];
     const RECORD_MODE_LABELS = {
@@ -14962,11 +14849,6 @@ Notes:
       };
     }
 
-    function getFatTargetFromProfile(targetCal, weight, goalType){
-      // Legacy compatibility: returns the preferred target only, not a floor.
-      return getFatTargetContext({ targetCal, weight, gender: state.gender, goalType }).fatTargetPreferredG;
-    }
-
     function applyPlausibilityLayer(config){
       const { s, targetCal, protein, carbs, fat, fatTargetContext } = config;
       const runtimeConfig = config.modeCfg || (config.mode && typeof config.mode === "object" ? config.mode : null);
@@ -15892,33 +15774,6 @@ Notes:
       intensityField?.classList.toggle("hidden", !expanded);
       document.getElementById("generalModeNotice").classList.add("hidden");
     }
-    function renderGeneralView(){
-      document.getElementById("bodyFatField").classList.add("hidden");
-      document.getElementById("skeletalField").classList.add("hidden");
-      document.getElementById("macroRatioPanel").classList.add("hidden");
-      document.getElementById("flowPanelCard").classList.add("hidden");
-      document.getElementById("metaPanelCard").classList.add("hidden");
-      document.getElementById("advancedPanelCard").classList.add("hidden");
-    }
-
-    function renderAthleteView(){
-      document.getElementById("bodyFatField").classList.remove("hidden");
-      document.getElementById("skeletalField").classList.remove("hidden");
-      document.getElementById("macroRatioPanel").classList.remove("hidden");
-      document.getElementById("flowPanelCard").classList.remove("hidden");
-      document.getElementById("metaPanelCard").classList.remove("hidden");
-      document.getElementById("advancedPanelCard").classList.add("hidden");
-    }
-
-    function renderExpertView(){
-      document.getElementById("bodyFatField").classList.remove("hidden");
-      document.getElementById("skeletalField").classList.remove("hidden");
-      document.getElementById("macroRatioPanel").classList.remove("hidden");
-      document.getElementById("flowPanelCard").classList.remove("hidden");
-      document.getElementById("metaPanelCard").classList.remove("hidden");
-      document.getElementById("advancedPanelCard").classList.remove("hidden");
-    }
-
     function renderModeView(){
       ["metaPanelCard", "advancedPanelCard"].forEach(id => {
         document.getElementById(id)?.classList.remove("mode-athlete-plus", "mode-expert-only", "mode-expert-input");
@@ -15955,8 +15810,7 @@ Notes:
       if (quickSettingsButton) quickSettingsButton.style.display = tab === "today" ? "inline-flex" : "none";
       const todayRecordStartButton = document.getElementById("todayRecordStartBtn");
       if (todayRecordStartButton) todayRecordStartButton.style.display = tab === "today" ? "inline-flex" : "none";
-      if (tab === "today") setTodayQuickEditOpen(false);
-      else setTodayQuickEditOpen(false);
+      setTodayQuickEditOpen(false);
       if (tab === "settings") setQuickSettingsOpen(false);
     }
 
@@ -15965,86 +15819,6 @@ Notes:
       setTodayQuickEditOpen(true);
       const target = document.getElementById("todayCalcSettingsCard") || document.getElementById("kpiPanel");
       target?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-
-    function getDirectChildByClass(parent, className){
-      return Array.from(parent?.children || []).find(child => child.classList?.contains(className)) || null;
-    }
-
-    function createSettingsInputGroup(id, title, className = ""){
-      const group = document.createElement("div");
-      group.className = `input-group ${className}`.trim();
-      group.id = id;
-      group.innerHTML = `
-        <div class="input-group-head">
-          <h4>${title}</h4>
-        </div>
-        <div class="input-group-body"></div>
-      `;
-      return group;
-    }
-
-    function ensureSettingsCompactGroupLayout(inputPanel){
-      const groups = inputPanel?.querySelector(".today-input-groups");
-      if (!groups) return;
-      const trainingGroup = Array.from(groups.children).find(group => group.querySelector(".training-group-body"));
-      const cardioSection = inputPanel.querySelector(".training-subsection");
-      const actionPanel = inputPanel.querySelector(".today-input-action-panel");
-      if (trainingGroup && cardioSection) {
-        let cardioGroup = document.getElementById("settingsCardioCompactGroup");
-        if (!cardioGroup) cardioGroup = createSettingsInputGroup("settingsCardioCompactGroup", "유산소", "settings-generated-group settings-cardio-group");
-        if (cardioGroup.parentElement !== groups) trainingGroup.insertAdjacentElement("afterend", cardioGroup);
-        const cardioBody = getDirectChildByClass(cardioGroup, "input-group-body");
-        if (cardioBody && cardioSection.parentElement !== cardioBody) cardioBody.appendChild(cardioSection);
-      }
-      if (actionPanel) {
-        const anchor = document.getElementById("settingsCardioCompactGroup") || trainingGroup || groups.lastElementChild;
-        let saveGroup = document.getElementById("settingsInputSaveCompactGroup");
-        if (!saveGroup) saveGroup = createSettingsInputGroup("settingsInputSaveCompactGroup", "InBody / 입력값 저장", "settings-generated-group settings-save-group");
-        if (saveGroup.parentElement !== groups) anchor?.insertAdjacentElement("afterend", saveGroup);
-        const saveBody = getDirectChildByClass(saveGroup, "input-group-body");
-        if (saveBody && actionPanel.parentElement !== saveBody) saveBody.appendChild(actionPanel);
-      }
-    }
-
-    function setSettingsCompactGroupOpen(group, open){
-      const body = getDirectChildByClass(group, "input-group-body");
-      const toggle = group.querySelector(".settings-compact-toggle");
-      group.dataset.settingsCompactOpen = open ? "true" : "false";
-      group.classList.toggle("is-collapsed", !open);
-      if (body) body.setAttribute("aria-hidden", String(!open));
-      if (toggle) {
-        toggle.textContent = open ? "접기" : "펼치기";
-        toggle.setAttribute("aria-expanded", String(open));
-      }
-    }
-
-    function initializeSettingsCompactGroups(){
-      const panel = document.getElementById("settingsCalculationPanel");
-      const inputPanel = document.getElementById("todayInputPanel");
-      if (!panel || !inputPanel || !panel.contains(inputPanel)) return;
-      ensureSettingsCompactGroupLayout(inputPanel);
-      const groups = Array.from(inputPanel.querySelectorAll(".today-input-groups > .input-group"));
-      groups.forEach((group, index) => {
-        const head = getDirectChildByClass(group, "input-group-head");
-        if (!head) return;
-        group.classList.add("settings-compact-disclosure");
-        let toggle = head.querySelector(".settings-compact-toggle");
-        if (!toggle) {
-          toggle = document.createElement("button");
-          toggle.className = "secondary-btn settings-compact-toggle";
-          toggle.type = "button";
-          head.appendChild(toggle);
-        }
-        if (!toggle.dataset.compactBound) {
-          toggle.addEventListener("click", () => {
-            setSettingsCompactGroupOpen(group, group.dataset.settingsCompactOpen !== "true");
-          });
-          toggle.dataset.compactBound = "true";
-        }
-        if (!group.dataset.settingsCompactOpen) group.dataset.settingsCompactOpen = index === 0 ? "true" : "false";
-        setSettingsCompactGroupOpen(group, group.dataset.settingsCompactOpen === "true");
-      });
     }
 
     function getFieldContainerForInput(inputId){
@@ -16260,13 +16034,6 @@ Notes:
       syncSettingsChoiceSummaries();
     }
 
-    function syncPhilosophyBannerUI(){
-      const banner = document.querySelector(".philosophy-banner");
-      const toggle = banner?.querySelector(".summary-toggle");
-      if (!toggle) return;
-      toggle.textContent = banner.open ? "접기" : "자세히 보기";
-    }
-
     function setQuickSettingsOpen(open){
       const panel = document.getElementById("quickSettingsPanel");
       const button = document.getElementById("todaySettingsBtn");
@@ -16386,12 +16153,6 @@ Notes:
 
     function getBasisUiLabel(basisId){
       return basisId === "activity" ? "활동량 기준" : "가이드 기준";
-    }
-
-    function formatTodayQuickNumber(value, digits = 0){
-      const numeric = Number(value);
-      if (!Number.isFinite(numeric)) return "-";
-      return digits > 0 ? round(numeric, digits).toLocaleString(undefined, { maximumFractionDigits: digits }) : Math.round(numeric).toLocaleString();
     }
 
     function formatTodayQuickCardioSummary(s){
@@ -16997,71 +16758,11 @@ Notes:
       return { high: "상", medium: "중", low: "하" }[value] || "중";
     }
 
-    function formatRecordAdherenceDisplay(record){
-      const manualValue = ["high","medium","low"].includes(record?.adherence) ? adherenceLabel(record.adherence) : null;
-      const autoValue = Number.isFinite(record?.adherencePercent) && record?.adherenceSource === "auto"
-        ? clamp(record.adherencePercent, 0, 100)
-        : null;
-      const modeInfo = inferRecordMode(record);
-      const modeLabel = getRecordModeLabel(modeInfo.recordMode);
-
-      if (modeInfo.recordMode === "weight_only") {
-        return `
-          <div class="adherence-cell">
-            <div class="adherence-primary"><span class="adherence-tag manual">${modeLabel}</span></div>
-            <div class="adherence-secondary">식단 평가 없음</div>
-          </div>
-        `;
-      }
-
-      if (modeInfo.recordMode === "mixed") {
-        return `
-          <div class="adherence-cell">
-            <div class="adherence-primary"><span class="adherence-tag manual">${modeLabel}</span></div>
-            <div class="adherence-secondary">한 날짜에 기록 방식이 섞였습니다</div>
-          </div>
-        `;
-      }
-
-      if (Number.isFinite(autoValue)) {
-        return `
-          <div class="adherence-cell">
-            <div class="adherence-primary"><span class="adherence-percent">${autoValue}%</span><span class="adherence-tag auto">식단 점수</span></div>
-            <div class="adherence-secondary">상세 기록 기준</div>
-          </div>
-        `;
-      }
-
-      if (modeInfo.recordMode === "simple" && manualValue) {
-        return `
-          <div class="adherence-cell">
-            <div class="adherence-primary"><span class="adherence-tag manual">간단 평가</span><span>${manualValue}</span></div>
-            <div class="adherence-secondary">탄단지 세부 분석 제외</div>
-          </div>
-        `;
-      }
-
-      if (modeInfo.recordMode === "detailed") {
-        return `
-          <div class="adherence-cell">
-            <div class="adherence-primary"><span class="adherence-tag auto">상세 기록</span></div>
-            <div class="adherence-secondary">식사를 저장하면 점수를 계산합니다</div>
-          </div>
-        `;
-      }
-
-      return `<div class="adherence-cell"><div class="adherence-secondary">기록 없음</div></div>`;
-    }
-
     function formatRecordFeedbackMessage(message, record){
       const text = String(message || "");
       if (!text.includes("식사를 저장했습니다.")) return text;
       if (record?.goalSnapshot) return `${text} 식사 변경에 따라 식단 달성률이 자동으로 다시 계산되었습니다.`;
       return `${text} 목표가 없어 식단 점수를 계산하지 못했습니다. 먼저 목표와 기본 정보를 확인해 주세요.`;
-    }
-
-    function adherenceScore(value){
-      return { high: 1, medium: 0.6, low: 0.2 }[value] || 0;
     }
 
     function normalizeAdherencePercent(raw){
@@ -19647,14 +19348,6 @@ Notes:
       };
     }
 
-    function getTodayRecord(){
-      return ensureRecordByDate(getTodayDateString());
-    }
-
-    function getTodayMealTotals(){
-      return getMealTotalsForDate(getTodayDateString());
-    }
-
     function getTodayMacroBalance(currentResult = calculate()){
       return getMacroBalanceForDate(getTodayDateString(), currentResult, { preferSnapshot: false });
     }
@@ -21674,12 +21367,6 @@ Notes:
       };
     }
 
-    function formatMacroDisplay(value, unit){
-      if (!Number.isFinite(value)) return "—";
-      if (unit === "kcal") return `${Math.round(value).toLocaleString()} kcal`;
-      return `${round(value, 1)} g`;
-    }
-
     function formatMacroValueParts(value, unit){
       if (!Number.isFinite(value)) {
         return { amount: "—", unit: unit === "kcal" ? "kcal" : "g" };
@@ -21715,10 +21402,6 @@ Notes:
         fat: `<path d="M12 4.5c3 3.2 5.2 6 5.2 9.1a5.2 5.2 0 0 1-10.4 0C6.8 10.5 9 7.7 12 4.5z"></path>`
       };
       return `<span class="macro-label-icon ${meta.className}" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true">${paths[key] || paths.kcal}</svg></span>`;
-    }
-
-    function renderScoreLabelIcon(){
-      return `<span class="score-label-icon" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.3"></circle><path d="M12 8.5v3.8l2.6 1.5"></path><path d="M7.8 18.2l-1.1 2"></path><path d="M16.2 18.2l1.1 2"></path></svg></span>`;
     }
 
     function getMacroProgressPercent(consumedValue, targetValue){
@@ -22425,92 +22108,6 @@ Notes:
         snapshot,
         signals
       };
-    }
-
-    function getWeeklyInterpretationText(windowDays = 7){
-      const safeWindowDays = RECENT_FLOW_RANGE_DAYS.includes(Number(windowDays)) ? Number(windowDays) : 7;
-      const snapshot = getWeeklyAdherenceSnapshot(safeWindowDays);
-      const recordDays = snapshot.recentWindow.length;
-      const minimumDays = getWeeklyReferenceMinimumDays(safeWindowDays);
-
-      if (recordDays < minimumDays) {
-        return `기록 부족 · ${safeWindowDays}일 기준은 최소 ${minimumDays}일 이상 기록이 필요합니다.`;
-      }
-      if (recordDays < safeWindowDays) {
-        return `일부 흐름만 참고 · ${safeWindowDays}일 중 ${recordDays}일 기록으로 해석합니다.`;
-      }
-
-      const adherenceText = Number.isFinite(snapshot.weeklyAdherenceAvg)
-        ? snapshot.weeklyAdherenceAvg >= 85
-          ? "식단 목표 양호"
-          : snapshot.weeklyAdherenceAvg >= 70
-            ? "식단 목표 보통"
-            : "식단 변동 큼"
-        : "참고용 확인";
-
-      let weightFlowText = "체중 비교 부족";
-      let directionText = "목표 방향 크게 벗어나지 않음";
-      if (Number.isFinite(snapshot.weightTrend)) {
-        const trend = snapshot.weightTrend;
-        const absTrend = Math.abs(trend);
-        if (state.goal === "lean_bulk") {
-          if (trend < -0.1) {
-            weightFlowText = "체중 감소 흐름";
-            directionText = "목표와 다소 어긋남";
-          } else if (trend <= 0.1) {
-            weightFlowText = "체중 유지 구간";
-            directionText = "목표 방향 크게 벗어나지 않음";
-          } else if (trend <= 0.3) {
-            weightFlowText = "체중 완만 증가";
-            directionText = "목표 방향과 대체로 일치";
-          } else if (trend <= 0.5) {
-            weightFlowText = "체중 증가 빠른 편";
-            directionText = "목표 방향과 대체로 일치";
-          } else {
-            weightFlowText = "체중 증가폭 큼";
-            directionText = "목표 방향과 대체로 일치";
-          }
-        } else if (state.goal === "bulk") {
-          if (trend < -0.1) {
-            weightFlowText = "체중 감소 흐름";
-            directionText = "목표와 다소 어긋남";
-          } else if (trend < 0.2) {
-            weightFlowText = "체중 증가폭 작음";
-            directionText = "목표 방향 크게 벗어나지 않음";
-          } else if (trend <= 0.6) {
-            weightFlowText = "체중 증가 흐름";
-            directionText = "목표 방향과 대체로 일치";
-          } else {
-            weightFlowText = "체중 증가폭 큼";
-            directionText = "목표 방향과 대체로 일치";
-          }
-        } else if (state.goal === "diet") {
-          if (trend >= 0.1) {
-            weightFlowText = "체중 증가 흐름";
-            directionText = "목표와 다소 어긋남";
-          } else if (trend >= -0.2) {
-            weightFlowText = "체중 감소폭 작음";
-            directionText = "목표 방향 크게 벗어나지 않음";
-          } else if (trend >= -0.6) {
-            weightFlowText = "체중 감소 흐름";
-            directionText = "목표 방향과 대체로 일치";
-          } else {
-            weightFlowText = "체중 감소폭 큼";
-            directionText = "목표 방향과 대체로 일치";
-          }
-        } else if (absTrend <= 0.1) {
-          weightFlowText = "체중 변화 작음";
-          directionText = "목표 방향 크게 벗어나지 않음";
-        } else if (trend > 0) {
-          weightFlowText = "체중 완만 증가";
-          directionText = "목표 방향과 대체로 일치";
-        } else {
-          weightFlowText = "체중 완만 감소";
-          directionText = "목표와 다소 어긋남";
-        }
-      }
-
-      return `${safeWindowDays}일 기록 기준 · ${adherenceText} · ${weightFlowText} · ${directionText}`;
     }
 
     function persistAutoAdherenceForDate(date, currentResult = calculate(), options = {}){
@@ -24320,14 +23917,6 @@ Notes:
       return getCoachItems(coach).find(item => item?.key === key) || null;
     }
 
-    function cleanIntegratedCoachAction(item, allItems = []){
-      const action = item?.action || "";
-      if (item?.key === "alcohol" && allItems.some(candidate => candidate?.key === "otherKcal")) {
-        return action.replace(/\s*기타칼로리 비율도 높아 탄단지 해석에는 오차가 있을 수 있습니다\./g, "");
-      }
-      return action;
-    }
-
     function getAdherenceMacroFallbackText(config, score, reason, adherenceResult = null){
       const label = config.label;
       const subject = label === "총칼로리" ? "총칼로리는" : `${label}은`;
@@ -24394,6 +23983,8 @@ Notes:
       };
     }
 
+    // Retained for the next Today score/Coach copy pass. The current score tiles
+    // still use fallback copy, so these policies must not change behavior yet.
     const DAILY_COACH_CARD_POLICIES = {
       calorie: {
         alcoholModeratePlus: {
@@ -24504,6 +24095,7 @@ Notes:
       return null;
     }
 
+    // Reserved with DAILY_COACH_CARD_POLICIES; not wired into renderAdherenceMacroCards yet.
     function getAdherenceMacroCardOverride(adherenceResult, coach, config){
       const macroCoachItem = getCoachItemByKey(coach, config.key);
       const goalType = getDailyCoachGoalType(coach?.goalType || state.goal);
@@ -27540,10 +27132,6 @@ Notes:
       `;
     }
 
-    function renderRecentFlowPreview(){
-      renderRecentFlowOverview(calculate(), buildRecentContext(calculate()));
-    }
-
     function renderWeeklyPanel(currentResult){
       const weeklySnapshot = buildWeeklyDataSnapshot();
       // 5.3.3: weeklySnapshot is a read-only bridge for upcoming UI layers.
@@ -27920,6 +27508,8 @@ Notes:
       }
     }
 
+    // v7 InBody audit pending: keep these InBody/Today Coach bridge helpers until
+    // the InBody tab owns its record list and the Coach source split is reviewed.
     function getLatestInbody(){
       normalizeInbodyRecords();
       if (!state.inbodyRecords.length) return null;
@@ -28435,12 +28025,6 @@ Notes:
           `;
         }).join("")}
       `;
-    }
-
-    function formatSigned(value){
-      if (!Number.isFinite(value)) return "-";
-      const rounded = Math.round(value * 10) / 10;
-      return `${rounded > 0 ? "+" : ""}${rounded.toFixed(1)}`;
     }
 
     function formatKg2(value){
