@@ -277,7 +277,8 @@ const actionScripts = {
   tabSettingsOpenGroups: "w.document.querySelector('#tabSettings')?.click(); await delay(300); w.document.querySelectorAll('#settingsPanel .settings-disclosure-toggle').forEach(btn => btn.click());",
   tabSettingsDataLower: "w.document.querySelector('#tabSettings')?.click(); await delay(300); w.scrollTo(0, 1120);",
   backupPreview: "w.document.querySelector('#tabSettings')?.click(); await delay(300); const payload = {app:'macro-engine',kind:'full-backup',backupVersion:1,appVersion:'v6.9-audit',createdAt:'2026-05-17T09:00:00.000Z',data:{settings:{...JSON.parse(JSON.stringify(" + JSON.stringify(baseSettings) + "))},records:" + JSON.stringify([richRecords[1], richRecords[2]]) + ",inbodyRecords:" + JSON.stringify(inbodyRecords.slice(0,2)) + ",cardioPresets:{items:[],defaultId:null},mealTemplates:{items:[]},todayCalculationValues:{}}}; w.queueDataManagementImport?.(payload);",
-  smartConflict: "w.document.querySelector('#tabSettings')?.click(); await delay(300); const payload = {app:'macro-engine',kind:'full-backup',backupVersion:1,appVersion:'v6.9-audit',createdAt:'2026-05-17T09:00:00.000Z',data:{settings:{...JSON.parse(JSON.stringify(" + JSON.stringify(baseSettings) + "))},records:" + JSON.stringify([richRecords[0], richRecords[1]]) + ",inbodyRecords:" + JSON.stringify(inbodyRecords.slice(0,2)) + ",cardioPresets:{items:[],defaultId:null},mealTemplates:{items:[]},todayCalculationValues:{}}}; w.queueDataManagementImport?.(payload); await delay(300); w.startSmartRestoreImport?.();"
+  smartConflict: "w.document.querySelector('#tabSettings')?.click(); await delay(300); const payload = {app:'macro-engine',kind:'full-backup',backupVersion:1,appVersion:'v6.9-audit',createdAt:'2026-05-17T09:00:00.000Z',data:{settings:{...JSON.parse(JSON.stringify(" + JSON.stringify(baseSettings) + "))},records:" + JSON.stringify([richRecords[0], richRecords[1]]) + ",inbodyRecords:" + JSON.stringify(inbodyRecords.slice(0,2)) + ",cardioPresets:{items:[],defaultId:null},mealTemplates:{items:[]},todayCalculationValues:{}}}; w.queueDataManagementImport?.(payload); await delay(300); w.startSmartRestoreImport?.();",
+  recordsOnlyImport: "w.document.querySelector('#tabSettings')?.click(); await delay(300); const payload = {exportedAt:'2026-05-17T09:00:00.000Z',records:" + JSON.stringify([richRecords[0], richRecords[1]]) + "}; w.queueDataManagementImport?.(payload);"
 };
 
 const captures = [
@@ -313,6 +314,7 @@ const captures = [
   ["31_desktop_settings_data_lower", "rich", "tabSettingsDataLower", 1280, 900],
   ["32_desktop_backup_preview_modal", "rich", "backupPreview", 1280, 900],
   ["33_desktop_smart_restore_conflict_modal", "rich", "smartConflict", 1280, 900],
+  ["42_desktop_records_only_import_modal", "rich", "recordsOnlyImport", 1280, 900],
   ["34_mobile_today_rich", "rich", "none", 390, 900],
   ["35_mobile_today_record_detailed", "rich", "todayRecordDetailed", 390, 900],
   ["36_mobile_records", "rich", "tabRecords", 390, 900],

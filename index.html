@@ -3295,12 +3295,30 @@ Notes:
       margin-top:0;
     }
     .settings-data-card .data-management-actions .primary-btn{
-      min-height:48px;
-      border-radius:16px;
+      min-height:42px;
+      border-radius:14px;
       font-size:14px;
     }
     .settings-data-card .data-management-subactions{
       margin-top:0;
+    }
+    .settings-data-card .settings-group{
+      gap:8px;
+      padding:12px;
+    }
+    .settings-data-card .settings-group > .section-group-head{
+      padding-bottom:6px;
+    }
+    .settings-data-card .section-group-body{
+      gap:8px;
+    }
+    .settings-data-card .mini-note{
+      margin:0;
+    }
+    .settings-data-card .data-management-feedback:empty,
+    .settings-data-card .data-import-preview:empty{
+      display:none;
+      margin:0;
     }
     .global-bar.settings-shell-hidden{
       display:none;
@@ -3384,6 +3402,58 @@ Notes:
       color:var(--deep);
       font-size:13px;
       font-weight:950;
+    }
+    .data-import-details{
+      margin:0 0 12px;
+      border:1px solid color-mix(in srgb, var(--line) 80%, white 20%);
+      border-radius:14px;
+      background:#fff;
+      overflow:hidden;
+      min-height:0;
+      display:block;
+    }
+    .data-import-details summary{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:10px 12px;
+      color:var(--deep);
+      font-size:13px;
+      font-weight:950;
+      cursor:pointer;
+      list-style:none;
+    }
+    .data-import-details summary::-webkit-details-marker{
+      display:none;
+    }
+    .data-import-details summary::after{
+      content:"열기";
+      flex:0 0 auto;
+      color:var(--accent-strong);
+      font-size:12px;
+      font-weight:950;
+    }
+    .data-import-details[open] summary::after{
+      content:"접기";
+    }
+    .data-import-details-body{
+      padding:0 12px 12px;
+    }
+    .data-import-details-body .data-import-preview-grid,
+    .data-import-details-body .data-import-warning-list{
+      margin-bottom:0;
+    }
+    .data-import-risk-summary{
+      margin:0 0 12px;
+      border:1px solid color-mix(in srgb, #d97706 28%, var(--line) 72%);
+      border-radius:12px;
+      background:#fff8ed;
+      padding:9px 10px;
+      color:#6d3d00;
+      font-size:12px;
+      font-weight:850;
+      line-height:1.5;
     }
     .data-import-scope-note{
       margin:0 0 12px;
@@ -11991,15 +12061,15 @@ Notes:
           <div class="settings-stitch-card-head">
             <div>
               <div class="settings-choice-kicker">데이터 관리</div>
-              <h2>전체 앱 백업</h2>
+              <h2>백업과 불러오기</h2>
             </div>
-            <p>다른 브라우저에서도 이어 쓰려면 전체 백업을 우선 사용합니다.</p>
+            <p>전체 백업과 기록 파일을 분리해서 관리합니다.</p>
           </div>
           <div class="settings-data-grid">
             <div class="settings-group settings-data-primary">
               <div class="section-group-head">
                 <h4>전체 백업</h4>
-                <p>Settings, Records, InBody, 유산소 프리셋, 저장한 식사, Today 계산값을 함께 저장·복원합니다.</p>
+                <p>앱 전체 상태를 저장·복원합니다.</p>
               </div>
               <div class="section-group-body">
                 <div class="data-management-actions">
@@ -12007,7 +12077,7 @@ Notes:
                   <button class="secondary-btn" id="importBackupBtn" type="button">백업 불러오기</button>
                   <input id="importBackupFile" type="file" accept="application/json" class="hidden">
                 </div>
-                <div class="mini-note">불러오기는 요약 확인 뒤에만 현재 데이터를 바꿉니다.</div>
+                <div class="mini-note">불러오기는 확인 모달을 거친 뒤에만 적용됩니다.</div>
                 <div class="data-management-feedback" id="dataManagementFeedback"></div>
                 <div class="data-import-preview" id="dataImportPreviewHost"></div>
               </div>
@@ -12015,7 +12085,7 @@ Notes:
             <div class="settings-group settings-data-secondary">
               <div class="section-group-head">
                 <h4>기록만 백업</h4>
-                <p>기록 파일만 필요할 때 사용합니다. 설정·프리셋·Today 계산값은 제외됩니다.</p>
+                <p>날짜별 기록 중심 파일입니다. 설정·Today 값은 제외됩니다.</p>
               </div>
               <div class="section-group-body">
                 <div class="data-management-subactions">
@@ -17572,6 +17642,22 @@ Notes:
       `).join("")}</div>`;
     }
 
+    function buildDataImportRiskSummaryHtml(comparison){
+      const warnings = Array.isArray(comparison?.warnings) ? comparison.warnings : [];
+      if (!warnings.length) return "";
+      return `<div class="data-import-risk-summary">주의 ${warnings.length}건이 있습니다. 전체 복원 전에 차이 보기를 확인하세요.</div>`;
+    }
+
+    function buildDataImportDetailsHtml(title, innerHtml){
+      if (!innerHtml) return "";
+      return `
+        <details class="data-import-details">
+          <summary>${escapeHtml(title)}</summary>
+          <div class="data-import-details-body">${innerHtml}</div>
+        </details>
+      `;
+    }
+
     function buildRecordsOnlyScopeNote(){
       return `
         <div class="data-import-scope-note">
@@ -17607,7 +17693,6 @@ Notes:
         <div class="data-import-smart-note">
           추가 기록만 가져오기는 현재 설정, Today 계산값, 유산소 프리셋을 그대로 두고 Records/InBody 기록만 보강합니다.
         </div>
-        <div class="data-import-preview-grid">${buildSmartRestorePreviewGrid(preview)}</div>
         <div class="data-import-mode-list">
           <div class="data-import-mode-card">
             <div>
@@ -17699,25 +17784,34 @@ Notes:
       }
       const title = pending.type === "full" ? "백업을 어떻게 불러올까요?" : "기록 파일을 불러올까요?";
       const desc = pending.type === "full"
-        ? "전체 복원은 현재 브라우저 데이터를 대체합니다. 추가 기록만 가져오기는 현재 설정과 Today 계산값을 유지합니다. 아직 복원되지 않았습니다."
+        ? "아직 복원되지 않았습니다. 먼저 처리 방식을 고르세요."
         : "기록 중심 파일입니다. 설정과 Today 계산값은 바꾸지 않습니다. 아직 적용되지 않았습니다.";
       const comparison = pending.comparison || buildBackupImportComparison(pending.type, pending.data, pending.summary);
       const replaceNote = pending.type === "full"
-        ? `<div class="data-import-replace-note">전체 복원하면 현재 브라우저의 Settings, Records, InBody, 유산소 프리셋, Today 계산값이 백업 파일 기준으로 대체됩니다. 자동으로 합치지 않습니다.</div>`
+        ? `<div class="data-import-replace-note">전체 복원은 현재 앱 상태를 백업 파일 기준으로 바꿉니다. 자동으로 합치지 않습니다.</div>`
         : buildRecordsOnlyScopeNote();
+      const summaryDetailsHtml = buildDataImportDetailsHtml(
+        pending.type === "full" ? "백업 파일 요약" : "기록 파일 요약",
+        `<div class="data-import-preview-grid">${buildDataImportPreviewGrid(pending.summary)}</div>`
+      );
+      const smartPreviewDetailsHtml = pending.type === "full"
+        ? buildDataImportDetailsHtml("추가 기록만 가져오기 예상", `<div class="data-import-preview-grid">${buildSmartRestorePreviewGrid(smartPreview)}</div>`)
+        : "";
       const comparisonHtml = pending.type === "full"
-        ? `
+        ? buildDataImportDetailsHtml("현재 데이터와 백업 파일 차이", `
           ${buildDataImportWarningHtml(comparison)}
           <div class="data-import-comparison-title">현재 브라우저와 백업 파일 차이</div>
           <div class="data-import-preview-grid">${buildDataImportComparisonGrid(comparison)}</div>
-        `
+        `)
         : "";
       titleHost.textContent = title;
       bodyHost.innerHTML = `
         <p class="data-import-confirm-copy app-choice-desc">${escapeHtml(desc)}</p>
         ${replaceNote}
-        <div class="data-import-preview-grid">${buildDataImportPreviewGrid(pending.summary)}</div>
         ${pending.type === "full" ? buildSmartRestoreModeHtml(smartPreview) : ""}
+        ${pending.type === "full" ? buildDataImportRiskSummaryHtml(comparison) : ""}
+        ${summaryDetailsHtml}
+        ${smartPreviewDetailsHtml}
         ${comparisonHtml}
         <div class="app-choice-actions">
           ${pending.type === "full" ? "" : `<button class="primary-btn" type="button" data-confirm-data-import>복원하기</button>`}
@@ -36991,12 +37085,13 @@ Notes:
             "기록만 백업"
           ], "Settings should keep default/profile/training/data management context");
           assertIncludesAll(panelText("dataManagementPanel"), [
+            "백업과 불러오기",
             "전체 백업 만들기",
             "백업 불러오기",
             "기록만 내보내기",
             "기록만 불러오기",
-            "Settings, Records, InBody, 유산소 프리셋, 저장한 식사, Today 계산값을 함께 저장·복원합니다.",
-            "기록 파일만 필요할 때 사용합니다. 설정·프리셋·Today 계산값은 제외됩니다."
+            "앱 전체 상태를 저장·복원합니다.",
+            "날짜별 기록 중심 파일입니다."
           ], "Data Management should keep full backup and records-only distinction");
           assertExcludesAll(text, [
             "목표와 모드를 먼저 고른 뒤 나머지 입력을 조정하면 결과 해석이 더 쉬워집니다.",
@@ -39133,7 +39228,7 @@ Notes:
           assertTest(panel.contains(document.getElementById("importBackupBtn")), "backup import button should remain in Data Management");
           assertTest(panel.contains(document.getElementById("exportJsonBtn")), "records-only export should remain in Data Management");
           assertTest(panel.contains(document.getElementById("importJsonBtn")), "records-only import should remain in Data Management");
-          assertIncludesAll(panel.textContent || "", ["전체 앱 백업", "다른 브라우저에서도 이어 쓰려면 전체 백업", "기록만 백업"], "Data Management should distinguish full backup and records-only backup");
+          assertIncludesAll(panel.textContent || "", ["백업과 불러오기", "전체 백업과 기록 파일을 분리", "기록만 백업"], "Data Management should distinguish full backup and records-only backup");
         }));
 
         results.push(runNamedTest("C4.8-UI4 hidden mirror remains hidden and Today-owned values stay out of visible Settings", () => {
