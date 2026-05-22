@@ -6359,8 +6359,11 @@ Notes:
       display:none;
     }
     .records-summary-panel .kpi .big{
-      font-size:clamp(22px,2.3vw,30px);
+      font-size:clamp(20px,1.65vw,27px);
+      letter-spacing:0;
       margin-bottom:3px;
+      overflow:visible;
+      text-overflow:clip;
     }
     .records-summary-panel .kpi .label{
       font-size:10px;
@@ -6519,6 +6522,9 @@ Notes:
       padding:0;
       background:transparent;
       box-shadow:none;
+    }
+    .selected-meals-detail-preview{
+      display:none;
     }
     .selected-meals-surface-head{
       display:flex;
@@ -11707,11 +11713,11 @@ Notes:
               <div id="recordQualitySummaryHost"></div>
             </section>
 
-            <section class="panel panel-support selected-meals-surface-panel selected-meals-summary-panel selected-meals-list-panel records-entry-group records-stitch-card">
+            <section class="panel panel-support selected-meals-surface-panel selected-meals-summary-panel selected-meals-list-panel records-entry-group records-stitch-card" aria-label="선택 날짜 빠른 작업">
               <div class="selected-meals-surface-head">
                 <div>
-                  <h3>선택 날짜 식사</h3>
-                  <h2><span id="selectedMealsDateLabel">-</span> 식사 기록</h2>
+                  <h3>선택 날짜 작업</h3>
+                  <h2><span id="selectedMealsDateLabel">-</span> 빠른 편집</h2>
                 </div>
                 <div class="selected-meals-surface-actions">
                   <button class="secondary-btn" type="button" data-open-record-meal-entry>식사 추가</button>
@@ -11720,9 +11726,11 @@ Notes:
               </div>
               <div id="recordFeedbackHost"></div>
               <div id="todayRecordWeightMismatchHost"></div>
-              <div class="meal-summary-grid" id="selectedMealTotals"></div>
-              <div id="mealSoftWarningHost"></div>
-              <div class="table-like meal-surface-list" id="selectedMealsList"></div>
+              <div class="selected-meals-detail-preview" aria-hidden="true">
+                <div class="meal-summary-grid" id="selectedMealTotals"></div>
+                <div id="mealSoftWarningHost"></div>
+                <div class="table-like meal-surface-list" id="selectedMealsList"></div>
+              </div>
 
         <div class="records-hidden-compat" id="recordsEditPanel" hidden aria-hidden="true">
           <input id="recordDate" type="date" tabindex="-1">
@@ -16755,7 +16763,7 @@ Notes:
       const rows = [
         ["목표", GOALS[s.goal]?.label || "-"],
         ["선택 기준", basisLabel],
-        ["계산용 체중", `${formatTodayQuickNumber(s.weight, 1)} kg`],
+        ["계산용 체중", `${formatKg2(s.weight)} kg`],
         ["활동량", ACTIVITY_LABELS[s.activityLevel] || "-"],
         ["업무 유형", WORK_TYPE_LABELS[s.workType] || "-"],
         ["오늘 웨이트", formatTodayQuickWeightSummary(s)],
@@ -16774,7 +16782,7 @@ Notes:
       return `${Math.round(Number(value)).toLocaleString()}kcal`;
     }
 
-    function formatCompactKg(value, digits = 1){
+    function formatCompactKg(value, digits = 2){
       if (!Number.isFinite(Number(value))) return "-";
       return `${Number(value).toFixed(digits)}kg`;
     }
@@ -16795,7 +16803,7 @@ Notes:
       const s = result.s || {};
       if (bodyHost) {
         bodyHost.innerHTML = [
-          renderProximityPill("계산용 체중", formatCompactKg(s.weight, 1)),
+          renderProximityPill("계산용 체중", formatCompactKg(s.weight, 2)),
           renderProximityPill("목표 칼로리", formatCompactKcal(result.targetCal))
         ].join("");
       }
@@ -17759,7 +17767,7 @@ Notes:
     function getTodayResultFeedbackSummary(result = calculate(), options = {}){
       const parts = [];
       const weight = Number(options.weight);
-      if (Number.isFinite(weight) && weight > 0) parts.push(`계산용 체중 ${formatCompactKg(weight, 1)}`);
+      if (Number.isFinite(weight) && weight > 0) parts.push(`계산용 체중 ${formatCompactKg(weight, 2)}`);
       if (result?.isCalculable) parts.push(`목표 칼로리 ${formatCompactKcal(result.targetCal)}`);
       return parts.join(" · ");
     }
@@ -23533,9 +23541,9 @@ Notes:
       let actionTone = "ok";
       const summaryRows = [
         ["최근 7일 기록 수", `${recentValid.length}일`],
-        ["최근 7일 평균 체중", recentValid.length ? `${round(recentAvg, 2)} kg` : "-"],
+        ["최근 7일 평균 체중", recentValid.length ? `${formatKg2(recentAvg)} kg` : "-"],
         ["직전 비교 기록 수", `${previousValid.length}일`],
-        ["직전 7일 평균 체중", previousValid.length ? `${round(previousAvg, 2)} kg` : "-"],
+        ["직전 7일 평균 체중", previousValid.length ? `${formatKg2(previousAvg)} kg` : "-"],
         ["최근 식단 달성률 평균", recentValid.length ? `${round(recentAdherenceAvg * 100)}% 수준` : "-"]
       ];
 
@@ -23575,7 +23583,7 @@ Notes:
       }
 
       const delta = round(recentAvg - previousAvg, 2);
-      summaryRows.push(["최근 7일 평균 변화", `${delta >= 0 ? "+" : ""}${delta} kg`]);
+      summaryRows.push(["최근 7일 평균 변화", `${formatSignedKg2(delta)} kg`]);
 
       if (state.goal === "diet") {
         if (delta > -0.15) {
@@ -23692,9 +23700,9 @@ Notes:
         ["분석 근거", `상세 점수 ${sourceCounts.auto || 0}일 / 간단 평가 ${sourceCounts.manual || 0}일`],
         ["상세 점수 없는 날", `${snapshotlessDays}일`],
         ["기록 품질", `${qualityText} · 의미 기록 ${meaningfulDays}일`],
-        ["최근 7일 평균 체중", Number.isFinite(recentAvg) ? `${round(recentAvg, 2)} kg` : "-"],
-        ["직전 7일 평균 체중", Number.isFinite(previousAvg) ? `${round(previousAvg, 2)} kg` : "-"],
-        ["체중 변화", Number.isFinite(snapshot.weightTrend) ? `${snapshot.weightTrend >= 0 ? "+" : ""}${snapshot.weightTrend} kg` : "-"],
+        ["최근 7일 평균 체중", Number.isFinite(recentAvg) ? `${formatKg2(recentAvg)} kg` : "-"],
+        ["직전 7일 평균 체중", Number.isFinite(previousAvg) ? `${formatKg2(previousAvg)} kg` : "-"],
+        ["체중 변화", Number.isFinite(snapshot.weightTrend) ? `${formatSignedKg2(snapshot.weightTrend)} kg` : "-"],
         ["주간 상태", Number.isFinite(weeklyAdherenceAvg) ? getWeeklyAdherenceLabel(weeklyAdherenceAvg) : "분석 보류"]
       ];
 
@@ -23721,7 +23729,7 @@ Notes:
         info.push("최근 7일 식단 달성률이 높고 체중 변화도 급하지 않아 정상 진행으로 해석했습니다.");
       } else if (weeklyAdherenceAvg >= 85 && !isWeightStable) {
         headline = "식단은 잘 지켜졌지만 체중 변화가 커서 칼로리 조정 검토가 필요합니다.";
-        caption = `최근 7일 식단 달성률은 높지만 체중 변화가 ${weightTrend >= 0 ? "+" : ""}${weightTrend} kg로 커서, 목표 대비 실제 반응을 다시 볼 시점입니다.`;
+        caption = `최근 7일 식단 달성률은 높지만 체중 변화가 ${formatSignedKg2(weightTrend)} kg로 커서, 목표 대비 실제 반응을 다시 볼 시점입니다.`;
         actionText = "칼로리 조정 검토";
         actionTone = "warn";
         caution.push("식단 달성률은 높지만 체중 변화가 커서 현재 목표 칼로리가 실제 반응과 어긋날 수 있습니다.");
@@ -25043,8 +25051,8 @@ Notes:
         <div class="warn weight-mismatch-card">
           <h4>Today 계산용 체중과 Records 공복 체중이 달라요</h4>
           <ul>
-            <li>Today 계산용 체중: ${formatKg1(mismatch.inputWeight)}kg</li>
-            <li>Records 공복 체중: ${formatKg1(mismatch.recordWeight)}kg</li>
+            <li>Today 계산용 체중: ${formatKg2(mismatch.inputWeight)}kg</li>
+            <li>Records 공복 체중: ${formatKg2(mismatch.recordWeight)}kg</li>
             <li>어느 값을 기준으로 맞출지 선택해 주세요.</li>
           </ul>
           <div class="weight-mismatch-actions">
@@ -25837,8 +25845,9 @@ Notes:
       const routinePlanItems = Object.keys(ROUTINE_SCHEMES).map(value => ({ value, label: ROUTINE_SCHEMES[value].label }));
       const cardioItems = Object.keys(CARDIO_TYPES).map(value => ({ value, label: CARDIO_TYPES[value].label }));
       return `
-        <section class="record-detail-section">
-          <h4>당시 목표 / 계산 기준</h4>
+        <details class="record-detail-section record-detail-collapsible record-detail-basis-edit">
+          <summary>당시 목표 / 계산 기준 수정</summary>
+          <div class="record-detail-collapsible-body">
           <p class="record-detail-basis-copy">당시 계산 기준을 함께 수정합니다. 목표와 활동량을 바꾸면 당시 목표 탄단지가 다시 계산됩니다.</p>
           <div class="record-detail-edit-grid record-detail-basis-grid">
             <div class="record-detail-edit-field">
@@ -25929,7 +25938,8 @@ Notes:
           <div class="record-detail-basis-preview" data-detail-basis-preview>
             ${renderRecordDetailBasisPreview(draft)}
           </div>
-        </section>
+          </div>
+        </details>
       `;
     }
 
@@ -26652,14 +26662,15 @@ Notes:
       }
       const recentAvg = averageWeight(recent7);
       const prevAvg = averageWeight(previous7);
-      const trend = recent7.length && previous7.length ? round(recentAvg - prevAvg, 2) : 0;
+      const hasRecentTrend = recent7.length && previous7.length;
+      const trend = hasRecentTrend ? round(recentAvg - prevAvg, 2) : 0;
       renderRecordModeChips();
       renderRecordAdherenceInputState();
       renderRecordQualitySummary();
 
       document.getElementById("recordsCount").textContent = archiveRecords.length.toLocaleString();
       document.getElementById("recentAvgWeight").textContent = recent7.length ? round(recentAvg, 2).toFixed(2) : "-";
-      document.getElementById("recentTrend").textContent = recent7.length && previous7.length ? `${trend >= 0 ? "+" : ""}${trend}` : "-";
+      document.getElementById("recentTrend").textContent = hasRecentTrend ? `${trend >= 0 ? "+" : ""}${trend.toFixed(2)}` : "-";
 
       const feedbackHost = document.getElementById("recordFeedbackHost");
       const selectedRecord = getRecordByDate(selectedDate);
@@ -28373,15 +28384,13 @@ Notes:
     }
 
     function formatKg2(value){
-      return Number.isFinite(value) ? value.toFixed(2) : "-";
-    }
-
-    function formatKg1(value){
-      return Number.isFinite(value) ? value.toFixed(1) : "-";
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric.toFixed(2) : "-";
     }
 
     function formatSignedKg2(value){
-      return Number.isFinite(value) ? `${value > 0 ? "+" : ""}${value.toFixed(2)}` : "-";
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? `${numeric > 0 ? "+" : ""}${numeric.toFixed(2)}` : "-";
     }
 
     function getDisplayBodyFatPercent(record){
@@ -32197,7 +32206,7 @@ Notes:
           assertClose(afterBlocked.weight, 74, 0.0001, "weight mismatch should not overwrite record weight automatically");
           assertClose(afterBlocked.adherencePercent, before.adherencePercent, 0.0001, "weight mismatch should not silently regrade adherence");
           assertTest(areGoalSnapshotsEquivalent(afterBlocked.goalSnapshot, before.goalSnapshot), "weight mismatch should keep the previous snapshot");
-          assertTest(noticeText.includes("Today 계산용 체중: 75.0kg") && noticeText.includes("Records 공복 체중: 74.0kg"), "weight mismatch notice should show both weight responsibilities");
+          assertTest(noticeText.includes("Today 계산용 체중: 75.00kg") && noticeText.includes("Records 공복 체중: 74.00kg"), "weight mismatch notice should show both weight responsibilities with two decimals");
           assertTest(noticeText.includes("Records에 반영") && noticeText.includes("Today에 반영"), "weight mismatch notice should render choices");
 
           document.querySelector("[data-apply-today-weight]").click();
@@ -34405,9 +34414,10 @@ Notes:
           const editPanel = document.getElementById("recordsEditPanel");
           assertTest(!!archivePanel && !!editPanel, "Records archive and direct edit panels should exist");
           assertTest(editPanel.hidden && editPanel.getAttribute("aria-hidden") === "true", "Records compatibility inputs should not be visible as a management panel");
-          assertIncludesAll(document.getElementById("recordsPanel").textContent || "", ["선택 날짜 식사", "식사 기록"], "Records selected-date summary and list should stay visible in the Stitch side stack");
-          assertTest(!!document.getElementById("selectedMealTotals"), "Records selected-date macro summary should stay visible in the Stitch side stack");
-          assertTest(!!document.getElementById("selectedMealsList"), "Records selected-date meal list should stay visible in the Stitch side stack");
+          assertIncludesAll(getRenderedBodyText(document.getElementById("recordsPanel")), ["선택 날짜 작업", "빠른 편집"], "Records selected-date quick surface should stay visible in the Stitch side stack");
+          assertTest(!!document.getElementById("selectedMealTotals"), "Records selected-date macro summary host should remain mounted");
+          assertTest(!!document.getElementById("selectedMealsList"), "Records selected-date meal list host should remain mounted");
+          assertTest(getComputedStyle(document.querySelector(".selected-meals-detail-preview")).display === "none", "Records meal totals and rows should not be visible before detail view");
           assertExcludesAll(getRenderedBodyText(), ["선택 날짜 수정", "기본 기록 직접 입력", "식사 직접 입력", "백업 안내", "날짜 직접 입력 / 백업", "백업 파일을 관리"], "Records visible copy should not show the old large direct-management wording");
           assertTest(editPanel.contains(ids.recordDate), "record date input should remain mounted for existing helpers");
           assertTest(editPanel.contains(document.getElementById("recordWeight")), "record weight input should remain mounted for existing helpers");
@@ -37254,14 +37264,16 @@ Notes:
             "날짜 카드를 누르면 오른쪽 상세와 선택 날짜 편집 기준이 함께 바뀝니다.",
             "최근 14일 요약",
             "선택 날짜",
-            "선택 날짜 식사",
+            "선택 날짜 작업",
+            "빠른 편집",
             "체중·메모 수정"
-          ], "Records archive and selected-date meal surface copy should render");
+          ], "Records archive and selected-date quick surface copy should render");
           const editPanel = document.getElementById("recordsEditPanel");
           assertTest(editPanel.hidden && editPanel.getAttribute("aria-hidden") === "true", "Records large direct-management panel should not be rendered as a user surface");
-          assertIncludesAll(text, ["선택 날짜 식사", "식사 추가", "체중·메모 수정"], "Records selected-date meal surface should remain visible in the side stack");
+          assertIncludesAll(text, ["선택 날짜 작업", "식사 추가", "체중·메모 수정"], "Records selected-date quick surface should remain visible in the side stack");
           const mealSurface = document.querySelector(".selected-meals-surface-panel");
-          assertTest(!!mealSurface && mealSurface.contains(document.getElementById("selectedMealTotals")) && mealSurface.contains(document.getElementById("selectedMealsList")), "Records selected-date meal summary and list should read as one grouped surface");
+          assertTest(!!mealSurface && mealSurface.contains(document.getElementById("selectedMealTotals")) && mealSurface.contains(document.getElementById("selectedMealsList")), "Records selected-date meal summary and list should remain grouped for compatibility");
+          assertTest(getComputedStyle(mealSurface.querySelector(".selected-meals-detail-preview")).display === "none", "Records selected-date meal details should be hidden until detail view");
           assertExcludesAll(text, [
             "날짜별 식사, 체중, 식단 점수, InBody 기록을 확인합니다.",
             "하단 기록 직접 관리 영역",
@@ -39974,6 +39986,31 @@ Notes:
           assertTest(!!document.querySelector(".records-review-shell"), "Records shell should render review side stack");
         }));
 
+        results.push(runNamedTest("C4.8-UI1 record summary trend and Today feedback keep full decimal display", () => {
+          setValidTodayBalanceTestInputs();
+          recordsState.items = normalizeRecordsCollection(Array.from({ length: 14 }, (_, index) => normalizeRecord({
+            date: shiftDateString(today, index - 13),
+            recordMode: "weight_only",
+            weight: index >= 7 ? 74.75 : 74.25
+          })));
+          state.inbodyRecords = [];
+          ids.recordDate.value = today;
+          setActiveTab("records");
+          renderRecordsPanel();
+          const trendText = document.getElementById("recentTrend")?.textContent || "";
+          assertTest(trendText === "+0.50", "Records 7-day trend should use signed fixed two-decimal kg display");
+          assertExcludesAll(trendText, ["…", "..."], "Records 7-day trend should not be rendered as an ellipsized number");
+          setTodayCalculationDraftValues({ calculationWeight: 74.7 });
+          recordsState.items = normalizeRecordsCollection([normalizeRecord({ date: today, recordMode: "weight_only", weight: 74.8 })]);
+          ids.recordDate.value = today;
+          renderRecordsPanel();
+          const mismatchText = document.getElementById("todayRecordWeightMismatchHost")?.textContent || "";
+          assertIncludesAll(mismatchText, ["Today 계산용 체중: 74.70kg", "Records 공복 체중: 74.80kg"], "Records mismatch notice should show both weights with two decimals");
+          assertExcludesAll(mismatchText, ["74.7kg", "74.8kg"], "Records mismatch notice should not show one-decimal kg values");
+          const feedbackSummary = getTodayResultFeedbackSummary(calculate(), { weight: 74.7 });
+          assertIncludesAll(feedbackSummary, ["계산용 체중 74.70kg", "목표 칼로리"], "Today feedback summary should show calculation weight with two decimals");
+        }));
+
         results.push(runNamedTest("C4.8-UI1 record choice cards open existing record start steps", () => {
           seedRecordsShell();
           document.querySelector('[data-open-today-record-start="skip"]')?.click();
@@ -39994,7 +40031,8 @@ Notes:
           assertTest(!!document.getElementById("recordsEditPanel") && document.getElementById("recordsEditPanel").hidden, "large direct management panel should be hidden from the user-facing Records surface");
           assertTest(!!document.getElementById("recordMealEditOverlay") && !!document.getElementById("recordInfoEditOverlay"), "meal and record info edit modals should remain mounted");
           assertTest(!!document.getElementById("selectedMealsList"), "selected meal list should remain mounted");
-          assertTest(!!document.getElementById("recordQualitySummaryHost") && !!document.getElementById("selectedMealTotals"), "selected date quality and totals should remain visible in shell");
+          assertTest(!!document.getElementById("recordQualitySummaryHost") && !!document.getElementById("selectedMealTotals"), "selected date quality and compact meal totals host should remain mounted");
+          assertTest(getComputedStyle(document.querySelector(".selected-meals-detail-preview")).display === "none", "selected date meal totals should stay hidden until record detail is opened");
           assertTest(!!document.querySelector("[data-open-data-management]"), "data management entry should remain accessible");
         }));
 
@@ -40092,11 +40130,12 @@ Notes:
           seedSharedMealSurface();
           const surface = document.querySelector(".selected-meals-surface-panel");
           assertTest(!!surface, "selected date meal surface should render");
-          assertTest(surface.contains(document.getElementById("selectedMealTotals")), "meal totals should live in the selected meal surface");
-          assertTest(surface.contains(document.getElementById("selectedMealsList")), "meal list should live in the selected meal surface");
+          assertTest(surface.contains(document.getElementById("selectedMealTotals")), "meal totals should remain mounted in the selected meal surface");
+          assertTest(surface.contains(document.getElementById("selectedMealsList")), "meal list should remain mounted in the selected meal surface");
+          assertTest(getComputedStyle(surface.querySelector(".selected-meals-detail-preview")).display === "none", "meal totals and rows should not be exposed before detail view");
           assertTest(!!surface.querySelector("[data-open-record-meal-entry]"), "meal surface should provide an add meal action");
           assertTest(!!surface.querySelector("[data-open-record-edit-panel]"), "meal surface should provide an edit record action");
-          assertTest(!!surface.querySelector("[data-edit-record-meal]"), "meal rows should provide direct meal edit actions");
+          assertTest(!!surface.querySelector("[data-edit-record-meal]"), "hidden meal rows should preserve direct meal edit actions for compatibility");
           assertTest(document.getElementById("recordsEditPanel").hidden, "large direct-management panel should not be user-facing");
           assertTest(!surface.textContent.includes("직접 관리"), "main meal surface should not read like a large direct-management form");
         }));
@@ -40109,7 +40148,7 @@ Notes:
           const totalCards = totals ? totals.querySelectorAll(".meal-summary-card").length : 0;
           assertTest(!!shell && !shell.classList.contains("panel"), "Records right review shell should not be a nested panel");
           assertTest(shellStyle.boxShadow === "none" || shellStyle.boxShadow === "", "Records right review shell should not have a heavy outer shadow");
-          assertTest(totalCards >= 4, "selected meal summary should preserve all macro/kcal cards on the wide right surface");
+          assertTest(totalCards >= 4, "selected meal summary should preserve all macro/kcal cards in the hidden compatibility surface");
         }));
 
         results.push(runNamedTest("v6.7-D73 Records quality check is absorbed into the detail surface", () => {
@@ -54022,10 +54061,15 @@ Notes:
 
         results.push(runNamedTest("C4.5.5-A3 Today calculation card shows nearby body and exercise summaries", () => {
           setValidTodayBalanceTestInputs();
+          ids.weight.value = "74.7";
+          setTodayCalculationDraftValues({ calculationWeight: 74.7 });
           render();
           assertTest(!!document.getElementById("todayBodyResultSummary"), "body result summary should exist");
           assertTest(!!document.getElementById("todayExerciseResultSummary"), "exercise result summary should exist");
           assertIncludesAll(bodySummary(), ["계산용 체중", "목표 칼로리"], "body summary should show nearby body and target result");
+          assertIncludesAll(document.getElementById("todayCalcSummary")?.textContent || "", ["계산용 체중", "74.70 kg"], "today calculation summary should show calculation weight with two decimals");
+          assertIncludesAll(bodySummary(), ["계산용 체중", "74.70kg"], "nearby body summary should show calculation weight with two decimals");
+          assertExcludesAll(`${document.getElementById("todayCalcSummary")?.textContent || ""} ${bodySummary()}`, ["74.7 kg", "74.7kg"], "today calculation weight should not fall back to one decimal display");
           assertIncludesAll(exerciseSummary(), ["유산소 소모", "오늘 소비 기준", "목표 칼로리"], "exercise summary should show nearby cardio and target result");
         }));
 
