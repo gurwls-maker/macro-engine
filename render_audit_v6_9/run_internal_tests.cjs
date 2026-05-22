@@ -5,9 +5,7 @@ const Module = require("node:module");
 
 const root = path.resolve(__dirname, "..");
 const debugDir = path.join(__dirname, "_debug");
-const profileDir = path.join(debugDir, "edge_test_profile");
-
-fs.mkdirSync(profileDir, { recursive: true });
+fs.mkdirSync(debugDir, { recursive: true });
 
 function addNodeModuleCandidatesFrom(nodeModulesPath, targets){
   if (!nodeModulesPath || !fs.existsSync(nodeModulesPath)) return;
@@ -42,10 +40,99 @@ const mimeTypes = {
   ".json": "application/json; charset=utf-8"
 };
 
+function readArgValue(name){
+  const prefix = `${name}=`;
+  const direct = process.argv.find(arg => arg.startsWith(prefix));
+  if (direct) return direct.slice(prefix.length);
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : "";
+}
+
 const mode = process.argv.includes("--mobile") ? "mobile" : "desktop";
+const requestedProfile = (readArgValue("--profile") || (mode === "mobile" ? "mobile" : "full")).trim();
+const requestedSuites = readArgValue("--suite")
+  .split(",")
+  .map(name => name.trim())
+  .filter(Boolean);
 const frameWidth = mode === "mobile" ? 390 : 1280;
 const frameHeight = mode === "mobile" ? 844 : 900;
-const mobileSuiteNames = [
+
+const testProfiles = {
+  smoke: [
+    "runRecordMigrationTests",
+    "runMealRecordTests",
+    "runTodayConsumptionTests",
+    "runTodayBalanceTests",
+    "runTodayCalculationOwnershipTests",
+    "runTodayQuickEditTests",
+    "runRecordEditCalculationBasisTests",
+    "runSmartRestoreImportTests",
+    "runDataManagementBackupTests",
+    "runDualBasisProductionTests"
+  ],
+  core: [
+    "runRecordMigrationTests",
+    "runMealRecordTests",
+    "runTodayConsumptionTests",
+    "runTodayBalanceTests",
+    "runModeRuntimeConfigTests",
+    "runModeGoldenCalculationTests",
+    "runAdherenceScoringTests",
+    "runWeeklyAdherenceTests",
+    "runTodayCalculationOwnershipTests",
+    "runTodayQuickEditTests",
+    "runRecordEditCalculationBasisTests",
+    "runRecordTodayAutoWeeklyCountTests",
+    "runRecordWeightTodayApplyPromptTests",
+    "runRecordsInlineEditTests",
+    "runSharedMealSurfaceTests",
+    "runSmartRestoreImportTests",
+    "runBackupRestoreConflictPreviewTests",
+    "runDataManagementBackupTests",
+    "runFullBackupMealsRestoreTests",
+    "runInBodyRecordApplyTests",
+    "runInBodyTodayFillTests",
+    "runInBodySaveTodayApplyChoiceTests",
+    "runDualBasisProductionTests",
+    "runTargetMacroProductionPolicyTests",
+    "runMacroAllocationExplanationTests",
+    "runDailyCoachRecentContextTests"
+  ],
+  ui: [
+    "runMobileRegressionQaTests",
+    "runMobileBottomNavSafetyTests",
+    "runStitchTodayShellTests",
+    "runStitchRecordsShellTests",
+    "runStitchWeeklyShellTests",
+    "runStitchInBodyShellTests",
+    "runStitchSettingsShellTests",
+    "runSettingsDensityUiTests",
+    "runRecordsDetailDensityUiTests",
+    "runChoiceUiConsistencyTests",
+    "runKpiLabelVisualPatternTests",
+    "runResultProximitySummaryTests",
+    "runTodayHeaderActionDensityTests",
+    "runUserFacingForbiddenCopyTests",
+    "runUserFacingCopyPolishTests",
+    "runTodayCoachCopyPolishTests",
+    "runRecentFlowCopyPolishTests"
+  ],
+  calibration: [
+    "runMacroCalibrationTests",
+    "runCalibrationScanReportTests",
+    "runCalibrationPhysiologyReviewTests",
+    "runCalibrationWeeklyBudgetReviewTests",
+    "runCalibrationCardioTargetPolicyReviewTests",
+    "runMacroCapCandidateReviewTests",
+    "runMacroCapPhilosophyReviewTests",
+    "runFormulaBenchmarkReviewTests",
+    "runCardioConventionReflectionReviewTests",
+    "runTargetMacroJointPolicyReviewTests",
+    "runTargetMacroJointExpandedScanTests",
+    "runGoalMacroPrincipleReviewTests",
+    "runGoalMacroDualBasisReviewTests"
+  ],
+  mobile: [
   "runMobileRegressionQaTests",
   "runMobileBottomNavSafetyTests",
   "runRecordsInBodySettingsCopyDietTests",
@@ -57,14 +144,31 @@ const mobileSuiteNames = [
   "runStitchRecordsShellTests",
   "runStitchInBodyShellTests",
   "runStitchWeeklyShellTests"
-];
-const requestedSuiteNames = mode === "mobile" ? mobileSuiteNames : [];
+  ],
+  full: []
+};
+
+if (process.argv.includes("--list-profiles")) {
+  console.log(JSON.stringify(Object.fromEntries(
+    Object.entries(testProfiles).map(([name, suites]) => [name, suites.length ? suites : "all exported run*Tests"])
+  ), null, 2));
+  process.exit(0);
+}
+
+if (!Object.prototype.hasOwnProperty.call(testProfiles, requestedProfile)) {
+  console.error(`Unknown test profile: ${requestedProfile}`);
+  console.error(`Available profiles: ${Object.keys(testProfiles).join(", ")}`);
+  process.exit(1);
+}
+
+const requestedSuiteNames = requestedSuites.length ? requestedSuites : testProfiles[requestedProfile];
+const profileDir = fs.mkdtempSync(path.join(debugDir, `browser_${mode}_${requestedProfile}_`));
 
 const runnerHtml = `<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <title>v6.9 internal test runner</title>
+  <title>macro-engine internal test runner</title>
   <style>
     body{font-family:system-ui,sans-serif;margin:16px;white-space:pre-wrap}
     iframe{position:absolute;width:${frameWidth}px;height:${frameHeight}px;left:-10000px;top:0;border:0}
@@ -98,8 +202,12 @@ const runnerHtml = `<!doctype html>
       if (typeof w.runRecordMigrationTests === "function" && typeof w.runMobileRegressionQaTests === "function") break;
       await sleep(100);
     }
+    const requestedProfile = ${JSON.stringify(requestedProfile)};
     const requestedSuiteNames = ${JSON.stringify(requestedSuiteNames)};
     const allSuiteNames = Object.keys(w).filter(name => /^run[A-Za-z0-9_]*Tests$/.test(name) && typeof w[name] === "function");
+    if (typeof w.runDailyCoachTestCases === "function" && !allSuiteNames.includes("runDailyCoachTestCases")) {
+      allSuiteNames.push("runDailyCoachTestCases");
+    }
     const suiteNames = requestedSuiteNames.length
       ? requestedSuiteNames.filter(name => typeof w[name] === "function")
       : allSuiteNames;
@@ -130,6 +238,7 @@ const runnerHtml = `<!doctype html>
     finish({
       done: true,
       mode: ${JSON.stringify(mode)},
+      profile: requestedProfile,
       viewport: { width: ${frameWidth}, height: ${frameHeight} },
       suiteCount: suites.length,
       caseCount: cases.length,
@@ -210,5 +319,6 @@ function createServer(){
   } finally {
     if (context) await context.close();
     await new Promise(resolve => server.close(resolve));
+    fs.rmSync(profileDir, { recursive: true, force: true });
   }
 })();
