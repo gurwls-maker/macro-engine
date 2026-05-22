@@ -11726,7 +11726,7 @@ Notes:
             <div class="inbody-stitch-heading">
               <div class="eyebrow">측정 결과</div>
               <h2>InBody 결과</h2>
-              <p>원본 측정값을 확인하고 필요할 때 Today에 적용합니다. 날짜별 기록은 Records에서 봅니다.</p>
+              <p>원본 측정값을 확인하고 필요할 때 Today에 적용합니다. 기록 목록은 InBody 안에서 확인합니다.</p>
             </div>
             <div class="inbody-latest-date-pill">
               <span>최신 측정일</span>
@@ -11784,7 +11784,7 @@ Notes:
           </div>
           <div class="inbody-stitch-actions">
             <button class="primary-btn" id="applyLatestInbodyFromInbodyBtn" type="button">최신 InBody 적용</button>
-            <button class="secondary-btn" id="viewInbodyRecordsBtn" type="button">InBody 기록 보기</button>
+            <button class="secondary-btn" id="viewInbodyRecordsBtn" type="button">측정 기록 보기</button>
           </div>
         </section>
 
@@ -11843,8 +11843,8 @@ Notes:
           </div>
 
           <aside class="inbody-stitch-side">
-            <details class="panel inbody-records-collapsible inbody-history-card" id="inbodyRecordsDetails" open>
-              <summary><strong>최근 InBody 기록</strong><span>Records에서 날짜별 기록과 함께 봅니다. 하단 목록에서 수정·삭제할 수 있습니다.</span></summary>
+            <details class="panel inbody-records-collapsible inbody-history-card" id="inbodyRecordsDetails">
+              <summary><strong>최근 InBody 기록</strong><span>측정 기록은 InBody 안에서 수정·삭제합니다.</span></summary>
               <div class="table-like" id="inbodyRecordList"></div>
             </details>
           </aside>
@@ -16096,11 +16096,6 @@ Notes:
       });
     }
 
-    function openRecordsForInbodyDate(date = null){
-      const latest = getLatestInbodyForDisplay();
-      openRecordsForDate(normalizeDateString(date) || latest?.date || getSelectedRecordDate());
-    }
-
     function clearInbodyInputForDate(date){
       const normalized = normalizeDateString(date) || getTodayDateString();
       document.getElementById("inbodyDate").value = normalized;
@@ -16134,6 +16129,16 @@ Notes:
       }
       saveState();
       window.requestAnimationFrame(() => highlightJumpTarget(document.querySelector("#inbodyPanel .panel")));
+    }
+
+    function openInbodyRecordsDetails(){
+      setActiveTab("inbody");
+      renderInbodyPanel();
+      const details = document.getElementById("inbodyRecordsDetails");
+      if (!details) return;
+      details.open = true;
+      window.requestAnimationFrame(() => highlightJumpTarget(details));
+      saveState();
     }
 
     const TODAY_QUICK_EDIT_FIELD_MAP = [
@@ -28632,7 +28637,7 @@ Notes:
       document.getElementById("saveTodayInputBtn").addEventListener("click", () => saveTodayInputWeightToRecord());
       document.getElementById("saveTodayInputWithInbodyBtn").addEventListener("click", saveTodayInputWithInbody);
       document.getElementById("applyLatestInbodyFromInbodyBtn")?.addEventListener("click", applyLatestInbodyFromInbodyPanel);
-      document.getElementById("viewInbodyRecordsBtn").addEventListener("click", () => openRecordsForInbodyDate());
+      document.getElementById("viewInbodyRecordsBtn")?.addEventListener("click", openInbodyRecordsDetails);
       document.getElementById("saveInbodyBtn").addEventListener("click", saveInbodyRecord);
       document.getElementById("cancelInbodyEditBtn")?.addEventListener("click", () => clearInbodyRecordEditMode({ resetForm: true, showFeedback: true }));
       document.getElementById("inbodyFeedback")?.addEventListener("click", event => {
@@ -33488,7 +33493,7 @@ Notes:
         recordsState.items = [];
         state.inbodyRecords = [];
 
-        results.push(runNamedTest("UX2-5 InBody tab shows Records link and neutral observation", () => {
+        results.push(runNamedTest("UX2-5 InBody tab shows internal history entry and neutral observation", () => {
           state.inbodyRecords = [
             inbodyRecord("2026-04-01"),
             inbodyRecord("2026-05-01", { weight: 76, skeletalMuscle: 35.1, bodyFat: 12.8, bodyFatPercent: 16.8 })
@@ -33497,21 +33502,22 @@ Notes:
           setActiveTab("inbody");
           renderInbodyPanel();
           const text = document.getElementById("inbodyPanel").textContent || "";
-          assertIncludesAll(text, ["InBody 기록 보기", "최신 체중", "최신 골격근량", "최신 체지방량", "최신 체지방률", "중립 관찰", "날짜별 기록은 Records에서 봅니다."], "InBody tab should show entry, latest values, trend and Records link");
+          assertIncludesAll(text, ["측정 기록 보기", "최신 체중", "최신 골격근량", "최신 체지방량", "최신 체지방률", "중립 관찰", "기록 목록은 InBody 안에서 확인합니다.", "측정 기록은 InBody 안에서 수정·삭제합니다."], "InBody tab should show entry, latest values, trend and internal history link");
           assertExcludesAll(text, ["다이어트", "린매스업", "벌크업", "줄이세요", "지키세요", "채우세요", "정리하세요", "단백질부터"], "InBody tab should stay neutral");
         }));
 
-        results.push(runNamedTest("UX2-5 InBody records link opens latest InBody date in Records", () => {
+        results.push(runNamedTest("UX2-5 InBody records button opens internal measurement history", () => {
           recordsState.items = normalizeRecordsCollection([{ date: "2026-05-01", recordMode: "detailed", meals: [makeMeal()] }]);
           state.inbodyRecords = [inbodyRecord("2026-05-01")];
           render();
           setActiveTab("inbody");
+          const initialDetails = document.getElementById("inbodyRecordsDetails");
+          if (initialDetails) initialDetails.open = false;
           document.getElementById("viewInbodyRecordsBtn").click();
-          assertTest(uiState.activeTab === "records", "InBody records link should switch to Records");
-          assertTest(ids.recordDate.value === "2026-05-01", "latest InBody date should become selected Records date");
-          assertTest(uiState.recordsDetailDate === "2026-05-01", "latest InBody date detail should open");
-          assertTest(document.querySelector('[data-record-card-date="2026-05-01"]').classList.contains("is-selected"), "InBody date card should be highlighted");
-          assertIncludesAll(detailText("2026-05-01"), ["InBody 기록 있음", "체중", "골격근량", "체지방량", "체지방률"], "Records detail should show InBody metrics");
+          const details = document.getElementById("inbodyRecordsDetails");
+          assertTest(uiState.activeTab === "inbody", "InBody records button should stay in InBody tab");
+          assertTest(details?.open === true, "InBody records button should open internal history");
+          assertIncludesAll(document.getElementById("inbodyRecordList")?.textContent || "", ["2026-05-01", "체중", "골격근량", "체지방량", "체지방률"], "internal InBody history should show metrics");
         }));
 
         results.push(runNamedTest("UX2-5 Records archive shows InBody-only dates", () => {
@@ -33567,7 +33573,7 @@ Notes:
           state.inbodyRecords = [inbodyRecord("2026-05-10")];
           render();
           const text = `${document.getElementById("recordsPanel").textContent || ""} ${document.getElementById("inbodyPanel").textContent || ""}`;
-          assertExcludesAll(text, ["recordMode", "goalSnapshot", "dietResolution", "permission", "confidence", "primitive", "macroPatternAllowed", "autoDietAnalysis", "자동 점수 토글", "signal", "schema", "draft"], "InBody/Records link surfaces should hide internal terms");
+          assertExcludesAll(text, ["recordMode", "goalSnapshot", "dietResolution", "permission", "confidence", "primitive", "macroPatternAllowed", "autoDietAnalysis", "자동 점수 토글", "signal", "schema", "draft"], "InBody and Records surfaces should hide internal terms");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "UX2-5 link should not change scoring version");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "UX2-5 link should not change recent context windows");
         }));
@@ -33801,13 +33807,16 @@ Notes:
           assertExcludesAll(combined, ["recordMode", "goalSnapshot", "dietResolution", "permission", "confidence", "primitive", "macroPatternAllowed", "dietCauseAllowed", "autoDietAnalysis", "자동 점수 토글", "InBody gate", "signal", "schema", "draft"], "UX2-6 user-facing surfaces should hide internal terms");
         }));
 
-        results.push(runNamedTest("UX2-6 preserves UX2-5 InBody link and fixed windows", () => {
+        results.push(runNamedTest("UX2-6 preserves UX2-5 InBody history flow and fixed windows", () => {
           recordsState.items = normalizeRecordsCollection([{ date: today, recordMode: "detailed", goalSnapshot: makeSnapshot(), meals: [makeMeal(today, "i1"), makeMeal(today, "i2")] }]);
           state.inbodyRecords = [{ date: today, weight: 75.2, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
           render();
           setActiveTab("inbody");
+          const initialDetails = document.getElementById("inbodyRecordsDetails");
+          if (initialDetails) initialDetails.open = false;
           document.getElementById("viewInbodyRecordsBtn").click();
-          assertTest(uiState.activeTab === "records" && ids.recordDate.value === today, "InBody to Records link should remain");
+          assertTest(uiState.activeTab === "inbody" && document.getElementById("inbodyRecordsDetails")?.open === true, "InBody history button should stay inside InBody");
+          openRecordsForDate(today);
           document.querySelector(`[data-open-inbody-input="${today}"]`)?.click();
           assertTest(uiState.activeTab === "inbody" && document.getElementById("inbodyDate").value === today, "Records to InBody link should remain");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "UX2-6 should not change scoring version");
@@ -33916,7 +33925,7 @@ Notes:
           assertExcludesAll(`${simpleText} ${weightText}`, macroLabels, "simple and weight-only cards should not show macro cause chips");
         }));
 
-        results.push(runNamedTest("UX2-8 InBody and recent flow links remain connected", () => {
+        results.push(runNamedTest("UX2-8 InBody history and recent flow links remain connected", () => {
           recordsState.items = normalizeRecordsCollection([{
             date: today,
             recordMode: "detailed",
@@ -33932,8 +33941,11 @@ Notes:
           state.inbodyRecords = [{ date: today, weight: 75.2, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
           render();
           setActiveTab("inbody");
+          const initialDetails = document.getElementById("inbodyRecordsDetails");
+          if (initialDetails) initialDetails.open = false;
           document.getElementById("viewInbodyRecordsBtn").click();
-          assertTest(uiState.activeTab === "records" && uiState.recordsDetailDate === today, "InBody to Records should open same date detail");
+          assertTest(uiState.activeTab === "inbody" && document.getElementById("inbodyRecordsDetails")?.open === true, "InBody history button should open internal history");
+          openRecordsForDate(today);
           document.querySelector(`[data-open-inbody-input="${today}"]`)?.click();
           assertTest(uiState.activeTab === "inbody" && document.getElementById("inbodyDate").value === today, "Records to InBody should keep selected date");
           renderWeeklyPanel(calculate());
@@ -36942,12 +36954,12 @@ Notes:
           render();
           const text = panelText("inbodyPanel");
           assertIncludesAll(text, [
-            "InBody 기록 보기",
-            "날짜별 기록은 Records에서 봅니다.",
+            "측정 기록 보기",
+            "기록 목록은 InBody 안에서 확인합니다.",
             "최근 InBody 기록",
-            "Records에서 날짜별 기록과 함께 봅니다.",
+            "측정 기록은 InBody 안에서 수정·삭제합니다.",
             "중립 관찰"
-          ], "InBody screen should keep entry, latest values and Records link");
+          ], "InBody screen should keep entry, latest values and internal history link");
           assertExcludesAll(text, [
             "Records 공복 체중으로 저장",
             "Today 계산용 체중으로 저장",
@@ -40236,7 +40248,7 @@ Notes:
           const savedTab = uiState.activeTab;
           const checks = [
             { tab: "weekly", compact: "식단 안정성, 체중 흐름, 기록 품질을 함께 봅니다.", old: "최근 기록으로 식단 안정성, 체중 흐름, 기록 품질을 함께 확인합니다." },
-            { tab: "inbody", compact: "원본 측정값을 확인하고 필요할 때 Today에 적용합니다. 날짜별 기록은 Records에서 봅니다.", old: "원본 측정 기록을 확인하고 필요할 때 Today 몸 상태에 적용합니다. 날짜별 기록은 Records에서 봅니다." },
+            { tab: "inbody", compact: "원본 측정값을 확인하고 필요할 때 Today에 적용합니다. 기록 목록은 InBody 안에서 확인합니다.", old: "원본 측정값을 확인하고 필요할 때 Today에 적용합니다. 날짜별 기록은 Records에서 봅니다." },
             { tab: "settings", compact: "Today는 오늘값, 기본 설정은 시작 기준과 백업을 관리합니다.", old: "Today는 날짜별 오늘값을 쓰고, Settings는 새 날짜의 시작 기준과 앱 데이터를 맡습니다." }
           ];
           checks.forEach(check => {

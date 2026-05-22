@@ -272,7 +272,7 @@ const actionScripts = {
   tabInbody: "w.document.querySelector('#tabInbody')?.click();",
   tabInbodyLower: "w.document.querySelector('#tabInbody')?.click(); await delay(300); w.scrollTo(0, 720);",
   tabInbodyEdit: "w.document.querySelector('#tabInbody')?.click(); await delay(300); w.scrollTo(0, 720); await delay(100); w.document.querySelector('[data-load-inbody]')?.click(); await delay(300); w.document.querySelector('#inbodyInputTitle')?.scrollIntoView({block:'start'});",
-  tabInbodyRecordsLink: "w.document.querySelector('#tabInbody')?.click(); await delay(300); w.document.getElementById('viewInbodyRecordsBtn')?.click(); await delay(400); w.document.getElementById('recordArchiveDetailHost')?.scrollIntoView({block:'start'});",
+  tabInbodyRecordsLink: "w.document.querySelector('#tabInbody')?.click(); await delay(300); const details=w.document.getElementById('inbodyRecordsDetails'); if(details) details.open=false; w.document.getElementById('viewInbodyRecordsBtn')?.click(); await delay(400); w.document.getElementById('inbodyRecordsDetails')?.scrollIntoView({block:'start'});",
   tabSettings: "w.document.querySelector('#tabSettings')?.click();",
   tabSettingsOpenGroups: "w.document.querySelector('#tabSettings')?.click(); await delay(300); w.document.querySelectorAll('#settingsPanel .settings-disclosure-toggle').forEach(btn => btn.click());",
   tabSettingsDataLower: "w.document.querySelector('#tabSettings')?.click(); await delay(300); w.scrollTo(0, 1120);",
