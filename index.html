@@ -1,8 +1,10 @@
 <!--
 Version: 7.3
-Stage: v7.3-J Today score surface Stitch gauge lift
+Stage: v7.3-K Today meal surface Stitch list lift
 Date: 2026-05-24
 Notes:
+- v7.3-K Today 식사 기록 empty/list 표면을 003 Stitch처럼 카드 헤더 / 식사 row / primary action 흐름으로 정리
+- v7.3-K Records 기록 시작 / 식사 저장 / 식사 합산 / 점수 계산 로직은 변경 없음
 - v7.3-J Today 식단 점수 empty/pending 상태도 003 Stitch처럼 원형 점수 표면과 짧은 근거 카드로 보이도록 재배치
 - v7.3-J 점수 산식 / Coach decision matrix / recentContext / Records / 저장 구조는 변경 없음
 - v7.3-I Today 결과 영역의 큰 외곽 카드감을 줄이고 칼로리 / 탄단지 row가 003 Stitch처럼 직접 표면을 만들도록 재배치
@@ -12381,6 +12383,135 @@ Notes:
       }
       #todayAdherencePanel .adherence-components.adherence-components-compact{
         grid-template-columns:1fr;
+      }
+    }
+    /* v7.3-K: make the Today meal card read like the 003 Stitch meal list surface. */
+    .today-execution-shell #todayMealPanel.today-meal-card{
+      padding:0;
+      border-radius:12px;
+      border-color:#bfc9bc;
+      background:#fffefb;
+      box-shadow:0 10px 28px rgba(27,111,52,.05);
+    }
+    .today-execution-shell #todayMealPanel.today-meal-card::after{
+      display:none;
+    }
+    #todayMealPanel .section-head{
+      margin:0;
+      padding:24px 28px 20px;
+      border-bottom:1px solid #e0e6dc;
+    }
+    #todayMealPanel .section-head h3{
+      margin-bottom:6px;
+      color:#005522;
+      font-size:12px;
+      font-weight:800;
+      letter-spacing:.02em;
+    }
+    #todayMealPanel .section-head h2{
+      font-size:24px;
+      letter-spacing:-.02em;
+    }
+    #todayMealSummary{
+      position:relative;
+      z-index:1;
+    }
+    #todayMealPanel .today-meal-empty{
+      border:0;
+      border-radius:0;
+      padding:38px 28px 30px;
+      background:#fffefb;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      min-height:172px;
+    }
+    #todayMealPanel .today-meal-empty .today-meal-row-icon{
+      width:54px;
+      height:54px;
+      margin-bottom:12px;
+      border-radius:14px;
+      background:#e9efe4;
+      color:#005522;
+    }
+    #todayMealPanel .today-meal-empty .today-meal-row-icon svg{
+      width:20px;
+      height:20px;
+    }
+    #todayMealPanel .today-meal-empty strong{
+      margin-bottom:8px;
+      font-size:16px;
+    }
+    #todayMealPanel .today-meal-empty p{
+      max-width:460px;
+      color:#657064;
+      font-size:13px;
+      line-height:1.55;
+    }
+    #todayMealPanel .today-meal-filled{
+      padding:24px 28px 0;
+    }
+    #todayMealPanel .today-meal-list{
+      margin-top:18px;
+      border-top:1px solid #e0e6dc;
+    }
+    #todayMealPanel .today-meal-row{
+      padding:18px 0;
+      gap:16px;
+      border-top:1px solid #e0e6dc;
+    }
+    #todayMealPanel .today-meal-row:first-child{
+      border-top:0;
+    }
+    #todayMealPanel .today-meal-row-icon{
+      background:#e9efe4;
+      color:#005522;
+    }
+    #todayMealPanel .today-meal-row-title{
+      color:#181d17;
+      font-size:15px;
+      font-weight:800;
+    }
+    #todayMealPanel .today-meal-row-meta{
+      color:#657064;
+      font-weight:600;
+    }
+    #todayMealPanel .today-meal-row-energy{
+      color:#005522;
+      font-size:15px;
+    }
+    #todayMealPanel .today-meal-actions{
+      margin:0;
+      padding:0 28px 26px;
+      border-top:0;
+    }
+    #todayMealPanel .today-meal-empty + .today-meal-actions,
+    #todayMealPanel #todayMealSummary:has(.today-meal-empty) + .today-meal-actions{
+      justify-content:center;
+    }
+    @media (max-width:560px){
+      #todayMealPanel .section-head{
+        padding:22px 24px 18px;
+      }
+      #todayMealPanel .today-meal-empty{
+        padding:34px 24px 26px;
+        min-height:164px;
+      }
+      #todayMealPanel .today-meal-filled{
+        padding:22px 24px 0;
+      }
+      #todayMealPanel .today-meal-row{
+        grid-template-columns:auto minmax(0,1fr);
+        align-items:start;
+      }
+      #todayMealPanel .today-meal-row-energy{
+        grid-column:2;
+        text-align:left;
+      }
+      #todayMealPanel .today-meal-actions{
+        padding:0 24px 24px;
       }
     }
   </style>
@@ -25365,6 +25496,7 @@ Notes:
       if (!mealCount) {
         host.innerHTML = `
           <div class="today-meal-empty">
+            ${renderTodayMealRowIcon()}
             <strong>아직 오늘 식사 기록이 없습니다.</strong>
             <p>주요 식사부터 기록하면 오늘 섭취량, 남은 양, 식단 점수가 바로 채워집니다.</p>
           </div>
