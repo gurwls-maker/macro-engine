@@ -1,8 +1,11 @@
 <!--
 Version: 7.3
-Stage: v7.3-G InBody desktop history rail Shell 보강
+Stage: v7.3-H Today settings panel Stitch section rhythm 보강
 Date: 2026-05-24
 Notes:
+- v7.3-H Today 계산값 펼침 패널을 003 Stitch의 "오늘의 설정 값" 흐름에 맞춰 신체 정보 / 생활 패턴 / 오늘 운동 / 오늘 유산소 섹션으로 정리
+- v7.3-H Today Quick Edit DOM id / event handler / 저장 구조 / 산식은 유지하고 visual hierarchy와 섹션 리듬만 보강
+- v7.3-H 산식 / score / Coach / recentContext / InBody gate / dual basis / schema-import-export 변경 없음
 - v7.3-G InBody desktop에서 003 Stitch처럼 측정 히스토리 레일을 왼쪽에 두고 최신 결과 / 변화 / 입력을 오른쪽 작업 흐름으로 재배치
 - v7.3-G InBody 모바일은 최신 결과 우선 흐름을 유지하고 기록/수정/Today 적용 로직은 변경 없음
 - v7.3-G 산식 / score / Coach / recentContext / InBody gate / dual basis / schema-import-export 변경 없음
@@ -1560,7 +1563,7 @@ Notes:
       align-items:start;
       row-gap:14px;
       padding-top:16px;
-      border-top:1px dashed color-mix(in srgb, var(--line) 82%, transparent);
+      border-top:1px solid color-mix(in srgb, var(--line) 82%, transparent);
     }
     .today-quick-edit-panel.hidden{
       display:none;
@@ -1576,10 +1579,11 @@ Notes:
     .today-quick-edit-section-title,
     .today-section-title{
       grid-column:1 / -1;
-      margin:2px 0 -2px;
+      margin:2px 0 0;
       font-size:12px;
       font-weight:900;
       color:var(--teal);
+      letter-spacing:.02em;
     }
     .today-quick-edit-section-head,
     .today-section-head{
@@ -1588,7 +1592,7 @@ Notes:
       align-items:flex-start;
       justify-content:space-between;
       gap:8px 10px;
-      margin:2px 0 -2px;
+      margin:2px 0 0;
       min-width:0;
       flex-wrap:wrap;
     }
@@ -12425,8 +12429,8 @@ Notes:
         <div class="today-calc-settings-head">
           <div class="today-calc-settings-copy">
             <h3>Today</h3>
-            <h2>오늘 계산값</h2>
-            <p>오늘 계산에 쓰는 값입니다.</p>
+            <h2>오늘의 설정 값</h2>
+            <p>몸 상태와 활동을 보며 오늘 계산 기준을 조정합니다.</p>
           </div>
           <div class="today-calc-settings-actions">
             <button class="secondary-btn" id="todayQuickEditToggle" type="button" aria-expanded="true" aria-controls="todayQuickEditPanel">접기</button>
@@ -12437,7 +12441,7 @@ Notes:
         <div class="today-quick-edit-panel" id="todayQuickEditPanel" aria-hidden="false">
           <div class="today-quick-edit-fields">
             <div class="today-quick-edit-section-head today-section-head today-body-status-head">
-              <div class="today-quick-edit-section-title today-section-title">오늘 몸 상태</div>
+              <div class="today-quick-edit-section-title today-section-title">신체 정보</div>
               <div class="today-inbody-fill-actions today-section-actions">
                 <span class="today-inbody-source-note today-status-chip hidden" id="todayInbodySourceNote">출처: 최신 InBody</span>
                 <button class="secondary-btn" id="todayLoadLatestInbodyBtn" type="button">최신 InBody 적용</button>
@@ -12461,7 +12465,7 @@ Notes:
               <input id="todayQuickBodyFat" type="number" min="1" max="75" step="0.1" inputmode="decimal">
             </div>
             <div class="today-proximity-summary body-status-summary" id="todayBodyResultSummary" aria-live="polite"></div>
-            <div class="today-quick-edit-section-title today-section-title">오늘 활동</div>
+            <div class="today-quick-edit-section-title today-section-title">생활 패턴</div>
             <div class="field">
               <label for="todayQuickActivityLevel">활동량</label>
               <select id="todayQuickActivityLevel">
@@ -12482,13 +12486,7 @@ Notes:
               </select>
             </div>
             <div class="today-quick-field-host" id="todayQuickWorkAdjHost"></div>
-            <div class="today-quick-edit-section-head today-section-head today-cardio-preset-head">
-              <div class="today-quick-edit-section-title today-section-title">오늘 운동</div>
-              <div class="today-cardio-preset-actions today-section-actions">
-                <span class="today-cardio-source-note today-status-chip hidden" id="todayCardioSourceNote"></span>
-                <button class="secondary-btn" id="todayApplyCardioPresetBtn" type="button">프리셋 적용</button>
-              </div>
-            </div>
+            <div class="today-quick-edit-section-title today-section-title">오늘 운동</div>
             <div class="field today-quick-routine-card">
               <label for="todayQuickRoutinePlan">루틴 / 세션</label>
               <div class="today-quick-routine-selects">
@@ -12513,8 +12511,15 @@ Notes:
                 <output id="todayQuickIntensityOut">0.80</output>
               </div>
             </div>
+            <div class="today-quick-edit-section-head today-section-head today-cardio-preset-head">
+              <div class="today-quick-edit-section-title today-section-title">오늘 유산소</div>
+              <div class="today-cardio-preset-actions today-section-actions">
+                <span class="today-cardio-source-note today-status-chip hidden" id="todayCardioSourceNote"></span>
+                <button class="secondary-btn" id="todayApplyCardioPresetBtn" type="button">프리셋 적용</button>
+              </div>
+            </div>
             <div class="field">
-              <label for="todayQuickCardioType">오늘 유산소</label>
+              <label for="todayQuickCardioType">유산소 종류</label>
               <select id="todayQuickCardioType">
                 <option value="treadmill_walk">트레드밀 워킹</option>
                 <option value="treadmill_run">트레드밀 러닝</option>
@@ -38144,7 +38149,7 @@ Notes:
         results.push(runNamedTest("C4.7-B2 Today main cards render with shorter copy", () => {
           renderValidToday();
           const text = todayText();
-          assertIncludesAll(text, ["오늘 목표 섭취량", "오늘 계산값", "오늘 계산에 쓰는 값입니다.", "오늘 몸 상태", "오늘 활동", "오늘 운동"], "Today should keep main card labels and short calculation copy");
+          assertIncludesAll(text, ["오늘 목표 섭취량", "오늘의 설정 값", "몸 상태와 활동을 보며 오늘 계산 기준을 조정합니다.", "신체 정보", "생활 패턴", "오늘 운동", "오늘 유산소"], "Today should keep main card labels and short calculation copy");
           assertExcludesAll(text, ["오늘 먹을 양을 계산하는 값입니다.", "처음에는 위 결과만 보면 됩니다"], "Today should remove longer repeated explanation copy");
         }));
 
@@ -39396,7 +39401,7 @@ Notes:
           const button = document.getElementById("todayCalcSettingsBtn");
           const topButton = document.getElementById("todaySettingsBtn");
           assertTest(!!card && !!button && !!topButton, "Today calculation settings CTAs should exist");
-          assertIncludesAll(card.textContent || "", ["오늘 계산값", "전체 설정"], "Today should show calculation value card");
+          assertIncludesAll(card.textContent || "", ["오늘의 설정 값", "전체 설정"], "Today should show calculation value card");
           assertTest(getComputedStyle(topButton).display !== "none", "top calculation settings button should show on Today");
         }));
 
@@ -39745,7 +39750,7 @@ Notes:
           const quickButton = document.getElementById("todayQuickEditToggle");
           const settingsButton = document.getElementById("todayCalcSettingsBtn");
           assertTest(!!card && !!summary && !!quickButton && !!settingsButton, "Today quick edit card should render");
-          assertIncludesAll(card.textContent || "", ["오늘 계산값", "전체 설정", "오늘 몸 상태", "오늘 활동", "오늘 운동", "계산용 체중", "골격근량", "체지방량", "체지방률", "활동량", "업무 유형", "웨이트 시간", "오늘 유산소"], "Today calculation card should expose the required user-facing labels");
+          assertIncludesAll(card.textContent || "", ["오늘의 설정 값", "전체 설정", "신체 정보", "생활 패턴", "오늘 운동", "오늘 유산소", "계산용 체중", "골격근량", "체지방량", "체지방률", "활동량", "업무 유형", "웨이트 시간", "유산소 종류"], "Today calculation card should expose the required user-facing labels");
         }));
 
         results.push(runNamedTest("C2 quick edit panel opens and closes", () => {
@@ -39810,7 +39815,7 @@ Notes:
             let panel = document.getElementById("todayQuickEditPanel");
             assertTest(!!panel && !panel.classList.contains("hidden"), `${id} one-digit input should not collapse the Today calculation panel`);
             assertTest(document.getElementById("todayQuickEditToggle")?.getAttribute("aria-expanded") === "true", `${id} one-digit input should keep expanded state`);
-            assertTest(document.getElementById("todayCalcSettingsCard")?.textContent.includes("오늘 계산값"), `${id} should keep Today calculation card visible after input`);
+            assertTest(document.getElementById("todayCalcSettingsCard")?.textContent.includes("오늘의 설정 값"), `${id} should keep Today calculation card visible after input`);
             input.dispatchEvent(new Event("change", { bubbles: true }));
             panel = document.getElementById("todayQuickEditPanel");
             assertTest(!!panel && !panel.classList.contains("hidden"), `${id} change event should not collapse the Today calculation panel`);
