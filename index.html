@@ -1,8 +1,10 @@
 <!--
 Version: 7.3
-Stage: v7.3-I Today result surface Stitch screen lift
+Stage: v7.3-J Today score surface Stitch gauge lift
 Date: 2026-05-24
 Notes:
+- v7.3-J Today 식단 점수 empty/pending 상태도 003 Stitch처럼 원형 점수 표면과 짧은 근거 카드로 보이도록 재배치
+- v7.3-J 점수 산식 / Coach decision matrix / recentContext / Records / 저장 구조는 변경 없음
 - v7.3-I Today 결과 영역의 큰 외곽 카드감을 줄이고 칼로리 / 탄단지 row가 003 Stitch처럼 직접 표면을 만들도록 재배치
 - v7.3-I Today 목표 / 섭취 / 남은 양 계산, guide/activity basis, 식사 기록, Coach, 저장 구조는 유지
 - v7.3-I 문구는 화면 역할과 맞는 범위에서만 조정하고 Stitch 시안 문구를 무조건 복사하지 않음
@@ -12276,6 +12278,109 @@ Notes:
       .today-intake-row[data-total-kind="kcal"] .today-intake-balance{
         justify-self:start;
         text-align:left;
+      }
+    }
+    /* v7.3-J: lift the Today score card toward the 003 Stitch gauge surface without changing score logic. */
+    .today-secondary-stack #todayAdherencePanel.adherence-panel{
+      padding:28px;
+      border-radius:12px;
+      border-color:#bfc9bc;
+      background:#fffefb;
+      box-shadow:0 10px 28px rgba(27,111,52,.05);
+    }
+    .today-secondary-stack #todayAdherencePanel .section-head{
+      margin-bottom:18px;
+    }
+    .today-secondary-stack #todayAdherencePanel .section-head h2{
+      font-size:20px;
+      letter-spacing:-.01em;
+    }
+    #todayAdherencePanel .adherence-hero{
+      grid-template-columns:1fr;
+      gap:18px;
+    }
+    #todayAdherencePanel .adherence-score-card{
+      align-items:center;
+      text-align:center;
+      gap:14px;
+      padding:0;
+    }
+    #todayAdherencePanel .score-ring{
+      width:124px;
+      height:124px;
+      background:conic-gradient(var(--score-color, #006b2d) var(--score, 0%), #e0e6dc 0);
+      box-shadow:none;
+    }
+    #todayAdherencePanel .score-ring-inner{
+      width:96px;
+      height:96px;
+      background:#fffefb;
+      box-shadow:inset 0 0 0 1px rgba(191,201,188,.52);
+    }
+    #todayAdherencePanel .score-ring-empty{
+      --score-color:#bfc9bc;
+      background:conic-gradient(#e1e7de 0 100%);
+    }
+    #todayAdherencePanel .adherence-score-card .big{
+      font-size:34px;
+      color:#181d17;
+      letter-spacing:-.02em;
+    }
+    #todayAdherencePanel .adherence-score-card.pending .big,
+    #todayAdherencePanel .adherence-score-card.unavailable .big{
+      font-size:31px;
+    }
+    #todayAdherencePanel .adherence-score-card .big .unit{
+      color:#40493f;
+      font-size:14px;
+      font-weight:800;
+    }
+    #todayAdherencePanel .adherence-score-card .copy{
+      max-width:250px;
+      color:#657064;
+      font-size:13px;
+      font-weight:700;
+    }
+    #todayAdherencePanel .adherence-detail-card{
+      width:100%;
+      padding-top:12px;
+      border-top:1px solid #e0e6dc;
+    }
+    #todayAdherencePanel .adherence-evidence-list{
+      gap:8px;
+    }
+    #todayAdherencePanel .adherence-evidence-list li{
+      border-radius:10px;
+      background:#f3f6ef;
+      color:#2f372e;
+      font-size:12px;
+      font-weight:700;
+      line-height:1.5;
+    }
+    #todayAdherencePanel .adherence-components.adherence-components-compact{
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      padding-top:2px;
+    }
+    #todayAdherencePanel .adherence-components-compact .adherence-component{
+      border-radius:8px;
+      background:#f3f6ef;
+      border:1px solid transparent;
+      padding:10px 12px;
+    }
+    #todayAdherencePanel .adherence-badge{
+      min-height:0;
+      padding:5px 10px;
+      border-radius:999px;
+      font-size:11px;
+      background:#f3f6ef;
+      border-color:#d8dfd4;
+    }
+    @media (max-width:560px){
+      .today-secondary-stack #todayAdherencePanel.adherence-panel{
+        padding:24px;
+      }
+      #todayAdherencePanel .adherence-components.adherence-components-compact{
+        grid-template-columns:1fr;
       }
     }
   </style>
@@ -25774,12 +25879,22 @@ Notes:
           kcal: "식사를 입력하려면 상세 기록으로 전환하세요."
         };
         host.innerHTML = `
-          <div class="warn warn">
-            <h4>${title}</h4>
-            <ul>
-              <li>${reasons.protein}</li>
-              <li>${reasons.kcal}</li>
-            </ul>
+          <div class="adherence-hero">
+            <div class="adherence-score-card unavailable pending">
+              <div class="score-ring score-ring-empty" aria-hidden="true">
+                <div class="score-ring-inner">
+                  <div class="big">-</div>
+                </div>
+              </div>
+              <div><span class="adherence-badge muted">${escapeHtml(title)}</span></div>
+              <div class="copy">식사를 기록하면 오늘 식단 점수가 계산됩니다.</div>
+            </div>
+            <div class="adherence-detail-card">
+              <ul class="adherence-evidence-list">
+                <li>${escapeHtml(reasons.protein)}</li>
+                <li>${escapeHtml(reasons.kcal)}</li>
+              </ul>
+            </div>
           </div>
         `;
         return;
