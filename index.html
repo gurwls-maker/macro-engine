@@ -1,8 +1,11 @@
 <!--
 Version: 7.3
-Stage: v7.3-B Records 보관함 우선 흐름 정리
+Stage: v7.3-C Records 최신 상세 기본 표시
 Date: 2026-05-24
 Notes:
+- v7.3-C Records 선택 날짜에 저장 기록이 없을 때 입력 날짜는 유지하면서 최신 보관 기록 상세를 기본 표시
+- v7.3-C 보관함 card 선택 강조를 현재 입력 날짜뿐 아니라 열린 상세 기록에도 맞춰 Stitch식 목록-상세 연결감을 보강
+- v7.3-C Records 저장/수정/복원/오늘 입력 날짜 정책은 변경 없음
 - v7.3-B Records 첫 화면을 기록 방식 선택보다 날짜별 보관함 / 상세 확인 흐름이 먼저 보이도록 재배치
 - v7.3-B 기록 방식 선택 / 이어서 기록하기 기능은 보조 기록 추가 영역으로 유지하고 Records 저장/수정 로직은 변경 없음
 - v7.3-B 산식 / score / Coach / recentContext / InBody gate / dual basis / schema-import-export 변경 없음
@@ -26838,7 +26841,8 @@ Notes:
         const visibleChips = chips.slice(0, 3);
         const hiddenChips = chips.slice(visibleChips.length);
         const hiddenChipCount = hiddenChips.length;
-        const isSelected = normalizeDateString(record.date) === normalizeDateString(selectedDate);
+        const isSelected = normalizeDateString(record.date) === normalizeDateString(selectedDate)
+          || normalizeDateString(record.date) === normalizeDateString(uiState.recordsDetailDate);
         const isDetailOpen = normalizeDateString(record.date) === normalizeDateString(uiState.recordsDetailDate);
         const hasStoredRecord = !!getRecordByDate(record.date);
         return `
@@ -27249,8 +27253,9 @@ Notes:
       const normalized = normalizeDateString(date);
       if (!normalized) return;
       const isOpen = normalizeDateString(uiState.recordsDetailDate) === normalized;
-      uiState.recordsDetailDate = isOpen ? null : normalized;
-      if (isOpen || normalizeDateString(uiState.recordsDetailDraft?.date) !== normalized) {
+      const shouldCollapse = isOpen && normalizeDateString(getSelectedRecordDate()) === normalized;
+      uiState.recordsDetailDate = shouldCollapse ? null : normalized;
+      if (shouldCollapse || normalizeDateString(uiState.recordsDetailDraft?.date) !== normalized) {
         uiState.recordsDetailEditMode = false;
         uiState.recordsDetailDraft = null;
       }
@@ -27288,6 +27293,10 @@ Notes:
         uiState.recordsDetailEditMode = false;
         uiState.recordsDetailDraft = null;
       }
+      const selectedRecord = getRecordByDate(selectedDate);
+      if (!normalizeDateString(uiState.recordsDetailDate) && !uiState.recordsDetailEditMode && !selectedRecord && archiveRecords.length) {
+        uiState.recordsDetailDate = normalizeDateString(archiveRecords[0].date);
+      }
       const recentAvg = averageWeight(recent7);
       const prevAvg = averageWeight(previous7);
       const hasRecentTrend = recent7.length && previous7.length;
@@ -27301,7 +27310,6 @@ Notes:
       document.getElementById("recentTrend").textContent = hasRecentTrend ? `${trend >= 0 ? "+" : ""}${trend.toFixed(2)}` : "-";
 
       const feedbackHost = document.getElementById("recordFeedbackHost");
-      const selectedRecord = getRecordByDate(selectedDate);
       const recordFeedbackAction = recordsState.feedback?.action
         ? buildTodayResultFeedbackActionHtml(recordsState.feedback.action)
         : "";
@@ -40819,6 +40827,31 @@ Notes:
           assertIncludesAll(document.getElementById("recordsPanel").textContent || "", ["저장된 날짜별 기록", "기록 추가", "체중만 기록", "간단 기록", "상세 기록", "이어서 기록하기"], "Records shell should keep record-add fallback after the archive flow");
           assertTest(!!document.querySelector(".records-stitch-layout"), "Records shell should render two-column layout");
           assertTest(!!document.querySelector(".records-review-shell"), "Records shell should render review side stack");
+        }));
+
+        results.push(runNamedTest("v7.3-C Records default detail does not move today input date", () => {
+          setValidTodayBalanceTestInputs();
+          const latestRecordDate = shiftDateString(today, -1);
+          recordsState.items = normalizeRecordsCollection([
+            normalizeRecord({
+              date: latestRecordDate,
+              recordMode: "detailed",
+              weight: 74.74,
+              meals: [makeMeal("ui3-default-detail", "아침", { createdAt: `${latestRecordDate}T08:00:00.000Z` })]
+            })
+          ]);
+          ids.recordDate.value = today;
+          uiState.recordsDetailDate = null;
+          uiState.recordsDetailEditMode = false;
+          uiState.recordsDetailDraft = null;
+          setActiveTab("records");
+          renderRecordsPanel();
+          assertTest(ids.recordDate.value === today, "Records archive default detail should not move the today input date");
+          assertTest(uiState.recordsDetailDate === latestRecordDate, "Records archive should open the latest stored detail when selected date has no record");
+          const detail = document.querySelector(`[data-record-detail-date="${latestRecordDate}"]`);
+          const card = document.querySelector(`[data-record-card-date="${latestRecordDate}"]`);
+          assertTest(!!detail && document.getElementById("recordArchiveDetailHost")?.contains(detail), "latest stored record detail should render in the review surface");
+          assertTest(card?.classList.contains("is-selected"), "latest stored record card should be visually linked to the open detail");
         }));
 
         results.push(runNamedTest("C4.8-UI1 record summary trend and Today feedback keep full decimal display", () => {
