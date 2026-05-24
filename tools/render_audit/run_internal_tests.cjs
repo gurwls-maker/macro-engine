@@ -3,7 +3,7 @@ const http = require("node:http");
 const path = require("node:path");
 const Module = require("node:module");
 
-const root = path.resolve(__dirname, "..");
+const root = path.resolve(__dirname, "..", "..");
 const debugDir = path.join(__dirname, "_debug");
 fs.mkdirSync(debugDir, { recursive: true });
 

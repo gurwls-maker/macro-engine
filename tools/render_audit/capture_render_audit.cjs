@@ -3,9 +3,9 @@ const http = require("node:http");
 const Module = require("node:module");
 const path = require("node:path");
 
-const rootPath = path.resolve(__dirname, "..");
+const rootPath = path.resolve(__dirname, "..", "..");
 const root = rootPath;
-const auditDir = path.join(root, "render_audit_v6_9");
+const auditDir = __dirname;
 const pageDir = path.join(auditDir, "pages");
 const shotDir = path.join(auditDir, "screenshots");
 const debugDir = path.join(auditDir, "_debug");
@@ -399,7 +399,7 @@ async function capture(context, baseUrl, name, payloadName, actionName, width, h
   fs.writeFileSync(htmlPath, makePage(name, payloadName, actionName, width, height), "utf-8");
   const page = await context.newPage();
   await page.setViewportSize({ width, height });
-  await page.goto(`${baseUrl}/render_audit_v6_9/pages/${name}.html`, { waitUntil: "load", timeout: 30000 });
+  await page.goto(`${baseUrl}/tools/render_audit/pages/${name}.html`, { waitUntil: "load", timeout: 30000 });
   try {
     await page.waitForFunction(() => document.body.dataset.ready === "true", null, { timeout: 30000 });
   } catch (error) {
