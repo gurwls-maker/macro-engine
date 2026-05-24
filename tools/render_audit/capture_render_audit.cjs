@@ -393,6 +393,29 @@ function createServer() {
   });
 }
 
+async function expandMobileFrameForFullPage(page, width, height) {
+  const iframe = page.frames().find(frame => frame.url().includes("/index.html"));
+  if (!iframe) return { fullPage: false, contentHeight: height, captureHeight: height };
+  const contentHeight = await iframe.evaluate(() => Math.ceil(Math.max(
+    document.body?.scrollHeight || 0,
+    document.documentElement?.scrollHeight || 0,
+    document.body?.offsetHeight || 0,
+    document.documentElement?.offsetHeight || 0
+  )));
+  const captureHeight = Math.max(height, contentHeight + 16);
+  await page.setViewportSize({ width, height: captureHeight });
+  await page.evaluate(nextHeight => {
+    document.documentElement.style.height = `${nextHeight}px`;
+    document.body.style.height = `${nextHeight}px`;
+    document.body.style.overflow = "visible";
+    const frame = document.getElementById("app");
+    if (frame) frame.style.height = `${nextHeight}px`;
+  }, captureHeight);
+  await iframe.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(250);
+  return { fullPage: true, contentHeight, captureHeight };
+}
+
 async function capture(context, baseUrl, name, payloadName, actionName, width, height) {
   const htmlPath = path.join(pageDir, `${name}.html`);
   const shotPath = path.join(shotDir, `${name}.png`);
@@ -416,9 +439,12 @@ async function capture(context, baseUrl, name, payloadName, actionName, width, h
     console.error(`debug ${name}: ${JSON.stringify(debug, null, 2)}`);
     throw error;
   }
-  await page.screenshot({ path: shotPath, fullPage: false });
+  const captureMeta = width <= 560
+    ? await expandMobileFrameForFullPage(page, width, height)
+    : { fullPage: false, contentHeight: height, captureHeight: height };
+  await page.screenshot({ path: shotPath, fullPage: captureMeta.fullPage });
   await page.close();
-  return shotPath;
+  return { shotPath, captureMeta };
 }
 
 async function runRenderAudit() {
@@ -455,8 +481,8 @@ async function runRenderAudit() {
     for (const item of captures) {
       const [name, payloadName, actionName, width, height] = item;
       console.log(`capture ${name}`);
-      const shotPath = await capture(context, baseUrl, name, payloadName, actionName, width, height);
-      manifest.push({ name, payloadName, actionName, viewport: { width, height }, shotPath });
+      const { shotPath, captureMeta } = await capture(context, baseUrl, name, payloadName, actionName, width, height);
+      manifest.push({ name, payloadName, actionName, viewport: { width, height }, shotPath, capture: captureMeta });
     }
     fs.writeFileSync(path.join(auditDir, "manifest.json"), JSON.stringify({ generatedAt: new Date().toISOString(), captures: manifest }, null, 2), "utf-8");
     console.log(JSON.stringify({ count: manifest.length, shotDir }, null, 2));

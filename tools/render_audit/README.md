@@ -30,3 +30,5 @@ node .\tools\render_audit\run_internal_tests.cjs
 - `seeds/`
 
 필요한 기준 스크린샷은 `_ui_refs/current_baseline_YYYY_MM_DD` 같은 ignored 폴더에 별도로 복사해서 사용합니다.
+
+모바일 캡처는 390px viewport의 상단만 찍지 않고 iframe 높이를 실제 앱 scroll height에 맞춰 확장한 뒤 full-page로 저장합니다. 모바일 UI 판단은 이 전체 길이 캡처를 기준으로 해야 합니다.
