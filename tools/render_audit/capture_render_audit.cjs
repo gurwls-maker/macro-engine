@@ -322,7 +322,13 @@ const captures = [
   ["38_mobile_recent", "rich", "tabWeekly", 390, 900],
   ["39_mobile_inbody", "rich", "tabInbody", 390, 900],
   ["40_mobile_settings", "rich", "tabSettings", 390, 900],
-  ["41_mobile_settings_groups_open", "rich", "tabSettingsOpenGroups", 390, 900]
+  ["41_mobile_settings_groups_open", "rich", "tabSettingsOpenGroups", 390, 900],
+  ["43_mobile_backup_preview_modal", "rich", "backupPreview", 390, 900],
+  ["44_mobile_smart_restore_conflict_modal", "rich", "smartConflict", 390, 900],
+  ["45_mobile_records_info_edit_modal", "rich", "tabRecordsInfoEditModal", 390, 900],
+  ["46_mobile_records_meal_add_modal", "rich", "tabRecordsMealAddModal", 390, 900],
+  ["47_mobile_inbody_records_link", "rich", "tabInbodyRecordsLink", 390, 900],
+  ["48_mobile_settings_data_lower", "rich", "tabSettingsDataLower", 390, 900]
 ];
 
 function makePage(name, payloadName, actionName, width, height) {
