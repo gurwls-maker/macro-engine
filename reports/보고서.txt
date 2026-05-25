@@ -1,0 +1,64 @@
+스티치 UI 기능 이식 누락/축소 보고서
+대상 파일: D:\Projects\macro-engine\_ui_prototypes\stitch_full_app.html
+작성 원칙:
+- UI는 반드시 _ui_refs\003.스티치 시안의 방향을 따른다.
+- index.html 화면 DOM을 사용자에게 보이게 재사용하지 않는다.
+- 기능, 산식, 저장 구조는 index.html 전체를 독립 HTML 안에 내장한 숨은 엔진에서 호출한다.
+- 추후에 index.html 파일을 외부 참조하지 않아도 stitch_full_app.html 하나만 열어서 동작해야 한다.
+- 스티치 UI 안에 완전히 구현하지 못한 기능, 숨겨진 기능, 축소된 기능은 발견 즉시 아래에 기록한다.
+
+2026-05-25
+
+1. index.html UI 사용 금지 고정
+- 원래 기능: index.html은 완성된 기능과 산식 구조를 가지고 있지만 UI는 사용자가 원하지 않는다.
+- 현재 처리: stitch_full_app.html 안에 index.html 전체 HTML을 JSON으로 복사 내장하고, 화면에는 숨은 iframe 엔진만 둔다. 사용자가 보는 DOM은 새 스티치 스타일 화면이다.
+- 위험/제약: 숨은 iframe 내부에는 index.html DOM이 존재하지만 CSS로 1px 숨김 처리되어 화면 UI로 노출되지 않는다.
+- 복구/확인 포인트: 화면에서 index.html의 패널, 버튼, 탭 스타일이 보이면 잘못된 것이다. 수정 시에는 엔진 함수 호출만 유지하고 visible DOM은 stitch_full_app.html 쪽 컴포넌트로 다시 만들어야 한다.
+
+2. 유산소 프리셋 관리 UI 미이식
+- 원래 기능: index.html에는 유산소 프리셋 저장, 기본 프리셋 지정, 프리셋 적용, 수정, 삭제 흐름이 있다. 저장 키는 runstep_macro_v1_cardioPresets.v1이다.
+- 현재 처리: Today와 Settings에서 유산소 종류, 시간, 속도, 경사도를 직접 입력하고 index.html의 todayCalculationDraft 구조로 저장한다.
+- 누락/축소: 프리셋 목록, 프리셋 저장/수정/삭제, 기본 프리셋 지정 UI가 아직 없다.
+- 복구 노트: index.html의 normalizeCardioPresetState(), saveCardioPresets(), setTodayCalculationDraftValues() 흐름을 참고한다. 스티치 UI에서는 Settings 또는 Today 유산소 카드 안에 "프리셋 적용", "현재 값 프리셋 저장", "프리셋 관리" 모달을 추가하면 된다.
+
+3. 저장한 식사/이전 식사 재사용 UI 미이식
+- 원래 기능: index.html에는 저장한 식사 템플릿과 이전 식사 재사용 흐름이 있다. 저장 키는 runstep_macro_v1_mealTemplates.v1이다.
+- 현재 처리: 식사를 직접 추가, 수정, 삭제할 수 있고 kcal 계산은 index.html의 calculateMealEnergy()를 호출한다.
+- 누락/축소: 이전 식사 불러오기, 저장한 식사 템플릿 적용, 템플릿 저장/삭제 UI가 아직 없다.
+- 복구 노트: index.html의 normalizeMealTemplateState(), saveMealTemplates(), mealTemplateToMeal() 흐름을 참고한다. 식사 추가 모달 상단에 "저장한 식사", "최근 식사" 탭을 추가하고 선택 시 현재 modal field를 채우면 된다.
+
+4. Records 상세 기준 편집 UI 축소
+- 원래 기능: index.html의 Records 상세 편집에는 당시 계산 기준, 목표, 체중, 활동량, 루틴 등을 세밀하게 수정하고 goalSnapshot을 다시 계산하는 고급 흐름이 있다.
+- 현재 처리: 스티치 UI에서는 날짜별 기록, 체중, 메모, 기록 방식, 식사 추가/수정/삭제, 기록 삭제를 우선 연결했다.
+- 누락/축소: 과거 날짜의 상세 계산 기준을 한 번에 수정하는 UI가 아직 없다.
+- 복구 노트: index.html의 calculateRecordDetailGoalPreview(), getRecordDetailCalculationBasis(), buildGoalSnapshotFromCurrentState(), upsertRecord() 흐름을 참고한다. Records 상세 카드 아래에 "당시 계산 기준 수정" 접이식 영역을 만들고 저장 시 snapshotSource를 record_detail_edit로 남기는 방식이 안전하다.
+
+5. 백업 불러오기 UI 축약 구현
+- 원래 기능: index.html에는 전체 백업, 기록 중심 파일, 충돌 미리보기, 전체 복원, 추가 기록만 가져오기, 식사만 합치기, 충돌 날짜 교체 등 상세한 안내와 확인 모달이 있다.
+- 현재 처리: 스티치 UI에서 detectBackupImportPayload(), buildBackupImportComparison(), buildSmartRestoreImportPreview(), restoreFullBackupData(), applySmartRestoreImportData(), applyRecordsOnlyImportData()를 호출해 핵심 복원 경로는 연결했다.
+- 누락/축소: index.html 원래 모달만큼 자세한 단계별 충돌 목록, 날짜별 상세 비교, 경고 문구를 모두 노출하지는 않는다.
+- 복구 노트: Settings > 백업과 불러오기 카드의 import preview modal을 확장한다. comparison.sameDateMealDiffDates, localOnlyRecordDates, backupOnlyRecordDates, backupFewerMealDates를 날짜 리스트로 보여주고, preview.mergeDuplicateMealCount와 preview.mergePossibleDuplicateMealCount를 별도 경고로 표시하면 된다.
+
+6. index.html 내부 Coach 문구 직접 노출 제한
+- 원래 기능: index.html은 getDailyCoachSignals(), selectDailyCoachDecisions(), getDailyCoachDecisionCopy()로 Coach 문구를 만든다.
+- 현재 처리: 판단 로직은 index.html의 signals/decision을 호출하지만, 일부 원본 문자열이 인코딩 깨짐 상태로 보일 수 있어 화면 문구는 스티치 UI 쪽의 짧은 한국어 요약 문구로 매핑했다.
+- 누락/축소: index.html의 모든 Coach 문구 variation을 1:1로 보여주지는 않는다.
+- 복구 노트: index.html 문구 인코딩이 정리되면 getDailyCoachDecisionCopy()의 state/action/reason을 다시 노출해도 된다. 그 전에는 decision.key, decision.status 기반의 스티치 UI 문구 매핑을 유지하는 것이 안전하다.
+
+7. 알코올 계산기 보조 입력 UI 미이식
+- 원래 기능: index.html에는 술 kcal 계산 보조 기능과 일부 상세 입력 보조 흐름이 있다.
+- 현재 처리: 식사 모달에서 alcoholKcal과 otherKcal을 직접 입력하게 했다.
+- 누락/축소: 양, 도수, 잔 수로 술 kcal을 계산하는 보조 계산 UI가 없다.
+- 복구 노트: index.html의 calculateAlcoholKcalFromDrink()를 그대로 호출하는 작은 모달을 식사 추가 화면의 alcoholKcal 필드 옆에 붙이면 된다.
+
+8. 보조/디버그성 기능 숨김
+- 원래 기능: index.html에는 테스트 실행, 내부 schema 확인, 디버그성 보조 흐름이 많다.
+- 현재 처리: 사용자용 화면으로 필요한 Today, Records, Recent, InBody, Settings, Backup 중심만 노출했다.
+- 누락/축소: 내부 테스트 UI와 디버그 패널은 스티치 앱 화면에 노출하지 않는다.
+- 복구 노트: 사용자 기능으로 필요한 항목만 스티치 컴포넌트로 새로 만들고, index.html DOM을 그대로 끌어내는 방식은 사용하지 말 것.
+
+9. 최근흐름 탭 반영 내용 갱신
+- 이전 상태: 최근흐름 탭은 index.html의 최근흐름 계산값을 일부 연결했지만, 스티치 시안의 핵심 화면 구조인 칼로리/목표 바 차트, 평균 영양 섭취, 목표 달성률 카드, 문제 기록 스트립, 관련 날짜 태그, 일간 기록 요약 테이블, 기간별 평가 카드가 충분히 살아 있지 않았다.
+- 이번 변경: stitch_full_app.html 생성 스크립트에서 최근흐름 전용 렌더링을 다시 작성했다. 화면 구조는 스티치 시안의 최근흐름 탭을 기준으로 유지하고, 값은 index.html 내장 엔진의 buildRecentContext() 결과를 사용한다.
+- 복구된 연결: 3/7/14/28일 범위 전환, 섭취 kcal 바 차트, 목표 kcal 기준선, 평균 탄수/단백질/지방 진행률, 목표 달성률, 단백질/탄수/지방/술 영향 문제 요약, 관련 날짜 태그, 날짜별 기록 열기, 일간 기록 요약, 기간별 기록 품질 카드가 연결되었다.
+- 남은 주의점: 차트는 스티치의 정적 시안과 달리 실제 사용자 기록 수에 따라 막대 개수와 높이가 바뀐다. 체중 변화 선 그래프는 아직 별도 선으로 그리지 않고 칼로리/목표 흐름 중심으로 표시한다. 나중에 보강할 때는 최근 records의 weight 값을 SVG/polyline 또는 canvas 없이 HTML/CSS overlay로 추가하면 된다.
