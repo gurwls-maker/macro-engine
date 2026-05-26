@@ -5959,6 +5959,8 @@ Notes:
     #recordsPanel #recordsTable.records-card-list{
       max-height:560px;
       overflow-y:auto;
+      /* Keep clipped archive rows from inflating the page's outer scroll height. */
+      contain:paint;
       overscroll-behavior:contain;
       scrollbar-gutter:stable;
       padding:10px 8px 10px 10px;
@@ -39407,7 +39409,7 @@ Notes:
           const text = getRenderedBodyText(panel);
           assertIncludesAll(text, [
             "저장된 날짜별 기록",
-            "날짜 카드를 누르면 오른쪽 상세와 선택 날짜 편집 기준이 함께 바뀝니다.",
+            "확정된 기록을 날짜별로 확인하고, 필요한 날은 상세 보기에서 수정합니다.",
             "최근 14일 요약",
             "선택 날짜",
             "기록 추가",
@@ -40506,7 +40508,7 @@ Notes:
           setActiveTab("records");
           render();
           const text = document.getElementById("recordsPanel")?.innerText || "";
-          assertIncludesAll(text, ["기록 보관함", "체중 있음", "메모 있음"], "Records should reflect fasting weight and memo chips");
+          assertIncludesAll(text, ["기록 목록", "체중 있음", "메모 있음"], "Records should reflect fasting weight and memo chips");
           assertExcludesAll(text, ["weight_only", "recordMode", "schema"], "Records should keep record-start fields user-facing");
         }));
 
@@ -42343,6 +42345,35 @@ Notes:
           assertExcludesAll(mismatchText, ["74.7kg", "74.8kg"], "Records mismatch notice should not show one-decimal kg values");
           const feedbackSummary = getTodayResultFeedbackSummary(calculate(), { weight: 74.7 });
           assertIncludesAll(feedbackSummary, ["계산용 체중 74.70kg", "목표 칼로리"], "Today feedback summary should show calculation weight with two decimals");
+        }));
+
+        results.push(runNamedTest("v7.3 Records archive internal scroll does not inflate page height", () => {
+          setValidTodayBalanceTestInputs();
+          const snapshot = buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry");
+          recordsState.items = normalizeRecordsCollection(Array.from({ length: 52 }, (_, index) => {
+            const date = shiftDateString(today, -index);
+            const isWeightOnly = index % 5 === 0;
+            return normalizeRecord({
+              date,
+              recordMode: isWeightOnly ? "weight_only" : "detailed",
+              weight: 74.8 + (index % 6) * 0.03,
+              note: index % 3 === 0 ? "scroll check" : "",
+              goalSnapshot: snapshot,
+              meals: isWeightOnly ? [] : [
+                makeMeal(`scroll-${index}-1`, "?꾩묠", { createdAt: `${date}T08:00:00.000Z` }),
+                makeMeal(`scroll-${index}-2`, "?먯떖", { carbs: 90, protein: 42, fat: 18, createdAt: `${date}T12:00:00.000Z` })
+              ]
+            });
+          }));
+          ids.recordDate.value = today;
+          setActiveTab("records");
+          renderRecordsPanel();
+          const recordsTable = document.getElementById("recordsTable");
+          const recordsPanel = document.getElementById("recordsPanel");
+          const panelBottom = Math.ceil(recordsPanel.getBoundingClientRect().bottom + (window.scrollY || 0));
+          assertTest(recordsTable.scrollHeight > recordsTable.clientHeight, "Records archive should keep its own internal scroll for long history");
+          assertTest(getComputedStyle(recordsTable).contain.includes("paint"), "Records archive should isolate clipped row paint from the document scroll area");
+          assertTest(document.documentElement.scrollHeight <= panelBottom + 80, "Records archive overflow should not create a blank outer page tail");
         }));
 
         results.push(runNamedTest("C4.8-UI1 record choice cards open existing record start steps", () => {
