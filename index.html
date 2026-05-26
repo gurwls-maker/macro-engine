@@ -16228,14 +16228,62 @@ Notes:
       return { type: "records-only", data, summary: getBackupImportSummary("records-only", data, { createdAt: parsed?.exportedAt || parsed?.createdAt }) };
     }
 
-    function downloadJsonFile(payload, filename){
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    function buildSaveFilePickerOptions(filename, description = "JSON 파일", extension = ".json", mimeType = "application/json"){
+      return {
+        suggestedName: filename,
+        types: [{
+          description,
+          accept: { [mimeType]: [extension] }
+        }]
+      };
+    }
+
+    function isFileSaveAbort(error){
+      return error?.name === "AbortError";
+    }
+
+    function downloadBlobWithAnchor(blob, filename){
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = filename;
+      a.style.display = "none";
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    async function saveBlobFile(blob, filename, options = {}){
+      if (typeof window.showSaveFilePicker === "function") {
+        try {
+          const handle = await window.showSaveFilePicker(buildSaveFilePickerOptions(
+            filename,
+            options.description || "JSON 파일",
+            options.extension || ".json",
+            blob.type || options.mimeType || "application/json"
+          ));
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return { saved: true, method: "picker" };
+        } catch (error) {
+          if (isFileSaveAbort(error)) return { saved: false, canceled: true, method: "picker" };
+          console.warn("Native save picker failed; falling back to download.", error);
+        }
+      }
+
+      downloadBlobWithAnchor(blob, filename);
+      return { saved: true, method: "download" };
+    }
+
+    async function downloadJsonFile(payload, filename){
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      return saveBlobFile(blob, filename, {
+        description: "JSON 백업 파일",
+        extension: ".json",
+        mimeType: "application/json"
+      });
     }
 
     function getCardioPresetById(id){
@@ -20397,10 +20445,15 @@ Notes:
       bodyHost.querySelector("[data-confirm-data-import]")?.focus();
     }
 
-    function exportFullBackupJson(){
+    async function exportFullBackupJson(){
       const payload = buildFullBackupPayload();
-      downloadJsonFile(payload, `macro-engine-full-backup-${getTodayDateString()}.json`);
-      setDataManagementFeedback("ok", "전체 백업 파일을 만들었습니다.");
+      const result = await downloadJsonFile(payload, `macro-engine-full-backup-${getTodayDateString()}.json`);
+      if (!result?.saved) {
+        setDataManagementFeedback("warn", "전체 백업 저장을 취소했습니다. 현재 데이터는 그대로 유지됩니다.");
+        renderDataManagementPanel();
+        return;
+      }
+      setDataManagementFeedback("ok", result.method === "picker" ? "선택한 위치에 전체 백업 파일을 저장했습니다." : "전체 백업 파일을 만들었습니다.");
       renderDataManagementPanel();
     }
 
@@ -25767,16 +25820,21 @@ Notes:
       render();
     }
 
-    function exportRecordsJson(){
+    async function exportRecordsJson(){
       const payload = {
         version: 3,
         exportedAt: new Date().toISOString(),
         records: getSortedRecords(),
         inbodyRecords: Array.isArray(state.inbodyRecords) ? [...state.inbodyRecords] : []
       };
-      downloadJsonFile(payload, `runstep-records-backup-${getTodayDateString()}.json`);
+      const result = await downloadJsonFile(payload, `runstep-records-backup-${getTodayDateString()}.json`);
+      if (!result?.saved) {
+        setDataManagementFeedback("warn", "기록 백업 저장을 취소했습니다. 현재 데이터는 그대로 유지됩니다.");
+        render();
+        return;
+      }
       localStorage.setItem(storageKey("lastBackupAt"), new Date().toISOString());
-      setDataManagementFeedback("ok", "기록 중심 파일을 만들었습니다. 설정과 Today 계산값은 포함되지 않습니다.");
+      setDataManagementFeedback("ok", result.method === "picker" ? "선택한 위치에 기록 백업 파일을 저장했습니다. 설정과 Today 계산값은 포함되지 않습니다." : "기록 중심 파일을 만들었습니다. 설정과 Today 계산값은 포함되지 않습니다.");
       render();
     }
 
@@ -39085,6 +39143,13 @@ Notes:
           assertIncludesAll(panel.textContent || "", ["데이터 관리", "전체 백업 만들기", "백업 불러오기", "기록만 내보내기", "기록만 불러오기"], "Data Management should expose full backup and records-only actions");
           assertTest(document.getElementById("dataManagementPanel").contains(document.getElementById("exportJsonBtn")), "records-only export should move to Data Management");
           assertTest(document.getElementById("dataManagementPanel").contains(document.getElementById("importJsonBtn")), "records-only import should move to Data Management");
+        }));
+
+        results.push(runNamedTest("v7.3 Data Management exports prefer native save location picker when available", () => {
+          const options = buildSaveFilePickerOptions("macro-engine-full-backup-2026-05-26.json", "JSON 백업 파일", ".json", "application/json");
+          assertTest(options.suggestedName === "macro-engine-full-backup-2026-05-26.json", "save picker should suggest the backup filename");
+          assertTest(options.types?.[0]?.accept?.["application/json"]?.includes(".json"), "save picker should constrain JSON files");
+          assertTest(typeof saveBlobFile === "function" && typeof downloadBlobWithAnchor === "function", "save picker and download fallback helpers should exist");
         }));
 
         results.push(runNamedTest("C4.7-A full backup payload includes app data and excludes temporary UI state", () => {
