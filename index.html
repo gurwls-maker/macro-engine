@@ -30022,8 +30022,6 @@ Notes:
         const window = context.windows?.[days];
         const label = RECENT_FLOW_CARD_LABELS[days] || { title: `${days}일`, role: "기간 분석" };
         const summary = getRecentFlowCardSummary(days, window, currentResult);
-        const problemAction = getRecentFlowProblemDateAction(window, currentResult);
-        const cardProblemAction = isDuplicateRecentFlowProblemAction(problemAction, selectedProblemAction) ? null : problemAction;
         const insight = joinRecentFlowSentence(summary.conclusion, summary.reason);
         return `
           <div class="recent-flow-window-card" data-recent-flow-days="${days}">
@@ -30031,12 +30029,6 @@ Notes:
             <div class="title">${escapeHtml(label.title)}<small>${escapeHtml(label.role)}</small></div>
             <p class="insight">${escapeHtml(insight)}</p>
             <p class="metric">${escapeHtml(summary.metric)}</p>
-            ${cardProblemAction ? `
-              <div class="recent-flow-card-action">
-                <button class="secondary-btn" type="button" data-open-problem-date="${escapeHtml(cardProblemAction.date)}">문제 날짜 보기</button>
-                <span class="recent-flow-action-note">${escapeHtml(cardProblemAction.date)}</span>
-              </div>
-            ` : ""}
           </div>
         `;
       }).join("");
@@ -37097,7 +37089,7 @@ Notes:
           document.querySelector(`[data-open-inbody-input="${today}"]`)?.click();
           assertTest(uiState.activeTab === "inbody" && document.getElementById("inbodyDate").value === today, "Records to InBody should keep selected date");
           renderWeeklyPanel(calculate());
-          document.querySelector("#recentFlowPreviewHost [data-open-problem-date]")?.click();
+          document.querySelector("#recentFlowPreviewHost [data-open-related-problem-date]")?.click();
           assertTest(uiState.activeTab === "records" && uiState.recordsDetailDate === today, "recent flow problem date should open Records detail");
         }));
 
@@ -55303,10 +55295,10 @@ Notes:
           goalChangeDetected: false,
           ...overrides
         });
-        const getProblemButtons = () => Array.from(document.querySelectorAll("#recentFlowPreviewHost [data-open-problem-date]"))
+        const getProblemButtons = () => Array.from(document.querySelectorAll("#recentFlowPreviewHost [data-open-related-problem-date]"))
           .map(button => ({
-            date: button.getAttribute("data-open-problem-date"),
-            scope: button.closest(".recent-flow-summary-card") ? "summary" : (button.closest(".recent-flow-window-card")?.getAttribute("data-recent-flow-days") || "unknown"),
+            date: button.getAttribute("data-open-related-problem-date"),
+            scope: "related",
             text: button.textContent.trim()
           }));
 
@@ -55323,24 +55315,24 @@ Notes:
           });
           const buttons = getProblemButtons().filter(button => button.date === "2026-04-27");
           assertTest(buttons.length === 1, "same date/problem CTA should appear once");
-          assertTest(buttons[0]?.scope === "summary", "summary CTA should own the representative problem date");
+          assertTest(buttons[0]?.scope === "related", "related dates should own the representative problem date");
         }));
 
-        results.push(runNamedTest("UX2-10 Recent Flow keeps distinct problem CTAs", () => {
+        results.push(runNamedTest("UX2-10 Recent Flow keeps distinct related date CTAs", () => {
           recentFlowSelectedRangeDays = 7;
           const summaryProblem = makeRecentSummary({ date: "2026-04-27", protein: 80 });
           const cardProblem = makeRecentSummary({ date: "2026-04-26", fat: 90 });
           renderRecentFlowOverview(calculate(), {
             windows: {
               3: makeRecentWindow(3, [cardProblem]),
-              7: makeRecentWindow(7, [summaryProblem]),
+              7: makeRecentWindow(7, [summaryProblem, cardProblem]),
               14: makeRecentWindow(14, []),
               28: makeRecentWindow(28, [])
             }
           });
           const buttons = getProblemButtons();
-          assertTest(buttons.some(button => button.scope === "summary" && button.date === "2026-04-27"), "summary CTA should remain");
-          assertTest(buttons.some(button => button.scope === "3" && button.date === "2026-04-26"), "different card problem CTA should remain");
+          assertTest(buttons.some(button => button.date === "2026-04-27"), "selected range related date should remain");
+          assertTest(buttons.some(button => button.date === "2026-04-26"), "different selected range related date should remain");
         }));
 
         results.push(runNamedTest("UX2-10 InBody score extra does not repeat Coach hint wording", () => {
