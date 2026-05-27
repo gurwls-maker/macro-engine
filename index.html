@@ -16228,8 +16228,11 @@ Notes:
       return { type: "records-only", data, summary: getBackupImportSummary("records-only", data, { createdAt: parsed?.exportedAt || parsed?.createdAt }) };
     }
 
-    function buildSaveFilePickerOptions(filename, description = "JSON 파일", extension = ".json", mimeType = "application/json"){
+    const BACKUP_SAVE_PICKER_ID = "macroEngineBackup";
+
+    function buildSaveFilePickerOptions(filename, description = "JSON 파일", extension = ".json", mimeType = "application/json", pickerId = BACKUP_SAVE_PICKER_ID){
       return {
+        id: pickerId,
         suggestedName: filename,
         types: [{
           description,
@@ -16261,7 +16264,8 @@ Notes:
             filename,
             options.description || "JSON 파일",
             options.extension || ".json",
-            blob.type || options.mimeType || "application/json"
+            blob.type || options.mimeType || "application/json",
+            options.pickerId || BACKUP_SAVE_PICKER_ID
           ));
           const writable = await handle.createWritable();
           await writable.write(blob);
@@ -39147,6 +39151,7 @@ Notes:
 
         results.push(runNamedTest("v7.3 Data Management exports prefer native save location picker when available", () => {
           const options = buildSaveFilePickerOptions("macro-engine-full-backup-2026-05-26.json", "JSON 백업 파일", ".json", "application/json");
+          assertTest(options.id === BACKUP_SAVE_PICKER_ID, "save picker should reuse a stable id so the browser can remember the last backup folder");
           assertTest(options.suggestedName === "macro-engine-full-backup-2026-05-26.json", "save picker should suggest the backup filename");
           assertTest(options.types?.[0]?.accept?.["application/json"]?.includes(".json"), "save picker should constrain JSON files");
           assertTest(typeof saveBlobFile === "function" && typeof downloadBlobWithAnchor === "function", "save picker and download fallback helpers should exist");
