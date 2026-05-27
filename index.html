@@ -4,6 +4,7 @@ Stage: v7.3-P recent flow reference structure cleanup
 Date: 2026-05-24
 Notes:
 - v7.3-P 최근 흐름에서 별도 "먼저 확인할 기록" 카드를 관련 날짜 CTA로 흡수하고 접힌 날짜 +N 펼침을 지원
+- v7.3-P 7일 참고 해석 중복 블록을 제거하고 설정/목표 조정 안내는 14일·28일 조건부 안내로 축소
 - v7.3-P 산식 / score / Coach / recentContext / InBody gate / dual basis / schema-import-export 변경 없음
 - v7.3-O Records 모바일 기본 화면에서 보관함/상세 흐름을 분리하고 불필요한 하단 노출을 줄임
 - v7.3-O Today / 최근 흐름 / InBody / Settings 모바일 밀도를 003 Stitch 기준으로 추가 압축
@@ -7694,34 +7695,12 @@ Notes:
       word-break:keep-all;
       white-space:nowrap;
     }
-    .weekly-interpretation-block{
-      margin-top:18px;
-      padding-top:14px;
-      border-top:1px dashed color-mix(in srgb, var(--line) 82%, white 18%);
-    }
-    .weekly-interpretation-block h4{
-      margin:0 0 10px;
-      font-size:14px;
-      line-height:1.3;
-      color:var(--deep);
-      font-weight:800;
-    }
-    .weekly-interpretation-text{
-      margin:0;
-      font-size:13px;
-      line-height:1.72;
-      color:var(--muted);
-      white-space:pre-line;
-      max-width:62ch;
-      text-wrap:pretty;
-    }
     .weekly-reference-note-grid{
       display:grid;
       grid-template-columns:repeat(2,minmax(0,1fr));
       gap:14px;
       margin-top:18px;
     }
-    .weekly-reference-note-grid .weekly-interpretation-block,
     .weekly-reference-note-grid .weekly-reference-block{
       margin:0;
       padding:15px 16px;
@@ -7730,17 +7709,12 @@ Notes:
       background:#fff;
       min-height:100%;
     }
-    .weekly-reference-note-grid .weekly-interpretation-block{
-      border-top:1px solid color-mix(in srgb, var(--line) 84%, white 16%);
-    }
-    .weekly-reference-note-grid .weekly-reference-block h4,
-    .weekly-reference-note-grid .weekly-interpretation-block h4{
+    .weekly-reference-note-grid .weekly-reference-block h4{
       color:var(--deep);
       font-weight:900;
       margin-bottom:7px;
     }
-    .weekly-reference-note-grid .weekly-reference-block p,
-    .weekly-reference-note-grid .weekly-interpretation-text{
+    .weekly-reference-note-grid .weekly-reference-block p{
       max-width:none;
       line-height:1.58;
       word-break:keep-all;
@@ -10662,28 +10636,14 @@ Notes:
         flex:0 1 auto;
         justify-content:center;
       }
-      .weekly-interpretation-block{
-        margin-top:14px;
-        padding-top:10px;
-      }
       .weekly-reference-note-grid{
         grid-template-columns:1fr;
         gap:12px;
         margin-top:14px;
       }
-      .weekly-reference-note-grid .weekly-interpretation-block,
       .weekly-reference-note-grid .weekly-reference-block{
         padding:16px;
         border-radius:16px;
-      }
-      .weekly-interpretation-block h4{
-        margin-bottom:8px;
-        font-size:13px;
-      }
-      .weekly-interpretation-text{
-        max-width:none;
-        font-size:12.5px;
-        line-height:1.7;
       }
       .weekly-reference-block{
         margin-top:12px;
@@ -13509,7 +13469,6 @@ Notes:
       #weeklyPanel .weekly-stitch-reference{
         display:none;
       }
-      .weekly-reference-note-grid .weekly-interpretation-block,
       .weekly-reference-note-grid .weekly-reference-block{
         padding:14px;
       }
@@ -14405,10 +14364,6 @@ Notes:
           </div>
         </section>
         <div class="weekly-reference-note-grid">
-          <div class="weekly-interpretation-block">
-            <h4 id="weeklyInterpretationTitle">7일 참고 해석</h4>
-            <p class="weekly-interpretation-text" id="weeklyInterpretationText">기록이 아직 충분하지 않아 추세 판단은 이릅니다. 며칠 더 누적하면 더 정확하게 볼 수 있습니다.</p>
-          </div>
           <div id="weeklyInfoHost"></div>
         </div>
         <div id="weeklyWarningHost"></div>
@@ -30167,10 +30122,8 @@ Notes:
         || analysis.caption;
       const referenceTitle = document.getElementById("weeklyReferenceTitle");
       const referenceCaption = document.getElementById("weeklyReferenceCaption");
-      const interpretationTitle = document.getElementById("weeklyInterpretationTitle");
       if (referenceTitle) referenceTitle.textContent = `${selectedRangeDays}일 참고 분석`;
       if (referenceCaption) referenceCaption.textContent = referenceMeta.caption;
-      if (interpretationTitle) interpretationTitle.textContent = `${selectedRangeDays}일 참고 해석`;
       document.getElementById("weeklyHeadline").textContent = analysis.headline;
       document.getElementById("weeklyCaption").textContent = analysis.caption;
       document.getElementById("weeklyActionText").textContent = analysis.actionText;
@@ -30182,10 +30135,14 @@ Notes:
         </div>
       `).join("");
       renderRecentFlowOverview(currentResult, recentContext);
-      document.getElementById("weeklyInterpretationText").textContent = getRecentFlowReferenceInterpretation(recentContext.windows?.[selectedRangeDays], selectedRangeDays);
 
       const infoHost = document.getElementById("weeklyInfoHost");
-      infoHost.innerHTML = `<div class="weekly-reference-block"><h4>${escapeHtml(referenceMeta.guideTitle)}</h4><p>${escapeHtml(referenceMeta.guideCopy)}</p></div>`;
+      const noteGrid = document.querySelector("#weeklyPanel .weekly-reference-note-grid");
+      const shouldShowReferenceGuide = selectedRangeDays >= 14;
+      infoHost.innerHTML = shouldShowReferenceGuide
+        ? `<div class="weekly-reference-block"><h4>${escapeHtml(referenceMeta.guideTitle)}</h4><p>${escapeHtml(referenceMeta.guideCopy)}</p></div>`
+        : "";
+      if (noteGrid) noteGrid.hidden = !shouldShowReferenceGuide;
 
       const warnHost = document.getElementById("weeklyWarningHost");
       warnHost.innerHTML = "";
@@ -35208,8 +35165,8 @@ Notes:
         results.push(runNamedTest("weekly existing sections remain rendered as reference", () => {
           renderWeeklyPanel(calculate());
           assertTest((document.getElementById("weeklySummaryRows").textContent || "").trim().length > 0, "weekly summary rows should stay rendered");
-          assertTest((document.getElementById("weeklyInterpretationText").textContent || "").trim().length > 0, "weekly interpretation should stay rendered");
-          assertTest((document.getElementById("weeklyInfoHost").textContent || "").includes("설정 조정 안내"), "weekly info host should keep adjustment reference");
+          assertTest(!document.getElementById("weeklyInterpretationText"), "weekly interpretation block should no longer render as a duplicate bottom note");
+          assertTest(document.querySelector(".weekly-reference-note-grid")?.hidden === true, "weekly reference note grid should stay hidden on the base seven day view");
           assertTest((document.querySelector(".weekly-report-group")?.textContent || "").includes("7일 참고 분석"), "weekly report group should be lowered to reference");
           assertTest(!!document.getElementById("weeklyHero"), "weekly hero should remain present");
         }));
@@ -43466,13 +43423,17 @@ Notes:
           assertTest(!!document.getElementById("weeklyHero") && !!document.getElementById("weeklySummaryRows"), "weekly analysis bridge should remain mounted");
         }));
 
-        results.push(runNamedTest("v6.7-D10 weekly reference notes use paired support cards", () => {
+        results.push(runNamedTest("v7.3-P weekly reference guidance is conditional after seven days", () => {
           seedWeeklyShell();
           const noteGrid = document.querySelector(".weekly-reference-note-grid");
           assertTest(!!noteGrid, "weekly reference notes should render inside a shared card grid");
-          assertTest(noteGrid.contains(document.getElementById("weeklyInterpretationText")), "weekly interpretation text should stay in the support card grid");
           assertTest(noteGrid.contains(document.getElementById("weeklyInfoHost")), "weekly settings guidance should stay in the support card grid");
-          assertTest(getComputedStyle(noteGrid).display === "grid", "weekly reference notes should use grid layout on desktop");
+          assertTest(noteGrid.hidden === true, "weekly reference guidance should stay hidden on seven day view");
+          document.querySelector('[data-recent-flow-range="14"]').click();
+          assertTest(noteGrid.hidden === false, "weekly reference guidance should show on fourteen day view");
+          assertTest((document.getElementById("weeklyInfoHost").textContent || "").includes("목표 진행 안내"), "fourteen day view should show goal progress guidance");
+          document.querySelector('[data-recent-flow-range="28"]').click();
+          assertTest((document.getElementById("weeklyInfoHost").textContent || "").includes("설정 판단 안내"), "twenty-eight day view should show settings judgment guidance");
         }));
 
         results.push(runNamedTest("v6.7-D23 weekly reference analysis cards use compact density", () => {
@@ -43499,12 +43460,12 @@ Notes:
           document.querySelector('[data-recent-flow-range="14"]').click();
           text = document.querySelector(".recent-flow-range-row").textContent || "";
           assertTest(document.querySelector('[data-recent-flow-range="14"]')?.classList.contains("active"), "fourteen day range should become active");
-          assertIncludesAll(document.getElementById("weeklyPanel")?.textContent || "", ["14일 참고 분석", "14일 참고 해석"], "reference analysis should follow selected fourteen day range");
+          assertIncludesAll(document.getElementById("weeklyPanel")?.textContent || "", ["14일 참고 분석", "목표 진행 안내"], "reference analysis should follow selected fourteen day range");
           assertTest(document.querySelectorAll(".recent-flow-chart-bar").length >= 14, "fourteen day range should render fourteen chart bars");
           assertTest((document.querySelector(".recent-flow-chart-svg")?.textContent || "").includes("500"), "chart y axis should use explicit kcal ticks");
           document.querySelector('[data-recent-flow-range="28"]').click();
           assertTest(document.querySelector('[data-recent-flow-range="28"]')?.classList.contains("active"), "twenty-eight day range should become active");
-          assertIncludesAll(document.getElementById("weeklyPanel")?.textContent || "", ["28일 참고 분석", "28일 참고 해석"], "reference analysis should follow selected twenty-eight day range");
+          assertIncludesAll(document.getElementById("weeklyPanel")?.textContent || "", ["28일 참고 분석", "설정 판단 안내"], "reference analysis should follow selected twenty-eight day range");
           assertTest(document.querySelectorAll(".recent-flow-chart-bar").length >= 28, "twenty-eight day range should render twenty-eight chart bars when records exist");
         }));
 
@@ -55560,10 +55521,13 @@ Notes:
         }));
 
         results.push(runNamedTest("D4 weekly reference copy is lower-priority and natural", () => {
+          recentFlowSelectedRangeDays = 7;
           renderWeeklyPanel(calculate());
-          const guidanceText = document.getElementById("weeklyInfoHost").textContent || "";
           const panelText = document.getElementById("weeklyPanel").textContent || "";
-          assertIncludesAll(guidanceText, ["설정 조정 안내", "자동으로 바꾸지 않습니다", "오늘 코치"], "weekly reference copy should stay lower priority");
+          assertTest((document.querySelector(".weekly-reference-note-grid")?.hidden === true), "seven day view should not show duplicate bottom guidance");
+          document.querySelector('[data-recent-flow-range="28"]').click();
+          const guidanceText = document.getElementById("weeklyInfoHost").textContent || "";
+          assertIncludesAll(guidanceText, ["설정 판단 안내", "설정 조정"], "twenty-eight day reference copy should stay lower priority");
           assertIncludesAll(panelText, ["기록 종류", "목표 기준", "식단 점수 평균"], "weekly reference rows should use user-facing labels");
           assertExcludesAll(panelText, ["기록 해상도", "목표 분포", "반복 패턴 확인"], "weekly reference rows and actions should avoid vague labels");
           assertExcludesAll(guidanceText, ["조정 참고", "보수적으로 검토하세요", "Today 코치에서 먼저 확인하세요", "weekly 제안"], "weekly reference copy should avoid awkward or evasive wording");
@@ -55605,12 +55569,14 @@ Notes:
         }));
 
         results.push(runNamedTest("v6.7-D22 weekly reference support copy stays compact", () => {
+          recentFlowSelectedRangeDays = 7;
           renderWeeklyPanel(calculate());
-          const interpretation = document.getElementById("weeklyInterpretationText")?.textContent || "";
+          assertTest(!document.getElementById("weeklyInterpretationText"), "weekly interpretation support copy should be removed from the base screen");
+          assertTest((document.querySelector(".weekly-reference-note-grid")?.hidden === true), "weekly reference support copy should stay hidden on the base screen");
+          document.querySelector('[data-recent-flow-range="14"]').click();
           const guidance = document.getElementById("weeklyInfoHost")?.textContent || "";
-          assertIncludesAll(interpretation, ["·"], "weekly interpretation should read as compact support copy");
-          assertTest(guidance.split(".").filter(Boolean).length <= 2, "weekly settings guidance should stay short on the base screen");
-          assertExcludesAll(`${interpretation} ${guidance}`, ["볼 수 있는 상태입니다", "현재 상태는 목표 방향", "오늘 코치의 첫 행동"], "weekly reference support copy should avoid old long phrases");
+          assertTest(guidance.split(".").filter(Boolean).length <= 2, "conditional guidance should stay short");
+          assertExcludesAll(guidance, ["볼 수 있는 상태입니다", "현재 상태는 목표 방향", "오늘 코치의 첫 행동"], "weekly reference support copy should avoid old long phrases");
         }));
 
         results.push(runNamedTest("D4 recent flow user-facing copy avoids internal and weak terms", () => {
