@@ -9890,13 +9890,10 @@ Notes:
       min-width:112px;
       min-height:42px;
       padding:10px 14px;
-      border:1px solid var(--line);
-      background:var(--surface-soft);
-      color:var(--deep);
       font:inherit;
       font-weight:900;
       line-height:normal;
-      border-radius:12px;
+      border-radius:var(--stitch-action-radius);
     }
     #selectedMealsList .meal-table-row button{
       white-space:nowrap;
@@ -15425,6 +15422,7 @@ Notes:
       recordsDetailDate: null,
       recordsDetailEditMode: false,
       recordsDetailDraft: null,
+      recordsDetailOpenSections: {},
       inbodyEditOriginalDate: null
     };
     let recordMealEditState = null;
@@ -28188,7 +28186,7 @@ Notes:
       const routinePlanItems = Object.keys(ROUTINE_SCHEMES).map(value => ({ value, label: ROUTINE_SCHEMES[value].label }));
       const cardioItems = Object.keys(CARDIO_TYPES).map(value => ({ value, label: CARDIO_TYPES[value].label }));
       return `
-        <details class="record-detail-section record-detail-collapsible record-detail-basis-edit">
+        <details class="record-detail-section record-detail-collapsible record-detail-basis-edit" data-record-detail-section="basis"${getRecordDetailSectionOpenAttr(draft.date, "basis")}>
           <summary>당시 목표 / 계산 기준 수정</summary>
           <div class="record-detail-collapsible-body">
           <p class="record-detail-basis-copy">당시 계산 기준을 함께 수정합니다. 목표와 활동량을 바꾸면 당시 목표 탄단지가 다시 계산됩니다.</p>
@@ -28305,6 +28303,45 @@ Notes:
     function setRecordDetailDraft(record){
       uiState.recordsDetailDraft = cloneRecordDetailDraft(record);
       return uiState.recordsDetailDraft;
+    }
+
+    const RECORD_DETAIL_COLLAPSIBLE_SECTIONS = new Set(["meals", "basis", "inbody"]);
+
+    function getRecordDetailOpenSections(date){
+      const normalized = normalizeDateString(date);
+      if (!normalized) return {};
+      return uiState.recordsDetailOpenSections?.[normalized] || {};
+    }
+
+    function setRecordDetailSectionOpen(date, section, isOpen){
+      const normalized = normalizeDateString(date);
+      if (!normalized || !RECORD_DETAIL_COLLAPSIBLE_SECTIONS.has(section)) return;
+      const existingByDate = uiState.recordsDetailOpenSections || {};
+      uiState.recordsDetailOpenSections = {
+        ...existingByDate,
+        [normalized]: {
+          ...(existingByDate[normalized] || {}),
+          [section]: !!isOpen
+        }
+      };
+    }
+
+    function captureRecordDetailOpenSections(date = uiState.recordsDetailDate){
+      const normalized = normalizeDateString(date);
+      if (!normalized) return;
+      const root = document.querySelector(`[data-record-detail-date="${normalized}"]`);
+      if (!root) return;
+      root.querySelectorAll("[data-record-detail-section]").forEach(sectionEl => {
+        setRecordDetailSectionOpen(
+          normalized,
+          sectionEl.getAttribute("data-record-detail-section"),
+          !!sectionEl.open
+        );
+      });
+    }
+
+    function getRecordDetailSectionOpenAttr(date, section){
+      return getRecordDetailOpenSections(date)[section] ? " open" : "";
     }
 
     function renderRecordDetailMealOptions(selected){
@@ -28470,7 +28507,7 @@ Notes:
             ` : ""}
           </section>
           ${shouldShowMacroSections ? `
-            <details class="record-detail-section record-detail-collapsible record-detail-meals-collapsible">
+            <details class="record-detail-section record-detail-collapsible record-detail-meals-collapsible" data-record-detail-section="meals"${getRecordDetailSectionOpenAttr(detailRecord.date, "meals")}>
               <summary>식사 목록</summary>
               <div class="record-detail-collapsible-body">
               ${isEditing ? `
@@ -28486,14 +28523,14 @@ Notes:
             </details>
           ` : ""}
           ${isEditing ? renderRecordDetailGoalBasisEdit(detailRecord) : `
-            <details class="record-detail-section record-detail-collapsible">
+            <details class="record-detail-section record-detail-collapsible" data-record-detail-section="basis"${getRecordDetailSectionOpenAttr(detailRecord.date, "basis")}>
               <summary>당시 목표 / 당시 계산 기준</summary>
               <div class="record-detail-collapsible-body">
                 ${renderRecordDetailGoalSnapshot(detailRecord.goalSnapshot)}
               </div>
             </details>
           `}
-          <details class="record-detail-section record-detail-collapsible">
+          <details class="record-detail-section record-detail-collapsible" data-record-detail-section="inbody"${getRecordDetailSectionOpenAttr(detailRecord.date, "inbody")}>
             <summary>InBody</summary>
             <div class="record-detail-collapsible-body">
             ${renderRecordDetailInbody(detailRecord.date)}
@@ -28723,6 +28760,7 @@ Notes:
       if (!normalized) return;
       const record = getRecordByDate(normalized);
       if (!record) return;
+      captureRecordDetailOpenSections(normalized);
       uiState.recordsDetailDate = normalized;
       uiState.recordsDetailEditMode = true;
       setRecordDetailDraft(record);
@@ -28768,6 +28806,7 @@ Notes:
         });
       }
       uiState.recordsDetailDraft = nextDraft;
+      captureRecordDetailOpenSections(draft.date);
       renderRecordsPanel();
     }
 
@@ -28786,6 +28825,7 @@ Notes:
         snapshotSource: draft.snapshotSource,
         meals: []
       });
+      captureRecordDetailOpenSections(draft.date);
       renderRecordsPanel();
     }
 
@@ -28806,6 +28846,7 @@ Notes:
         createdAt: new Date().toISOString()
       }, index));
       uiState.recordsDetailDraft = normalizeRecord({ ...draft, recordMode: "detailed", meals });
+      captureRecordDetailOpenSections(draft.date);
       renderRecordsPanel();
     }
 
@@ -28814,6 +28855,7 @@ Notes:
       const draft = updateRecordDetailDraftFromForm() || cloneRecordDetailDraft(uiState.recordsDetailDraft);
       const nextMeals = (Array.isArray(draft.meals) ? draft.meals : []).filter((_, mealIndex) => mealIndex !== Number(index));
       uiState.recordsDetailDraft = normalizeRecord({ ...draft, meals: nextMeals });
+      captureRecordDetailOpenSections(draft.date);
       renderRecordsPanel();
     }
 
@@ -31759,6 +31801,17 @@ Notes:
         if (!card) return;
         selectRecordArchiveDate(card.getAttribute("data-record-card-date"), { openDetail: true });
       });
+      document.getElementById("recordsPanel").addEventListener("toggle", event => {
+        const sectionEl = event.target?.closest?.("[data-record-detail-section]");
+        if (!sectionEl || sectionEl !== event.target) return;
+        const root = sectionEl.closest("[data-record-detail-date]");
+        if (!root) return;
+        setRecordDetailSectionOpen(
+          root.getAttribute("data-record-detail-date"),
+          sectionEl.getAttribute("data-record-detail-section"),
+          !!sectionEl.open
+        );
+      }, true);
       document.getElementById("recordsPanel").addEventListener("input", event => {
         if (!event.target.closest("[data-record-detail-edit='true']")) return;
         updateRecordDetailDraftFromForm();
@@ -31776,6 +31829,7 @@ Notes:
         }
         updateRecordDetailDraftFromForm();
         if (event.target.closest("[data-detail-basis-rerender='true']")) {
+          captureRecordDetailOpenSections();
           renderRecordsPanel();
           return;
         }
@@ -31821,6 +31875,7 @@ Notes:
         recordsDetailDate: uiState.recordsDetailDate,
         recordsDetailEditMode: uiState.recordsDetailEditMode,
         recordsDetailDraft: uiState.recordsDetailDraft ? JSON.stringify(uiState.recordsDetailDraft) : null,
+        recordsDetailOpenSections: JSON.stringify(uiState.recordsDetailOpenSections || {}),
         recordMealEditState: recordMealEditState ? JSON.stringify(recordMealEditState) : null,
         recordInfoEditState: recordInfoEditState ? JSON.stringify(recordInfoEditState) : null,
         inbodyEditOriginalDate: uiState.inbodyEditOriginalDate,
@@ -31882,6 +31937,7 @@ Notes:
         uiState.recordsDetailDate = snapshot.recordsDetailDate;
         uiState.recordsDetailEditMode = snapshot.recordsDetailEditMode;
         uiState.recordsDetailDraft = snapshot.recordsDetailDraft ? JSON.parse(snapshot.recordsDetailDraft) : null;
+        uiState.recordsDetailOpenSections = JSON.parse(snapshot.recordsDetailOpenSections || "{}");
         recordMealEditState = snapshot.recordMealEditState ? JSON.parse(snapshot.recordMealEditState) : null;
         recordInfoEditState = snapshot.recordInfoEditState ? JSON.parse(snapshot.recordInfoEditState) : null;
         uiState.inbodyEditOriginalDate = snapshot.inbodyEditOriginalDate || null;
@@ -38515,6 +38571,23 @@ Notes:
           assertTest(Math.round(body.getBoundingClientRect().height) === 0, "closed disclosure body should not inflate layout height");
         }));
 
+        results.push(runNamedTest("C4.5.5-D detail edit preserves opened disclosure sections", () => {
+          const detail = openDetail();
+          ["meals", "basis", "inbody"].forEach(section => {
+            const sectionEl = detail.querySelector(`[data-record-detail-section="${section}"]`);
+            assertTest(!!sectionEl, `${section} disclosure should render before edit`);
+            sectionEl.open = true;
+          });
+          captureRecordDetailOpenSections(today);
+          startRecordDetailEdit(today);
+          const editRoot = document.querySelector(`[data-record-detail-date="${today}"][data-record-detail-edit="true"]`);
+          assertTest(!!editRoot, "Records detail edit should open after preserving disclosures");
+          ["meals", "basis", "inbody"].forEach(section => {
+            const sectionEl = editRoot.querySelector(`[data-record-detail-section="${section}"]`);
+            assertTest(!!sectionEl && sectionEl.open, `${section} disclosure should stay open in edit mode`);
+          });
+        }));
+
         results.push(runNamedTest("C4.5.5-D Records detail edit keeps round-trip and no basis segmented UI", () => {
           const editRoot = openEdit();
           const weight = editRoot.querySelector('[data-detail-field="weight"]');
@@ -44809,6 +44882,7 @@ Notes:
         recordsDetailDate: uiState.recordsDetailDate,
         recordsDetailEditMode: uiState.recordsDetailEditMode,
         recordsDetailDraft: uiState.recordsDetailDraft ? JSON.stringify(uiState.recordsDetailDraft) : null,
+        recordsDetailOpenSections: JSON.stringify(uiState.recordsDetailOpenSections || {}),
         weight: ids.weight.value,
         height: ids.height.value,
         age: ids.age.value,
@@ -44845,6 +44919,7 @@ Notes:
         uiState.recordsDetailDate = snapshot.recordsDetailDate;
         uiState.recordsDetailEditMode = snapshot.recordsDetailEditMode;
         uiState.recordsDetailDraft = snapshot.recordsDetailDraft ? JSON.parse(snapshot.recordsDetailDraft) : null;
+        uiState.recordsDetailOpenSections = JSON.parse(snapshot.recordsDetailOpenSections || "{}");
         ids.weight.value = snapshot.weight;
         ids.height.value = snapshot.height;
         ids.age.value = snapshot.age;
