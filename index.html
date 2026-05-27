@@ -6286,6 +6286,38 @@ Notes:
     .record-detail-macro-card .sub:empty{
       min-height:14px;
     }
+    .record-detail-summary-card.is-editable{
+      background:color-mix(in srgb, var(--surface-soft) 68%, white 32%);
+    }
+    .record-detail-summary-card input,
+    .record-detail-summary-card textarea,
+    .record-detail-summary-card select{
+      width:100%;
+      min-width:0;
+      border:1px solid color-mix(in srgb, var(--line) 76%, white 24%);
+      border-radius:11px;
+      background:#fffdfa;
+      color:var(--ink);
+      font:inherit;
+      font-size:12.5px;
+      line-height:1.45;
+      min-height:36px;
+      padding:7px 9px;
+      outline:none;
+    }
+    .record-detail-summary-card textarea{
+      min-height:46px;
+      resize:vertical;
+    }
+    .record-detail-summary-card .record-detail-edit-modes,
+    .record-detail-summary-card .record-detail-edit-simple{
+      gap:6px;
+    }
+    .record-detail-summary-card .record-detail-edit-chip{
+      min-height:28px;
+      padding:5px 8px;
+      font-size:11px;
+    }
     .record-detail-subhead{
       margin:12px 0 8px;
       color:var(--deep);
@@ -27634,17 +27666,20 @@ Notes:
     }
 
     function renderRecordDetailCardGrid(items, className, itemClassName, dataName){
-      const safeItems = (Array.isArray(items) ? items : []).filter(item => item && item.value !== null && item.value !== undefined && item.value !== "");
+      const safeItems = (Array.isArray(items) ? items : []).filter(item => item && (item.html !== undefined || (item.value !== null && item.value !== undefined && item.value !== "")));
       if (!safeItems.length) return `<div class="record-detail-empty">표시할 내용이 아직 없습니다.</div>`;
       return `
         <div class="${escapeHtml(className)}">
           ${safeItems.map(item => {
             const dataAttribute = item.key ? ` data-${dataName}="${escapeHtml(item.key)}"` : "";
+            const extraClass = item.className ? ` ${escapeHtml(item.className)}` : "";
+            const valueHtml = item.html !== undefined ? item.html : escapeHtml(item.value);
+            const subHtml = item.subHtml !== undefined ? item.subHtml : escapeHtml(item.sub || "");
             return `
-              <div class="${escapeHtml(itemClassName)}"${dataAttribute}>
+              <div class="${escapeHtml(itemClassName)}${extraClass}"${dataAttribute}>
                 <div class="label">${escapeHtml(item.label)}</div>
-                <div class="value">${escapeHtml(item.value)}</div>
-                <div class="sub">${escapeHtml(item.sub || "")}</div>
+                <div class="value">${valueHtml}</div>
+                <div class="sub">${subHtml}</div>
               </div>
             `;
           }).join("")}
@@ -28301,6 +28336,18 @@ Notes:
       `;
     }
 
+    function renderRecordDetailWeightEditor(draft){
+      return `
+        <input id="recordDetailEditWeight" type="number" min="0" step="0.01" inputmode="decimal" data-detail-field="weight" value="${Number.isFinite(draft.weight) ? escapeHtml(draft.weight.toFixed(2)) : ""}" placeholder="선택 입력">
+      `;
+    }
+
+    function renderRecordDetailNoteEditor(draft){
+      return `
+        <textarea id="recordDetailEditNote" data-detail-field="note" placeholder="오늘 기록 메모">${escapeHtml(draft.note || "")}</textarea>
+      `;
+    }
+
     function renderRecordDetailMealEditor(meal, index){
       const safeMeal = normalizeMeal(meal, index) || {
         id: createMealId(),
@@ -28353,89 +28400,37 @@ Notes:
       `;
     }
 
-    function renderRecordDetailEdit(record){
-      const draft = getRecordDetailDraft(record);
-      const mode = getEditableRecordMode(draft);
-      const { dateLabel, weekdayLabel } = getRecordArchiveDateParts(draft.date);
-      const meals = Array.isArray(draft.meals) ? draft.meals : [];
-      return `
-        <div class="record-archive-detail is-editing" data-record-detail-date="${escapeHtml(draft.date)}" data-record-detail-edit="true">
-          <div class="record-detail-head">
-            <div>
-              <div class="record-detail-eyebrow">수정 중</div>
-              <div class="record-detail-title">${escapeHtml(dateLabel)} ${escapeHtml(weekdayLabel)} 기록 상세 수정</div>
-              <div class="record-detail-edit-note">이 값은 저장 전까지 원본에 반영되지 않습니다.</div>
-            </div>
-            <div class="record-detail-actions">
-              <button class="primary-btn" type="button" data-detail-save="${escapeHtml(draft.date)}">저장</button>
-              <button class="secondary-btn" type="button" data-detail-cancel="${escapeHtml(draft.date)}">취소</button>
-            </div>
-          </div>
-          <section class="record-detail-section">
-            <h4>기록 방식</h4>
-            ${renderRecordDetailModeButtons(mode)}
-            <div class="record-detail-edit-disabled">${escapeHtml(getRecordModeHint(mode))}</div>
-          </section>
-          <section class="record-detail-section">
-            <h4>체중 / 메모</h4>
-            <div class="record-detail-edit-grid">
-              <div class="record-detail-edit-field">
-                <label for="recordDetailEditWeight">아침 공복 체중 kg</label>
-                <input id="recordDetailEditWeight" type="number" min="0" step="0.1" inputmode="decimal" data-detail-field="weight" value="${Number.isFinite(draft.weight) ? escapeHtml(draft.weight.toFixed(2)) : ""}" placeholder="선택 입력">
-              </div>
-              <div class="record-detail-edit-field full">
-                <label for="recordDetailEditNote">메모</label>
-                <textarea id="recordDetailEditNote" data-detail-field="note" placeholder="오늘 기록 메모">${escapeHtml(draft.note || "")}</textarea>
-              </div>
-            </div>
-          </section>
-          ${mode === "simple" ? `
-            <section class="record-detail-section">
-              <h4>간단 식단 평가</h4>
-              ${renderRecordDetailSimpleButtons(draft.adherence || "medium")}
-            </section>
-          ` : ""}
-          ${mode === "detailed" ? `
-            <section class="record-detail-section">
-              <h4>식사 수정</h4>
-              <div class="record-detail-meal-edit-list">
-                ${meals.map((meal, index) => renderRecordDetailMealEditor(meal, index)).join("")}
-              </div>
-              <div class="record-detail-edit-actions-bottom">
-                <button class="secondary-btn" type="button" data-detail-add-meal="${escapeHtml(draft.date)}">식사 추가</button>
-              </div>
-              <div class="record-detail-edit-disabled">식단 점수는 식사 기록을 기준으로 다시 계산됩니다.</div>
-            </section>
-          ` : ""}
-          ${mode === "weight_only" ? `
-            <section class="record-detail-section">
-              <h4>식단 판단 없음</h4>
-              <div class="record-detail-empty">식사 목록과 식단 점수는 저장하지 않습니다.</div>
-            </section>
-          ` : ""}
-          ${renderRecordDetailGoalBasisEdit(draft)}
-        </div>
-      `;
-    }
-
     function renderRecordArchiveDetail(record){
       if (!record) return "";
-      if (isRecordDetailEditActive(record)) return renderRecordDetailEdit(record);
-      const { dateLabel, weekdayLabel } = getRecordArchiveDateParts(record.date);
-      const modeInfo = inferRecordMode(record);
-      const meals = Array.isArray(record.meals) ? record.meals : [];
-      const totals = getRecordDetailTotals(record);
-      const chips = getRecordArchiveChips(record);
-      const note = String(record.note || "").trim();
+      const isEditing = isRecordDetailEditActive(record);
+      const detailRecord = isEditing ? getRecordDetailDraft(record) : record;
+      const { dateLabel, weekdayLabel } = getRecordArchiveDateParts(detailRecord.date);
+      const modeInfo = inferRecordMode(detailRecord);
+      const mode = getEditableRecordMode(detailRecord);
+      const meals = Array.isArray(detailRecord.meals) ? detailRecord.meals : [];
+      const totals = getRecordDetailTotals(detailRecord);
+      const chips = getRecordArchiveChips(detailRecord);
+      const note = String(detailRecord.note || "").trim();
       const hasStoredRecord = !!getRecordByDate(record.date);
-      const inbodyCount = getInbodyRecordCountForDate(record.date);
-      const summaryMetrics = [
+      const inbodyCount = getInbodyRecordCountForDate(detailRecord.date);
+      let summaryMetrics = [
         { label: "기록 방식", value: getRecordArchiveModeChip(record, modeInfo).label, sub: "", key: "mode" },
         getRecordDetailMealSummary(record, modeInfo),
         { label: "체중", value: Number.isFinite(record.weight) ? `${formatKg2(record.weight)} kg` : "기록 없음", sub: "", key: "weight" },
         { label: "메모", value: note ? "있음" : "기록 없음", sub: "", key: "memo" },
         { label: "InBody", value: inbodyCount ? `${inbodyCount}건` : "기록 없음", sub: "", key: "inbody" }
       ];
+      if (isEditing) {
+        summaryMetrics = [
+          { label: "기록 방식", html: renderRecordDetailModeButtons(mode), sub: getRecordModeHint(mode), key: "mode", className: "is-editable" },
+          mode === "simple"
+            ? { label: "식사", html: renderRecordDetailSimpleButtons(detailRecord.adherence || "medium"), sub: "간단 평가 선택", key: "meal", className: "is-editable" }
+            : getRecordDetailMealSummary(detailRecord, modeInfo),
+          { label: "체중", html: renderRecordDetailWeightEditor(detailRecord), sub: "아침 공복 체중 kg", key: "weight", className: "is-editable" },
+          { label: "메모", html: renderRecordDetailNoteEditor(detailRecord), sub: "기록 메모", key: "memo", className: "is-editable" },
+          { label: "InBody", value: inbodyCount ? `${inbodyCount}건` : "기록 없음", sub: "InBody 탭에서 관리", key: "inbody" }
+        ];
+      }
       const macroMetrics = [
         { label: "탄수화물", value: formatRecordDetailGram(totals.carbs), sub: "합계", key: "carbs" },
         { label: "단백질", value: formatRecordDetailGram(totals.protein), sub: "합계", key: "protein" },
@@ -28446,16 +28441,19 @@ Notes:
       ];
       const shouldShowMacroSections = modeInfo.recordMode === "detailed";
       return `
-        <div class="record-archive-detail" data-record-detail-date="${escapeHtml(record.date)}">
+        <div class="record-archive-detail${isEditing ? " is-editing" : ""}" data-record-detail-date="${escapeHtml(detailRecord.date)}"${isEditing ? ` data-record-detail-edit="true"` : ""}>
           <div class="record-detail-head">
             <div>
               <div class="record-detail-eyebrow">기록 상세</div>
               <div class="record-detail-title">${escapeHtml(dateLabel)} ${escapeHtml(weekdayLabel)} 기록 상세</div>
             </div>
             <div class="record-detail-actions">
-              ${hasStoredRecord ? `
-                <button class="secondary-btn" type="button" data-edit-record-date="${escapeHtml(record.date)}">수정하기</button>
-                <button class="secondary-btn" type="button" data-delete-record="${escapeHtml(record.date)}">기록 삭제</button>
+              ${isEditing ? `
+                <button class="primary-btn" type="button" data-detail-save="${escapeHtml(detailRecord.date)}">저장</button>
+                <button class="secondary-btn" type="button" data-detail-cancel="${escapeHtml(detailRecord.date)}">취소</button>
+              ` : hasStoredRecord ? `
+                <button class="secondary-btn" type="button" data-edit-record-date="${escapeHtml(detailRecord.date)}">수정하기</button>
+                <button class="secondary-btn" type="button" data-delete-record="${escapeHtml(detailRecord.date)}">기록 삭제</button>
               ` : ""}
             </div>
           </div>
@@ -28474,20 +28472,30 @@ Notes:
             <details class="record-detail-section record-detail-collapsible record-detail-meals-collapsible">
               <summary>식사 목록</summary>
               <div class="record-detail-collapsible-body">
-              ${renderRecordDetailMeals(record)}
+              ${isEditing ? `
+                <div class="record-detail-meal-edit-list">
+                  ${meals.map((meal, index) => renderRecordDetailMealEditor(meal, index)).join("")}
+                </div>
+                <div class="record-detail-edit-actions-bottom">
+                  <button class="secondary-btn" type="button" data-detail-add-meal="${escapeHtml(detailRecord.date)}">식사 추가</button>
+                </div>
+                <div class="record-detail-edit-disabled">식단 점수는 식사 기록을 기준으로 다시 계산됩니다.</div>
+              ` : renderRecordDetailMeals(detailRecord)}
               </div>
             </details>
           ` : ""}
-          <details class="record-detail-section record-detail-collapsible">
-            <summary>당시 목표 / 당시 계산 기준</summary>
-            <div class="record-detail-collapsible-body">
-              ${renderRecordDetailGoalSnapshot(record.goalSnapshot)}
-            </div>
-          </details>
+          ${isEditing ? renderRecordDetailGoalBasisEdit(detailRecord) : `
+            <details class="record-detail-section record-detail-collapsible">
+              <summary>당시 목표 / 당시 계산 기준</summary>
+              <div class="record-detail-collapsible-body">
+                ${renderRecordDetailGoalSnapshot(detailRecord.goalSnapshot)}
+              </div>
+            </details>
+          `}
           <details class="record-detail-section record-detail-collapsible">
             <summary>InBody</summary>
             <div class="record-detail-collapsible-body">
-            ${renderRecordDetailInbody(record.date)}
+            ${renderRecordDetailInbody(detailRecord.date)}
             </div>
           </details>
         </div>
@@ -37134,7 +37142,7 @@ Notes:
           recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", weight: 75.2, note: "기존 메모", meals: [makeMeal()] }]);
           const detail = openDetailEdit("2026-05-08");
           assertTest(!!detail, "inline edit should open");
-          assertTest(detail.textContent.includes("기록 상세 수정"), "inline edit title should show");
+          assertTest(detail.textContent.includes("기록 상세"), "inline edit should keep the same detail title");
           assertTest(document.querySelector('[data-detail-field="weight"]').value === "75.20", "weight input should be prefilled");
           assertTest(document.querySelector('[data-detail-field="note"]').value === "기존 메모", "memo input should be prefilled");
           assertTest(!!uiState.recordsDetailDraft && getRecordByDate("2026-05-08").weight === 75.2, "draft should exist without changing original");
@@ -37253,7 +37261,7 @@ Notes:
           }]);
           openDetailEdit("2026-05-08");
           const text = document.querySelector("[data-record-detail-date='2026-05-08']").textContent || "";
-          assertIncludesAll(text, ["당시 목표", "당시 계산 기준", "다시 계산될 기준", "이 값은 저장 전까지 원본에 반영되지 않습니다"], "inline edit should show editable goal context");
+          assertIncludesAll(text, ["당시 목표", "계산 기준", "다시 계산될 기준"], "inline edit should show editable goal context without replacing the detail layout");
           assertExcludesAll(text, ["recordMode", "goalSnapshot", "snapshot", "draft", "schema", "autoDietAnalysis", "자동 점수 토글"], "inline edit should hide internal terms");
         }));
 
@@ -42910,7 +42918,7 @@ Notes:
           startRecordDetailEdit(today);
           renderRecordsPanel();
           const edit = document.querySelector(`[data-record-detail-date="${today}"][data-record-detail-edit="true"]`);
-          assertTest(!!edit && edit.textContent.includes("기록 상세 수정"), "record detail edit form should open");
+          assertTest(!!edit && edit.textContent.includes("기록 상세"), "record detail edit form should keep the detail layout open");
           assertTest(document.getElementById("recordArchiveDetailHost")?.contains(edit), "record detail edit form should stay in the right review surface");
           assertTest(!!edit.querySelector('[data-detail-field="weight"]'), "record detail edit weight field should remain");
           assertTest(!!edit.querySelector('[data-detail-basis-field="weeklyTrainingDays"]'), "saved-basis weekly training field should remain");
