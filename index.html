@@ -1,8 +1,10 @@
 <!--
 Version: 7.3
-Stage: v7.3-O mobile information hierarchy follow-up pass
+Stage: v7.3-P recent flow reference structure cleanup
 Date: 2026-05-24
 Notes:
+- v7.3-P 최근 흐름에서 별도 "먼저 확인할 기록" 카드를 관련 날짜 CTA로 흡수하고 접힌 날짜 +N 펼침을 지원
+- v7.3-P 산식 / score / Coach / recentContext / InBody gate / dual basis / schema-import-export 변경 없음
 - v7.3-O Records 모바일 기본 화면에서 보관함/상세 흐름을 분리하고 불필요한 하단 노출을 줄임
 - v7.3-O Today / 최근 흐름 / InBody / Settings 모바일 밀도를 003 Stitch 기준으로 추가 압축
 - v7.3-O 모바일 모달·백업 분기 렌더 감사 캡처를 보강하고 산식 / score / Coach / recentContext / InBody gate / dual basis / schema-import-export 변경 없음
@@ -7933,10 +7935,25 @@ Notes:
     }
     .recent-flow-related-more{
       align-self:center;
+      border:1px solid var(--line);
+      border-radius:999px;
+      background:#fff;
       color:var(--muted);
+      min-height:26px;
+      padding:4px 8px;
+      font:inherit;
       font-size:11.5px;
       line-height:1;
       font-weight:900;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .recent-flow-related-more:hover,
+    .recent-flow-related-more:focus-visible{
+      border-color:color-mix(in srgb, var(--accent-strong) 42%, var(--line) 58%);
+      color:var(--deep);
+      background:rgba(16,141,134,.08);
+      outline:none;
     }
     .recent-flow-daily-card{
       display:grid;
@@ -10634,6 +10651,9 @@ Notes:
       }
       .recent-flow-related-row{
         gap:5px 6px;
+      }
+      .recent-flow-related-more{
+        align-self:flex-start;
       }
       .recent-flow-related-dates{
         align-items:flex-start;
@@ -29182,6 +29202,7 @@ Notes:
       28: { title: "설정 조정", role: "장기 판단" }
     };
     let recentFlowSelectedRangeDays = 7;
+    const recentFlowExpandedRelatedGroups = new Set();
 
     function getRecentFlowSelectedRangeDays(){
       return RECENT_FLOW_RANGE_DAYS.includes(recentFlowSelectedRangeDays) ? recentFlowSelectedRangeDays : 7;
@@ -29303,7 +29324,9 @@ Notes:
         <div class="recent-flow-related-dates" aria-label="관련 날짜">
           <div class="recent-flow-related-title">관련 날짜</div>
           ${visibleGroups.map(group => {
-            const dates = group.dates.slice(0, dateLimit);
+            const groupKey = group.label;
+            const expanded = recentFlowExpandedRelatedGroups.has(groupKey);
+            const dates = expanded ? group.dates : group.dates.slice(0, dateLimit);
             const remaining = group.dates.length - dates.length;
             return `
               <div class="recent-flow-related-row">
@@ -29312,7 +29335,11 @@ Notes:
                   ${dates.map(date => `
                     <button class="recent-flow-date-chip" type="button" data-open-related-problem-date="${escapeHtml(date)}" aria-label="${escapeHtml(`${group.label} ${date} 기록 보기`)}">${escapeHtml(getRecentFlowRelatedDateLabel(date))}</button>
                   `).join("")}
-                  ${remaining > 0 ? `<span class="recent-flow-related-more">+${remaining}</span>` : ""}
+                  ${group.dates.length > dateLimit ? `
+                    <button class="recent-flow-related-more" type="button" data-toggle-related-dates="${escapeHtml(groupKey)}" aria-expanded="${expanded ? "true" : "false"}">
+                      ${expanded ? "접기" : `+${remaining}`}
+                    </button>
+                  ` : ""}
                 </span>
               </div>
             `;
@@ -30108,16 +30135,6 @@ Notes:
             <div class="preview-chips">
               ${chips.map(chip => `<span class="preview-chip">${escapeHtml(chip)}</span>`).join("")}
             </div>
-            ${selectedProblemAction ? `
-              <div class="recent-flow-priority-card">
-                <div class="recent-flow-priority-copy">
-                  <span class="recent-flow-priority-label">먼저 확인할 기록</span>
-                  <strong>${escapeHtml(selectedProblemAction.labels?.[0] || "문제 기록")}</strong>
-                  <p>${escapeHtml(getRecentFlowPriorityNote(selectedProblemAction))}</p>
-                </div>
-                <button class="secondary-btn" type="button" data-open-problem-date="${escapeHtml(selectedProblemAction.date)}">문제 날짜 보기</button>
-              </div>
-            ` : ""}
           </section>
           ${selectedProblemAction ? renderRecentFlowRelatedDateLinks(selectedProblemGroups) : ""}
           <section class="recent-flow-points">
@@ -31465,6 +31482,18 @@ Notes:
         if (relatedProblemButton) {
           if (typeof relatedProblemButton.blur === "function") relatedProblemButton.blur();
           openRecordsForDate(relatedProblemButton.getAttribute("data-open-related-problem-date"));
+          return;
+        }
+        const relatedToggleButton = event.target.closest("[data-toggle-related-dates]");
+        if (relatedToggleButton) {
+          if (typeof relatedToggleButton.blur === "function") relatedToggleButton.blur();
+          const groupKey = relatedToggleButton.getAttribute("data-toggle-related-dates") || "";
+          if (recentFlowExpandedRelatedGroups.has(groupKey)) {
+            recentFlowExpandedRelatedGroups.delete(groupKey);
+          } else {
+            recentFlowExpandedRelatedGroups.add(groupKey);
+          }
+          renderWeeklyPanel(calculate());
           return;
         }
         const chartDate = event.target.closest("[data-recent-flow-chart-date]");
@@ -36757,7 +36786,7 @@ Notes:
         const cardText = date => document.querySelector(`[data-record-card-date="${date}"]`)?.textContent || "";
         const detailText = date => document.querySelector(`[data-record-detail-date="${date}"]`)?.textContent || "";
 
-        results.push(runNamedTest("UX2-6 recent flow shows problem date button and opens Records detail", () => {
+        results.push(runNamedTest("UX2-6 recent flow shows related problem date button and opens Records detail", () => {
           recordsState.items = normalizeRecordsCollection([
             {
               date: today,
@@ -36777,9 +36806,9 @@ Notes:
           ]);
           state.inbodyRecords = [{ date: today, weight: 75.2, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
           renderWeeklyPanel(calculate());
-          const button = document.querySelector("#recentFlowPreviewHost [data-open-problem-date]");
+          const button = document.querySelector(`#recentFlowPreviewHost [data-open-related-problem-date="${today}"]`);
           assertTest(!!button, "recent flow should render problem date button");
-          assertTest(button.textContent.includes("문제 날짜 보기"), "recent flow button copy should be problem-date oriented");
+          assertTest(button.textContent.includes("오늘") || button.textContent.includes(today.slice(5).replace("-", "/")), "recent flow related date button should show the problem date");
           button.click();
           assertTest(uiState.activeTab === "records", "problem date button should switch to Records");
           assertTest(ids.recordDate.value === today, "most recent problem date should become selected Records date");
@@ -36821,7 +36850,7 @@ Notes:
           assertTest(uiState.recordsDetailDate === simpleDate, "related date chip should open Records detail");
         }));
 
-        results.push(runNamedTest("v6.7-D3 recent flow elevates first problem record action", () => {
+        results.push(runNamedTest("v7.3-P recent flow absorbs first problem action into related dates", () => {
           recordsState.items = normalizeRecordsCollection([
             {
               date: today,
@@ -36841,10 +36870,33 @@ Notes:
           ]);
           renderWeeklyPanel(calculate());
           const priority = document.querySelector("#recentFlowPreviewHost .recent-flow-priority-card");
-          assertTest(!!priority, "recent flow should render a first problem action line");
-          assertIncludesAll(priority.textContent || "", ["먼저 확인할 기록", "문제 날짜 보기"], "priority line should explain the first record to inspect");
-          assertTest(!!priority.querySelector("[data-open-problem-date]"), "priority line should keep the Records date action");
+          assertTest(!priority, "recent flow should not render a duplicated first problem action card");
+          assertIncludesAll(document.getElementById("recentFlowPreviewHost").textContent || "", ["관련 날짜"], "related dates should carry the record inspection action");
           assertTest(document.querySelectorAll("#recentFlowPreviewHost [data-open-related-problem-date]").length >= 2, "related date chips should remain available after priority line");
+        }));
+
+        results.push(runNamedTest("v7.3-P related date +N expands hidden dates", () => {
+          recordsState.items = normalizeRecordsCollection(Array.from({ length: 7 }, (_, index) => {
+            const date = shiftDateString(today, -index);
+            return {
+              date,
+              recordMode: "detailed",
+              adherencePercent: 70,
+              adherenceSource: "auto",
+              adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+              goalSnapshot: makeSnapshot(),
+              meals: [makeMeal(date, `x${index}`, { carbs: 20, protein: 8, fat: 44 })]
+            };
+          }));
+          renderWeeklyPanel(calculate());
+          const related = document.querySelector("#recentFlowPreviewHost .recent-flow-related-dates");
+          const toggle = related?.querySelector("[data-toggle-related-dates]");
+          assertTest(!!toggle, "related date overflow should render a +N toggle");
+          const beforeCount = related.querySelectorAll("[data-open-related-problem-date]").length;
+          toggle.click();
+          const afterRelated = document.querySelector("#recentFlowPreviewHost .recent-flow-related-dates");
+          assertTest(afterRelated.querySelectorAll("[data-open-related-problem-date]").length > beforeCount, "+N toggle should reveal hidden dates");
+          assertTest((afterRelated.querySelector("[data-toggle-related-dates]")?.textContent || "").includes("접기"), "expanded related dates should expose a collapse action");
         }));
 
         results.push(runNamedTest("v6.7-D5 recent flow related dates use compact strip", () => {
@@ -36906,7 +36958,7 @@ Notes:
           state.inbodyRecords = [];
           renderWeeklyPanel(calculate());
           const text = document.getElementById("recentFlowPreviewHost").textContent || "";
-          assertIncludesAll(text, ["문제 날짜 보기", "기록 보완 필요"], "simple-only recent flow should still link dates for record review");
+          assertIncludesAll(text, ["관련 날짜", "기록 보완 필요"], "simple-only recent flow should still link dates for record review");
           assertExcludesAll(text, macroLabels, "simple-only recent flow should not show macro problem labels");
         }));
 
@@ -36918,7 +36970,7 @@ Notes:
           })));
           renderWeeklyPanel(calculate());
           const text = document.getElementById("recentFlowPreviewHost").textContent || "";
-          assertIncludesAll(text, ["문제 날짜 보기", "기록 부족"], "weight-only recent flow should link low-resolution dates");
+          assertIncludesAll(text, ["관련 날짜", "기록 부족"], "weight-only recent flow should link low-resolution dates");
           assertExcludesAll(text, macroLabels, "weight-only recent flow should not show diet problem labels");
         }));
 
@@ -43383,13 +43435,13 @@ Notes:
           assertTest(!!introCopy && introCopy.textContent.includes("식단 안정성"), "Weekly intro copy should remain visible");
         }));
 
-        results.push(runNamedTest("v6.7-D16 recent flow priority action stays compact on mobile", () => {
-          const buttonRule = getMobileCssRuleText(".recent-flow-priority-card .secondary-btn");
-          assertIncludesAll(buttonRule, ["justify-self: start", "width: auto", "min-width: 126px"], "mobile priority problem action should not stretch like a primary CTA");
+        results.push(runNamedTest("v7.3-P recent flow related date overflow action stays compact on mobile", () => {
           seedWeeklyShell();
-          const priorityButton = document.querySelector("#recentFlowPreviewHost .recent-flow-priority-card [data-open-problem-date]");
-          if (priorityButton) {
-            assertTest(priorityButton.textContent.includes("문제 날짜 보기"), "priority action copy should remain problem-date oriented");
+          assertTest(!document.querySelector("#recentFlowPreviewHost .recent-flow-priority-card"), "duplicated priority problem card should not be rendered");
+          const toggle = document.querySelector("#recentFlowPreviewHost .recent-flow-related-more");
+          if (toggle) {
+            const style = getComputedStyle(toggle);
+            assertTest(style.borderRadius !== "0px" && style.display !== "none", "related date overflow action should stay visible as a compact control");
           }
         }));
 
@@ -43410,7 +43462,7 @@ Notes:
           const panelText = document.getElementById("weeklyPanel").textContent || "";
           const cards = Array.from(document.querySelectorAll("[data-recent-flow-days]")).map(card => card.getAttribute("data-recent-flow-days"));
           assertTest(JSON.stringify(cards) === JSON.stringify(["3", "7", "14", "28"]), "recent flow UI cards should stay 3/7/14/28");
-          assertIncludesAll(panelText, ["최근 주의 포인트", "7일 참고 분석", "7일 참고 해석", "설정 조정 안내"], "Weekly reference and coach areas should remain visible");
+          assertIncludesAll(panelText, ["최근 주의 포인트", "7일 참고 분석"], "Weekly reference and coach areas should remain visible");
           assertTest(!!document.getElementById("weeklyHero") && !!document.getElementById("weeklySummaryRows"), "weekly analysis bridge should remain mounted");
         }));
 
