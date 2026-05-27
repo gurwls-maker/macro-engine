@@ -4,7 +4,7 @@ Stage: v7.3-P recent flow reference structure cleanup
 Date: 2026-05-24
 Notes:
 - v7.3-P 최근 흐름에서 별도 "먼저 확인할 기록" 카드를 관련 날짜 CTA로 흡수하고 접힌 날짜 +N 펼침을 지원
-- v7.3-P 7일 참고 해석 중복 블록을 제거하고 설정/목표 조정 안내는 14일·28일 조건부 안내로 축소
+- v7.3-P 7일 참고 해석 중복 블록을 제거하고 설정 조정 안내는 28일 권장 행동 도움말로 축소
 - v7.3-P 참고 분석의 오른쪽 요약 row는 판단/행동을 반복하지 않고 숫자 근거만 표시
 - v7.3-P 산식 / score / Coach / recentContext / InBody gate / dual basis / schema-import-export 변경 없음
 - v7.3-O Records 모바일 기본 화면에서 보관함/상세 흐름을 분리하고 불필요한 하단 노출을 줄임
@@ -8684,6 +8684,28 @@ Notes:
     .weekly-stitch-reference .weekly-hero-section .caption{
       line-height:1.55;
     }
+    .weekly-action-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .weekly-action-help{
+      width:26px;
+      height:26px;
+      flex:0 0 26px;
+      font-size:12px;
+    }
+    .weekly-action-helptext{
+      margin-top:2px;
+      padding:10px 12px;
+      border-radius:14px;
+      font-size:12px;
+      line-height:1.5;
+    }
+    .weekly-action-helptext p{
+      margin:0;
+    }
     .weekly-reference-block{
       margin-top:0;
       padding:22px 2px 0;
@@ -14354,9 +14376,13 @@ Notes:
                 <div class="caption" id="weeklyCaption">최근 기록이 쌓이면 여기서 주간 흐름과 설정 변경 전 확인할 내용을 읽을 수 있습니다.</div>
               </div>
               <div class="weekly-hero-section action" id="weeklyActionCard">
-                <div class="eyebrow">권장 행동</div>
+                <div class="weekly-action-head">
+                  <div class="eyebrow">권장 행동</div>
+                  <button class="macro-basis-help weekly-action-help hidden" id="weeklyActionHelp" type="button" aria-expanded="false" aria-controls="weeklyActionHelpText" aria-label="권장 행동 판단 기준">?</button>
+                </div>
                 <div class="headline" id="weeklyActionText">최근 기록을 더 쌓아 주세요</div>
                 <div class="caption" id="weeklyActionCaption">현재 주간 상태를 어떻게 해석하고 무엇부터 손보면 되는지 왼쪽 카드와 같은 구조로 정리해 보여줍니다.</div>
+                <div class="macro-basis-helptext weekly-action-helptext hidden" id="weeklyActionHelpText"></div>
               </div>
             </div>
             <div class="analysis-card">
@@ -30119,6 +30145,19 @@ Notes:
       document.getElementById("weeklyCaption").textContent = analysis.caption;
       document.getElementById("weeklyActionText").textContent = analysis.actionText;
       document.getElementById("weeklyActionCaption").textContent = actionCaption;
+      // Future candidate: turn the weekly action text into an explicit setting-adjustment action
+      // only after a separate UX/policy step. For now it is an explanation output, not a mutation button.
+      const actionHelp = document.getElementById("weeklyActionHelp");
+      const actionHelpText = document.getElementById("weeklyActionHelpText");
+      const shouldShowReferenceGuide = selectedRangeDays >= 28;
+      if (actionHelp && actionHelpText) {
+        actionHelp.classList.toggle("hidden", !shouldShowReferenceGuide);
+        actionHelp.setAttribute("aria-expanded", "false");
+        actionHelpText.classList.add("hidden");
+        actionHelpText.innerHTML = shouldShowReferenceGuide
+          ? `<strong>${escapeHtml(referenceMeta.guideTitle)}</strong><p>${escapeHtml(referenceMeta.guideCopy)}</p>`
+          : "";
+      }
       document.getElementById("weeklySummaryRows").innerHTML = analysis.summaryRows.map(([k, v]) => `
         <div class="row">
           <div class="key">${k}</div>
@@ -30129,11 +30168,8 @@ Notes:
 
       const infoHost = document.getElementById("weeklyInfoHost");
       const noteGrid = document.querySelector("#weeklyPanel .weekly-reference-note-grid");
-      const shouldShowReferenceGuide = selectedRangeDays >= 14;
-      infoHost.innerHTML = shouldShowReferenceGuide
-        ? `<div class="weekly-reference-block"><h4>${escapeHtml(referenceMeta.guideTitle)}</h4><p>${escapeHtml(referenceMeta.guideCopy)}</p></div>`
-        : "";
-      if (noteGrid) noteGrid.hidden = !shouldShowReferenceGuide;
+      if (infoHost) infoHost.innerHTML = "";
+      if (noteGrid) noteGrid.hidden = true;
 
       const warnHost = document.getElementById("weeklyWarningHost");
       warnHost.innerHTML = "";
@@ -31419,6 +31455,23 @@ Notes:
       macroBasisHelpButton?.addEventListener("mouseleave", () => setMacroBasisHelpOpen(false));
       macroBasisHelpButton?.addEventListener("focus", () => setMacroBasisHelpOpen(true));
       macroBasisHelpButton?.addEventListener("blur", () => setMacroBasisHelpOpen(false));
+      const weeklyActionHelpButton = document.getElementById("weeklyActionHelp");
+      const setWeeklyActionHelpOpen = open => {
+        const helpText = document.getElementById("weeklyActionHelpText");
+        const helpButton = document.getElementById("weeklyActionHelp");
+        if (!helpText || !helpButton || helpButton.classList.contains("hidden")) return;
+        helpText.classList.toggle("hidden", !open);
+        helpButton.setAttribute("aria-expanded", open ? "true" : "false");
+      };
+      weeklyActionHelpButton?.addEventListener("click", () => {
+        const helpText = document.getElementById("weeklyActionHelpText");
+        if (!helpText) return;
+        setWeeklyActionHelpOpen(helpText.classList.contains("hidden"));
+      });
+      weeklyActionHelpButton?.addEventListener("mouseenter", () => setWeeklyActionHelpOpen(true));
+      weeklyActionHelpButton?.addEventListener("mouseleave", () => setWeeklyActionHelpOpen(false));
+      weeklyActionHelpButton?.addEventListener("focus", () => setWeeklyActionHelpOpen(true));
+      weeklyActionHelpButton?.addEventListener("blur", () => setWeeklyActionHelpOpen(false));
       document.getElementById("recentFlowPreviewHost").addEventListener("click", event => {
         const problemButton = event.target.closest("[data-open-problem-date]");
         if (problemButton) {
@@ -43414,17 +43467,22 @@ Notes:
           assertTest(!!document.getElementById("weeklyHero") && !!document.getElementById("weeklySummaryRows"), "weekly analysis bridge should remain mounted");
         }));
 
-        results.push(runNamedTest("v7.3-P weekly reference guidance is conditional after seven days", () => {
+        results.push(runNamedTest("v7.3-P weekly setting guidance is limited to twenty-eight day view", () => {
           seedWeeklyShell();
           const noteGrid = document.querySelector(".weekly-reference-note-grid");
-          assertTest(!!noteGrid, "weekly reference notes should render inside a shared card grid");
-          assertTest(noteGrid.contains(document.getElementById("weeklyInfoHost")), "weekly settings guidance should stay in the support card grid");
-          assertTest(noteGrid.hidden === true, "weekly reference guidance should stay hidden on seven day view");
+          const actionHelp = document.getElementById("weeklyActionHelp");
+          const actionHelpText = document.getElementById("weeklyActionHelpText");
+          assertTest(!!noteGrid && !!actionHelp && !!actionHelpText, "weekly setting guidance hooks should render");
+          assertTest(noteGrid.hidden === true, "weekly duplicate bottom guidance should stay hidden on seven day view");
+          assertTest(actionHelp.classList.contains("hidden"), "weekly setting help should stay hidden on seven day view");
           document.querySelector('[data-recent-flow-range="14"]').click();
-          assertTest(noteGrid.hidden === false, "weekly reference guidance should show on fourteen day view");
-          assertTest((document.getElementById("weeklyInfoHost").textContent || "").includes("목표 진행 안내"), "fourteen day view should show goal progress guidance");
+          assertTest(noteGrid.hidden === true, "weekly duplicate bottom guidance should stay hidden on fourteen day view");
+          assertTest(actionHelp.classList.contains("hidden"), "fourteen day view should not show setting help");
+          assertTest(!(actionHelpText.textContent || "").includes("목표 진행 안내"), "fourteen day view should not expose goal progress guidance text");
           document.querySelector('[data-recent-flow-range="28"]').click();
-          assertTest((document.getElementById("weeklyInfoHost").textContent || "").includes("설정 판단 안내"), "twenty-eight day view should show settings judgment guidance");
+          assertTest(noteGrid.hidden === true, "weekly duplicate bottom guidance should stay hidden on twenty-eight day view");
+          assertTest(!actionHelp.classList.contains("hidden"), "twenty-eight day view should show setting help");
+          assertTest((actionHelpText.textContent || "").includes("설정 판단 안내"), "twenty-eight day view should show settings judgment guidance");
         }));
 
         results.push(runNamedTest("v6.7-D23 weekly reference analysis cards use compact density", () => {
@@ -43451,7 +43509,8 @@ Notes:
           document.querySelector('[data-recent-flow-range="14"]').click();
           text = document.querySelector(".recent-flow-range-row").textContent || "";
           assertTest(document.querySelector('[data-recent-flow-range="14"]')?.classList.contains("active"), "fourteen day range should become active");
-          assertIncludesAll(document.getElementById("weeklyPanel")?.textContent || "", ["14일 참고 분석", "목표 진행 안내"], "reference analysis should follow selected fourteen day range");
+          assertIncludesAll(document.getElementById("weeklyPanel")?.textContent || "", ["14일 참고 분석"], "reference analysis should follow selected fourteen day range");
+          assertTest(!(document.getElementById("weeklyPanel")?.textContent || "").includes("목표 진행 안내"), "fourteen day view should not show separate goal progress guidance");
           assertTest(document.querySelectorAll(".recent-flow-chart-bar").length >= 14, "fourteen day range should render fourteen chart bars");
           assertTest((document.querySelector(".recent-flow-chart-svg")?.textContent || "").includes("500"), "chart y axis should use explicit kcal ticks");
           document.querySelector('[data-recent-flow-range="28"]').click();
@@ -55517,7 +55576,7 @@ Notes:
           const panelText = document.getElementById("weeklyPanel").textContent || "";
           assertTest((document.querySelector(".weekly-reference-note-grid")?.hidden === true), "seven day view should not show duplicate bottom guidance");
           document.querySelector('[data-recent-flow-range="28"]').click();
-          const guidanceText = document.getElementById("weeklyInfoHost").textContent || "";
+          const guidanceText = document.getElementById("weeklyActionHelpText").textContent || "";
           assertIncludesAll(guidanceText, ["설정 판단 안내", "설정 조정"], "twenty-eight day reference copy should stay lower priority");
           const rowsText = document.getElementById("weeklySummaryRows")?.textContent || "";
           assertIncludesAll(rowsText, ["기록 종류", "목표 기준", "식단 점수 평균"], "weekly reference rows should use user-facing labels");
@@ -55565,8 +55624,12 @@ Notes:
           renderWeeklyPanel(calculate());
           assertTest(!document.getElementById("weeklyInterpretationText"), "weekly interpretation support copy should be removed from the base screen");
           assertTest((document.querySelector(".weekly-reference-note-grid")?.hidden === true), "weekly reference support copy should stay hidden on the base screen");
+          assertTest(document.getElementById("weeklyActionHelp")?.classList.contains("hidden"), "weekly setting help should stay hidden on the base screen");
           document.querySelector('[data-recent-flow-range="14"]').click();
-          const guidance = document.getElementById("weeklyInfoHost")?.textContent || "";
+          assertTest(document.getElementById("weeklyActionHelp")?.classList.contains("hidden"), "fourteen day view should not expose setting help");
+          document.querySelector('[data-recent-flow-range="28"]').click();
+          const guidance = document.getElementById("weeklyActionHelpText")?.textContent || "";
+          assertTest(!document.getElementById("weeklyActionHelp")?.classList.contains("hidden"), "twenty-eight day view should expose compact setting help");
           assertTest(guidance.split(".").filter(Boolean).length <= 2, "conditional guidance should stay short");
           assertExcludesAll(guidance, ["볼 수 있는 상태입니다", "현재 상태는 목표 방향", "오늘 코치의 첫 행동"], "weekly reference support copy should avoid old long phrases");
         }));
