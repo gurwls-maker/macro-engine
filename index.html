@@ -28516,7 +28516,7 @@ Notes:
           || normalizeDateString(record.date) === normalizeDateString(uiState.recordsDetailDate);
         const hasStoredRecord = !!getRecordByDate(record.date);
         return `
-          <article class="record-archive-card${isSelected ? " is-selected" : ""}" data-record-card-date="${escapeHtml(record.date)}" tabindex="0">
+          <article class="record-archive-card${isSelected ? " is-selected" : ""}" data-record-card-date="${escapeHtml(record.date)}">
             <div class="record-archive-main">
               <div class="record-archive-date">
                 <span>${escapeHtml(dateLabel)}</span>
@@ -31749,32 +31749,6 @@ Notes:
         const card = event.target.closest("[data-record-card-date]");
         if (!card) return;
         selectRecordArchiveDate(card.getAttribute("data-record-card-date"), { openDetail: true });
-      });
-      document.getElementById("recordsPanel").addEventListener("keydown", event => {
-        if (event.target.closest("button,input,select,textarea,a")) return;
-        const card = event.target.closest("[data-record-card-date]");
-        if (!card) return;
-        const cards = Array.from(document.querySelectorAll("#recordsTable [data-record-card-date]"));
-        const currentIndex = cards.indexOf(card);
-        let targetCard = null;
-        if (event.key === "Enter" || event.key === " ") {
-          targetCard = card;
-        } else if (event.key === "ArrowDown") {
-          targetCard = cards[Math.min(currentIndex + 1, cards.length - 1)];
-        } else if (event.key === "ArrowUp") {
-          targetCard = cards[Math.max(currentIndex - 1, 0)];
-        } else if (event.key === "Home") {
-          targetCard = cards[0];
-        } else if (event.key === "End") {
-          targetCard = cards[cards.length - 1];
-        }
-        if (!targetCard) return;
-        event.preventDefault();
-        const targetDate = targetCard.getAttribute("data-record-card-date");
-        selectRecordArchiveDate(targetDate, { openDetail: true });
-        const renderedTarget = document.querySelector(`[data-record-card-date="${targetDate}"]`);
-        renderedTarget?.focus({ preventScroll: true });
-        renderedTarget?.scrollIntoView({ block: "nearest" });
       });
       document.getElementById("recordsPanel").addEventListener("input", event => {
         if (!event.target.closest("[data-record-detail-edit='true']")) return;
@@ -36340,45 +36314,6 @@ Notes:
           assertTest(!document.querySelector("[data-record-detail-date='2026-05-08']"), "unselected archive date should not force detail");
           document.querySelector('[data-record-card-date="2026-05-08"]').click();
           assertTest(!!document.querySelector("[data-record-detail-date='2026-05-08']"), "card selection should open detail");
-        }));
-
-        results.push(runNamedTest("records archive keyboard navigation moves card selection", () => {
-          const firstDate = getTodayDateString();
-          const secondDate = shiftDateString(firstDate, -1);
-          const thirdDate = shiftDateString(firstDate, -2);
-          recordsState.items = normalizeRecordsCollection([
-            { date: firstDate, recordMode: "detailed", meals: [makeMeal("m1")] },
-            { date: secondDate, recordMode: "simple", adherence: "medium" },
-            { date: thirdDate, recordMode: "weight_only", weight: 75 }
-          ]);
-          state.inbodyRecords = [];
-          setActiveTab("records");
-          ids.recordDate.value = firstDate;
-          uiState.recordsDetailDate = null;
-          renderRecordsPanel();
-          const cardDates = () => Array.from(document.querySelectorAll("#recordsTable [data-record-card-date]"))
-            .map(card => card.getAttribute("data-record-card-date"));
-          assertTest(cardDates().length === 3, `keyboard navigation test should render three record cards: ${cardDates().join(",")}`);
-          const pressCardKey = (date, key) => {
-            const target = document.querySelector(`[data-record-card-date="${date}"]`);
-            assertTest(!!target, `record card ${date} should exist`);
-            target.focus();
-            target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
-          };
-          pressCardKey(firstDate, "ArrowDown");
-          assertTest(ids.recordDate.value === secondDate, "ArrowDown should select the next record card");
-          assertTest(document.activeElement?.getAttribute("data-record-card-date") === secondDate, "ArrowDown should keep focus on the selected card");
-          assertTest(!!document.querySelector(`[data-record-detail-date='${secondDate}']`), "ArrowDown should open the selected card detail");
-          pressCardKey(secondDate, "ArrowUp");
-          assertTest(ids.recordDate.value === firstDate, "ArrowUp should select the previous record card");
-          const lastCardDate = cardDates().at(-1);
-          pressCardKey(firstDate, "End");
-          assertTest(ids.recordDate.value === lastCardDate, "End should select the last record card");
-          const firstCardDate = cardDates()[0];
-          pressCardKey(lastCardDate, "Home");
-          assertTest(ids.recordDate.value === firstCardDate, "Home should select the first record card");
-          pressCardKey(firstCardDate, " ");
-          assertTest(document.querySelectorAll("[data-record-detail-date]").length === 1, "Space should keep the selected card detail open");
         }));
 
         results.push(runNamedTest("records archive detail gives extra width to detail column", () => {
