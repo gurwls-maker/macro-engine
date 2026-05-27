@@ -6148,15 +6148,47 @@ Notes:
       justify-content:flex-end;
       gap:6px;
     }
+    .record-detail-date-action{
+      position:relative;
+      display:inline-flex;
+      align-items:center;
+    }
     .record-detail-actions > button{
       min-height:34px;
       padding:7px 11px;
       font-size:12px;
+      font-weight:700;
       white-space:nowrap;
     }
     .record-archive-detail:not(.is-editing) .record-detail-actions > button{
       min-width:112px;
       justify-content:center;
+    }
+    /* icon-action: detail date picker changes the selected record date, so it stays compact beside text actions. */
+    .record-archive-detail:not(.is-editing) .record-detail-actions .record-detail-date-button{
+      min-width:42px;
+      width:42px;
+      min-height:42px;
+      padding:0;
+    }
+    .record-detail-date-button svg{
+      width:16px;
+      height:16px;
+      stroke:currentColor;
+      stroke-width:2;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+      fill:none;
+      flex:0 0 auto;
+    }
+    .record-detail-date-input{
+      position:absolute;
+      right:0;
+      bottom:0;
+      width:1px;
+      height:1px;
+      opacity:0;
+      pointer-events:none;
     }
     .record-detail-section{
       padding:10px 0 0;
@@ -9895,7 +9927,7 @@ Notes:
       min-height:42px;
       padding:10px 14px;
       font:inherit;
-      font-weight:900;
+      font-weight:700;
       line-height:normal;
       border-radius:var(--stitch-action-radius);
     }
@@ -28531,6 +28563,12 @@ Notes:
                 <button class="primary-btn" type="button" data-detail-save="${escapeHtml(detailRecord.date)}">저장</button>
                 <button class="secondary-btn" type="button" data-detail-cancel="${escapeHtml(detailRecord.date)}">취소</button>
               ` : hasStoredRecord ? `
+                <span class="record-detail-date-action">
+                  <button class="secondary-btn record-detail-date-button" type="button" data-open-record-detail-date-picker="${escapeHtml(detailRecord.date)}" aria-label="날짜 선택" title="날짜 선택">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4.5" y="5" width="15" height="15" rx="2.5"></rect><path d="M8 3.5v3"></path><path d="M16 3.5v3"></path><path d="M4.5 9h15"></path><path d="M8.5 13h2"></path><path d="M13.5 13h2"></path><path d="M8.5 16.5h2"></path></svg>
+                  </button>
+                  <input class="record-detail-date-input" type="date" value="${escapeHtml(detailRecord.date)}" data-record-detail-date-picker aria-label="기록 날짜 선택">
+                </span>
                 <button class="secondary-btn" type="button" data-edit-record-date="${escapeHtml(detailRecord.date)}">수정하기</button>
                 <button class="secondary-btn" type="button" data-delete-record="${escapeHtml(detailRecord.date)}">기록 삭제</button>
               ` : ""}
@@ -29047,6 +29085,24 @@ Notes:
       const normalized = normalizeDateString(date);
       if (!normalized) return;
       startRecordDetailEdit(normalized);
+    }
+
+    function openRecordDetailDatePicker(button){
+      const input = button
+        ?.closest(".record-detail-date-action")
+        ?.querySelector("[data-record-detail-date-picker]");
+      if (!input) return;
+      input.value = normalizeDateString(button.getAttribute("data-open-record-detail-date-picker")) || getSelectedRecordDate();
+      if (typeof input.showPicker === "function") {
+        try {
+          input.showPicker();
+          return;
+        } catch (error) {
+          // Fallback below keeps older browsers usable when the native picker API is unavailable.
+        }
+      }
+      input.focus();
+      input.click();
     }
 
     function openRecordsEditPanel(section = "record"){
@@ -31833,6 +31889,11 @@ Notes:
           openInbodyInputForDate(inbodyInputButton.getAttribute("data-open-inbody-input"));
           return;
         }
+        const detailDatePickerButton = event.target.closest("[data-open-record-detail-date-picker]");
+        if (detailDatePickerButton) {
+          openRecordDetailDatePicker(detailDatePickerButton);
+          return;
+        }
         const editButton = event.target.closest("[data-edit-record-date]");
         if (editButton) {
           editRecordArchiveDate(editButton.getAttribute("data-edit-record-date"));
@@ -31859,6 +31920,10 @@ Notes:
         if (event.target.closest("[data-detail-basis-field]")) refreshRecordDetailBasisPreview();
       });
       document.getElementById("recordsPanel").addEventListener("change", event => {
+        if (event.target?.matches?.("[data-record-detail-date-picker]")) {
+          selectRecordArchiveDate(event.target.value, { openDetail: true });
+          return;
+        }
         if (event.target?.id === "recordsWorkspaceDate") {
           selectRecordArchiveDate(event.target.value);
           return;
@@ -42935,6 +43000,25 @@ Notes:
           assertTest(!document.querySelector(`[data-record-detail-date="${latestRecordDate}"]`), "latest stored record detail should not auto-render over the empty selected date");
           assertTest(document.getElementById("recordsWorkspaceDate")?.value === today, "workspace date picker should stay on the selected empty date");
           assertIncludesAll(getRenderedBodyText(document.getElementById("recordWorkspaceStartHost")), ["이 날짜에는 기록이 없습니다", "체중만 기록", "간단 기록", "상세 기록"], "empty selected date should offer record-start actions in the workspace");
+        }));
+
+        results.push(runNamedTest("v7.3 Records detail date picker keeps date navigation available", () => {
+          seedRecordsShell();
+          const detail = document.querySelector(`[data-record-detail-date="${today}"]`);
+          const button = detail?.querySelector("[data-open-record-detail-date-picker]");
+          const input = detail?.querySelector("[data-record-detail-date-picker]");
+          const editButton = detail?.querySelector("[data-edit-record-date]");
+          const deleteButton = detail?.querySelector("[data-delete-record]");
+          assertTest(!!button && !!input, "record detail should expose a compact date picker action");
+          assertTest(getComputedStyle(editButton).fontWeight === getComputedStyle(deleteButton).fontWeight, "edit and delete detail actions should use the same text weight");
+          let pickerOpened = false;
+          input.showPicker = () => { pickerOpened = true; };
+          button.click();
+          assertTest(pickerOpened, "detail date action should open the native date picker when available");
+          input.value = yesterday;
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+          assertTest(ids.recordDate.value === yesterday, "detail date picker should move the selected Records date");
+          assertTest(!!document.querySelector(`[data-record-detail-date="${yesterday}"]`), "detail date picker should open the newly selected record detail");
         }));
 
         results.push(runNamedTest("C4.8-UI1 record summary trend and Today feedback keep full decimal display", () => {
