@@ -5824,7 +5824,7 @@ Notes:
       white-space:nowrap;
     }
     .records-stitch-layout .record-archive-actions{
-      justify-content:space-between;
+      justify-content:flex-end;
       margin-top:6px;
     }
     .records-stitch-layout .record-archive-actions .secondary-btn{
@@ -6101,11 +6101,6 @@ Notes:
     }
     .record-archive-actions .secondary-btn{
       white-space:nowrap;
-    }
-    .record-archive-actions [data-toggle-record-detail]{
-      width:96px;
-      min-width:96px;
-      justify-content:center;
     }
     .record-archive-empty{
       padding:22px;
@@ -10219,11 +10214,11 @@ Notes:
         padding-right:2px;
       }
       .record-archive-actions{
-        justify-content:stretch;
+        justify-content:flex-end;
       }
       .record-archive-actions .secondary-btn{
-        flex:1 1 auto;
-        width:100%;
+        flex:0 0 auto;
+        width:auto;
       }
       .record-detail-head{
         flex-direction:column;
@@ -28519,10 +28514,9 @@ Notes:
         const hiddenChipCount = hiddenChips.length;
         const isSelected = normalizeDateString(record.date) === normalizeDateString(selectedDate)
           || normalizeDateString(record.date) === normalizeDateString(uiState.recordsDetailDate);
-        const isDetailOpen = normalizeDateString(record.date) === normalizeDateString(uiState.recordsDetailDate);
         const hasStoredRecord = !!getRecordByDate(record.date);
         return `
-          <article class="record-archive-card${isSelected ? " is-selected" : ""}" data-record-card-date="${escapeHtml(record.date)}">
+          <article class="record-archive-card${isSelected ? " is-selected" : ""}" data-record-card-date="${escapeHtml(record.date)}" tabindex="0">
             <div class="record-archive-main">
               <div class="record-archive-date">
                 <span>${escapeHtml(dateLabel)}</span>
@@ -28533,10 +28527,11 @@ Notes:
                 ${hiddenChipCount ? `<span class="record-archive-chip muted">+${hiddenChipCount}<span class="visually-hidden"> ${escapeHtml(hiddenChips.map(chip => chip.label).join(" "))}</span></span>` : ""}
               </div>
             </div>
-            <div class="record-archive-actions">
-              <button class="secondary-btn" type="button" data-toggle-record-detail="${escapeHtml(record.date)}" aria-expanded="${isDetailOpen ? "true" : "false"}">${isDetailOpen ? "접기" : "자세히 보기"}</button>
-              ${hasStoredRecord ? `<button class="secondary-btn" type="button" data-delete-record="${escapeHtml(record.date)}" aria-label="삭제" title="삭제">×</button>` : ""}
-            </div>
+            ${hasStoredRecord ? `
+              <div class="record-archive-actions">
+                <button class="secondary-btn" type="button" data-delete-record="${escapeHtml(record.date)}" aria-label="삭제" title="삭제">×</button>
+              </div>
+            ` : ""}
           </article>
         `;
       }).join("");
@@ -28913,6 +28908,12 @@ Notes:
       return { saved: true, record };
     }
 
+    function hasRecordArchiveEntryForDate(date){
+      const normalized = normalizeDateString(date);
+      if (!normalized) return false;
+      return getRecordsArchiveRecords(getSortedRecords()).some(record => normalizeDateString(record.date) === normalized);
+    }
+
     function selectRecordArchiveDate(date, options = {}){
       const normalized = normalizeDateString(date);
       if (!normalized) return;
@@ -28920,12 +28921,16 @@ Notes:
         uiState.recordsDetailEditMode = false;
         uiState.recordsDetailDraft = null;
       }
-      if (options.openDetail === true) {
-        uiState.recordsDetailDate = normalized;
-      } else if (options.preserveDetail !== true) {
-        uiState.recordsDetailDate = null;
-        uiState.recordsDetailEditMode = false;
-        uiState.recordsDetailDraft = null;
+      if (options.preserveDetail !== true) {
+        const shouldOpenDetail = options.openDetail === true
+          || (options.openDetail !== false && hasRecordArchiveEntryForDate(normalized));
+        if (shouldOpenDetail) {
+          uiState.recordsDetailDate = normalized;
+        } else {
+          uiState.recordsDetailDate = null;
+          uiState.recordsDetailEditMode = false;
+          uiState.recordsDetailDraft = null;
+        }
       }
       ids.recordDate.value = normalized;
       uiState.recordsMealsExpanded = false;
@@ -28941,14 +28946,8 @@ Notes:
     function toggleRecordArchiveDetail(date){
       const normalized = normalizeDateString(date);
       if (!normalized) return;
-      const isOpen = normalizeDateString(uiState.recordsDetailDate) === normalized;
-      if (isOpen) {
-        uiState.recordsDetailDate = null;
-        uiState.recordsDetailEditMode = false;
-        uiState.recordsDetailDraft = null;
-        selectRecordArchiveDate(normalized);
-        return;
-      }
+      // Records archive cards no longer have a separate collapse state:
+      // selecting a card keeps that date's detail visible until another date is selected.
       selectRecordArchiveDate(normalized, { openDetail: true });
     }
 
@@ -28979,6 +28978,10 @@ Notes:
         uiState.recordsDetailEditMode = false;
         uiState.recordsDetailDraft = null;
         detailDate = null;
+      }
+      if (!detailDate && archiveRecords.some(record => normalizeDateString(record.date) === normalizeDateString(selectedDate))) {
+        uiState.recordsDetailDate = selectedDate;
+        detailDate = selectedDate;
       }
       if (uiState.recordsDetailEditMode && normalizeDateString(uiState.recordsDetailDraft?.date) !== detailDate) {
         uiState.recordsDetailEditMode = false;
@@ -31738,11 +31741,6 @@ Notes:
           openInbodyInputForDate(inbodyInputButton.getAttribute("data-open-inbody-input"));
           return;
         }
-        const detailButton = event.target.closest("[data-toggle-record-detail]");
-        if (detailButton) {
-          toggleRecordArchiveDetail(detailButton.getAttribute("data-toggle-record-detail"));
-          return;
-        }
         const editButton = event.target.closest("[data-edit-record-date]");
         if (editButton) {
           editRecordArchiveDate(editButton.getAttribute("data-edit-record-date"));
@@ -31750,7 +31748,15 @@ Notes:
         }
         const card = event.target.closest("[data-record-card-date]");
         if (!card) return;
-        selectRecordArchiveDate(card.getAttribute("data-record-card-date"));
+        selectRecordArchiveDate(card.getAttribute("data-record-card-date"), { openDetail: true });
+      });
+      document.getElementById("recordsPanel").addEventListener("keydown", event => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        if (event.target.closest("button,input,select,textarea,a")) return;
+        const card = event.target.closest("[data-record-card-date]");
+        if (!card) return;
+        event.preventDefault();
+        selectRecordArchiveDate(card.getAttribute("data-record-card-date"), { openDetail: true });
       });
       document.getElementById("recordsPanel").addEventListener("input", event => {
         if (!event.target.closest("[data-record-detail-edit='true']")) return;
@@ -33593,7 +33599,7 @@ Notes:
           assertTest(recordCards.length >= 2 && document.querySelector('[data-record-card-date="2026-04-22"]') && document.querySelector('[data-record-card-date="2026-04-21"]'), "records archive should render date cards");
           assertTest(recordsText.includes("상세 기록") && recordsText.includes("식사 2건") && recordsText.includes("체중 있음"), "records archive should summarize detailed record chips");
           assertTest(recordNotes.length === 0 && !recordsText.includes("long memo text"), "records archive date rail should avoid memo previews in compact mode");
-          assertTest(detailButton && detailButton.textContent.includes("자세히 보기"), "records archive should keep a detail affordance");
+          assertTest(!detailButton, "records archive should use card selection without a separate detail affordance");
           assertTest(recordDelete && recordDelete.textContent.trim() === "×" && recordDelete.getAttribute("aria-label") === "삭제", "records archive delete button should render compact accessible control");
           assertTest(mealHead && mealHead.children.length === 6, "selected meal header should use six columns");
           assertTest(plainMealRow && plainMealRow.children.length === 6, "selected meal row without memo should use six main cells");
@@ -36287,39 +36293,35 @@ Notes:
           assertIncludesAll(cardText("2026-05-05"), ["InBody 있음"], "same-date InBody should show archive chip");
         }));
 
-        results.push(runNamedTest("records archive detail button opens one date detail", () => {
+        results.push(runNamedTest("records archive card selection opens one date detail", () => {
           recordsState.items = normalizeRecordsCollection([
             { date: "2026-05-04", recordMode: "simple", adherence: "low", weight: 74.8, note: "간단 상세" },
             { date: "2026-05-03", recordMode: "weight_only", weight: 75 }
           ]);
           ids.recordDate.value = "2026-05-03";
           renderRecordsPanel();
-          document.querySelector('[data-toggle-record-detail="2026-05-04"]').click();
-          assertTest(ids.recordDate.value === "2026-05-04", "detail button should select that date");
+          document.querySelector('[data-record-card-date="2026-05-04"]').click();
+          assertTest(ids.recordDate.value === "2026-05-04", "archive card should select that date");
           assertTest(document.querySelector('[data-record-card-date="2026-05-04"]').classList.contains("is-selected"), "selected archive card should be highlighted");
           assertTest(document.querySelectorAll("[data-record-detail-date]").length === 1, "only one archive detail should be open");
           assertTest(document.querySelector("[data-record-detail-date='2026-05-04']").textContent.includes("기록 상세"), "detail panel should render selected date detail");
-          document.querySelector('[data-toggle-record-detail="2026-05-03"]').click();
+          document.querySelector('[data-record-card-date="2026-05-03"]').click();
           assertTest(document.querySelectorAll("[data-record-detail-date]").length === 1, "opening another detail should replace the previous detail");
           assertTest(document.querySelector("[data-record-detail-date='2026-05-03']").textContent.includes("식단 판단 없음"), "weight_only detail should open for the new date");
-          document.querySelector('[data-toggle-record-detail="2026-05-03"]').click();
-          assertTest(document.querySelectorAll("[data-record-detail-date]").length === 0, "clicking the open detail button again should collapse it");
+          document.querySelector('[data-record-card-date="2026-05-03"]').click();
+          assertTest(document.querySelectorAll("[data-record-detail-date]").length === 1, "clicking the selected archive card again should keep detail open");
         }));
 
-        results.push(runNamedTest("records archive detail toggle keeps stable action width", () => {
+        results.push(runNamedTest("records archive cards do not render a separate detail toggle", () => {
           recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", meals: [makeMeal("m1")] }]);
           setActiveTab("records");
-          ids.recordDate.value = "2026-05-08";
+          ids.recordDate.value = "2026-05-09";
           uiState.recordsDetailDate = null;
           renderRecordsPanel();
-          const button = document.querySelector('[data-toggle-record-detail="2026-05-08"]');
-          assertTest(!!button && button.textContent.trim() === "자세히 보기", "closed card should render detail affordance");
-          const closedWidth = Math.round(button.getBoundingClientRect().width);
-          button.click();
-          const openButton = document.querySelector('[data-toggle-record-detail="2026-05-08"]');
-          const openWidth = Math.round(openButton.getBoundingClientRect().width);
-          assertTest(openButton.textContent.trim() === "접기", "open card should render collapse affordance");
-          assertTest(openWidth === closedWidth, "detail toggle action slot should not shrink when it changes to 접기");
+          assertTest(!document.querySelector('[data-toggle-record-detail]'), "record cards should not render detail/collapse buttons");
+          assertTest(!document.querySelector("[data-record-detail-date='2026-05-08']"), "unselected archive date should not force detail");
+          document.querySelector('[data-record-card-date="2026-05-08"]').click();
+          assertTest(!!document.querySelector("[data-record-detail-date='2026-05-08']"), "card selection should open detail");
         }));
 
         results.push(runNamedTest("records archive detail gives extra width to detail column", () => {
@@ -36334,7 +36336,7 @@ Notes:
           const shellWidth = Math.round(shell.getBoundingClientRect().width);
           const sectionWidth = Math.round(section.getBoundingClientRect().width);
           assertTest(Math.abs(shellWidth - sectionWidth) <= 2, "records two-column layout should use the full archive section width");
-          document.querySelector('[data-toggle-record-detail="2026-05-08"]').click();
+          document.querySelector('[data-record-card-date="2026-05-08"]').click();
           const openArchiveWidth = Math.round(document.querySelector(".records-archive-panel").getBoundingClientRect().width);
           const detailWidth = Math.round(document.querySelector(".records-review-shell").getBoundingClientRect().width);
           assertTest(Math.abs(openArchiveWidth - closedArchiveWidth) <= 1, "opening detail should not shrink the archive column");
@@ -36358,7 +36360,7 @@ Notes:
           state.inbodyRecords = [{ date: "2026-05-08", weight: 75.2, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
           uiState.recordsDetailDate = null;
           renderRecordsPanel();
-          document.querySelector('[data-toggle-record-detail="2026-05-08"]').click();
+          document.querySelector('[data-record-card-date="2026-05-08"]').click();
           const detail = document.querySelector("[data-record-detail-date='2026-05-08']");
           const text = detail.textContent || "";
           const mealSummary = detail.querySelector('[data-record-summary="meal"]')?.textContent || "";
@@ -36371,7 +36373,7 @@ Notes:
         results.push(runNamedTest("records archive simple detail stays manual and non-macro", () => {
           recordsState.items = normalizeRecordsCollection([{ date: "2026-05-07", recordMode: "simple", adherence: "high", adherenceSource: "manual", weight: 74.8 }]);
           renderRecordsPanel();
-          document.querySelector('[data-toggle-record-detail="2026-05-07"]').click();
+          document.querySelector('[data-record-card-date="2026-05-07"]').click();
           const text = document.querySelector("[data-record-detail-date='2026-05-07']").textContent || "";
           assertIncludesAll(text, ["간단 기록", "간단 평가", "상", "이전 기록은 당시 계산 기준이 저장되지 않았습니다."], "simple archive detail content");
           assertExcludesAll(text, ["식사 목록", "탄단지 합계", "식단 점수", "점수 90", "자동 점수"], "simple archive detail should not look like macro analysis");
@@ -36381,7 +36383,7 @@ Notes:
           recordsState.items = normalizeRecordsCollection([{ date: "2026-05-01", recordMode: "detailed", weight: 75, meals: [makeMeal("m1")] }]);
           ids.recordDate.value = "2026-05-08";
           renderRecordsPanel();
-          document.querySelector('[data-toggle-record-detail="2026-05-01"]').click();
+          document.querySelector('[data-record-card-date="2026-05-01"]').click();
           document.querySelector("[data-record-detail-date='2026-05-01'] [data-edit-record-date]").click();
           assertTest(ids.recordDate.value === "2026-05-01", "edit button should select detail date");
           assertTest(document.querySelector('[data-record-card-date="2026-05-01"]').classList.contains("is-selected"), "edit button should keep card highlighted");
@@ -36499,7 +36501,7 @@ Notes:
           ids.recordDate.value = "2026-05-06";
           renderRecordsPanel();
           assertIncludesAll(cardText("2026-05-06"), ["2026-05-06", "InBody 있음"], "InBody-only date should render as Records archive card");
-          document.querySelector('[data-toggle-record-detail="2026-05-06"]').click();
+          document.querySelector('[data-record-card-date="2026-05-06"]').click();
           assertIncludesAll(detailText("2026-05-06"), ["기록 상세", "InBody 기록 있음", "체지방량", "InBody 기록하기"], "InBody-only detail should show InBody section and input link");
         }));
 
@@ -36508,7 +36510,7 @@ Notes:
           state.inbodyRecords = [];
           ids.recordDate.value = "2026-05-07";
           renderRecordsPanel();
-          document.querySelector('[data-toggle-record-detail="2026-05-07"]').click();
+          document.querySelector('[data-record-card-date="2026-05-07"]').click();
           assertIncludesAll(detailText("2026-05-07"), ["이 날짜에는 InBody 기록이 없습니다.", "InBody 기록하기"], "empty InBody detail should stay short and actionable");
         }));
 
@@ -36517,7 +36519,7 @@ Notes:
           state.inbodyRecords = [inbodyRecord("2026-05-08", { weight: 75.4, skeletalMuscle: 35.3, bodyFat: 11.8, bodyFatPercent: 15.6 })];
           ids.recordDate.value = "2026-05-08";
           renderRecordsPanel();
-          document.querySelector('[data-toggle-record-detail="2026-05-08"]').click();
+          document.querySelector('[data-record-card-date="2026-05-08"]').click();
           document.querySelector('[data-open-inbody-input="2026-05-08"]').click();
           assertTest(uiState.activeTab === "inbody", "Records InBody button should switch to InBody tab");
           assertTest(document.getElementById("inbodyDate").value === "2026-05-08", "InBody date should match selected Records date");
@@ -36537,7 +36539,7 @@ Notes:
           saveInbodyRecord();
           renderRecordsPanel();
           assertIncludesAll(cardText("2026-05-09"), ["InBody 있음"], "saved InBody should appear on Records card");
-          document.querySelector('[data-toggle-record-detail="2026-05-09"]').click();
+          document.querySelector('[data-record-card-date="2026-05-09"]').click();
           assertIncludesAll(detailText("2026-05-09"), ["InBody 기록 있음", "75.20 kg", "35.00 kg", "12.00 kg", "16.0%"], "saved InBody should appear in Records detail");
         }));
 
@@ -36878,7 +36880,7 @@ Notes:
           }]);
           ids.recordDate.value = today;
           renderRecordsPanel();
-          document.querySelector(`[data-toggle-record-detail="${today}"]`)?.click();
+          document.querySelector(`[data-record-card-date="${today}"]`)?.click();
           assertTest(!!document.querySelector(`[data-record-detail-date="${today}"]`), "Records detail should open");
           document.querySelector(`[data-record-detail-date="${today}"] [data-edit-record-date]`)?.click();
           assertTest(!!document.querySelector(`[data-record-detail-date="${today}"][data-record-detail-edit="true"]`), "Records inline edit should open");
@@ -37122,7 +37124,7 @@ Notes:
           uiState.recordsDetailEditMode = false;
           uiState.recordsDetailDraft = null;
           renderRecordsPanel();
-          document.querySelector(`[data-toggle-record-detail="${date}"]`)?.click();
+          document.querySelector(`[data-record-card-date="${date}"]`)?.click();
           document.querySelector(`[data-record-detail-date="${date}"] [data-edit-record-date]`)?.click();
           return document.querySelector(`[data-record-detail-date="${date}"][data-record-detail-edit="true"]`);
         };
@@ -37471,7 +37473,7 @@ Notes:
           uiState.recordsDetailDraft = null;
           setActiveTab("records");
           renderRecordsPanel();
-          document.querySelector(`[data-toggle-record-detail="${targetDate}"]`)?.click();
+          document.querySelector(`[data-record-card-date="${targetDate}"]`)?.click();
           document.querySelector(`[data-record-detail-date="${targetDate}"] [data-edit-record-date]`)?.click();
           const root = document.querySelector(`[data-record-detail-date="${targetDate}"][data-record-detail-edit="true"]`);
           assertTest(!!root, `edit form should open for ${targetDate}`);
@@ -38461,7 +38463,7 @@ Notes:
           uiState.recordsDetailEditMode = false;
           uiState.recordsDetailDraft = null;
           renderRecordsPanel();
-          document.querySelector(`[data-toggle-record-detail="${record.date}"]`)?.click();
+          document.querySelector(`[data-record-card-date="${record.date}"]`)?.click();
           const detail = document.querySelector(`[data-record-detail-date="${record.date}"]`);
           assertTest(!!detail, "Records detail should open");
           return detail;
@@ -42389,7 +42391,7 @@ Notes:
           })]);
           setActiveTab("records");
           renderRecordsPanel();
-          document.querySelector(`[data-toggle-record-detail="${date}"]`)?.click();
+          document.querySelector(`[data-record-card-date="${date}"]`)?.click();
           const detail = document.querySelector(`[data-record-detail-date="${date}"]`);
           assertTest(snapshot.mode === "expert", "record snapshot should keep legacy mode internally");
           assertExcludesAll(visibleText(detail), ["계산 모드", "당시 계산 모드", "일반인", "운동인", "전문가용"], "Records detail should not expose user-facing mode labels");
