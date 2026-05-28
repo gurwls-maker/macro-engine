@@ -13227,12 +13227,27 @@ Notes:
       border-radius:var(--stitch-action-radius);
     }
     .chip,.preview-chip,.record-mode-badge,
-    .record-archive-chip,.recent-flow-date-chip,.today-work-pill,
+    .record-archive-chip,.recent-flow-date-chip,.recent-flow-related-more,.today-work-pill,
     .ui-icon-badge,.macro-badge{
       border-color:var(--stitch-border);
       background:#ebefe5;
       color:#40493f;
       box-shadow:none;
+    }
+    /* Recent Flow chip groups: range selector / chart dots / vertical accents keep their own visual role.
+       Related-date groups are nested groups, and date/+N/score chips share the compact Stitch chip radius. */
+    .recent-flow-related-row{
+      border-color:var(--stitch-border);
+      border-radius:var(--stitch-inner-radius);
+      background:var(--stitch-surface-soft);
+      box-shadow:none;
+    }
+    .recent-flow-date-chip,
+    .recent-flow-related-more,
+    .recent-flow-daily-score,
+    .recent-flow-empty-kickers span,
+    .recent-flow-daily-date small{
+      border-radius:var(--stitch-inner-radius);
     }
     .tab-icon,
     .record-start-icon svg,.records-entry-icon svg,.records-continue-icon svg,
@@ -15151,7 +15166,7 @@ Notes:
       {
         name: "text-action",
         role: "Label-based commands that perform an explicit action.",
-        selectors: [".primary-btn", ".secondary-btn", ".ghost-btn", ".app-choice-action", ".record-start-action", ".selected-meals-action"]
+        selectors: [".primary-btn", ".secondary-btn", ".ghost-btn", ".app-choice-action", ".record-start-action", ".selected-meals-action", ".recent-flow-date-chip"]
       },
       {
         name: "icon-action",
@@ -15176,7 +15191,7 @@ Notes:
       {
         name: "disclosure-toggle",
         role: "Open/close controls for progressively revealed content.",
-        selectors: [".settings-disclosure-toggle", ".record-detail-collapsible summary", ".inbody-records-collapsible summary", ".coach-more-details summary"]
+        selectors: [".settings-disclosure-toggle", ".record-detail-collapsible summary", ".inbody-records-collapsible summary", ".coach-more-details summary", ".recent-flow-related-more"]
       },
       {
         name: "primary-card",
@@ -15186,7 +15201,7 @@ Notes:
       {
         name: "nested-group",
         role: "Grouped content inside a primary card.",
-        selectors: [".section-group", ".settings-group", ".selected-meals-surface", ".today-intake-row", ".today-meal-empty", ".today-meal-stat", ".today-work-card", ".today-task-status", ".alcohol-kcal-helper", ".recent-flow-window-card", ".recent-flow-point", ".weekly-stitch-reference .analysis-card"]
+        selectors: [".section-group", ".settings-group", ".selected-meals-surface", ".today-intake-row", ".today-meal-empty", ".today-meal-stat", ".today-work-card", ".today-task-status", ".alcohol-kcal-helper", ".recent-flow-window-card", ".recent-flow-point", ".recent-flow-related-row", ".weekly-stitch-reference .analysis-card"]
       },
       {
         name: "dense-record-card",
@@ -37041,7 +37056,12 @@ Notes:
           assertIncludesAll(related.textContent || "", ["관련 날짜"], "related dates should keep a separate heading");
           assertTest(getComputedStyle(related).display === "flex", "related date groups should keep the compact wrap flow");
           assertTest(getComputedStyle(related.querySelector(".recent-flow-related-title")).flexBasis === "100%", "related date heading should occupy its own line");
-          assertTest(getComputedStyle(row).borderRadius !== "10px", "related date groups should no longer look like nested cards");
+          const innerRadius = getComputedStyle(document.documentElement).getPropertyValue("--stitch-inner-radius").trim();
+          const firstDateChip = related.querySelector(".recent-flow-date-chip");
+          const moreChip = related.querySelector(".recent-flow-related-more");
+          assertTest(getComputedStyle(row).borderTopLeftRadius === innerRadius, "related date groups should use compact nested-group radius");
+          assertTest(!!firstDateChip && getComputedStyle(firstDateChip).borderTopLeftRadius === innerRadius, "related date buttons should use compact Stitch chip radius");
+          assertTest(!moreChip || getComputedStyle(moreChip).borderTopLeftRadius === innerRadius, "related date overflow toggle should use compact Stitch chip radius");
           assertTest(document.querySelectorAll("#recentFlowPreviewHost [data-open-related-problem-date]").length >= 2, "related date groups should keep date buttons");
         }));
 
@@ -58009,6 +58029,8 @@ Notes:
             ".recent-flow-achievement-card,.recent-flow-daily-card",
             ".inbody-history-card,.inbody-mini-trend-card,.inbody-observation-card",
             ".today-intake-row,.today-meal-empty,.today-meal-stat",
+            ".recent-flow-related-row",
+            ".recent-flow-date-chip,.recent-flow-related-more",
             ".primary-btn,.secondary-btn,.ghost-btn"
           ], "common Stitch layer should document and style the full app component groups");
         }));
@@ -58083,6 +58105,7 @@ Notes:
           document.querySelector(`[data-record-card-date="${today}"]`)?.click();
           const cardRadius = rootToken("--stitch-card-radius");
           const actionRadius = rootToken("--stitch-action-radius");
+          const innerRadius = rootToken("--stitch-inner-radius");
           const archiveCard = document.querySelector(".record-archive-card");
           const detail = document.querySelector(".record-archive-detail");
           const summaryCard = document.querySelector(".record-detail-summary-card");
@@ -58098,11 +58121,13 @@ Notes:
           const rangeButton = document.querySelector(".recent-flow-range-btn");
           const achievement = document.querySelector(".recent-flow-achievement-card");
           const point = document.querySelector(".recent-flow-point");
+          const dailyScore = document.querySelector(".recent-flow-daily-score");
           assertTest(!!rangeButton && getComputedStyle(rangeButton).borderTopLeftRadius === actionRadius, "recent-flow range segmented option should use action token");
           assertTest(!!achievement && getComputedStyle(achievement).borderTopLeftRadius === cardRadius, "recent-flow accent card should share card shape");
           const achievementStyle = getComputedStyle(achievement);
           assertTest(achievementStyle.backgroundImage !== "none" || achievementStyle.backgroundColor !== "rgb(255, 255, 255)", "recent-flow accent card should keep its intentional accent fill");
           assertTest(!!point && getComputedStyle(point).borderTopLeftRadius === cardRadius, "recent-flow point nested group should use card token");
+          assertTest(!dailyScore || getComputedStyle(dailyScore).borderTopLeftRadius === innerRadius, "recent-flow daily score chip should use compact Stitch chip radius");
         }));
 
         results.push(runNamedTest("v7.3-T InBody accent surfaces share shape without losing semantic fill", () => {
