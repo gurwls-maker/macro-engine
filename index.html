@@ -13236,11 +13236,54 @@ Notes:
     }
     /* Recent Flow chip groups: range selector / chart dots / vertical accents keep their own visual role.
        Related-date groups are nested groups, and date/+N/score chips share the compact Stitch chip radius. */
+    .recent-flow-points .recent-flow-point-list.recent-flow-related-dates{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:0;
+      margin-top:14px;
+      padding-top:0;
+      border:1px solid var(--stitch-border);
+      border-radius:var(--stitch-card-radius);
+      background:var(--stitch-surface-soft);
+      overflow:hidden;
+    }
     .recent-flow-related-row{
       border-color:var(--stitch-border);
       border-radius:var(--stitch-inner-radius);
       background:var(--stitch-surface-soft);
       box-shadow:none;
+    }
+    .recent-flow-points .recent-flow-point{
+      display:grid;
+      grid-template-columns:1fr;
+      align-items:center;
+      gap:10px;
+      margin:0;
+      padding:10px 12px;
+      border:0;
+      border-bottom:1px dashed var(--stitch-border);
+      border-radius:0;
+      background:transparent;
+      box-shadow:none;
+    }
+    .recent-flow-points .recent-flow-point.has-related{
+      grid-template-columns:minmax(160px,.68fr) minmax(0,1.32fr);
+    }
+    .recent-flow-points .recent-flow-point:last-child{
+      border-bottom:0;
+    }
+    .recent-flow-points .recent-flow-point::before{
+      display:none;
+    }
+    .recent-flow-points .recent-flow-related-label{
+      font-size:13px;
+      line-height:1.35;
+    }
+    .recent-flow-points .recent-flow-related-chip-row{
+      justify-content:flex-end;
+    }
+    .recent-flow-issue-note{
+      display:none;
     }
     .recent-flow-date-chip,
     .recent-flow-related-more,
@@ -13527,6 +13570,16 @@ Notes:
       }
       .recent-flow-point{
         padding:12px;
+      }
+      #weeklyPanel .recent-flow-points .recent-flow-point-list.recent-flow-related-dates{
+        padding:0;
+      }
+      #weeklyPanel .recent-flow-points .recent-flow-point{
+        grid-template-columns:1fr;
+        gap:7px;
+      }
+      #weeklyPanel .recent-flow-points .recent-flow-related-chip-row{
+        justify-content:flex-start;
       }
       .weekly-stitch-reference .analysis-card{
         padding:16px;
@@ -15201,12 +15254,12 @@ Notes:
       {
         name: "nested-group",
         role: "Grouped content inside a primary card.",
-        selectors: [".section-group", ".settings-group", ".selected-meals-surface", ".today-intake-row", ".today-meal-empty", ".today-meal-stat", ".today-work-card", ".today-task-status", ".alcohol-kcal-helper", ".recent-flow-window-card", ".recent-flow-point", ".recent-flow-related-row", ".weekly-stitch-reference .analysis-card"]
+        selectors: [".section-group", ".settings-group", ".selected-meals-surface", ".today-intake-row", ".today-meal-empty", ".today-meal-stat", ".today-work-card", ".today-task-status", ".alcohol-kcal-helper", ".recent-flow-window-card", ".weekly-stitch-reference .analysis-card"]
       },
       {
         name: "dense-record-card",
         role: "Scan-first record rows, detail shells, and compact saved-entry surfaces.",
-        selectors: [".record-archive-card", ".record-archive-detail", ".record-detail-summary-card", ".record-detail-macro-card", ".record-detail-metric", ".record-detail-meal", ".inbody-record", ".recent-flow-daily-row"]
+        selectors: [".record-archive-card", ".record-archive-detail", ".record-detail-summary-card", ".record-detail-macro-card", ".record-detail-metric", ".record-detail-meal", ".inbody-record", ".recent-flow-daily-row", ".recent-flow-point", ".recent-flow-related-row"]
       },
       {
         name: "form-field-card",
@@ -27669,6 +27722,7 @@ Notes:
     const RECORD_PROBLEM_LABEL_PRIORITY = [
       "단백질 부족",
       "탄수 부족",
+      "탄수 과다",
       "고지방",
       "술 영향",
       "기타 칼로리",
@@ -29325,6 +29379,14 @@ Notes:
           .forEach(chip => {
             addRecentFlowProblemDate(grouped, chip.label, summary.date, chip.type);
           });
+        if (
+          summary.componentEligible &&
+          Number.isFinite(summary.targetCarbs) &&
+          summary.targetCarbs > 0 &&
+          summary.carbs > summary.targetCarbs * 1.15
+        ) {
+          addRecentFlowProblemDate(grouped, "탄수 과다", summary.date);
+        }
       });
       return Array.from(grouped.values())
         .map(group => ({
@@ -29396,6 +29458,65 @@ Notes:
           }).join("")}
         </div>
       `;
+    }
+
+    function getRecentFlowIssueRelatedGroup(point, groups){
+      const title = String(point?.title || "");
+      const candidates = Array.isArray(groups) ? groups : [];
+      return candidates.find(group => title.startsWith(String(group?.label || ""))) ||
+        candidates.find(group => {
+          const label = String(group?.label || "");
+          return !!label && label.includes("술") && title.includes("술");
+        }) ||
+        null;
+    }
+
+    function renderRecentFlowIssueDateChips(group, options = {}){
+      if (!group || !Array.isArray(group.dates) || !group.dates.length) return "";
+      const dateLimit = Math.max(1, Number(options.dateLimit) || 3);
+      const groupKey = group.label;
+      const expanded = recentFlowExpandedRelatedGroups.has(groupKey);
+      const dates = expanded ? group.dates : group.dates.slice(0, dateLimit);
+      const remaining = group.dates.length - dates.length;
+      return `
+        <span class="recent-flow-related-chip-row">
+          ${dates.map(date => `
+            <button class="recent-flow-date-chip" type="button" data-open-related-problem-date="${escapeHtml(date)}" aria-label="${escapeHtml(`${group.label} ${date} 기록 보기`)}">${escapeHtml(getRecentFlowRelatedDateLabel(date))}</button>
+          `).join("")}
+          ${group.dates.length > dateLimit ? `
+            <button class="recent-flow-related-more" type="button" data-toggle-related-dates="${escapeHtml(groupKey)}" aria-expanded="${expanded ? "true" : "false"}">
+              ${expanded ? "접기" : `+${remaining}`}
+            </button>
+          ` : ""}
+        </span>
+      `;
+    }
+
+    function renderRecentFlowPointRows(points, groups, options = {}){
+      const safePoints = Array.isArray(points) ? points : [];
+      const relatedGroups = Array.isArray(groups) ? groups : [];
+      const usedLabels = new Set();
+      const rows = safePoints.map(point => {
+        const group = getRecentFlowIssueRelatedGroup(point, relatedGroups);
+        if (group?.label) usedLabels.add(group.label);
+        return `
+          <div class="recent-flow-point recent-flow-related-row ${group ? "has-related" : ""}">
+            <span class="recent-flow-related-label">${escapeHtml(point.title)}</span>
+            ${group ? renderRecentFlowIssueDateChips(group, options) : `<span class="recent-flow-issue-note" aria-hidden="true"></span>`}
+          </div>
+        `;
+      });
+      relatedGroups
+        .filter(group => group?.label && !usedLabels.has(group.label))
+        .forEach(group => {
+          rows.push(`
+            <div class="recent-flow-point recent-flow-related-row has-related">
+              <span class="recent-flow-related-label">${escapeHtml(`${group.label} ${group.dates.length}일`)}</span>
+              ${renderRecentFlowIssueDateChips(group, options)}
+            </div>
+          `);
+        });
+      return rows.join("");
     }
 
     function normalizeRecentFlowActionLabel(label){
@@ -29844,7 +29965,7 @@ Notes:
       const otherKcalHeavyDays = Number(window?.otherKcalHeavyDays || 0);
       const alcoholDays = Number(window?.alcoholDays || 0);
       const trainingDays = Number(window?.actualWeightTrainingDays || 0);
-      const trainingMinimum = selectedRangeDays >= 28 ? 8 : selectedRangeDays >= 14 ? 4 : 3;
+      const trainingMinimum = selectedRangeDays <= 3 ? 1 : selectedRangeDays >= 28 ? 8 : selectedRangeDays >= 14 ? 4 : 3;
       const executionScore = getRecentFlowReferenceScore(window);
       if (proteinLowDays > 0) points.push({
         title: `단백질 부족 ${proteinLowDays}일`,
@@ -29867,7 +29988,7 @@ Notes:
         text: otherKcalHeavyDays === 1 ? "기타 칼로리가 큰 날이 있습니다." : "기타 칼로리가 반복됐습니다."
       });
       if (trainingDays < trainingMinimum) points.push({
-        title: `웨이트 기록 ${trainingDays}일`,
+        title: trainingDays <= 0 ? "웨이트 기록 없음" : `웨이트 기록 부족 ${trainingDays}/${selectedRangeDays}일`,
         text: `최근 ${selectedRangeDays}일 웨이트 기록이 부족합니다.`
       });
       if (alcoholDays > 0) points.push({
@@ -30195,7 +30316,6 @@ Notes:
       const hasTrendRecords = getRecentFlowDisplayRecords(selectedWindow, Math.min(28, Math.max(1, selectedRangeDays))).some(hasRecentFlowCalorieData);
       const hasAchievement = Number.isFinite(achievement.value);
       const selectedProblemGroups = getRecentFlowProblemDateGroups(selectedWindow, currentResult);
-      const selectedProblemAction = getRecentFlowProblemDateAction(selectedWindow, currentResult);
       host.innerHTML = `
         <div class="recent-flow-overview ${hasTrendRecords ? "has-data" : "is-low-data"}" data-stitch-weekly-dashboard>
           <div class="recent-flow-range-row">
@@ -30249,12 +30369,9 @@ Notes:
           ${renderRecentFlowReferenceShell()}
           <section class="recent-flow-points">
             <h4>최근 주의 포인트</h4>
-            <div class="recent-flow-point-list">
-              ${points.map(point => `
-                <p class="recent-flow-point"><strong>${escapeHtml(point.title)}</strong>${escapeHtml(point.text)}</p>
-              `).join("")}
+            <div class="recent-flow-point-list recent-flow-related-dates" aria-label="관련 날짜">
+              ${renderRecentFlowPointRows(points, selectedProblemGroups)}
             </div>
-            ${selectedProblemAction ? renderRecentFlowRelatedDateLinks(selectedProblemGroups) : ""}
           </section>
           ${renderRecentFlowDailyRecords(selectedWindow, selectedRangeDays)}
         </div>
@@ -35509,7 +35626,7 @@ Notes:
           ]);
           document.querySelector('[data-recent-flow-range="3"]').click();
           const text = document.getElementById("weeklyPanel").textContent || "";
-          assertIncludesAll(text, ["단백질 부족이 반복됐습니다", "단백질이 자주 빠졌습니다"], "protein repeated low should show pattern copy");
+          assertIncludesAll(text, ["단백질 부족이 반복됐습니다", "단백질 부족"], "protein repeated low should show compact pattern row");
         }));
 
         results.push(runNamedTest("weekly recent flow avoids training carb copy without actual training days", () => {
@@ -35557,14 +35674,14 @@ Notes:
           });
           setWeeklyFlowRecords(records);
           let pointsText = document.querySelector(".recent-flow-points").textContent || "";
-          assertIncludesAll(pointsText, ["최근 주의 포인트", "기타 칼로리 1일", "기타 칼로리가 큰 날이 있습니다"], "seven day points should use selected seven day window");
+          assertIncludesAll(pointsText, ["최근 주의 포인트", "기타 칼로리 1일"], "seven day points should use selected seven day window");
           assertTest(!pointsText.includes("최근 반복 포인트"), "old points title should not render");
           document.querySelector('[data-recent-flow-range="14"]').click();
           pointsText = document.querySelector(".recent-flow-points").textContent || "";
-          assertIncludesAll(pointsText, ["술 기록 1일", "술 기록이 있습니다", "기타 칼로리 1일"], "fourteen day points should use selected fourteen day window");
+          assertIncludesAll(pointsText, ["술 기록 1일", "기타 칼로리 1일"], "fourteen day points should use selected fourteen day window");
           document.querySelector('[data-recent-flow-range="28"]').click();
           pointsText = document.querySelector(".recent-flow-points").textContent || "";
-          assertIncludesAll(pointsText, ["술 기록 2일", "술 기록이 반복됐습니다"], "twenty eight day points should use selected twenty eight day window");
+          assertIncludesAll(pointsText, ["술 기록 2일"], "twenty eight day points should use selected twenty eight day window");
           recentFlowSelectedRangeDays = 7;
         }));
 
@@ -36964,7 +37081,7 @@ Notes:
           state.inbodyRecords = [{ date: today, weight: 75.2, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
           renderWeeklyPanel(calculate());
           const text = document.getElementById("recentFlowPreviewHost").textContent || "";
-          assertIncludesAll(text, ["관련 날짜", "단백질 부족", "기록 부족"], "recent flow should show grouped related dates without macro overclaiming low-resolution records");
+          assertIncludesAll(text, ["단백질 부족", "기록 부족"], "recent flow should show issue rows with related dates without macro overclaiming low-resolution records");
           assertExcludesAll(text, ["기록 보완 필요", "InBody 있음"], "related dates should exclude generic record-review and informational InBody chips");
           const relatedButtons = Array.from(document.querySelectorAll("#recentFlowPreviewHost [data-open-related-problem-date]"));
           assertTest(relatedButtons.length >= 3, "recent flow should render multiple related date chips");
@@ -36976,6 +37093,29 @@ Notes:
           assertTest(uiState.activeTab === "records", "related date chip should switch to Records");
           assertTest(ids.recordDate.value === weightDate, "related date chip should select its date");
           assertTest(uiState.recordsDetailDate === weightDate, "related date chip should open Records detail");
+        }));
+
+        results.push(runNamedTest("v7.3-S recent flow links high-carb issue dates", () => {
+          recordsState.items = normalizeRecordsCollection([
+            {
+              date: today,
+              recordMode: "detailed",
+              weight: 75.2,
+              adherencePercent: 70,
+              adherenceSource: "auto",
+              adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+              goalSnapshot: makeSnapshot({ protein: 120, carbs: 200, fat: 90 }),
+              meals: [
+                makeMeal(today, "hc1", { carbs: 135, protein: 60, fat: 18, alcoholKcal: 0, otherKcal: 0 }),
+                makeMeal(today, "hc2", { carbs: 125, protein: 60, fat: 18, alcoholKcal: 0, otherKcal: 0 })
+              ]
+            }
+          ]);
+          renderWeeklyPanel(calculate());
+          const highCarbRow = Array.from(document.querySelectorAll("#recentFlowPreviewHost .recent-flow-point"))
+            .find(row => (row.textContent || "").includes("탄수 과다"));
+          assertTest(!!highCarbRow, "high-carb issue row should render when carbs exceed target");
+          assertTest(!!highCarbRow.querySelector(`[data-open-related-problem-date="${today}"]`), "high-carb issue row should show its related date chip");
         }));
 
         results.push(runNamedTest("v7.3-P recent flow absorbs first problem action into related dates", () => {
@@ -36999,7 +37139,7 @@ Notes:
           renderWeeklyPanel(calculate());
           const priority = document.querySelector("#recentFlowPreviewHost .recent-flow-priority-card");
           assertTest(!priority, "recent flow should not render a duplicated first problem action card");
-          assertIncludesAll(document.getElementById("recentFlowPreviewHost").textContent || "", ["관련 날짜"], "related dates should carry the record inspection action");
+          assertTest(document.querySelectorAll("#recentFlowPreviewHost .recent-flow-point [data-open-related-problem-date]").length >= 2, "issue rows should carry the record inspection action");
           assertTest(document.querySelectorAll("#recentFlowPreviewHost [data-open-related-problem-date]").length >= 2, "related date chips should remain available after priority line");
         }));
 
@@ -37053,13 +37193,14 @@ Notes:
           const row = document.querySelector("#recentFlowPreviewHost .recent-flow-related-row");
           assertTest(!!related && !!row, "related date groups should render");
           assertTest(!!related.closest(".recent-flow-points"), "related dates should be merged into the caution points card");
-          assertIncludesAll(related.textContent || "", ["관련 날짜"], "related dates should keep a separate heading");
-          assertTest(getComputedStyle(related).display === "flex", "related date groups should keep the compact wrap flow");
-          assertTest(getComputedStyle(related.querySelector(".recent-flow-related-title")).flexBasis === "100%", "related date heading should occupy its own line");
+          assertTest(getComputedStyle(related).display === "grid", "related date groups should render as a compact issue list");
+          assertTest(!related.querySelector(".recent-flow-related-title"), "related dates should not render a separate redundant heading");
           const innerRadius = getComputedStyle(document.documentElement).getPropertyValue("--stitch-inner-radius").trim();
+          const cardRadius = getComputedStyle(document.documentElement).getPropertyValue("--stitch-card-radius").trim();
           const firstDateChip = related.querySelector(".recent-flow-date-chip");
           const moreChip = related.querySelector(".recent-flow-related-more");
-          assertTest(getComputedStyle(row).borderTopLeftRadius === innerRadius, "related date groups should use compact nested-group radius");
+          assertTest(getComputedStyle(related).borderTopLeftRadius === cardRadius, "related issue list should keep the card token");
+          assertTest(getComputedStyle(row).borderTopLeftRadius === "0px", "related date rows should not look like separate nested cards");
           assertTest(!!firstDateChip && getComputedStyle(firstDateChip).borderTopLeftRadius === innerRadius, "related date buttons should use compact Stitch chip radius");
           assertTest(!moreChip || getComputedStyle(moreChip).borderTopLeftRadius === innerRadius, "related date overflow toggle should use compact Stitch chip radius");
           assertTest(document.querySelectorAll("#recentFlowPreviewHost [data-open-related-problem-date]").length >= 2, "related date groups should keep date buttons");
@@ -37110,7 +37251,7 @@ Notes:
           })));
           renderWeeklyPanel(calculate());
           const text = document.getElementById("recentFlowPreviewHost").textContent || "";
-          assertIncludesAll(text, ["관련 날짜", "기록 부족"], "weight-only recent flow should link low-resolution dates");
+          assertIncludesAll(text, ["기록 부족"], "weight-only recent flow should link low-resolution dates");
           assertExcludesAll(text, macroLabels, "weight-only recent flow should not show diet problem labels");
         }));
 
@@ -55798,6 +55939,12 @@ Notes:
           const highFatPoints = getRecentFlowPointItems({ records: [], fatHighDays: 4, actualWeightTrainingDays: 4 }, 7);
           assertTest(highFatPoints.some(item => item.title === "고지방 4일"), "high fat patterns should appear in recent caution points");
           assertTest(!highFatPoints.some(item => item.title === "큰 주의점 없음"), "high fat patterns should not render as no caution");
+          const shortTrainingOkPoints = getRecentFlowPointItems({ records: [], actualWeightTrainingDays: 2 }, 3);
+          assertTest(!shortTrainingOkPoints.some(item => item.title.includes("웨이트")), "three day flow should not flag two weight-training days as a caution");
+          const noTrainingPoints = getRecentFlowPointItems({ records: [], actualWeightTrainingDays: 0 }, 3);
+          assertTest(noTrainingPoints.some(item => item.title === "웨이트 기록 없음"), "three day flow should only flag missing weight training when no training day exists");
+          const lowTrainingPoints = getRecentFlowPointItems({ records: [], actualWeightTrainingDays: 2 }, 7);
+          assertTest(lowTrainingPoints.some(item => item.title === "웨이트 기록 부족 2/7일"), "seven day low training caution should say it is a shortage, not a completed record count");
           const lowExecutionPoints = getRecentFlowPointItems({
             records: [{ hasDetailedDiet: true, adherencePercent: 78 }],
             actualWeightTrainingDays: 8
@@ -58126,7 +58273,8 @@ Notes:
           assertTest(!!achievement && getComputedStyle(achievement).borderTopLeftRadius === cardRadius, "recent-flow accent card should share card shape");
           const achievementStyle = getComputedStyle(achievement);
           assertTest(achievementStyle.backgroundImage !== "none" || achievementStyle.backgroundColor !== "rgb(255, 255, 255)", "recent-flow accent card should keep its intentional accent fill");
-          assertTest(!!point && getComputedStyle(point).borderTopLeftRadius === cardRadius, "recent-flow point nested group should use card token");
+          assertTest(!!point && getComputedStyle(point).borderTopLeftRadius === "0px", "recent-flow point should render as a compact issue-list row, not a nested card");
+          assertTest(!!point?.closest(".recent-flow-point-list") && getComputedStyle(point.closest(".recent-flow-point-list")).borderTopLeftRadius === cardRadius, "recent-flow issue list container should keep the card token");
           assertTest(!dailyScore || getComputedStyle(dailyScore).borderTopLeftRadius === innerRadius, "recent-flow daily score chip should use compact Stitch chip radius");
         }));
 
