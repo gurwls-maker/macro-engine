@@ -29612,10 +29612,34 @@ Notes:
           metric: trainingMetric
         };
       }
+      const highCarbDays = getRecentFlowHighCarbDays(window3);
+      const lowCarbDays = getRecentFlowCarbLowDays(window3);
+      const highFatDays = Number(window3.fatHighDays || 0);
+      if (highCarbDays > 0) {
+        return {
+          conclusion: "최근 3일은 탄수 비중이 높습니다.",
+          reason: highCarbDays === 1 ? "탄수 비중이 큰 날이 있습니다." : "탄수 비중이 큰 날이 반복됐습니다.",
+          metric: trainingMetric
+        };
+      }
+      if (lowCarbDays > 0) {
+        return {
+          conclusion: "최근 3일은 탄수가 낮습니다.",
+          reason: lowCarbDays === 1 ? "운동일 탄수가 부족한 날이 있습니다." : "운동일 탄수 부족이 반복됐습니다.",
+          metric: trainingMetric
+        };
+      }
+      if (highFatDays > 0) {
+        return {
+          conclusion: "최근 3일은 지방 비중이 높습니다.",
+          reason: highFatDays === 1 ? "지방 비중이 큰 날이 있습니다." : "고지방 식사가 반복됐습니다.",
+          metric: trainingMetric
+        };
+      }
       if (window3.proteinLowDays > 0) {
         return {
           conclusion: "최근 3일 식단이 불안정합니다.",
-          reason: "단백질 부족이 반복됐습니다.",
+          reason: window3.proteinLowDays === 1 ? "단백질 부족일이 있습니다." : "단백질 부족이 반복됐습니다.",
           metric: trainingMetric
         };
       }
@@ -29730,6 +29754,52 @@ Notes:
           metric: goalMetric
         };
       }
+      const highCarbDays = getRecentFlowHighCarbDays(window14);
+      const lowCarbDays = getRecentFlowCarbLowDays(window14);
+      const highFatDays = Number(window14.fatHighDays || 0);
+      if (window14.proteinLowDays >= 4) {
+        return {
+          conclusion: "단백질 부족이 14일 동안 반복됩니다.",
+          reason: "체중 진행 판단 전에 단백질 기준부터 맞춥니다.",
+          metric: goalMetric
+        };
+      }
+      if (highCarbDays >= 4) {
+        return {
+          conclusion: "고탄수 식사가 14일 동안 반복됩니다.",
+          reason: "체중 진행 판단 전에 탄수 비중부터 낮춥니다.",
+          metric: goalMetric
+        };
+      }
+      if (lowCarbDays >= 4) {
+        return {
+          conclusion: "저탄수 식사가 14일 동안 반복됩니다.",
+          reason: "체중 진행 판단 전에 운동일 탄수 기준부터 맞춥니다.",
+          metric: goalMetric
+        };
+      }
+      if (highFatDays >= 4) {
+        return {
+          conclusion: "고지방 식사가 14일 동안 반복됩니다.",
+          reason: "체중 진행 판단 전에 지방 비중부터 낮춥니다.",
+          metric: goalMetric
+        };
+      }
+      if (window14.alcoholDays >= 3) {
+        return {
+          conclusion: "술 기록이 14일 흐름에 반복됩니다.",
+          reason: "체중 진행 판단 전에 술과 안주 변동을 줄입니다.",
+          metric: goalMetric
+        };
+      }
+      const avgAdherence = getRecentFlowAverageAdherence(window14);
+      if (Number.isFinite(avgAdherence) && avgAdherence < 80) {
+        return {
+          conclusion: "14일 식단 실행률이 낮습니다.",
+          reason: "목표 진행보다 식단 실행을 먼저 다듬어야 합니다.",
+          metric: goalMetric
+        };
+      }
       if (goal === "diet") {
         if (change <= -0.3) return { conclusion: "다이어트는 목표대로 진행되고 있습니다.", reason: "현재 식단을 유지하세요.", metric: goalMetric };
         return { conclusion: "체중 변화가 목표보다 느립니다.", reason: "칼로리는 아직 바꾸지 말고 28일 기록에서 결정하세요.", metric: goalMetric };
@@ -29831,22 +29901,26 @@ Notes:
 
     function getRecentFlowReferenceTone(days, summary){
       const combined = `${summary?.conclusion || ""} ${summary?.reason || ""}`;
-      if (/부족|어렵|불안정|원인|보류|바꾸지 마세요/.test(combined)) return days >= 28 ? "bad" : "warn";
-      if (/올리세요|낮추세요|검토/.test(combined)) return "warn";
+      if (/현재 설정을 유지|현재 식단을 유지|안정적|목표대로|목표와 맞습니다|잘 챙겼습니다/.test(combined)) return "ok";
+      if (/부족|어렵|불안정|원인|보류|바꾸지 마세요|고탄수|저탄수|고지방|술 기록|반복|낮습니다|다듬|올리세요|낮추세요|검토/.test(combined)) return "warn";
       return "ok";
     }
 
     function getRecentFlowReferenceAction(days, summary, window, currentResult = calculate()){
       const combined = `${summary?.conclusion || ""} ${summary?.reason || ""}`;
+      if (/현재 설정을 유지|현재 식단을 유지|안정적|목표대로|목표와 맞습니다|잘 챙겼습니다/.test(combined)) {
+        return days >= 28 ? "현재 설정 유지" : "현재 식단 유지";
+      }
       if (/저탄수 고지방|지방 쪽으로 식사가 치우친/.test(combined)) return "탄수 보강·지방 줄이기";
       if (/고탄수|탄수 비중/.test(combined)) return "탄수 섭취량 줄이기";
-      if (/저탄수|탄수 기록/.test(combined)) return "운동일 탄수 보강";
+      if (/저탄수|탄수 기록|탄수가 낮|탄수 부족/.test(combined)) return "운동일 탄수 보강";
       if (/고지방|지방 비중/.test(combined)) return "지방 섭취량 줄이기";
       if (/단백질/.test(combined)) return "단백질 먼저 보강";
       if (/기타 칼로리|탄단지 기록부터 정리/.test(combined)) return "기타 kcal 줄이고 나눠 기록";
       if (/술 기록|술이 있었던 날/.test(combined)) return "술·안주 줄이기";
       if (/식사 기록이 빠진/.test(combined)) return "빠진 식사 기록 보강";
       if (/체중 기록 중심/.test(combined)) return "식단 기록 추가";
+      if (/식단 실행.*낮|식단 실행.*다듬|식단 실행이 충분하지/.test(combined)) return "식단 실행률 먼저 올리기";
       if (/부족|어렵|보류/.test(combined)) {
         if (/목표가 섞|목표 기록/.test(combined)) return "현재 목표 기록 누적";
         if (/상세/.test(combined)) return "상세 식사 기록 보강";
@@ -29855,12 +29929,8 @@ Notes:
         if (days === 3) return "식단 기록 보강";
         return "식단·체중 기록 보강";
       }
-      if (/식단 실행이 충분하지/.test(combined)) return "식단 실행률 먼저 올리기";
       if (/올리세요/.test(combined)) return "하루 100~150kcal 올리기";
       if (/낮추세요/.test(combined)) return "하루 100~150kcal 낮추기";
-      if (/현재 설정을 유지|현재 식단을 유지|안정적|목표대로|목표와 맞습니다|잘 챙겼습니다/.test(combined)) {
-        return days >= 28 ? "현재 설정 유지" : "현재 식단 유지";
-      }
       if (/28일 기록에서 결정/.test(combined)) return "28일 기록까지 유지";
       if (/바꾸지 마세요/.test(combined)) return "칼로리 유지";
       if (days === 3) return "오늘 기록 정리";
@@ -35621,12 +35691,12 @@ Notes:
           const today = getTodayDateString();
           const yesterday = shiftDateString(today, -1);
           setWeeklyFlowRecords([
-            { date: yesterday, goalSnapshot: makeWeeklyFlowSnapshot({ protein: 150 }), meals: [makeWeeklyFlowMeal(yesterday, "m1", { protein: 20 }), makeWeeklyFlowMeal(yesterday, "m2", { protein: 20 })] },
-            { date: today, goalSnapshot: makeWeeklyFlowSnapshot({ protein: 150 }), meals: [makeWeeklyFlowMeal(today, "m3", { protein: 20 }), makeWeeklyFlowMeal(today, "m4", { protein: 20 })] }
+            { date: yesterday, goalSnapshot: makeWeeklyFlowSnapshot({ protein: 150 }), meals: [makeWeeklyFlowMeal(yesterday, "m1", { carbs: 120, protein: 20 }), makeWeeklyFlowMeal(yesterday, "m2", { carbs: 120, protein: 20 })] },
+            { date: today, goalSnapshot: makeWeeklyFlowSnapshot({ protein: 150 }), meals: [makeWeeklyFlowMeal(today, "m3", { carbs: 120, protein: 20 }), makeWeeklyFlowMeal(today, "m4", { carbs: 120, protein: 20 })] }
           ]);
           document.querySelector('[data-recent-flow-range="3"]').click();
           const text = document.getElementById("weeklyPanel").textContent || "";
-          assertIncludesAll(text, ["단백질 부족이 반복됐습니다", "단백질 부족"], "protein repeated low should show compact pattern row");
+          assertIncludesAll(text, ["단백질 부족", "단백질 먼저 보강"], "protein repeated low should show compact pattern row and protein action");
         }));
 
         results.push(runNamedTest("weekly recent flow avoids training carb copy without actual training days", () => {
@@ -35651,7 +35721,11 @@ Notes:
 
         results.push(runNamedTest("weekly recent fourteen day analysis avoids calorie adjustment command", () => {
           state.goal = "lean_bulk";
-          setWeeklyFlowRecords(buildWeeklyFlowRecords(14, { startWeight: 75, weightStep: 0 }));
+          const records = buildWeeklyFlowRecords(14, { startWeight: 75, weightStep: 0 }).map(record => ({
+            ...record,
+            meals: record.meals.map(meal => ({ ...meal, carbs: 120, protein: 70 }))
+          }));
+          setWeeklyFlowRecords(records);
           document.querySelector('[data-recent-flow-range="14"]').click();
           const analysisText = document.querySelector(".weekly-report-group").textContent || "";
           assertIncludesAll(analysisText, ["14일 기간 기록 분석", "린매스업 중인데 체중 변화가 거의 없습니다"], "fourteen day analysis should diagnose goal progress");
@@ -55926,6 +56000,60 @@ Notes:
             reason: "큰 탄단지 반복 문제는 아직 뚜렷하지 않습니다."
           }, {});
           assertTest(cleanAction === "현재 식단 유지", "clean seven day flow should not become a protein supplement action");
+          const cleanThreeDayAction = getRecentFlowReferenceAction(3, {
+            conclusion: "최근 3일 식단은 안정적입니다.",
+            reason: "기타 칼로리와 식사 누락이 크게 보이지 않습니다."
+          }, {});
+          assertTest(cleanThreeDayAction === "현재 식단 유지", "clean three day flow should not become an other-kcal reduction action");
+          const highFat3 = getRecent3DaySummary({
+            usableDietDays: 2,
+            macroPatternAllowed: true,
+            fatHighDays: 2,
+            mealRecordDays: 2,
+            actualWeightTrainingDays: 2
+          });
+          assertIncludesAll(`${highFat3.conclusion} ${highFat3.reason}`, ["지방", "반복"], "three day high-fat issue should explain the macro issue before generic missing-meal copy");
+          const highCarb3 = getRecent3DaySummary({
+            usableDietDays: 2,
+            macroPatternAllowed: true,
+            records: [
+              { componentEligible: true, targetCarbs: 200, carbs: 260 },
+              { componentEligible: true, targetCarbs: 200, carbs: 255 }
+            ],
+            mealRecordDays: 2,
+            actualWeightTrainingDays: 2
+          });
+          assertIncludesAll(`${highCarb3.conclusion} ${highCarb3.reason}`, ["탄수", "반복"], "three day high-carb issue should explain the macro issue before generic missing-meal copy");
+          const protein14 = getRecent14ProgressSummary({
+            usableDietDays: 14,
+            detailedDietDays: 14,
+            macroAnalysisDays: 14,
+            weightDays: 14,
+            records: Array.from({ length: 14 }, (_, index) => ({
+              date: shiftDateString(getTodayDateString(), -(13 - index)),
+              weight: 74.7 + index * 0.02,
+              hasWeight: true
+            })),
+            proteinLowDays: 7,
+            actualWeightTrainingDays: 7
+          }, { s: { goal: "lean_bulk" } });
+          assertIncludesAll(`${protein14.conclusion} ${protein14.reason}`, ["단백질", "반복"], "fourteen day repeated protein issues should not be reported as stable progress");
+          assertTest(getRecentFlowReferenceAction(14, protein14, {}) === "단백질 먼저 보강", "fourteen day repeated protein issue should become a protein action, not a generic execution action");
+          const alcohol14 = getRecent14ProgressSummary({
+            usableDietDays: 14,
+            detailedDietDays: 14,
+            macroAnalysisDays: 14,
+            weightDays: 14,
+            records: Array.from({ length: 14 }, (_, index) => ({
+              date: shiftDateString(getTodayDateString(), -(13 - index)),
+              weight: 74.7 + index * 0.02,
+              hasWeight: true
+            })),
+            alcoholDays: 3,
+            actualWeightTrainingDays: 7
+          }, { s: { goal: "lean_bulk" } });
+          assertIncludesAll(`${alcohol14.conclusion} ${alcohol14.reason}`, ["술", "반복"], "fourteen day repeated alcohol should stay a concrete alcohol issue");
+          assertTest(getRecentFlowReferenceAction(14, alcohol14, {}) === "술·안주 줄이기", "fourteen day repeated alcohol should become an alcohol reduction action");
           const weightOnlyScore = getRecentFlowRecordScoreValue({
             recordMode: "weight_only",
             hasDetailedDiet: false,
@@ -55950,6 +56078,16 @@ Notes:
             actualWeightTrainingDays: 8
           }, 28);
           assertTest(lowExecutionPoints.some(item => item.title === "식단 실행률 78%"), "low 28-day execution should be reflected in caution points");
+          const alcoholTone = getRecentFlowReferenceTone(7, {
+            conclusion: "술 기록이 반복됐습니다.",
+            reason: "술이 있었던 날은 회복과 체중 변동을 따로 봅니다."
+          });
+          assertTest(alcoholTone === "warn", "repeated alcohol flow should not render as an ok state");
+          const lowDataTone = getRecentFlowReferenceTone(28, {
+            conclusion: "장기 판단에 필요한 기록이 부족합니다.",
+            reason: "칼로리는 아직 바꾸지 마세요."
+          });
+          assertTest(lowDataTone === "warn", "low-data twenty-eight day flow should warn without using the severe danger tone");
           const emptyKcalChart = getRecentFlowTrendChart({ records: [{ date: getTodayDateString(), totalKcal: 0, targetCal: null }] }, 7);
           assertIncludesAll(emptyKcalChart, ["흐름을 만들 기록이 필요합니다", "목표 기준"], "weight-only calorie chart should stay empty until kcal data exists");
         }));
