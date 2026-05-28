@@ -13089,16 +13089,19 @@ Notes:
     .ux-card,.field,.section-group,.settings-group,
     .settings-stitch-card,.settings-choice-card,.settings-data-card,
     .settings-mode-description-shell,.settings-expert-card,
-    .record-archive-card,.record-archive-detail,.record-detail-edit-field,
+    .record-start-card,.records-entry-card,
+    .record-archive-card,.record-archive-detail,
+    .record-detail-summary-card,.record-detail-macro-card,
+    .record-detail-edit-field,
     .record-detail-meal-edit,.records-continue-strip,.selected-meals-card,
     .selected-meals-surface,
     .selected-meals-summary-panel,.selected-meals-list-panel,
     .today-intake-card,.today-meal-card,.today-calc-settings-card,
     .score-panel,.app-choice-card,
     .recent-flow-trend-card,.recent-flow-nutrition-card,.recent-flow-points,
-    .recent-flow-daily-card,.weekly-stitch-reference,
+    .recent-flow-achievement-card,.recent-flow-daily-card,.weekly-stitch-reference,
     .inbody-stitch-kpi-card,.inbody-trend-card,.inbody-input-card,
-    .inbody-history-card,.inbody-mini-trend-card,
+    .inbody-history-card,.inbody-mini-trend-card,.inbody-observation-card,
     .data-import-mode-card,.data-import-conflict-card{
       border-radius:var(--stitch-card-radius);
       border-color:var(--stitch-border);
@@ -13121,15 +13124,28 @@ Notes:
       border-color:var(--stitch-border);
       box-shadow:var(--stitch-shadow);
     }
+    /* dense-record-card: scoped Records overrides are more specific, so repeat the token here deliberately. */
+    #recordsPanel .record-detail-summary-card,
+    #recordsPanel .record-detail-macro-card,
+    #recordsPanel .record-detail-metric,
+    #recordsPanel .record-detail-meal{
+      border-radius:var(--stitch-card-radius);
+    }
     .field,.settings-group,.today-work-card,.today-task-status,
     .record-detail-edit-field,.record-detail-meal-edit,
     .selected-meals-surface,.alcohol-kcal-helper,
+    .today-intake-row,.today-meal-empty,.today-meal-stat,
     .recent-flow-window-card,.recent-flow-point,
     .weekly-stitch-reference .analysis-card{
       background:var(--stitch-surface-soft);
       border-color:var(--stitch-border);
       border-radius:var(--stitch-card-radius);
       box-shadow:none;
+    }
+    /* primary-card accent: dark Coach / Recent / InBody cards keep their semantic fill, but share the same card shape. */
+    .recent-flow-achievement-card,
+    .inbody-observation-card{
+      border-radius:var(--stitch-card-radius);
     }
     /* nested-group: Settings groups previously carried a 14px legacy radius; keep them aligned with other nested groups. */
     #settingsPanel .settings-group{
@@ -15128,6 +15144,61 @@ Notes:
   <script>
     // 1) constants
     const STORAGE_PREFIX = "runstep_macro_v1_";
+    // UI taxonomy is an implementation guard for the Stitch 003 visual pass.
+    // Keep the group names stable: tests use them to prevent shape-only drift
+    // while still allowing different functional groups to look different.
+    const UI_COMPONENT_FUNCTION_GROUPS = Object.freeze([
+      {
+        name: "text-action",
+        role: "Label-based commands that perform an explicit action.",
+        selectors: [".primary-btn", ".secondary-btn", ".ghost-btn", ".app-choice-action", ".record-start-action", ".selected-meals-action"]
+      },
+      {
+        name: "icon-action",
+        role: "Compact icon-only controls used when surrounding text already gives context.",
+        selectors: [".record-detail-date-button", ".record-archive-action-icon", ".shell-settings-btn", "[data-delete-meal]"]
+      },
+      {
+        name: "danger-text-action",
+        role: "Destructive label commands; color can differ, but sizing follows text-action.",
+        selectors: ["[data-delete-record]", "[data-delete-meal-template]", "[data-smart-conflict-mode='replace']"]
+      },
+      {
+        name: "dialog-close",
+        role: "Modal close affordances that stay visually distinct from dense row icons.",
+        selectors: [".record-start-close", ".quick-settings-close", "#inbodyHistoryClose", "#inbodyRecordSelectClose", "#cardioPresetSelectClose"]
+      },
+      {
+        name: "segmented-option",
+        role: "Mutually exclusive choices and compact filter choices.",
+        selectors: [".macro-basis-btn", ".mode-btn", ".recent-flow-range-btn", ".record-detail-edit-chip", ".meal-label-chips .chip", ".weekly-training-basis-toggle .secondary-btn"]
+      },
+      {
+        name: "disclosure-toggle",
+        role: "Open/close controls for progressively revealed content.",
+        selectors: [".settings-disclosure-toggle", ".record-detail-collapsible summary", ".inbody-records-collapsible summary", ".coach-more-details summary"]
+      },
+      {
+        name: "primary-card",
+        role: "Top-level visible cards and panels; accent fill may differ but shape is shared.",
+        selectors: [".card", ".panel", ".ux-card", ".settings-stitch-card", ".settings-choice-card", ".settings-data-card", ".settings-mode-description-shell", ".settings-expert-card", ".today-intake-card", ".today-meal-card", ".today-calc-settings-card", ".score-panel", ".app-choice-card", ".record-start-card", ".records-entry-card", ".records-continue-strip", ".selected-meals-card", ".selected-meals-summary-panel", ".selected-meals-list-panel", ".recent-flow-trend-card", ".recent-flow-nutrition-card", ".recent-flow-points", ".recent-flow-achievement-card", ".recent-flow-daily-card", ".weekly-stitch-reference", ".inbody-stitch-kpi-card", ".inbody-trend-card", ".inbody-input-card", ".inbody-history-card", ".inbody-mini-trend-card", ".inbody-observation-card", ".data-import-mode-card", ".data-import-conflict-card"]
+      },
+      {
+        name: "nested-group",
+        role: "Grouped content inside a primary card.",
+        selectors: [".section-group", ".settings-group", ".selected-meals-surface", ".today-intake-row", ".today-meal-empty", ".today-meal-stat", ".today-work-card", ".today-task-status", ".alcohol-kcal-helper", ".recent-flow-window-card", ".recent-flow-point", ".weekly-stitch-reference .analysis-card"]
+      },
+      {
+        name: "dense-record-card",
+        role: "Scan-first record rows, detail shells, and compact saved-entry surfaces.",
+        selectors: [".record-archive-card", ".record-archive-detail", ".record-detail-summary-card", ".record-detail-macro-card", ".record-detail-metric", ".record-detail-meal", ".inbody-record", ".recent-flow-daily-row"]
+      },
+      {
+        name: "form-field-card",
+        role: "Editable input wrappers and form field groups.",
+        selectors: [".field", ".record-detail-edit-field", ".record-detail-meal-edit", ".record-start-weight-card", ".inbody-save-field"]
+      }
+    ]);
 
     const ACTIVITY_COEFF = {
       sedentary: 1.14,
@@ -57885,6 +57956,175 @@ Notes:
       });
     }
 
+    function runUiComponentTaxonomyTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const requiredGroups = [
+          "text-action",
+          "icon-action",
+          "danger-text-action",
+          "dialog-close",
+          "segmented-option",
+          "disclosure-toggle",
+          "primary-card",
+          "nested-group",
+          "dense-record-card",
+          "form-field-card"
+        ];
+        const groupNames = UI_COMPONENT_FUNCTION_GROUPS.map(group => group.name);
+        const byName = name => UI_COMPONENT_FUNCTION_GROUPS.find(group => group.name === name);
+        const px = value => Number.parseFloat(String(value || "0")) || 0;
+        const rootToken = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        const cssText = document.querySelector("style")?.textContent || "";
+
+        results.push(runNamedTest("v7.3-T UI taxonomy keeps the agreed function groups", () => {
+          assertTest(JSON.stringify(groupNames) === JSON.stringify(requiredGroups), "UI taxonomy group names and order should stay stable");
+          requiredGroups.forEach(name => {
+            const group = byName(name);
+            assertTest(!!group, `${name} taxonomy group should exist`);
+            assertTest(Array.isArray(group.selectors) && group.selectors.length >= 3, `${name} group should map real selectors`);
+            assertTest(typeof group.role === "string" && group.role.length > 12, `${name} group should explain why it may differ`);
+          });
+          const selectorToGroups = new Map();
+          UI_COMPONENT_FUNCTION_GROUPS.forEach(group => {
+            group.selectors.forEach(selector => {
+              const groups = selectorToGroups.get(selector) || [];
+              groups.push(group.name);
+              selectorToGroups.set(selector, groups);
+            });
+          });
+          const duplicates = Array.from(selectorToGroups.entries())
+            .filter(([, groups]) => groups.length > 1)
+            .map(([selector, groups]) => `${selector}:${groups.join("/")}`);
+          assertTest(duplicates.length === 0, `selectors should not be mapped to multiple function groups: ${duplicates.join(", ")}`);
+        }));
+
+        results.push(runNamedTest("v7.3-T common CSS layer covers card, nested group and action selectors", () => {
+          assertIncludesAll(cssText, [
+            "Component functional groups for this UI pass",
+            "--stitch-card-radius:12px",
+            "--stitch-inner-radius:8px",
+            "--stitch-action-radius:8px",
+            ".record-start-card,.records-entry-card",
+            ".recent-flow-achievement-card,.recent-flow-daily-card",
+            ".inbody-history-card,.inbody-mini-trend-card,.inbody-observation-card",
+            ".today-intake-row,.today-meal-empty,.today-meal-stat",
+            ".primary-btn,.secondary-btn,.ghost-btn"
+          ], "common Stitch layer should document and style the full app component groups");
+        }));
+
+        results.push(runNamedTest("v7.3-T rendered controls share tokens within the same function group", () => {
+          setValidTodayBalanceTestInputs();
+          render();
+          const actionRadius = rootToken("--stitch-action-radius");
+          const cardRadius = rootToken("--stitch-card-radius");
+          const innerRadius = rootToken("--stitch-inner-radius");
+          const primary = document.querySelector(".primary-btn");
+          const secondary = document.querySelector(".secondary-btn");
+          const field = document.querySelector(".field");
+          const input = document.querySelector("input");
+          assertTest(!!primary && getComputedStyle(primary).borderTopLeftRadius === actionRadius, "primary text-action should use common action radius");
+          assertTest(!!secondary && getComputedStyle(secondary).borderTopLeftRadius === actionRadius, "secondary text-action should use common action radius");
+          assertTest(!!field && getComputedStyle(field).borderTopLeftRadius === cardRadius, "form-field-card wrapper should use common card radius");
+          assertTest(!!input && getComputedStyle(input).borderTopLeftRadius === innerRadius, "input controls should use inner radius");
+
+          openTodayRecordStartDialog();
+          const startCard = document.querySelector(".record-start-card");
+          const close = document.querySelector(".record-start-close");
+          assertTest(!!startCard && getComputedStyle(startCard).borderTopLeftRadius === cardRadius, "record-start primary cards should share card radius");
+          assertTest(!!close, "record-start dialog close should render");
+          assertClose(close.getBoundingClientRect().width, close.getBoundingClientRect().height, 0.5, "dialog close should stay circular");
+          assertTest(px(getComputedStyle(close).borderTopLeftRadius) > px(actionRadius), "dialog-close should stay visually separate from text-action radius");
+          closeTodayRecordStartDialog();
+        }));
+
+        results.push(runNamedTest("v7.3-T Records and Recent Flow surfaces keep intentional differences only by function", () => {
+          setValidTodayBalanceTestInputs();
+          const today = getTodayDateString();
+          const yesterday = shiftDateString(today, -1);
+          const snapshot = buildGoalSnapshotFromCurrentState(calculate(), "saved_at_entry");
+          const meal = (date, id, overrides = {}) => ({
+            id,
+            mealLabel: "meal",
+            carbs: 42,
+            protein: 24,
+            fat: 16,
+            alcoholKcal: 0,
+            otherKcal: 0,
+            memo: "",
+            createdAt: `${date}T08:00:00.000Z`,
+            ...overrides
+          });
+          recordsState.items = normalizeRecordsCollection([
+            normalizeRecord({
+              date: today,
+              recordMode: "detailed",
+              weight: 74.8,
+              adherencePercent: 78,
+              adherenceSource: "auto",
+              adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+              goalSnapshot: snapshot,
+              meals: [meal(today, "taxonomy-1"), meal(today, "taxonomy-2", { fat: 34 })]
+            }),
+            normalizeRecord({
+              date: yesterday,
+              recordMode: "detailed",
+              weight: 74.9,
+              adherencePercent: 82,
+              adherenceSource: "auto",
+              adherenceScoringVersion: ADHERENCE_SCORING_VERSION,
+              goalSnapshot: snapshot,
+              meals: [meal(yesterday, "taxonomy-3"), meal(yesterday, "taxonomy-4")]
+            })
+          ]);
+          ids.recordDate.value = today;
+          setActiveTab("records");
+          renderRecordsPanel();
+          document.querySelector(`[data-record-card-date="${today}"]`)?.click();
+          const cardRadius = rootToken("--stitch-card-radius");
+          const actionRadius = rootToken("--stitch-action-radius");
+          const archiveCard = document.querySelector(".record-archive-card");
+          const detail = document.querySelector(".record-archive-detail");
+          const summaryCard = document.querySelector(".record-detail-summary-card");
+          const disclosureButton = detail?.querySelector(".record-detail-collapsible summary");
+          assertTest(!!archiveCard && getComputedStyle(archiveCard).borderTopLeftRadius === cardRadius, "dense record archive card should use card token");
+          assertTest(!!detail && getComputedStyle(detail).borderTopLeftRadius === cardRadius, "record detail shell should use card token");
+          assertTest(!!summaryCard && getComputedStyle(summaryCard).borderTopLeftRadius === cardRadius, "dense summary cards should align with record card shape");
+          assertTest(!!disclosureButton && getComputedStyle(disclosureButton, "::after").borderTopLeftRadius === actionRadius, "record disclosure toggle should use action token");
+
+          setActiveTab("weekly");
+          recentFlowSelectedRangeDays = 7;
+          renderWeeklyPanel(calculate());
+          const rangeButton = document.querySelector(".recent-flow-range-btn");
+          const achievement = document.querySelector(".recent-flow-achievement-card");
+          const point = document.querySelector(".recent-flow-point");
+          assertTest(!!rangeButton && getComputedStyle(rangeButton).borderTopLeftRadius === actionRadius, "recent-flow range segmented option should use action token");
+          assertTest(!!achievement && getComputedStyle(achievement).borderTopLeftRadius === cardRadius, "recent-flow accent card should share card shape");
+          const achievementStyle = getComputedStyle(achievement);
+          assertTest(achievementStyle.backgroundImage !== "none" || achievementStyle.backgroundColor !== "rgb(255, 255, 255)", "recent-flow accent card should keep its intentional accent fill");
+          assertTest(!!point && getComputedStyle(point).borderTopLeftRadius === cardRadius, "recent-flow point nested group should use card token");
+        }));
+
+        results.push(runNamedTest("v7.3-T InBody accent surfaces share shape without losing semantic fill", () => {
+          state.inbodyRecords = [
+            { date: "2026-05-01", weight: 75.2, skeletalMuscle: 35.4, bodyFat: 12.1, bodyFatPercent: 16.1 },
+            { date: "2026-05-20", weight: 74.4, skeletalMuscle: 36.0, bodyFat: 10.9, bodyFatPercent: 14.7 }
+          ];
+          setActiveTab("inbody");
+          renderInbodyPanel();
+          const cardRadius = rootToken("--stitch-card-radius");
+          const kpi = document.querySelector(".inbody-stitch-kpi-card");
+          const observation = document.querySelector(".inbody-observation-card");
+          assertTest(!!kpi && getComputedStyle(kpi).borderTopLeftRadius === cardRadius, "InBody KPI card should use card token");
+          assertTest(!!observation && getComputedStyle(observation).borderTopLeftRadius === cardRadius, "InBody observation accent should share card shape");
+          const observationStyle = getComputedStyle(observation);
+          assertTest(observationStyle.backgroundImage !== "none" || observationStyle.backgroundColor !== "rgb(255, 255, 255)", "InBody observation should keep its intentional accent fill");
+        }));
+
+        return results;
+      });
+    }
+
     function runWeeklyTrainingBasisModeTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -58235,6 +58475,7 @@ Notes:
     window.runTodayHeaderActionDensityTests = runTodayHeaderActionDensityTests;
     window.runChoiceUiConsistencyTests = runChoiceUiConsistencyTests;
     window.runKpiLabelVisualPatternTests = runKpiLabelVisualPatternTests;
+    window.runUiComponentTaxonomyTests = runUiComponentTaxonomyTests;
     window.runWeeklyTrainingBasisModeTests = runWeeklyTrainingBasisModeTests;
     window.runWeeklyTrainingDayAutoTests = runWeeklyTrainingDayAutoTests;
     window.RECENT_CONTEXT_WINDOWS = RECENT_CONTEXT_WINDOWS;

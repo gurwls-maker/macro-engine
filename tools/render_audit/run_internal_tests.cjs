@@ -110,6 +110,7 @@ const testProfiles = {
     "runRecordsDetailDensityUiTests",
     "runChoiceUiConsistencyTests",
     "runKpiLabelVisualPatternTests",
+    "runUiComponentTaxonomyTests",
     "runResultProximitySummaryTests",
     "runTodayHeaderActionDensityTests",
     "runUserFacingForbiddenCopyTests",
