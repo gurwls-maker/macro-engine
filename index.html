@@ -3,6 +3,9 @@ Version: 7.3
 Stage: v7.3-S recent flow related chip wrap fix
 Date: 2026-05-28
 Notes:
+- v7.3-T Records archive header no longer exposes global InBody / Data Management utility actions
+- v7.3-T Recent Flow period analysis now applies its ok / warn / bad judgment tone to the visible analysis surface
+- v7.3-T Settings / InBody tab structure, formulas, score, Coach, recentContext, InBody gate, dual basis, schema-import-export unchanged
 - v7.3-S 최근 흐름 관련 날짜는 제목만 한 줄로 분리하고 칩 묶음은 기존처럼 가로 wrap되도록 보정
 - v7.3-S 관련 날짜 그룹이 full-width row로 늘어나 의미 없는 여백을 만들던 렌더 회귀 수정
 - v7.3-S 관련 날짜에서 일반 기록 보완 신호와 InBody 보유 정보는 문제 원인처럼 보이지 않도록 제외
@@ -5795,12 +5798,6 @@ Notes:
       line-height:1.55;
       word-break:keep-all;
     }
-    .records-archive-tools{
-      display:flex;
-      flex-wrap:wrap;
-      gap:8px;
-      justify-content:flex-end;
-    }
     .records-stitch-layout{
       display:grid;
       width:100%;
@@ -8636,6 +8633,18 @@ Notes:
       border-left:1px solid color-mix(in srgb, var(--deep) 18%, white 82%);
       background:color-mix(in srgb, var(--muted) 12%, white 88%);
     }
+    .weekly-stitch-reference .weekly-hero.warn .weekly-hero-section{
+      border-color:color-mix(in srgb, var(--orange) 28%, var(--line) 72%);
+      background:color-mix(in srgb, var(--orange) 8%, white 92%);
+    }
+    .weekly-stitch-reference .weekly-hero.bad .weekly-hero-section{
+      border-color:color-mix(in srgb, var(--red) 28%, var(--line) 72%);
+      background:color-mix(in srgb, var(--red) 7%, white 93%);
+    }
+    .weekly-stitch-reference .weekly-hero.warn .weekly-hero-section + .weekly-hero-section,
+    .weekly-stitch-reference .weekly-hero.bad .weekly-hero-section + .weekly-hero-section{
+      border-left-style:solid;
+    }
     .weekly-stitch-reference .weekly-hero-section .headline{
       font-size:17px;
       line-height:1.35;
@@ -10160,15 +10169,8 @@ Notes:
         align-items:stretch;
         flex-direction:column;
       }
-      .records-continue-strip .primary-btn,
-      .records-archive-tools .secondary-btn{
+      .records-continue-strip .primary-btn{
         width:100%;
-      }
-      .records-archive-tools{
-        display:grid;
-        grid-template-columns:repeat(2,minmax(0,1fr));
-        gap:8px;
-        justify-content:stretch;
       }
       .selected-meals-surface-head{
         align-items:flex-start;
@@ -14166,10 +14168,6 @@ Notes:
             <div>
               <h2>저장된 날짜별 기록</h2>
               <p>확정된 기록을 날짜별로 확인하고, 필요한 날은 상세 보기에서 수정합니다.</p>
-            </div>
-            <div class="records-archive-tools">
-              <button class="secondary-btn" id="recordInbodyCreateBtn" type="button">InBody 기록하기</button>
-              <button class="secondary-btn" type="button" data-open-data-management>데이터 관리</button>
             </div>
           </div>
           <div class="records-stitch-layout">
@@ -27782,13 +27780,7 @@ Notes:
 
     function renderRecordDetailInbody(date){
       const records = getRecordDetailInbodyRecords(date);
-      const normalized = normalizeDateString(date);
-      const action = normalized ? `
-        <div class="record-detail-section-actions">
-          <button class="secondary-btn" type="button" data-open-inbody-input="${escapeHtml(normalized)}">InBody 기록하기</button>
-        </div>
-      ` : "";
-      if (!records.length) return `<div class="record-detail-empty">이 날짜에는 InBody 기록이 없습니다.</div>${action}`;
+      if (!records.length) return `<div class="record-detail-empty">이 날짜에는 InBody 기록이 없습니다.</div>`;
       const latest = records[0];
       const bodyFatPercent = getDisplayBodyFatPercent(latest);
       return `${renderRecordDetailMetrics([
@@ -27797,7 +27789,7 @@ Notes:
         { label: "골격근량", value: Number.isFinite(latest.skeletalMuscle) ? `${formatKg2(latest.skeletalMuscle)} kg` : "" },
         { label: "체지방량", value: Number.isFinite(latest.bodyFat) ? `${formatKg2(latest.bodyFat)} kg` : "" },
         { label: "체지방률", value: Number.isFinite(bodyFatPercent) ? `${bodyFatPercent.toFixed(1)}%` : "" }
-      ])}${action}`;
+      ])}`;
     }
 
     function parseRecordDetailNumber(raw, fallback = null){
@@ -30075,6 +30067,12 @@ Notes:
       document.getElementById("weeklyCaption").textContent = analysis.caption;
       document.getElementById("weeklyActionText").textContent = analysis.actionText;
       document.getElementById("weeklyActionCaption").textContent = actionCaption;
+      const weeklyHero = document.getElementById("weeklyHero");
+      if (weeklyHero) {
+        const tone = ["ok", "warn", "bad"].includes(analysis.actionTone) ? analysis.actionTone : "ok";
+        weeklyHero.classList.remove("ok", "warn", "bad");
+        weeklyHero.classList.add(tone);
+      }
       // Future candidate: turn the weekly action text into an explicit setting-adjustment action
       // only after a separate UX/policy step. For now it is an explanation output, not a mutation button.
       const actionHelp = document.getElementById("weeklyActionHelp");
@@ -31696,7 +31694,6 @@ Notes:
       });
 
       document.getElementById("saveRecordBtn").addEventListener("click", saveRecord);
-      document.getElementById("recordInbodyCreateBtn").addEventListener("click", () => openInbodyInputForDate(getSelectedRecordDate()));
       document.getElementById("saveMealBtn").addEventListener("click", saveMealEntry);
       document.getElementById("mealReuseOverlay")?.addEventListener("click", event => {
         if (event.target === event.currentTarget || event.target.closest("[data-close-meal-reuse]")) {
@@ -31851,11 +31848,6 @@ Notes:
         const deleteButton = event.target.closest("[data-delete-record]");
         if (deleteButton) {
           deleteRecord(deleteButton.getAttribute("data-delete-record"));
-          return;
-        }
-        const inbodyInputButton = event.target.closest("[data-open-inbody-input]");
-        if (inbodyInputButton) {
-          openInbodyInputForDate(inbodyInputButton.getAttribute("data-open-inbody-input"));
           return;
         }
         const detailDatePickerButton = event.target.closest("[data-open-record-detail-date-picker]");
@@ -36653,26 +36645,26 @@ Notes:
           renderRecordsPanel();
           assertIncludesAll(cardText("2026-05-06"), ["2026-05-06", "InBody 있음"], "InBody-only date should render as Records archive card");
           document.querySelector('[data-record-card-date="2026-05-06"]').click();
-          assertIncludesAll(detailText("2026-05-06"), ["기록 상세", "InBody 기록 있음", "체지방량", "InBody 기록하기"], "InBody-only detail should show InBody section and input link");
+          assertIncludesAll(detailText("2026-05-06"), ["기록 상세", "InBody 기록 있음", "체지방량"], "InBody-only detail should show read-only InBody metrics");
+          assertTest(!document.querySelector('[data-open-inbody-input="2026-05-06"]'), "Records detail should not expose InBody creation");
         }));
 
-        results.push(runNamedTest("UX2-5 Records detail shows empty InBody message and input link", () => {
+        results.push(runNamedTest("UX2-5 Records detail shows empty InBody message without input link", () => {
           recordsState.items = normalizeRecordsCollection([{ date: "2026-05-07", recordMode: "simple", adherence: "medium" }]);
           state.inbodyRecords = [];
           ids.recordDate.value = "2026-05-07";
           renderRecordsPanel();
           document.querySelector('[data-record-card-date="2026-05-07"]').click();
-          assertIncludesAll(detailText("2026-05-07"), ["이 날짜에는 InBody 기록이 없습니다.", "InBody 기록하기"], "empty InBody detail should stay short and actionable");
+          assertIncludesAll(detailText("2026-05-07"), ["이 날짜에는 InBody 기록이 없습니다."], "empty InBody detail should stay short and read-only");
+          assertTest(!document.querySelector('[data-open-inbody-input="2026-05-07"]'), "empty Records detail should not expose InBody creation");
         }));
 
-        results.push(runNamedTest("UX2-5 Records InBody button opens InBody input for selected date", () => {
+        results.push(runNamedTest("UX2-5 InBody input helper still loads selected date record", () => {
           recordsState.items = normalizeRecordsCollection([{ date: "2026-05-08", recordMode: "detailed", meals: [makeMeal()] }]);
           state.inbodyRecords = [inbodyRecord("2026-05-08", { weight: 75.4, skeletalMuscle: 35.3, bodyFat: 11.8, bodyFatPercent: 15.6 })];
           ids.recordDate.value = "2026-05-08";
-          renderRecordsPanel();
-          document.querySelector('[data-record-card-date="2026-05-08"]').click();
-          document.querySelector('[data-open-inbody-input="2026-05-08"]').click();
-          assertTest(uiState.activeTab === "inbody", "Records InBody button should switch to InBody tab");
+          openInbodyInputForDate("2026-05-08");
+          assertTest(uiState.activeTab === "inbody", "InBody input helper should switch to InBody tab");
           assertTest(document.getElementById("inbodyDate").value === "2026-05-08", "InBody date should match selected Records date");
           assertClose(Number(document.getElementById("inbodyWeight").value), 75.4, 0.0001, "existing InBody weight should load");
           assertClose(Number(document.getElementById("inbodySkeletalMuscle").value), 35.3, 0.0001, "existing InBody muscle should load");
@@ -36976,8 +36968,7 @@ Notes:
           assertTest(uiState.activeTab === "inbody" && !document.getElementById("inbodyHistoryOverlay")?.classList.contains("hidden"), "InBody history button should stay inside InBody and open history modal");
           closeInbodyHistoryDialog();
           openRecordsForDate(today);
-          document.querySelector(`[data-open-inbody-input="${today}"]`)?.click();
-          assertTest(uiState.activeTab === "inbody" && document.getElementById("inbodyDate").value === today, "Records to InBody link should remain");
+          assertTest(!document.querySelector(`[data-open-inbody-input="${today}"]`), "Records detail should not expose an InBody input link");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "UX2-6 should not change scoring version");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "UX2-6 should not add five day window");
         }));
@@ -37106,8 +37097,7 @@ Notes:
           assertTest(uiState.activeTab === "inbody" && !document.getElementById("inbodyHistoryOverlay")?.classList.contains("hidden"), "InBody history button should open history modal");
           closeInbodyHistoryDialog();
           openRecordsForDate(today);
-          document.querySelector(`[data-open-inbody-input="${today}"]`)?.click();
-          assertTest(uiState.activeTab === "inbody" && document.getElementById("inbodyDate").value === today, "Records to InBody should keep selected date");
+          assertTest(!document.querySelector(`[data-open-inbody-input="${today}"]`), "Records detail should not expose InBody input on mobile");
           renderWeeklyPanel(calculate());
           document.querySelector("#recentFlowPreviewHost [data-open-related-problem-date]")?.click();
           assertTest(uiState.activeTab === "records" && uiState.recordsDetailDate === today, "recent flow problem date should open Records detail");
@@ -43132,7 +43122,9 @@ Notes:
           assertTest(!!document.getElementById("selectedMealsList"), "selected meal list should remain mounted");
           assertTest(!!document.getElementById("recordQualitySummaryHost") && !!document.getElementById("selectedMealTotals"), "selected date quality and compact meal totals host should remain mounted");
           assertTest(getComputedStyle(document.querySelector(".selected-meals-detail-preview")).display === "none", "selected date meal totals should stay hidden until record detail is opened");
-          assertTest(!!document.querySelector("[data-open-data-management]"), "data management entry should remain accessible");
+          assertTest(!!document.getElementById("dataManagementPanel"), "Data Management should remain mounted in Settings");
+          assertTest(!document.querySelector("#recordsPanel [data-open-data-management]"), "Records archive header should not expose global Data Management");
+          assertTest(!document.getElementById("recordInbodyCreateBtn"), "Records archive header should not expose global InBody creation");
         }));
 
         results.push(runNamedTest("C4.8-UI1 record detail and edit actions stay reachable", () => {
@@ -55577,6 +55569,27 @@ Notes:
           });
           const combinedActions = cases.map(([days, conclusion, reason]) => actionFor(days, conclusion, reason)).join(" ");
           assertExcludesAll(combinedActions, ["반복 패턴 확인", "문제 날짜 확인", "설정 조정 검토"], "reference actions should not be vague observation labels");
+        }));
+
+        results.push(runNamedTest("D4 recent flow analysis keeps period responsibilities separated", () => {
+          const currentResult = calculate();
+          const lowData3 = getRecentFlowReferenceAnalysis(currentResult, {
+            windows: {
+              3: { windowDays: 3, records: [], usableDietDays: 0, weightDays: 0, actualWeightTrainingDays: 0 }
+            }
+          }, 3);
+          assertTest(lowData3.actionText === "식단 기록 보강", "three day low-data state should ask for record completion");
+          assertExcludesAll(`${lowData3.headline} ${lowData3.actionText} ${lowData3.actionCaption}`, ["설정 조정", "칼로리 조정"], "three day analysis should not behave like a settings decision");
+          const action14 = getRecentFlowReferenceAction(14, {
+            conclusion: "린매스업 중인데 체중 변화가 거의 없습니다.",
+            reason: "칼로리는 아직 바꾸지 말고 28일 기록에서 결정하세요."
+          }, {});
+          assertTest(action14 === "28일 기록까지 유지", "fourteen day plateau should stay a middle checkpoint");
+          const action28 = getRecentFlowReferenceAction(28, {
+            conclusion: "식단 실행이 충분하지 않습니다.",
+            reason: "칼로리는 아직 바꾸지 마세요."
+          }, {});
+          assertTest(action28 === "식단 실행률 먼저 올리기", "twenty-eight day low execution should improve execution before changing calories");
         }));
 
         results.push(runNamedTest("D4 weekly reference status and action cards do not duplicate reason text", () => {
