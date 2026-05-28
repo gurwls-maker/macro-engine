@@ -4,6 +4,7 @@ Stage: v7.3-S recent flow related chip wrap fix
 Date: 2026-05-28
 Notes:
 - v7.3-V Recent Flow 장기 판단 보류 톤을 오류처럼 보이는 빨강 배경 대신 부드러운 주의 톤으로 완화
+- v7.3-V Recent Flow 체중만 기록의 식단 실행률 오판과 정상/고지방 시나리오 권장 행동·주의 포인트 모순을 수정
 - v7.3-U Recent Flow 목표 달성률 표기를 식단 실행률로 정리하고 Today 기준의 ? 툴팁 패턴으로 도움말을 통일
 - v7.3-T Records archive header no longer exposes global InBody / Data Management utility actions
 - v7.3-T Recent Flow period analysis now applies its ok / warn / bad judgment tone to the visible analysis surface
@@ -29470,7 +29471,7 @@ Notes:
       const highCarbDays = getRecentFlowHighCarbDays(window7);
       const lowCarbDays = getRecentFlowCarbLowDays(window7);
       const highFatDays = Number(window7.fatHighDays || 0);
-      let conclusion = "단백질은 잘 챙겼습니다.";
+      let conclusion = "7일 식단 흐름은 안정적입니다.";
       let reason = "큰 탄단지 반복 문제는 아직 뚜렷하지 않습니다.";
       if (lowCarbDays >= 2 && highFatDays >= 2) {
         conclusion = "저탄수 고지방 식사가 반복됐습니다.";
@@ -29638,11 +29639,11 @@ Notes:
       if (/기타 칼로리|탄단지 기록부터 정리/.test(combined)) return "기타 kcal 줄이고 나눠 기록";
       if (/술 기록|술이 있었던 날/.test(combined)) return "술·안주 줄이기";
       if (/식사 기록이 빠진/.test(combined)) return "빠진 식사 기록 보강";
+      if (/체중 기록 중심/.test(combined)) return "식단 기록 추가";
       if (/부족|어렵|보류/.test(combined)) {
         if (/목표가 섞|목표 기록/.test(combined)) return "현재 목표 기록 누적";
         if (/상세/.test(combined)) return "상세 식사 기록 보강";
         if (/간단 기록/.test(combined)) return "상세 식사 기록 보강";
-        if (/체중 기록 중심/.test(combined)) return "식단 기록 추가";
         if (/체중과 식단|기록 가능한 날|장기 판단/.test(combined)) return "식단·체중 기록 보강";
         if (days === 3) return "식단 기록 보강";
         return "식단·체중 기록 보강";
@@ -29751,13 +29752,29 @@ Notes:
     function getRecentFlowPointItems(window, selectedRangeDays = 7){
       const points = [];
       const proteinLowDays = Number(window?.proteinLowDays || 0);
+      const highCarbDays = getRecentFlowHighCarbDays(window);
+      const lowCarbDays = getRecentFlowCarbLowDays(window);
+      const highFatDays = Number(window?.fatHighDays || 0);
       const otherKcalHeavyDays = Number(window?.otherKcalHeavyDays || 0);
       const alcoholDays = Number(window?.alcoholDays || 0);
       const trainingDays = Number(window?.actualWeightTrainingDays || 0);
       const trainingMinimum = selectedRangeDays >= 28 ? 8 : selectedRangeDays >= 14 ? 4 : 3;
+      const executionScore = getRecentFlowReferenceScore(window);
       if (proteinLowDays > 0) points.push({
         title: `단백질 부족 ${proteinLowDays}일`,
         text: proteinLowDays === 1 ? "단백질이 부족한 날이 있습니다." : "단백질이 자주 빠졌습니다."
+      });
+      if (lowCarbDays > 0) points.push({
+        title: `탄수 부족 ${lowCarbDays}일`,
+        text: lowCarbDays === 1 ? "운동일 탄수가 부족한 날이 있습니다." : "운동일 탄수 부족이 반복됐습니다."
+      });
+      if (highCarbDays > 0) points.push({
+        title: `탄수 과다 ${highCarbDays}일`,
+        text: highCarbDays === 1 ? "탄수 비중이 큰 날이 있습니다." : "탄수 비중이 큰 날이 반복됐습니다."
+      });
+      if (highFatDays > 0) points.push({
+        title: `고지방 ${highFatDays}일`,
+        text: highFatDays === 1 ? "지방 비중이 큰 날이 있습니다." : "고지방 식사가 반복됐습니다."
       });
       if (otherKcalHeavyDays > 0) points.push({
         title: `기타 칼로리 ${otherKcalHeavyDays}일`,
@@ -29771,13 +29788,19 @@ Notes:
         title: `술 기록 ${alcoholDays}일`,
         text: alcoholDays === 1 ? "술 기록이 있습니다." : "술 기록이 반복됐습니다."
       });
+      if (!points.length && selectedRangeDays >= 28 && Number.isFinite(executionScore) && executionScore < 85) {
+        points.push({
+          title: `식단 실행률 ${round(executionScore)}%`,
+          text: "설정 변경보다 현재 목표를 지킨 날을 먼저 늘립니다."
+        });
+      }
       if (!points.length) points.push({ title: "큰 주의점 없음", text: "큰 주의점은 아직 보이지 않습니다." });
-      return points.slice(0, 4);
+      return points.slice(0, 5);
     }
 
     function getRecentFlowRecordScoreValue(summary){
-      if (Number.isFinite(summary?.adherencePercent)) return clamp(Number(summary.adherencePercent), 0, 100);
-      const manual = String(summary?.manualAdherenceValue || summary?.simpleAdherenceLevel || "");
+      if (summary?.hasDetailedDiet && Number.isFinite(summary?.adherencePercent)) return clamp(Number(summary.adherencePercent), 0, 100);
+      const manual = summary?.hasSimpleDiet ? String(summary?.simpleAdherenceLevel || "") : "";
       if (manual === "high") return 90;
       if (manual === "medium") return 70;
       if (manual === "low") return 45;
@@ -29826,6 +29849,11 @@ Notes:
       return records.slice(Math.max(0, records.length - limit));
     }
 
+    function hasRecentFlowCalorieData(record){
+      return (Number.isFinite(record?.totalKcal) && Number(record.totalKcal) > 0) ||
+        (Number.isFinite(record?.targetCal) && Number(record.targetCal) > 0);
+    }
+
     function getRecentFlowChartStep(maxValue){
       const safeMax = Math.max(0, Number(maxValue) || 0);
       if (safeMax <= 4000) return 500;
@@ -29847,14 +29875,14 @@ Notes:
 
     function getRecentFlowTrendChart(window, selectedRangeDays = 7){
       const records = getRecentFlowDisplayRecords(window, Math.min(28, Math.max(1, selectedRangeDays)));
-      if (!records.length) {
+      if (!records.length || !records.some(hasRecentFlowCalorieData)) {
         return `
           <div class="recent-flow-chart-empty">
             <strong>흐름을 만들 기록이 필요합니다.</strong>
-            <span>식사와 체중을 함께 기록하면 차트가 열립니다.</span>
+            <span>식사 기록과 목표 기준이 함께 있으면 차트가 열립니다.</span>
             <div class="recent-flow-empty-kickers" aria-label="필요한 기록">
               <span>식사 기록</span>
-              <span>체중 기록</span>
+              <span>목표 기준</span>
             </div>
           </div>
         `;
@@ -30078,7 +30106,7 @@ Notes:
       const selectedWindow = context.windows?.[selectedRangeDays] || context.windows?.[7] || {};
       const points = getRecentFlowPointItems(selectedWindow, selectedRangeDays);
       const achievement = getRecentFlowAchievement(selectedWindow);
-      const hasTrendRecords = getRecentFlowDisplayRecords(selectedWindow, Math.min(28, Math.max(1, selectedRangeDays))).length > 0;
+      const hasTrendRecords = getRecentFlowDisplayRecords(selectedWindow, Math.min(28, Math.max(1, selectedRangeDays))).some(hasRecentFlowCalorieData);
       const hasAchievement = Number.isFinite(achievement.value);
       const selectedProblemGroups = getRecentFlowProblemDateGroups(selectedWindow, currentResult);
       const selectedProblemAction = getRecentFlowProblemDateAction(selectedWindow, currentResult);
@@ -30100,8 +30128,8 @@ Notes:
             <section class="recent-flow-trend-card">
               <div class="recent-flow-card-head">
                 <div>
-                  <h4>칼로리 및 체중 변화</h4>
-                  <p>최근 ${selectedRangeDays}일간의 에너지 밸런스</p>
+                  <h4>칼로리 흐름</h4>
+                  <p>최근 ${selectedRangeDays}일간의 섭취와 목표 비교</p>
                 </div>
                 <div class="recent-flow-legend">
                   <span class="intake">섭취 (kcal)</span>
@@ -43476,7 +43504,7 @@ Notes:
           assertTest(!!panel.querySelector(".recent-flow-nutrition-card"), "Weekly should render nutrition summary card");
           assertTest(panel.querySelectorAll(".recent-flow-nutrition-row").length === 3, "nutrition card should render carbs/protein/fat rows");
           assertTest(!!panel.querySelector(".recent-flow-achievement-card"), "Weekly should render dark achievement card");
-          assertIncludesAll(panel.textContent || "", ["칼로리 및 체중 변화", "평균 영양 섭취", "식단 실행률"], "Weekly dashboard should expose Stitch-like sections");
+          assertIncludesAll(panel.textContent || "", ["칼로리 흐름", "평균 영양 섭취", "식단 실행률"], "Weekly dashboard should expose Stitch-like sections");
         }));
 
         results.push(runNamedTest("C4.8-UI2 points and period analysis remain visible", () => {
@@ -43590,7 +43618,7 @@ Notes:
           assertTest(!!panel.querySelector(".recent-flow-chart-empty"), "empty weekly state should show chart empty state");
           assertTest(panel.querySelector(".recent-flow-overview")?.classList.contains("is-low-data"), "empty weekly state should use low-data compact layout");
           assertTest(!!panel.querySelector(".recent-flow-achievement-card.is-empty"), "empty achievement card should use compact empty state");
-          assertIncludesAll(panel.textContent || "", ["흐름을 만들 기록이 필요합니다", "식사 기록", "체중 기록", "분석 대기"], "empty weekly state should keep conservative copy");
+          assertIncludesAll(panel.textContent || "", ["흐름을 만들 기록이 필요합니다", "식사 기록", "목표 기준", "분석 대기"], "empty weekly state should keep conservative copy");
         }));
 
         results.push(runNamedTest("C4.8-UI2 Weekly shell does not regress Today Records backup exports", () => {
@@ -55658,6 +55686,34 @@ Notes:
             reason: "칼로리는 아직 바꾸지 마세요."
           }, {});
           assertTest(action28 === "식단 실행률 먼저 올리기", "twenty-eight day low execution should improve execution before changing calories");
+        }));
+
+        results.push(runNamedTest("D4 recent flow scenario contradictions stay fixed", () => {
+          const cleanAction = getRecentFlowReferenceAction(7, {
+            conclusion: "7일 식단 흐름은 안정적입니다.",
+            reason: "큰 탄단지 반복 문제는 아직 뚜렷하지 않습니다."
+          }, {});
+          assertTest(cleanAction === "현재 식단 유지", "clean seven day flow should not become a protein supplement action");
+          const weightOnlyScore = getRecentFlowRecordScoreValue({
+            recordMode: "weight_only",
+            hasDetailedDiet: false,
+            hasSimpleDiet: false,
+            hasMeals: false,
+            adherencePercent: null,
+            manualAdherenceValue: "medium",
+            simpleAdherenceLevel: null
+          });
+          assertTest(weightOnlyScore === null, "weight-only records should not create a diet execution score");
+          const highFatPoints = getRecentFlowPointItems({ records: [], fatHighDays: 4, actualWeightTrainingDays: 4 }, 7);
+          assertTest(highFatPoints.some(item => item.title === "고지방 4일"), "high fat patterns should appear in recent caution points");
+          assertTest(!highFatPoints.some(item => item.title === "큰 주의점 없음"), "high fat patterns should not render as no caution");
+          const lowExecutionPoints = getRecentFlowPointItems({
+            records: [{ hasDetailedDiet: true, adherencePercent: 78 }],
+            actualWeightTrainingDays: 8
+          }, 28);
+          assertTest(lowExecutionPoints.some(item => item.title === "식단 실행률 78%"), "low 28-day execution should be reflected in caution points");
+          const emptyKcalChart = getRecentFlowTrendChart({ records: [{ date: getTodayDateString(), totalKcal: 0, targetCal: null }] }, 7);
+          assertIncludesAll(emptyKcalChart, ["흐름을 만들 기록이 필요합니다", "목표 기준"], "weight-only calorie chart should stay empty until kcal data exists");
         }));
 
         results.push(runNamedTest("D4 weekly reference status and action cards do not duplicate reason text", () => {
