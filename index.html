@@ -8600,7 +8600,7 @@ Notes:
       display:grid;
       grid-template-columns:minmax(0,1.05fr) minmax(340px,.95fr);
       gap:24px;
-      align-items:start;
+      align-items:stretch;
     }
     .weekly-stitch-reference .section-group-head{
       display:block;
@@ -8621,7 +8621,10 @@ Notes:
       font-weight:750;
     }
     .weekly-stitch-reference .analysis-card{
-      padding:14px 18px;
+      height:100%;
+      display:flex;
+      align-items:stretch;
+      padding:16px 18px;
       border:0;
       border-radius:18px;
       background:rgba(255,253,248,.72);
@@ -8630,14 +8633,19 @@ Notes:
     .weekly-stitch-reference #weeklySummaryRows{
       display:grid;
       grid-template-columns:repeat(2,minmax(0,1fr));
+      grid-template-rows:repeat(3,minmax(0,1fr));
       column-gap:18px;
       row-gap:0;
+      width:100%;
+      height:100%;
     }
     .weekly-stitch-reference #weeklySummaryRows .row{
       display:grid;
       grid-template-columns:1fr;
       gap:4px;
-      padding:10px 0;
+      min-height:0;
+      padding:8px 0;
+      align-content:center;
       align-items:start;
       border-bottom:1px dashed color-mix(in srgb, var(--line) 82%, white 18%);
     }
@@ -11579,6 +11587,8 @@ Notes:
       }
       .weekly-stitch-reference #weeklySummaryRows{
         grid-template-columns:1fr;
+        grid-template-rows:none;
+        height:auto;
       }
     }
     @media (max-width:560px){
@@ -29977,9 +29987,18 @@ Notes:
       const actionText = getRecentFlowReferenceAction(safeDays, summary, window, currentResult);
       const actionCaption = getRecentFlowReferenceActionCaption(actionText, safeDays);
       const actionTone = getRecentFlowReferenceTone(safeDays, summary);
-      const recordResolution = `상세 ${Number(window.detailedDietDays || 0)}일 · 간단 ${Number(window.simpleDietDays || 0)}일 · 체중만 ${Number(window.weightOnlyDays || 0)}일`;
+      const recordResolutionItems = [
+        ["상세", Number(window.detailedDietDays || 0)],
+        ["간단", Number(window.simpleDietDays || 0)],
+        ["체중만", Number(window.weightOnlyDays || 0)]
+      ].filter(([, count]) => count > 0);
+      const recordResolution = recordResolutionItems.length
+        ? recordResolutionItems.map(([label, count]) => `${label} ${count}일`).join(" · ")
+        : "무기록 0일";
       const summaryRows = [
-        ["기록 상태", `식단 ${Number(window.usableDietDays || 0)}/${safeDays}일 · 체중 ${Number(window.weightDays || 0)}/${safeDays}일 · 운동 ${Number(window.actualWeightTrainingDays || 0)}/${safeDays}일`],
+        ["식단 기록", `${Number(window.usableDietDays || 0)}/${safeDays}일`],
+        ["체중 기록", `${Number(window.weightDays || 0)}/${safeDays}일`],
+        ["운동 기록", `${Number(window.actualWeightTrainingDays || 0)}/${safeDays}일`],
         ["기록 종류", recordResolution],
         ["목표 기준", goalLine || "기록 없음"],
         ["체중 변화", Number.isFinite(weightChange) ? `${formatSignedKg2(weightChange)} kg` : "-"]
@@ -35603,10 +35622,10 @@ Notes:
           });
           setWeeklyFlowRecords(records);
           let text = document.getElementById("weeklySummaryRows").textContent || "";
-          assertIncludesAll(text, ["기록 상태", "식단 7/7일", "체중 7/7일", "운동 3/7일"], "default range visible summary should show seven day counts");
+          assertIncludesAll(text, ["식단 기록", "7/7일", "체중 기록", "운동 기록", "3/7일"], "default range visible summary should show seven day counts");
           document.querySelector('[data-recent-flow-range="14"]').click();
           text = document.getElementById("weeklySummaryRows").textContent || "";
-          assertIncludesAll(text, ["기록 상태", "식단 14/14일", "체중 14/14일", "운동 3/14일"], "fourteen day range should update visible summary counts");
+          assertIncludesAll(text, ["식단 기록", "14/14일", "체중 기록", "운동 기록", "3/14일"], "fourteen day range should update visible summary counts");
           const rangeText = document.querySelector(".recent-flow-range-row").textContent || "";
           assertTest(!rangeText.includes("1일") && !rangeText.includes("5일"), "range selector should remove one day and five day values");
           recentFlowSelectedRangeDays = 7;
@@ -55973,7 +55992,7 @@ Notes:
           document.getElementById("weeklyActionHelp")?.dispatchEvent(new Event("mouseenter"));
           assertTest(!document.getElementById("weeklyActionHelpText")?.classList.contains("hidden"), "weekly action help should open as a tooltip");
           const rowsText = document.getElementById("weeklySummaryRows")?.textContent || "";
-          assertIncludesAll(rowsText, ["기록 상태", "운동", "기록 종류", "목표 기준", "체중 변화"], "weekly reference rows should use user-facing labels");
+          assertIncludesAll(rowsText, ["식단 기록", "체중 기록", "운동 기록", "기록 종류", "목표 기준", "체중 변화"], "weekly reference rows should use user-facing labels");
           assertExcludesAll(rowsText, ["기록 해상도", "목표 분포", "반복 패턴 확인", "기간 판단", "권장 행동", "식단 점수 평균"], "weekly reference rows should avoid vague labels and duplicate nearby dashboard cards");
           assertExcludesAll(guidanceText, ["조정 참고", "보수적으로 검토하세요", "Today 코치에서 먼저 확인하세요", "weekly 제안"], "weekly reference copy should avoid awkward or evasive wording");
         }));
@@ -56008,6 +56027,7 @@ Notes:
             }
           }, 3);
           assertTest(lowData3.actionText === "식단 기록 보강", "three day low-data state should ask for record completion");
+          assertTest(lowData3.summaryRows.some(([, value]) => value === "무기록 0일"), "empty period should collapse zero record types into one clear label");
           assertExcludesAll(`${lowData3.headline} ${lowData3.actionText} ${lowData3.actionCaption}`, ["설정 조정", "칼로리 조정"], "three day analysis should not behave like a settings decision");
           const action14 = getRecentFlowReferenceAction(14, {
             conclusion: "린매스업 중인데 체중 변화가 거의 없습니다.",
