@@ -29580,15 +29580,16 @@ Notes:
       const trainingMetric = getRecentFlowTrainingMetric(window3);
       if (window3?.weightOnlyDays > 0 && Number(window3?.usableDietDays || 0) === 0) {
         return {
-          conclusion: "최근 3일은 체중 기록 중심입니다.",
+          conclusion: "최근 3일은 체중 기록만 있습니다.",
           reason: "식단 원인은 아직 단정하지 않습니다.",
           metric: trainingMetric
         };
       }
       if (!window3 || window3.usableDietDays < 2) {
+        const hasAnyDietSignal = Number(window3?.usableDietDays || 0) > 0;
         return {
-          conclusion: "최근 3일 식단 기록이 부족합니다.",
-          reason: "분석이 어렵습니다.",
+          conclusion: hasAnyDietSignal ? "최근 3일은 참고 기록이 적습니다." : "최근 3일 식단 기록이 부족합니다.",
+          reason: hasAnyDietSignal ? "보이는 문제는 주의 포인트로만 확인합니다." : "식사 기록부터 채워야 흐름을 볼 수 있습니다.",
           metric: trainingMetric
         };
       }
@@ -29665,21 +29666,21 @@ Notes:
         : "이번 주는 웨이트 기록이 부족합니다.";
       if (window7?.weightOnlyDays > 0 && Number(window7?.usableDietDays || 0) === 0) {
         return {
-          conclusion: "최근 7일은 체중 기록 중심입니다.",
+          conclusion: "최근 7일은 체중 기록만 있습니다.",
           reason: "식단 원인은 아직 단정하지 않습니다.",
           metric: trainingMetric
         };
       }
       if (window7?.goalChangeDetected) {
         return {
-          conclusion: "목표가 섞여 있어 7일 반복 패턴 분석이 어렵습니다.",
-          reason: "현재 목표와 그대로 비교하지 않습니다.",
+          conclusion: "목표가 섞여 있어 7일 패턴 판단을 보류합니다.",
+          reason: "현재 목표 기록을 더 쌓은 뒤 비교합니다.",
           metric: trainingMetric
         };
       }
       if (!window7 || window7.usableDietDays < 4) {
         return {
-          conclusion: "7일 반복 패턴 분석이 어렵습니다.",
+          conclusion: "7일 반복 패턴 판단을 보류합니다.",
           reason: "기록 가능한 날이 부족합니다.",
           metric: trainingMetric
         };
@@ -29693,7 +29694,7 @@ Notes:
       }
       if (!window7.macroPatternAllowed) {
         return {
-          conclusion: "7일 반복 패턴 분석이 어렵습니다.",
+          conclusion: "7일 탄단지 패턴 판단을 보류합니다.",
           reason: Number(window7.simpleSummaryDays || 0) > 0
             ? "상세 기록이 부족해 탄단지 반복 원인은 아직 보기 어렵습니다."
             : "상세 식사 기록이 부족합니다.",
@@ -29710,16 +29711,16 @@ Notes:
         reason = "탄수 보완보다 지방 쪽으로 식사가 치우친 날이 있습니다.";
       } else if (highCarbDays >= 2) {
         conclusion = "고탄수 식사가 반복됐습니다.";
-        reason = "탄수 비중이 목표보다 큰 날이 여러 번 있습니다.";
+        reason = "여러 날 목표 탄수보다 높았습니다.";
       } else if (lowCarbDays >= 2) {
         conclusion = "저탄수 식사가 반복됐습니다.";
-        reason = "운동일과 휴식일을 나눠 탄수 기록을 확인합니다.";
+        reason = "운동일 탄수가 목표보다 낮았습니다.";
       } else if (highFatDays >= 2) {
         conclusion = "고지방 식사가 반복됐습니다.";
-        reason = "지방 비중이 큰 날이 여러 번 있습니다.";
+        reason = "여러 날 목표 지방보다 높았습니다.";
       } else if (window7.proteinLowDays >= 2) {
-        conclusion = "단백질이 자주 빠졌습니다.";
-        reason = "단백질 부족일이 여러 번 있습니다.";
+        conclusion = "단백질 기준을 자주 못 채웠습니다.";
+        reason = "여러 날 목표 단백질보다 낮았습니다.";
       } else if (window7.otherKcalHeavyDays >= 2) {
         conclusion = "기타 칼로리가 반복됐습니다.";
         reason = "탄단지로 나뉘지 않은 열량이 여러 번 있습니다.";
@@ -29736,21 +29737,21 @@ Notes:
       const goalMetric = getRecentFlowGoalBreakdown(window14);
       if (window14?.goalChangeDetected) {
         return {
-          conclusion: "목표가 섞여 있어 14일 진행 진단이 어렵습니다.",
-          reason: "이전 흐름을 현재 목표와 그대로 비교하지 않습니다.",
+          conclusion: "목표가 섞여 있어 14일 진행 판단을 보류합니다.",
+          reason: "현재 목표 기록을 더 쌓은 뒤 비교합니다.",
           metric: goalMetric
         };
       }
       if (!window14 || window14.usableDietDays < 7 || window14.weightDays < 2 || change === null) {
         return {
-          conclusion: "14일 목표 진행 진단이 어렵습니다.",
-          reason: "체중과 식단 기록이 부족합니다.",
+          conclusion: "14일 목표 진행 판단을 보류합니다.",
+          reason: "체중과 식단 기록이 함께 부족합니다.",
           metric: goalMetric
         };
       }
       if (Number(window14.macroAnalysisDays || 0) < 7) {
         return {
-          conclusion: "14일 목표 진행 진단이 어렵습니다.",
+          conclusion: "14일 목표 진행 판단을 보류합니다.",
           reason: "상세 기록이 부족해 식단 원인을 나누기 어렵습니다.",
           metric: goalMetric
         };
@@ -29797,21 +29798,21 @@ Notes:
       if (Number.isFinite(avgAdherence) && avgAdherence < 80) {
         return {
           conclusion: "14일 식단 실행률이 낮습니다.",
-          reason: "목표 진행보다 식단 실행을 먼저 다듬어야 합니다.",
+          reason: "목표 진행보다 식단 실행을 먼저 올립니다.",
           metric: goalMetric
         };
       }
       if (goal === "diet") {
         if (change <= -0.3) return { conclusion: "다이어트는 목표대로 진행되고 있습니다.", reason: "현재 식단을 유지하세요.", metric: goalMetric };
-        return { conclusion: "체중 변화가 목표보다 느립니다.", reason: "칼로리는 아직 바꾸지 말고 28일 기록에서 결정하세요.", metric: goalMetric };
+        return { conclusion: "체중 변화가 목표보다 느립니다.", reason: "아직은 중간 점검 기간입니다.", metric: goalMetric };
       }
       if (goal === "bulk") {
         if (change >= 0.3) return { conclusion: "벌크업 흐름이 목표와 맞습니다.", reason: "현재 식단을 유지하세요.", metric: goalMetric };
-        return { conclusion: "벌크업 중인데 체중이 거의 늘지 않았습니다.", reason: "칼로리는 아직 바꾸지 말고 28일 기록에서 결정하세요.", metric: goalMetric };
+        return { conclusion: "벌크업 중인데 체중이 거의 늘지 않았습니다.", reason: "아직은 중간 점검 기간입니다.", metric: goalMetric };
       }
       if (change >= 0.1 && change <= 0.8) return { conclusion: "린매스업 흐름이 안정적입니다.", reason: "현재 식단을 유지하세요.", metric: goalMetric };
-      if (Math.abs(change) < 0.1) return { conclusion: "린매스업 중인데 체중 변화가 거의 없습니다.", reason: "칼로리는 아직 바꾸지 말고 28일 기록에서 결정하세요.", metric: goalMetric };
-      return { conclusion: "린매스업 진행 속도를 확인해야 합니다.", reason: "칼로리는 아직 바꾸지 말고 28일 기록에서 결정하세요.", metric: goalMetric };
+      if (Math.abs(change) < 0.1) return { conclusion: "린매스업 중인데 체중 변화가 거의 없습니다.", reason: "아직은 중간 점검 기간입니다.", metric: goalMetric };
+      return { conclusion: "린매스업 진행 속도를 확인해야 합니다.", reason: "아직은 중간 점검 기간입니다.", metric: goalMetric };
     }
 
     function getRecent28AdjustmentSummary(window28, currentResult){
@@ -29821,68 +29822,68 @@ Notes:
       const goalMetric = getRecentFlowGoalBreakdown(window28);
       if (!window28 || window28.usableDietDays < 18 || window28.weightDays < 12 || change === null) {
         return {
-          conclusion: "장기 판단에 필요한 기록이 부족합니다.",
-          reason: "칼로리는 아직 바꾸지 마세요.",
+          conclusion: "28일 설정 판단을 보류합니다.",
+          reason: "식단과 체중 기록이 더 필요합니다.",
           metric: goalMetric
         };
       }
       if (Number(window28.macroAnalysisDays || 0) < 12) {
         return {
-          conclusion: "장기 판단에 필요한 상세 기록이 부족합니다.",
-          reason: "칼로리는 아직 바꾸지 마세요.",
+          conclusion: "28일 설정 판단을 보류합니다.",
+          reason: "상세 식사 기록이 더 필요합니다.",
           metric: goalMetric
         };
       }
       if (window28.goalChangeDetected) {
         return {
           conclusion: "목표가 섞여 있습니다.",
-          reason: "현재 목표 기록을 더 쌓은 뒤 판단하세요.",
+          reason: "현재 목표 기록을 더 쌓은 뒤 비교합니다.",
           metric: goalMetric
         };
       }
       if (Number(window28.goalSnapshotCoverage || 0) < 0.7) {
         return {
-          conclusion: "목표 기록이 부족합니다.",
-          reason: "칼로리는 아직 바꾸지 마세요.",
+          conclusion: "목표 기준 기록이 부족합니다.",
+          reason: "칼로리는 아직 바꾸지 않습니다.",
           metric: goalMetric
         };
       }
       if (!Number.isFinite(avgAdherence) || avgAdherence < 85) {
         return {
-          conclusion: "식단 실행이 충분하지 않습니다.",
-          reason: "칼로리는 아직 바꾸지 마세요.",
+          conclusion: "식단 실행률이 낮습니다.",
+          reason: "설정보다 실행률을 먼저 올립니다.",
           metric: goalMetric
         };
       }
       const otherKcalTooMany = Number(window28.otherKcalHeavyDays || 0) >= 3 || Number(window28.otherKcalHeavyDays || 0) / Math.max(1, Number(window28.usableDietDays || 0)) >= 0.15;
       if (otherKcalTooMany) {
         return {
-          conclusion: "기타 칼로리가 원인입니다.",
-          reason: "칼로리는 바꾸지 말고 탄단지 기록부터 정리하세요.",
+          conclusion: "기타 칼로리가 체중 판단을 흐립니다.",
+          reason: "설정보다 탄단지 기록 분리를 먼저 정리합니다.",
           metric: goalMetric
         };
       }
       const alcoholTooMany = Number(window28.alcoholDays || 0) >= 2 || Number(window28.alcoholDays || 0) / Math.max(1, Number(window28.usableDietDays || 0)) >= 0.10;
       if (alcoholTooMany) {
         return {
-          conclusion: "술 기록이 체중 흐름을 흐립니다.",
-          reason: "칼로리는 아직 바꾸지 마세요.",
+          conclusion: "술 기록이 체중 판단을 흐립니다.",
+          reason: "설정보다 술·안주 변동을 먼저 줄입니다.",
           metric: goalMetric
         };
       }
       if (goal === "diet") {
         if (change <= -0.6) return { conclusion: "체중 흐름이 목표와 맞습니다.", reason: "현재 설정을 유지하세요.", metric: goalMetric };
-        if (change > 0.1) return { conclusion: "식단을 지켰는데도 체중이 계속 오릅니다.", reason: "하루 100~150kcal 낮추세요.", metric: goalMetric };
-        return { conclusion: "식단을 지켰는데도 체중이 거의 줄지 않습니다.", reason: "하루 100~150kcal 낮추세요.", metric: goalMetric };
+        if (change > 0.1) return { conclusion: "식단을 지켰는데도 체중이 계속 오릅니다.", reason: "기록 품질은 충분하고 체중이 목표와 반대로 움직입니다.", metric: goalMetric };
+        return { conclusion: "식단을 지켰는데도 체중이 거의 줄지 않습니다.", reason: "기록 품질은 충분하고 체중 감소가 약합니다.", metric: goalMetric };
       }
       if (goal === "bulk") {
         if (change >= 0.6 && change <= 2.4) return { conclusion: "체중 흐름이 목표와 맞습니다.", reason: "현재 설정을 유지하세요.", metric: goalMetric };
-        if (change < 0.6) return { conclusion: "식단을 지켰는데도 체중이 거의 늘지 않습니다.", reason: "하루 100~150kcal 올리세요.", metric: goalMetric };
-        return { conclusion: "식단을 지켰는데도 체중이 계속 오릅니다.", reason: "하루 100~150kcal 낮추세요.", metric: goalMetric };
+        if (change < 0.6) return { conclusion: "식단을 지켰는데도 체중이 거의 늘지 않습니다.", reason: "기록 품질은 충분하고 체중 증가가 약합니다.", metric: goalMetric };
+        return { conclusion: "식단을 지켰는데도 체중이 계속 오릅니다.", reason: "기록 품질은 충분하고 체중 증가 속도가 큽니다.", metric: goalMetric };
       }
       if (change >= 0.2 && change <= 1.4) return { conclusion: "체중 흐름이 목표와 맞습니다.", reason: "현재 설정을 유지하세요.", metric: goalMetric };
-      if (change < 0.2) return { conclusion: "식단을 지켰는데도 체중이 거의 늘지 않습니다.", reason: "하루 100~150kcal 올리세요.", metric: goalMetric };
-      return { conclusion: "식단을 지켰는데도 체중이 계속 오릅니다.", reason: "하루 100~150kcal 낮추세요.", metric: goalMetric };
+      if (change < 0.2) return { conclusion: "식단을 지켰는데도 체중이 거의 늘지 않습니다.", reason: "기록 품질은 충분하고 체중 증가가 약합니다.", metric: goalMetric };
+      return { conclusion: "식단을 지켰는데도 체중이 계속 오릅니다.", reason: "기록 품질은 충분하고 체중 증가 속도가 큽니다.", metric: goalMetric };
     }
 
     function getRecentFlowCardSummary(days, window, currentResult){
@@ -29903,7 +29904,7 @@ Notes:
     function getRecentFlowReferenceTone(days, summary){
       const combined = `${summary?.conclusion || ""} ${summary?.reason || ""}`;
       if (/현재 설정을 유지|현재 식단을 유지|안정적|목표대로|목표와 맞습니다|잘 챙겼습니다/.test(combined)) return "ok";
-      if (/목표가 섞|현재 목표 기록|목표 기록이 부족|부족|어렵|불안정|원인|보류|바꾸지 마세요|고탄수|저탄수|고지방|술 기록|반복|낮습니다|다듬|올리세요|낮추세요|검토/.test(combined)) return "warn";
+      if (/목표가 섞|현재 목표 기록|목표 기록이 부족|부족|어렵|불안정|원인|보류|바꾸지 마세요|바꾸지 않습니다|고탄수|저탄수|고지방|술 기록|반복|낮습니다|낮았|다듬|느립니다|거의 늘지|거의 줄지|계속 오|증가가 약|감소가 약|증가 속도|올리세요|낮추세요|검토/.test(combined)) return "warn";
       return "ok";
     }
 
@@ -29921,8 +29922,15 @@ Notes:
       if (/기타 칼로리|탄단지 기록부터 정리/.test(combined)) return "기타 kcal 줄이고 나눠 기록";
       if (/술 기록|술이 있었던 날/.test(combined)) return "술·안주 줄이기";
       if (/식사 기록이 빠진/.test(combined)) return "빠진 식사 기록 보강";
-      if (/체중 기록 중심/.test(combined)) return "식단 기록 추가";
+      if (/체중 기록 중심|체중 기록만/.test(combined)) return "식단 기록 추가";
+      if (/참고 기록이 적|식사 기록부터/.test(combined)) return "식단 기록 보강";
       if (/식단 실행.*낮|식단 실행.*다듬|식단 실행이 충분하지/.test(combined)) return "식단 실행률 먼저 올리기";
+      if (/체중 변화가 목표보다 느|체중이 거의 늘지|체중 변화가 거의 없|체중 증가가 약/.test(combined)) {
+        return days >= 28 ? "하루 100~150kcal 올리기" : "28일 기록까지 유지";
+      }
+      if (/체중이 거의 줄지|체중 감소가 약|체중이 계속 오|체중 증가 속도/.test(combined)) {
+        return days >= 28 ? "하루 100~150kcal 낮추기" : "28일 기록까지 유지";
+      }
       if (/부족|어렵|보류/.test(combined)) {
         if (/목표가 섞|목표 기록/.test(combined)) return "현재 목표 기록 누적";
         if (/상세/.test(combined)) return "상세 식사 기록 보강";
@@ -30039,6 +30047,18 @@ Notes:
       const trainingDays = Number(window?.actualWeightTrainingDays || 0);
       const trainingMinimum = selectedRangeDays <= 3 ? 1 : selectedRangeDays >= 28 ? 8 : selectedRangeDays >= 14 ? 4 : 3;
       const executionScore = getRecentFlowReferenceScore(window);
+      const usableDietDays = Number(window?.usableDietDays || 0);
+      const weightDays = Number(window?.weightDays || 0);
+      const weightOnlyDays = Number(window?.weightOnlyDays || window?.weightOnlyRecordDays || 0);
+      if (!usableDietDays && !weightDays) {
+        return [{ title: "기록 없음", text: "식단과 체중 기록이 없어 흐름 판단을 보류합니다." }];
+      }
+      if (!usableDietDays && weightOnlyDays > 0) {
+        points.push({
+          title: `기록 부족 ${weightOnlyDays}일`,
+          text: "식단 기록이 없어 원인 분석이 어렵습니다."
+        });
+      }
       if (proteinLowDays > 0) points.push({
         title: `단백질 부족 ${proteinLowDays}일`,
         text: proteinLowDays === 1 ? "단백질이 부족한 날이 있습니다." : "단백질이 자주 빠졌습니다."
@@ -30059,7 +30079,7 @@ Notes:
         title: `기타 칼로리 ${otherKcalHeavyDays}일`,
         text: otherKcalHeavyDays === 1 ? "기타 칼로리가 큰 날이 있습니다." : "기타 칼로리가 반복됐습니다."
       });
-      if (trainingDays < trainingMinimum) points.push({
+      if (trainingDays < trainingMinimum && usableDietDays > 0) points.push({
         title: trainingDays <= 0 ? "웨이트 기록 없음" : `웨이트 기록 부족 ${trainingDays}/${selectedRangeDays}일`,
         text: `최근 ${selectedRangeDays}일 웨이트 기록이 부족합니다.`
       });
@@ -30077,6 +30097,7 @@ Notes:
       const primaryGoal = String((Array.isArray(window?.goalTypes) && window.goalTypes[0]) || state.goal || "").trim();
       if (
         !points.length &&
+        window?.goalChangeDetected !== true &&
         selectedRangeDays >= 14 &&
         Number.isFinite(weightChange) &&
         Number(window?.weightDays || 0) >= Math.max(2, Math.ceil(selectedRangeDays * 0.45))
@@ -30315,7 +30336,7 @@ Notes:
       const scores = records.map(getRecentFlowRecordScoreValue).filter(Number.isFinite);
       if (!scores.length) return { value: null, label: "분석 대기", sub: "기록이 쌓이면 식단 실행률을 계산합니다." };
       const value = scores.reduce((sum, score) => sum + score, 0) / scores.length;
-      const label = value >= 85 ? "훌륭합니다!" : value >= 70 ? "흐름을 더 다듬어 보세요." : "기록 안정화가 먼저입니다.";
+      const label = value >= 85 ? "점수 높음" : value >= 70 ? "점수 보통" : "점수 낮음";
       const sub = "기간 기록 분석과 함께 봅니다.";
       return { value, label, sub };
     }
@@ -30350,7 +30371,6 @@ Notes:
           <section class="recent-flow-daily-card">
             <div class="recent-flow-daily-head">
               <div><h4>일간 기록 요약</h4></div>
-              <p>기록이 쌓이면 날짜별로 확인합니다.</p>
             </div>
             <div class="recent-flow-daily-table">
               <div class="recent-flow-daily-empty">아직 표시할 기록이 없습니다.</div>
@@ -30362,7 +30382,6 @@ Notes:
         <section class="recent-flow-daily-card">
           <div class="recent-flow-daily-head">
             <div><h4>일간 기록 요약</h4></div>
-            <p>최근 기록을 날짜별로 열어볼 수 있습니다.</p>
           </div>
           <div class="recent-flow-daily-table">
             ${rows.map(record => {
@@ -35610,7 +35629,7 @@ Notes:
           recordsState.items = normalizeRecordsCollection([]);
           renderWeeklyPanel(calculate());
           const text = document.getElementById("recentFlowPreviewHost").textContent || "";
-          assertIncludesAll(text, ["분석이 어렵습니다", "식단·체중 기록 보강"], "low records should show clear limits");
+          assertIncludesAll(text, ["판단을 보류합니다", "식단·체중 기록 보강"], "low records should show clear limits");
         }));
 
         results.push(runNamedTest("weekly recent flow range selector swaps top-line counts", () => {
@@ -35680,7 +35699,7 @@ Notes:
             weight: 75 + index * 0.1
           }));
           const text = setWeeklyFlowRecords(records);
-          assertIncludesAll(text, ["체중만 7일", "체중 기록 중심", "식단 원인은 아직 단정하지 않습니다"], "weight-only recent flow should frame records as weight-only");
+          assertIncludesAll(text, ["체중만 7일", "체중 기록만", "식단 원인은 아직 단정하지 않습니다"], "weight-only recent flow should frame records as weight-only");
           assertExcludesAll(text, ["최근 식단 점수", "단백질 부족이 반복됐습니다", "기타 칼로리가 원인입니다", "식단 때문에"], "weight-only recent flow should not state diet causes");
           recordsState.items = normalizeRecordsCollection([{ date: today, weight: 75 }]);
         }));
@@ -35704,7 +35723,7 @@ Notes:
             { date: yesterday, goalSnapshot: makeWeeklyFlowSnapshot({ goal: "diet" }), meals: [makeWeeklyFlowMeal(yesterday, "m1"), makeWeeklyFlowMeal(yesterday, "m2")] },
             { date: today, goalSnapshot: makeWeeklyFlowSnapshot({ goal: "bulk" }), meals: [makeWeeklyFlowMeal(today, "m3"), makeWeeklyFlowMeal(today, "m4")] }
           ]);
-          assertIncludesAll(text, ["목표가 섞여", "현재 목표와 그대로 비교하지 않습니다"], "goal change copy should be diagnostic");
+          assertIncludesAll(text, ["목표가 섞여", "현재 목표 기록을 더 쌓은 뒤 비교합니다"], "goal change copy should be diagnostic");
         }));
 
         results.push(runNamedTest("weekly recent flow other kcal copy treats it as interpretation limit", () => {
@@ -35804,7 +35823,7 @@ Notes:
           recentFlowSelectedRangeDays = 28;
           renderWeeklyPanel(calculate());
           const analysisText = document.querySelector(".weekly-report-group").textContent || "";
-          assertIncludesAll(analysisText, ["28일 기간 기록 분석", "장기 판단에 필요한 기록이 부족합니다", "칼로리는 아직 바꾸지 마세요"], "twenty eight day low data should block changes");
+          assertIncludesAll(analysisText, ["28일 기간 기록 분석", "28일 설정 판단을 보류합니다", "식단과 체중 기록이 더 필요합니다"], "twenty eight day low data should block changes");
         }));
 
         results.push(runNamedTest("weekly recent twenty eight day analysis blocks adjustment when adherence is low", () => {
@@ -35812,7 +35831,7 @@ Notes:
           setWeeklyFlowRecords(buildWeeklyFlowRecords(28, { startWeight: 75, weightStep: 0, adherencePercent: 82 }));
           document.querySelector('[data-recent-flow-range="28"]').click();
           const analysisText = document.querySelector(".weekly-report-group").textContent || "";
-          assertIncludesAll(analysisText, ["식단 실행이 충분하지 않습니다", "칼로리는 아직 바꾸지 마세요"], "twenty eight day low adherence should block changes");
+          assertIncludesAll(analysisText, ["식단 실행률이 낮습니다", "설정보다 실행률을 먼저 올립니다"], "twenty eight day low adherence should block changes");
           assertExcludesAll(analysisText, ["하루 100~150kcal 올리기", "하루 100~150kcal 낮추기"], "low adherence should not command calorie changes");
         }));
 
@@ -35825,7 +35844,7 @@ Notes:
           setWeeklyFlowRecords(records);
           document.querySelector('[data-recent-flow-range="28"]').click();
           const analysisText = document.querySelector(".weekly-report-group").textContent || "";
-          assertIncludesAll(analysisText, ["기타 칼로리가 원인입니다", "탄단지 기록부터 정리하세요"], "twenty eight day other kcal should block changes");
+          assertIncludesAll(analysisText, ["기타 칼로리가 체중 판단을 흐립니다", "탄단지 기록 분리"], "twenty eight day other kcal should block changes");
           assertExcludesAll(analysisText, ["하루 100~150kcal 올리기", "하루 100~150kcal 낮추기"], "other kcal should not command calorie changes");
         }));
 
@@ -35840,7 +35859,7 @@ Notes:
           setWeeklyFlowRecords(records);
           document.querySelector('[data-recent-flow-range="28"]').click();
           const analysisText = document.querySelector(".weekly-report-group").textContent || "";
-          assertIncludesAll(analysisText, ["목표가 섞여 있습니다", "현재 목표 기록을 더 쌓은 뒤 판단하세요"], "twenty eight day goal changes should block changes");
+          assertIncludesAll(analysisText, ["목표가 섞여 있습니다", "현재 목표 기록을 더 쌓은 뒤 비교합니다"], "twenty eight day goal changes should block changes");
           assertExcludesAll(analysisText, ["하루 100~150kcal 올리기", "하루 100~150kcal 낮추기"], "goal changes should not command calorie changes");
         }));
 
@@ -56041,6 +56060,11 @@ Notes:
             reason: "기타 칼로리와 식사 누락이 크게 보이지 않습니다."
           }, {});
           assertTest(cleanThreeDayAction === "현재 식단 유지", "clean three day flow should not become an other-kcal reduction action");
+          const sparseThreeDayAction = getRecentFlowReferenceAction(3, {
+            conclusion: "최근 3일은 참고 기록이 적습니다.",
+            reason: "보이는 문제는 주의 포인트로만 확인합니다."
+          }, {});
+          assertTest(sparseThreeDayAction === "식단 기록 보강", "sparse three day flow should ask for more diet records, not today's generic cleanup");
           const highFat3 = getRecent3DaySummary({
             usableDietDays: 2,
             macroPatternAllowed: true,
@@ -56100,17 +56124,23 @@ Notes:
             simpleAdherenceLevel: null
           });
           assertTest(weightOnlyScore === null, "weight-only records should not create a diet execution score");
-          const highFatPoints = getRecentFlowPointItems({ records: [], fatHighDays: 4, actualWeightTrainingDays: 4 }, 7);
+          const highFatPoints = getRecentFlowPointItems({ records: [], usableDietDays: 4, weightDays: 4, fatHighDays: 4, actualWeightTrainingDays: 4 }, 7);
           assertTest(highFatPoints.some(item => item.title === "고지방 4일"), "high fat patterns should appear in recent caution points");
           assertTest(!highFatPoints.some(item => item.title === "큰 주의점 없음"), "high fat patterns should not render as no caution");
-          const shortTrainingOkPoints = getRecentFlowPointItems({ records: [], actualWeightTrainingDays: 2 }, 3);
+          const emptyPoints = getRecentFlowPointItems({ records: [], actualWeightTrainingDays: 0 }, 7);
+          assertTest(emptyPoints.some(item => item.title === "기록 없음"), "empty windows should ask for records before flagging training");
+          const weightOnlyPoints = getRecentFlowPointItems({ records: [], weightOnlyDays: 5, weightDays: 5, actualWeightTrainingDays: 0 }, 7);
+          assertTest(weightOnlyPoints.some(item => item.title === "기록 부족 5일"), "weight-only windows should frame the issue as missing diet context");
+          const shortTrainingOkPoints = getRecentFlowPointItems({ records: [], usableDietDays: 3, weightDays: 3, actualWeightTrainingDays: 2 }, 3);
           assertTest(!shortTrainingOkPoints.some(item => item.title.includes("웨이트")), "three day flow should not flag two weight-training days as a caution");
-          const noTrainingPoints = getRecentFlowPointItems({ records: [], actualWeightTrainingDays: 0 }, 3);
+          const noTrainingPoints = getRecentFlowPointItems({ records: [], usableDietDays: 3, weightDays: 3, actualWeightTrainingDays: 0 }, 3);
           assertTest(noTrainingPoints.some(item => item.title === "웨이트 기록 없음"), "three day flow should only flag missing weight training when no training day exists");
-          const lowTrainingPoints = getRecentFlowPointItems({ records: [], actualWeightTrainingDays: 2 }, 7);
+          const lowTrainingPoints = getRecentFlowPointItems({ records: [], usableDietDays: 7, weightDays: 7, actualWeightTrainingDays: 2 }, 7);
           assertTest(lowTrainingPoints.some(item => item.title === "웨이트 기록 부족 2/7일"), "seven day low training caution should say it is a shortage, not a completed record count");
           const lowExecutionPoints = getRecentFlowPointItems({
             records: [{ hasDetailedDiet: true, adherencePercent: 78 }],
+            usableDietDays: 28,
+            weightDays: 28,
             actualWeightTrainingDays: 8
           }, 28);
           assertTest(lowExecutionPoints.some(item => item.title === "식단 실행률 78%"), "low 28-day execution should be reflected in caution points");
@@ -56132,6 +56162,8 @@ Notes:
           assertTest(getRecentFlowReferenceAction(28, goalChangeSummary, {}) === "현재 목표 기록 누적", "mixed goal periods should ask for current-goal records, not generic flow maintenance");
           const simpleOnlyPoints = getRecentFlowPointItems({
             records: [],
+            usableDietDays: 7,
+            weightDays: 0,
             simpleSummaryDays: 7,
             macroPatternAllowed: false,
             actualWeightTrainingDays: 5
@@ -56148,6 +56180,17 @@ Notes:
           }, 28);
           assertTest(plateauPoints.some(item => item.title === "체중 변화 적음"), "twenty-eight day plateau should surface a weight-flow caution instead of no-caution copy");
           assertTest(!plateauPoints.some(item => item.title === "큰 주의점 없음"), "twenty-eight day plateau should not render as no caution");
+          const goalChangePoints = getRecentFlowPointItems({
+            records: [
+              { date: "2026-05-01", hasWeight: true, weight: 75.2 },
+              { date: "2026-05-27", hasWeight: true, weight: 74.7 }
+            ],
+            weightDays: 27,
+            actualWeightTrainingDays: 8,
+            goalTypes: ["diet", "lean_bulk"],
+            goalChangeDetected: true
+          }, 28);
+          assertTest(!goalChangePoints.some(item => item.title === "체중 감소 둔함" || item.title === "체중 변화 적음"), "mixed goal windows should not add weight-flow fallback cautions");
           const relatedRows = renderRecentFlowPointRows(
             [{ title: "큰 주의점 없음", text: "큰 주의점은 아직 보이지 않습니다." }],
             [{ label: "목표 변경", dates: ["2026-05-14"], type: "issue" }]
