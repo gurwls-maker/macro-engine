@@ -29495,8 +29495,9 @@ Notes:
     function renderRecentFlowPointRows(points, groups, options = {}){
       const safePoints = Array.isArray(points) ? points : [];
       const relatedGroups = Array.isArray(groups) ? groups : [];
+      const visiblePoints = safePoints.filter(point => !(point?.title === "큰 주의점 없음" && relatedGroups.length));
       const usedLabels = new Set();
-      const rows = safePoints.map(point => {
+      const rows = visiblePoints.map(point => {
         const group = getRecentFlowIssueRelatedGroup(point, relatedGroups);
         if (group?.label) usedLabels.add(group.label);
         return `
@@ -29902,7 +29903,7 @@ Notes:
     function getRecentFlowReferenceTone(days, summary){
       const combined = `${summary?.conclusion || ""} ${summary?.reason || ""}`;
       if (/현재 설정을 유지|현재 식단을 유지|안정적|목표대로|목표와 맞습니다|잘 챙겼습니다/.test(combined)) return "ok";
-      if (/부족|어렵|불안정|원인|보류|바꾸지 마세요|고탄수|저탄수|고지방|술 기록|반복|낮습니다|다듬|올리세요|낮추세요|검토/.test(combined)) return "warn";
+      if (/목표가 섞|현재 목표 기록|목표 기록이 부족|부족|어렵|불안정|원인|보류|바꾸지 마세요|고탄수|저탄수|고지방|술 기록|반복|낮습니다|다듬|올리세요|낮추세요|검토/.test(combined)) return "warn";
       return "ok";
     }
 
@@ -29911,6 +29912,7 @@ Notes:
       if (/현재 설정을 유지|현재 식단을 유지|안정적|목표대로|목표와 맞습니다|잘 챙겼습니다/.test(combined)) {
         return days >= 28 ? "현재 설정 유지" : "현재 식단 유지";
       }
+      if (/목표가 섞|현재 목표 기록|목표 기록이 부족/.test(combined)) return "현재 목표 기록 누적";
       if (/저탄수 고지방|지방 쪽으로 식사가 치우친/.test(combined)) return "탄수 보강·지방 줄이기";
       if (/고탄수|탄수 비중/.test(combined)) return "탄수 섭취량 줄이기";
       if (/저탄수|탄수 기록|탄수가 낮|탄수 부족/.test(combined)) return "운동일 탄수 보강";
@@ -30069,6 +30071,36 @@ Notes:
         points.push({
           title: `식단 실행률 ${round(executionScore)}%`,
           text: "설정 변경보다 현재 목표를 지킨 날을 먼저 늘립니다."
+        });
+      }
+      const weightChange = getRecentFlowWeightChange(window);
+      const primaryGoal = String((Array.isArray(window?.goalTypes) && window.goalTypes[0]) || state.goal || "").trim();
+      if (
+        !points.length &&
+        selectedRangeDays >= 14 &&
+        Number.isFinite(weightChange) &&
+        Number(window?.weightDays || 0) >= Math.max(2, Math.ceil(selectedRangeDays * 0.45))
+      ) {
+        if ((primaryGoal === "lean_bulk" || primaryGoal === "bulk") && weightChange < (selectedRangeDays >= 28 ? 0.2 : 0.1)) {
+          points.push({
+            title: "체중 변화 적음",
+            text: "기간 대비 체중 증가가 약합니다."
+          });
+        } else if (primaryGoal === "diet" && weightChange > (selectedRangeDays >= 28 ? -0.3 : -0.1)) {
+          points.push({
+            title: "체중 감소 둔함",
+            text: "기간 대비 체중 감소가 약합니다."
+          });
+        }
+      }
+      if (
+        !points.length &&
+        Number(window?.simpleSummaryDays || 0) > 0 &&
+        window?.macroPatternAllowed === false
+      ) {
+        points.push({
+          title: "상세 기록 부족",
+          text: "간단 기록만으로는 탄단지 원인을 나누기 어렵습니다."
         });
       }
       if (!points.length) points.push({ title: "큰 주의점 없음", text: "큰 주의점은 아직 보이지 않습니다." });
@@ -30284,7 +30316,7 @@ Notes:
       if (!scores.length) return { value: null, label: "분석 대기", sub: "기록이 쌓이면 식단 실행률을 계산합니다." };
       const value = scores.reduce((sum, score) => sum + score, 0) / scores.length;
       const label = value >= 85 ? "훌륭합니다!" : value >= 70 ? "흐름을 더 다듬어 보세요." : "기록 안정화가 먼저입니다.";
-      const sub = value >= 85 ? "최근 흐름이 안정적입니다." : "최근 기록을 기준으로 보수적으로 해석합니다.";
+      const sub = "기간 기록 분석과 함께 봅니다.";
       return { value, label, sub };
     }
 
@@ -55939,6 +55971,10 @@ Notes:
           assertTest(document.getElementById("recentFlowAchievementHelpText")?.classList.contains("hidden"), "diet execution help should stay hidden until hover/focus");
           document.getElementById("recentFlowAchievementHelp")?.dispatchEvent(new Event("mouseenter"));
           assertTest(!document.getElementById("recentFlowAchievementHelpText")?.classList.contains("hidden"), "diet execution help should open as a tooltip");
+          const achievement = getRecentFlowAchievement({
+            records: [{ hasDetailedDiet: true, adherencePercent: 90, adherenceSource: "auto" }]
+          });
+          assertTest(achievement.sub === "기간 기록 분석과 함께 봅니다.", "diet execution card should not claim the whole recent flow is stable");
           document.querySelector('[data-recent-flow-range="28"]').click();
           const guidanceText = document.getElementById("weeklyActionHelpText").textContent || "";
           assertIncludesAll(guidanceText, ["설정 판단 안내", "설정 조정"], "twenty-eight day reference copy should stay lower priority");
@@ -56088,6 +56124,36 @@ Notes:
             reason: "칼로리는 아직 바꾸지 마세요."
           });
           assertTest(lowDataTone === "warn", "low-data twenty-eight day flow should warn without using the severe danger tone");
+          const goalChangeSummary = {
+            conclusion: "목표가 섞여 있습니다.",
+            reason: "현재 목표 기록을 더 쌓은 뒤 판단하세요."
+          };
+          assertTest(getRecentFlowReferenceTone(28, goalChangeSummary) === "warn", "mixed goal periods should warn instead of rendering as an ok state");
+          assertTest(getRecentFlowReferenceAction(28, goalChangeSummary, {}) === "현재 목표 기록 누적", "mixed goal periods should ask for current-goal records, not generic flow maintenance");
+          const simpleOnlyPoints = getRecentFlowPointItems({
+            records: [],
+            simpleSummaryDays: 7,
+            macroPatternAllowed: false,
+            actualWeightTrainingDays: 5
+          }, 7);
+          assertTest(simpleOnlyPoints.some(item => item.title === "상세 기록 부족"), "simple-only windows should explain that macro cause analysis needs detailed records");
+          const plateauPoints = getRecentFlowPointItems({
+            records: [
+              { date: "2026-05-01", hasWeight: true, weight: 74.7 },
+              { date: "2026-05-27", hasWeight: true, weight: 74.76 }
+            ],
+            weightDays: 27,
+            actualWeightTrainingDays: 8,
+            goalTypes: ["lean_bulk"]
+          }, 28);
+          assertTest(plateauPoints.some(item => item.title === "체중 변화 적음"), "twenty-eight day plateau should surface a weight-flow caution instead of no-caution copy");
+          assertTest(!plateauPoints.some(item => item.title === "큰 주의점 없음"), "twenty-eight day plateau should not render as no caution");
+          const relatedRows = renderRecentFlowPointRows(
+            [{ title: "큰 주의점 없음", text: "큰 주의점은 아직 보이지 않습니다." }],
+            [{ label: "목표 변경", dates: ["2026-05-14"], type: "issue" }]
+          );
+          assertIncludesAll(relatedRows, ["목표 변경 1일"], "related issue rows should remain visible when no-caution fallback exists");
+          assertExcludesAll(relatedRows, ["큰 주의점 없음"], "no-caution fallback should be hidden when related issue groups exist");
           const emptyKcalChart = getRecentFlowTrendChart({ records: [{ date: getTodayDateString(), totalKcal: 0, targetCal: null }] }, 7);
           assertIncludesAll(emptyKcalChart, ["흐름을 만들 기록이 필요합니다", "목표 기준"], "weight-only calorie chart should stay empty until kcal data exists");
         }));
