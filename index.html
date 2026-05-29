@@ -30337,7 +30337,11 @@ Notes:
       if (!scores.length) return { value: null, label: "분석 대기", sub: "기록이 쌓이면 식단 실행률을 계산합니다." };
       const value = scores.reduce((sum, score) => sum + score, 0) / scores.length;
       const label = value >= 85 ? "점수 높음" : value >= 70 ? "점수 보통" : "점수 낮음";
-      const sub = "기간 기록 분석과 함께 봅니다.";
+      const sub = value >= 85
+        ? "좋습니다. 대부분 목표 범위 안에 들어왔습니다."
+        : value >= 70
+          ? "나쁘지 않습니다. 목표 범위에서 벗어난 날이 조금 있습니다."
+          : "아쉽습니다. 목표 범위에서 벗어난 날이 많습니다.";
       return { value, label, sub };
     }
 
@@ -55993,7 +55997,15 @@ Notes:
           const achievement = getRecentFlowAchievement({
             records: [{ hasDetailedDiet: true, adherencePercent: 90, adherenceSource: "auto" }]
           });
-          assertTest(achievement.sub === "기간 기록 분석과 함께 봅니다.", "diet execution card should not claim the whole recent flow is stable");
+          assertTest(achievement.sub === "좋습니다. 대부분 목표 범위 안에 들어왔습니다.", "high diet execution should give a direct positive interpretation");
+          const mediumAchievement = getRecentFlowAchievement({
+            records: [{ hasDetailedDiet: true, adherencePercent: 76, adherenceSource: "auto" }]
+          });
+          assertTest(mediumAchievement.sub === "나쁘지 않습니다. 목표 범위에서 벗어난 날이 조금 있습니다.", "medium diet execution should describe mild drift without taking over action guidance");
+          const lowAchievement = getRecentFlowAchievement({
+            records: [{ hasDetailedDiet: true, adherencePercent: 62, adherenceSource: "auto" }]
+          });
+          assertTest(lowAchievement.sub === "아쉽습니다. 목표 범위에서 벗어난 날이 많습니다.", "low diet execution should describe weak execution without taking over action guidance");
           document.querySelector('[data-recent-flow-range="28"]').click();
           const guidanceText = document.getElementById("weeklyActionHelpText").textContent || "";
           assertIncludesAll(guidanceText, ["설정 판단 안내", "설정 조정"], "twenty-eight day reference copy should stay lower priority");
