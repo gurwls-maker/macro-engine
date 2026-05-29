@@ -8134,27 +8134,6 @@ Notes:
       background:rgba(255,255,255,.92);
       color:var(--deep);
     }
-    .recent-flow-range-stats{
-      display:flex;
-      align-items:center;
-      justify-content:flex-end;
-      gap:10px;
-      min-width:max-content;
-      font-size:12px;
-      font-weight:900;
-      white-space:nowrap;
-    }
-    .recent-flow-range-stat{
-      display:inline-flex;
-      align-items:center;
-      gap:5px;
-    }
-    .recent-flow-range-stat.training{
-      color:#3f7865;
-    }
-    .recent-flow-range-stat.weight{
-      color:#5a64b4;
-    }
     .recent-flow-window-card .title small{
       color:inherit;
       font:inherit;
@@ -8294,9 +8273,6 @@ Notes:
       background:var(--teal);
       color:#fff;
       box-shadow:0 8px 18px rgba(15,123,102,.22);
-    }
-    .recent-flow-range-stats{
-      display:none;
     }
     .recent-flow-dashboard-grid{
       display:grid;
@@ -11569,13 +11545,6 @@ Notes:
         flex:1 1 100%;
         flex-wrap:wrap;
       }
-      .recent-flow-range-stats{
-        flex:1 1 100%;
-        min-width:0;
-        justify-content:flex-start;
-        flex-wrap:wrap;
-        white-space:normal;
-      }
       #kpiPanel .kpi.target{
         grid-column:1 / -1;
       }
@@ -11634,9 +11603,6 @@ Notes:
       .recent-flow-range-btn{
         min-width:0;
         padding:8px 6px;
-      }
-      .recent-flow-range-stats{
-        justify-content:center;
       }
       .recent-flow-trend-card,
       .recent-flow-nutrition-card,
@@ -30013,7 +29979,7 @@ Notes:
       const actionTone = getRecentFlowReferenceTone(safeDays, summary);
       const recordResolution = `상세 ${Number(window.detailedDietDays || 0)}일 · 간단 ${Number(window.simpleDietDays || 0)}일 · 체중만 ${Number(window.weightOnlyDays || 0)}일`;
       const summaryRows = [
-        ["식단 기록", `${Number(window.usableDietDays || 0)}/${safeDays}일`],
+        ["기록 상태", `식단 ${Number(window.usableDietDays || 0)}/${safeDays}일 · 체중 ${Number(window.weightDays || 0)}/${safeDays}일 · 운동 ${Number(window.actualWeightTrainingDays || 0)}/${safeDays}일`],
         ["기록 종류", recordResolution],
         ["목표 기준", goalLine || "기록 없음"],
         ["체중 변화", Number.isFinite(weightChange) ? `${formatSignedKg2(weightChange)} kg` : "-"]
@@ -30446,11 +30412,6 @@ Notes:
               ${RECENT_FLOW_RANGE_DAYS.map(days => `
                 <button class="recent-flow-range-btn ${days === selectedRangeDays ? "active" : ""}" type="button" data-recent-flow-range="${days}">${days}일</button>
               `).join("")}
-            </div>
-            <div class="recent-flow-range-stats">
-              <span class="recent-flow-range-current">최근 ${selectedRangeDays}일</span>
-              <span class="recent-flow-range-stat training"><span>운동일</span><strong>${Number(selectedWindow.actualWeightTrainingDays || 0)}/${selectedRangeDays}</strong></span>
-              <span class="recent-flow-range-stat weight"><span>체중일</span><strong>${Number(selectedWindow.weightDays || 0)}/${selectedRangeDays}</strong></span>
             </div>
           </div>
           <div class="recent-flow-dashboard-grid">
@@ -35634,19 +35595,20 @@ Notes:
           assertIncludesAll(text, ["판단을 보류합니다", "식단·체중 기록 보강"], "low records should show clear limits");
         }));
 
-        results.push(runNamedTest("weekly recent flow range selector swaps top-line counts", () => {
+        results.push(runNamedTest("weekly recent flow range selector updates visible record state", () => {
           const today = getTodayDateString();
           const records = buildWeeklyFlowRecords(14, {
             routineForIndex: index => index >= 11 ? "PUSH" : "REST",
             weightDurationForIndex: index => index >= 11 ? 45 : 0
           });
           setWeeklyFlowRecords(records);
-          let text = document.querySelector(".recent-flow-range-row").textContent || "";
-          assertIncludesAll(text, ["최근 7일", "운동일3/7", "체중일7/7"], "default range top line should show seven day counts");
+          let text = document.getElementById("weeklySummaryRows").textContent || "";
+          assertIncludesAll(text, ["기록 상태", "식단 7/7일", "체중 7/7일", "운동 3/7일"], "default range visible summary should show seven day counts");
           document.querySelector('[data-recent-flow-range="14"]').click();
-          text = document.querySelector(".recent-flow-range-row").textContent || "";
-          assertIncludesAll(text, ["최근 14일", "운동일3/14", "체중일14/14"], "fourteen day range should update same top line");
-          assertTest(!text.includes("1일") && !text.includes("5일"), "range selector should remove one day and five day values");
+          text = document.getElementById("weeklySummaryRows").textContent || "";
+          assertIncludesAll(text, ["기록 상태", "식단 14/14일", "체중 14/14일", "운동 3/14일"], "fourteen day range should update visible summary counts");
+          const rangeText = document.querySelector(".recent-flow-range-row").textContent || "";
+          assertTest(!rangeText.includes("1일") && !rangeText.includes("5일"), "range selector should remove one day and five day values");
           recentFlowSelectedRangeDays = 7;
           recordsState.items = normalizeRecordsCollection([{ date: today, weight: 75 }]);
         }));
@@ -56011,8 +55973,8 @@ Notes:
           document.getElementById("weeklyActionHelp")?.dispatchEvent(new Event("mouseenter"));
           assertTest(!document.getElementById("weeklyActionHelpText")?.classList.contains("hidden"), "weekly action help should open as a tooltip");
           const rowsText = document.getElementById("weeklySummaryRows")?.textContent || "";
-          assertIncludesAll(rowsText, ["식단 기록", "기록 종류", "목표 기준", "체중 변화"], "weekly reference rows should use user-facing labels");
-          assertExcludesAll(rowsText, ["기록 해상도", "목표 분포", "반복 패턴 확인", "기간 판단", "권장 행동", "운동 기록", "식단 점수 평균"], "weekly reference rows should avoid vague labels and duplicate nearby dashboard cards");
+          assertIncludesAll(rowsText, ["기록 상태", "운동", "기록 종류", "목표 기준", "체중 변화"], "weekly reference rows should use user-facing labels");
+          assertExcludesAll(rowsText, ["기록 해상도", "목표 분포", "반복 패턴 확인", "기간 판단", "권장 행동", "식단 점수 평균"], "weekly reference rows should avoid vague labels and duplicate nearby dashboard cards");
           assertExcludesAll(guidanceText, ["조정 참고", "보수적으로 검토하세요", "Today 코치에서 먼저 확인하세요", "weekly 제안"], "weekly reference copy should avoid awkward or evasive wording");
         }));
 
