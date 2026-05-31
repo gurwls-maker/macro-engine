@@ -1,8 +1,11 @@
 <!--
 Version: 7.3
-Stage: v7.3-S recent flow related chip wrap fix
+Stage: v7.3-W InBody 입력/분석/변화 책임 분리
 Date: 2026-05-28
 Notes:
+- v7.3-W InBody 내부 탭을 입력 / 분석 / 변화로 정리하고 입력 탭은 기록 입력 중심, 분석 탭은 지난 측정 대비·중립 관찰 중심으로 분리
+- v7.3-W InBody 변화 탭은 기존처럼 장기 변화 그래프 전용으로 유지하고 최신 결과 카드는 숨김 유지
+- v7.3-W 산식 / score / Coach / recentContext / InBody gate / dual basis / schema-import-export 변경 없음
 - v7.3-V Recent Flow 장기 판단 보류 톤을 오류처럼 보이는 빨강 배경 대신 부드러운 주의 톤으로 완화
 - v7.3-V Recent Flow 체중만 기록의 식단 실행률 오판과 정상/고지방 시나리오 권장 행동·주의 포인트 모순을 수정
 - v7.3-U Recent Flow 목표 달성률 표기를 식단 실행률로 정리하고 Today 기준의 ? 툴팁 패턴으로 도움말을 통일
@@ -7661,17 +7664,6 @@ Notes:
       stroke-linecap:round;
       stroke-linejoin:round;
     }
-    .inbody-summary-rows{
-      position:absolute;
-      width:1px;
-      height:1px;
-      padding:0;
-      margin:-1px;
-      overflow:hidden;
-      clip:rect(0,0,0,0);
-      white-space:nowrap;
-      border:0;
-    }
     .inbody-form-grid{
       display:grid;
       grid-template-columns:repeat(3,minmax(0,1fr));
@@ -7704,61 +7696,6 @@ Notes:
       color:var(--deep);
       font-size:12.5px;
       font-weight:850;
-      line-height:1.45;
-    }
-    .inbody-mini-trend-card{
-      margin-top:16px;
-      padding:18px;
-      border:1px solid color-mix(in srgb, var(--line) 72%, white 28%);
-      border-radius:18px;
-      background:#fff;
-      box-shadow:var(--shadow);
-    }
-    .inbody-mini-trend-head{
-      color:var(--muted);
-      font-size:12px;
-      font-weight:900;
-      letter-spacing:.06em;
-      text-transform:uppercase;
-      margin-bottom:14px;
-    }
-    .inbody-mini-trend-bars{
-      height:112px;
-      display:flex;
-      align-items:flex-end;
-      gap:8px;
-      padding:10px 2px 0;
-      border-radius:14px;
-      background:linear-gradient(180deg, rgba(241,245,235,.4), rgba(241,245,235,.08));
-    }
-    .inbody-mini-trend-bar{
-      flex:1 1 0;
-      min-width:10px;
-      border-radius:8px 8px 2px 2px;
-      background:color-mix(in srgb, var(--accent-strong) 28%, white 72%);
-    }
-    .inbody-mini-trend-bar.is-latest{
-      background:var(--accent-strong);
-    }
-    .inbody-mini-trend-empty{
-      width:100%;
-      align-self:stretch;
-      display:grid;
-      place-items:center;
-      color:var(--muted);
-      text-align:center;
-      font-size:12px;
-      font-weight:800;
-      line-height:1.45;
-      border:1px dashed color-mix(in srgb, var(--line) 72%, white 28%);
-      border-radius:14px;
-      padding:12px;
-    }
-    .inbody-mini-trend-caption{
-      margin-top:10px;
-      color:var(--accent-strong);
-      font-size:12px;
-      font-weight:900;
       line-height:1.45;
     }
     .inbody-history-dialog{
@@ -10233,12 +10170,6 @@ Notes:
       line-height:1.65;
       color:var(--muted);
     }
-    #todaySignalSummary{
-      margin-top:10px;
-      margin-bottom:2px;
-      font-size:12px;
-      line-height:1.6;
-    }
     .disabled-stack{
       display:flex;
       flex-direction:column;
@@ -12685,7 +12616,7 @@ Notes:
       .recent-flow-achievement-card,.recent-flow-points,
       .recent-flow-daily-card,.weekly-stitch-reference,
       .inbody-stitch-kpi-card,.inbody-trend-card,
-      .inbody-input-card,.inbody-mini-trend-card{
+      .inbody-input-card{
         border-radius:12px;
       }
       .app-choice-dialog,.record-start-dialog,
@@ -13266,7 +13197,7 @@ Notes:
     .recent-flow-achievement-card,.recent-flow-daily-card,.weekly-stitch-reference,
     .inbody-stitch-kpi-card,.inbody-trend-card,.inbody-input-card,
     .inbody-detail-view,.inbody-trend-view,
-    .inbody-mini-trend-card,.inbody-observation-card,
+    .inbody-observation-card,
     .data-import-mode-card,.data-import-conflict-card{
       border-radius:var(--stitch-card-radius);
       border-color:var(--stitch-border);
@@ -13380,15 +13311,19 @@ Notes:
       box-shadow:0 0 0 3px rgba(0,85,34,.12);
     }
     .mode-box,.macro-basis-toggle,.weekly-training-basis-toggle,
-    .recent-flow-range-toggle,.simple-choice-row,
+    .inbody-view-tabs,.recent-flow-range-controls,
+    .simple-choice-row,
     .meal-label-chips{
+      border:1px solid var(--stitch-border);
       border-radius:var(--stitch-card-radius);
-      border-color:var(--stitch-border);
       background:#fff;
       box-shadow:none;
     }
+    .macro-basis-toggle,.inbody-view-tabs,.recent-flow-range-controls{
+      overflow:hidden;
+    }
     .macro-basis-btn,.weekly-training-basis-toggle .secondary-btn,
-    .recent-flow-range-btn,.simple-choice-row button,
+    .inbody-view-tab,.recent-flow-range-btn,.simple-choice-row button,
     .meal-label-chips .chip{
       border-radius:var(--stitch-action-radius);
     }
@@ -13510,7 +13445,7 @@ Notes:
       .recent-flow-achievement-card,.recent-flow-points,
       .recent-flow-daily-card,.weekly-stitch-reference,
       .inbody-stitch-kpi-card,.inbody-trend-card,
-      .inbody-input-card,.inbody-mini-trend-card{
+      .inbody-input-card{
         border-radius:var(--stitch-card-radius);
       }
       .app-choice-dialog,.record-start-dialog,
@@ -13858,8 +13793,7 @@ Notes:
         font-size:23px;
       }
       .inbody-trend-card,
-      .inbody-input-card,
-      .inbody-mini-trend-card{
+      .inbody-input-card{
         padding:14px;
       }
       .inbody-delta-row{
@@ -14019,7 +13953,6 @@ Notes:
         <div class="today-work-copy">
             <div class="today-shell-eyebrow">오늘 작업</div>
           <h2 class="today-work-title" id="todayShellTitle" data-render-owned>오늘 먼저 할 일</h2>
-          <p class="hidden" id="todayShellLead"></p>
           <div class="today-work-pills" id="todayShellPills" aria-live="polite"></div>
         </div>
         <div class="today-shell-action-host" id="todayShellActionHost"></div>
@@ -14135,7 +14068,6 @@ Notes:
               </div>
             </div>
             <div id="todayAdherenceContent"></div>
-            <div id="todaySignalSummary" class="mini-note hidden"></div>
           </div>
           <details class="panel panel-muted today-support-details hidden">
             <summary>
@@ -14637,7 +14569,11 @@ Notes:
               </div>
 
         <!-- Intentional hidden compatibility anchor.
-             Existing record helpers still read these stable form ids; visible Records UI is rendered above. -->
+             Existing record helpers and regression tests still read these stable form ids
+             (recordDate, recordWeight, recordModeChips, recordAdherence, recordNote,
+             saveRecordBtn, meal* inputs, saveMealBtn). Do not remove this host until
+             Records save/edit helpers accept explicit draft objects instead of querying
+             these ids, and the compatibility tests no longer assert this anchor. -->
         <div class="records-hidden-compat" id="recordsEditPanel" hidden aria-hidden="true">
           <input id="recordDate" type="date" tabindex="-1">
           <input id="recordWeight" type="number" min="30" max="200" step="0.01" tabindex="-1">
@@ -14708,15 +14644,6 @@ Notes:
     </section>
     <section class="tab-panel" id="inbodyPanel" hidden>
       <div class="inbody-stitch-shell" data-stitch-inbody-shell>
-        <aside class="inbody-view-panel inbody-stitch-side" data-inbody-view-panel="summary">
-          <section class="inbody-mini-trend-card" aria-label="체중 흐름">
-            <div class="inbody-mini-trend-head">
-              <span>Weight Trend</span>
-            </div>
-            <div class="inbody-mini-trend-bars" id="inbodyMiniTrendBars"></div>
-            <div class="inbody-mini-trend-caption" id="inbodyMiniTrendCaption">측정이 쌓이면 체중 흐름을 확인할 수 있습니다.</div>
-          </section>
-        </aside>
         <section class="panel inbody-view-panel inbody-stitch-hero" data-inbody-view-panel="summary detail">
           <div class="inbody-stitch-hero-head">
             <div class="inbody-stitch-heading">
@@ -14787,8 +14714,8 @@ Notes:
         </section>
 
         <div class="inbody-view-tabs" role="tablist" aria-label="InBody 보기">
-          <button class="inbody-view-tab" id="inbodyViewSummaryTab" type="button" role="tab" data-inbody-view-tab="summary" aria-controls="inbodySummaryView" aria-selected="true">요약</button>
-          <button class="inbody-view-tab" id="inbodyViewDetailTab" type="button" role="tab" data-inbody-view-tab="detail" aria-controls="inbodyDetailView" aria-selected="false">상세</button>
+          <button class="inbody-view-tab" id="inbodyViewSummaryTab" type="button" role="tab" data-inbody-view-tab="summary" aria-controls="inbodySummaryView" aria-selected="true">입력</button>
+          <button class="inbody-view-tab" id="inbodyViewDetailTab" type="button" role="tab" data-inbody-view-tab="detail" aria-controls="inbodyDetailView" aria-selected="false">분석</button>
           <button class="inbody-view-tab" id="inbodyViewTrendTab" type="button" role="tab" data-inbody-view-tab="trend" aria-controls="inbodyTrendView" aria-selected="false">변화</button>
         </div>
 
@@ -14820,9 +14747,9 @@ Notes:
           <div class="inbody-chart-grid" id="inbodyTrendChartGrid"></div>
         </section>
 
-        <div class="inbody-view-panel inbody-stitch-layout" id="inbodySummaryView" data-inbody-view-panel="summary" role="tabpanel" aria-labelledby="inbodyViewSummaryTab">
+        <div class="inbody-view-panel inbody-stitch-layout" id="inbodySummaryView" data-inbody-view-panel="summary detail" role="tabpanel" aria-labelledby="inbodyViewSummaryTab">
           <div class="inbody-stitch-main">
-            <section class="panel inbody-trend-card">
+            <section class="panel inbody-trend-card" data-inbody-view-panel="detail">
               <div class="inbody-card-head">
                 <div>
                   <div class="eyebrow">변화</div>
@@ -14844,10 +14771,9 @@ Notes:
                   <p id="inbodyInsightText">아직 InBody 기록이 없습니다.</p>
                 </div>
               </div>
-              <div class="rows inbody-summary-rows" id="inbodySummaryRows" aria-hidden="true"></div>
             </section>
 
-            <section class="panel inbody-input-card">
+            <section class="panel inbody-input-card" data-inbody-view-panel="summary">
               <div class="inbody-card-head">
                 <div>
                   <div class="eyebrow">측정 입력</div>
@@ -14985,7 +14911,10 @@ Notes:
             </div>
           </div>
           <!-- Intentional hidden compatibility mirror.
-               The legacy Today calculation form keeps stable ids for formulas/tests while Settings renders curated controls above. -->
+               The legacy Today calculation form keeps stable ids for calculate/render/save
+               paths, InBody apply flows, import/export compatibility, and regression tests
+               while Settings renders curated controls above. Do not remove this mirror
+               until those ids are replaced by explicit state/helper contracts. -->
           <div class="settings-host settings-mirror-bank" id="settingsCalculationInputHost" aria-hidden="true"></div>
         </section>
 
@@ -15554,7 +15483,7 @@ Notes:
       {
         name: "primary-card",
         role: "Top-level visible cards and panels; accent fill may differ but shape is shared.",
-        selectors: [".card", ".panel", ".ux-card", ".settings-stitch-card", ".settings-choice-card", ".settings-data-card", ".settings-mode-description-shell", ".settings-expert-card", ".today-intake-card", ".today-meal-card", ".today-calc-settings-card", ".score-panel", ".app-choice-card", ".record-start-card", ".records-entry-card", ".records-continue-strip", ".selected-meals-card", ".selected-meals-summary-panel", ".selected-meals-list-panel", ".recent-flow-trend-card", ".recent-flow-nutrition-card", ".recent-flow-points", ".recent-flow-achievement-card", ".recent-flow-daily-card", ".weekly-stitch-reference", ".inbody-stitch-kpi-card", ".inbody-trend-card", ".inbody-input-card", ".inbody-detail-view", ".inbody-trend-view", ".inbody-mini-trend-card", ".inbody-observation-card", ".data-import-mode-card", ".data-import-conflict-card"]
+        selectors: [".card", ".panel", ".ux-card", ".settings-stitch-card", ".settings-choice-card", ".settings-data-card", ".settings-mode-description-shell", ".settings-expert-card", ".today-intake-card", ".today-meal-card", ".today-calc-settings-card", ".score-panel", ".app-choice-card", ".record-start-card", ".records-entry-card", ".records-continue-strip", ".selected-meals-card", ".selected-meals-summary-panel", ".selected-meals-list-panel", ".recent-flow-trend-card", ".recent-flow-nutrition-card", ".recent-flow-points", ".recent-flow-achievement-card", ".recent-flow-daily-card", ".weekly-stitch-reference", ".inbody-stitch-kpi-card", ".inbody-trend-card", ".inbody-input-card", ".inbody-detail-view", ".inbody-trend-view", ".inbody-observation-card", ".data-import-mode-card", ".data-import-conflict-card"]
       },
       {
         name: "nested-group",
@@ -25241,19 +25170,6 @@ Notes:
       };
     }
 
-    function buildTodayDataSnapshot(currentResult){
-      if (!currentResult) return null;
-      const balance = getTodayMacroBalance(currentResult);
-      const adherence = getTodayAdherenceScore(currentResult);
-      const signals = getTodaySignals(balance, adherence);
-      return {
-        date: getTodayDateString(),
-        balance,
-        adherence,
-        signals
-      };
-    }
-
     function getManualAdherencePercent(adherence){
       return { high: 90, medium: 75, low: 60 }[adherence] ?? null;
     }
@@ -25538,14 +25454,11 @@ Notes:
 
     function renderTodayShellSummary(currentResult = calculate(), showPlaceholder = false, coach = null){
       const title = document.getElementById("todayShellTitle");
-      const lead = document.getElementById("todayShellLead");
       const pills = document.getElementById("todayShellPills");
-      if (!title || !lead || !pills) return;
+      if (!title || !pills) return;
       const today = getTodayDateString();
       const focusText = !showPlaceholder ? getTodayHeroFocusText(coach) : "";
       title.textContent = focusText || "오늘 먼저 할 일";
-      lead.textContent = "";
-      lead.classList.add("hidden");
       const goalLabel = GOALS[state.goal]?.label || state.goal;
       const basisLabel = uiState.selectedMacroBasis === "activity" ? "활동량 기준" : "가이드 기준";
       const kcalLabel = showPlaceholder || !currentResult?.isCalculable
@@ -27775,13 +27688,6 @@ Notes:
           </div>
         </div>
       `;
-    }
-
-    function renderTodaySignalSummary(todaySnapshot){
-      const el = document.getElementById("todaySignalSummary");
-      if (!el) return;
-      el.textContent = "";
-      el.classList.add("hidden");
     }
 
     function renderSelectedDateMealTotals(date){
@@ -31771,33 +31677,6 @@ Notes:
       return Number.isFinite(numeric) ? `${numeric > 0 ? "+" : ""}${numeric.toFixed(2)}` : "-";
     }
 
-    function renderInbodyMiniTrend(){
-      const bars = document.getElementById("inbodyMiniTrendBars");
-      const caption = document.getElementById("inbodyMiniTrendCaption");
-      if (!bars || !caption) return;
-      const records = getComparableInbodyRecords(state.inbodyRecords)
-        .filter(record => Number.isFinite(record.weight))
-        .sort((a, b) => a.date.localeCompare(b.date))
-        .slice(-6);
-      if (records.length < 2) {
-        bars.innerHTML = `<div class="inbody-mini-trend-empty">측정이 쌓이면 체중 흐름을 확인할 수 있습니다.</div>`;
-        caption.textContent = "체중 흐름 대기 중";
-        return;
-      }
-      const weights = records.map(record => Number(record.weight));
-      const min = Math.min(...weights);
-      const max = Math.max(...weights);
-      const span = Math.max(max - min, 0.1);
-      bars.innerHTML = records.map((record, index) => {
-        const ratio = (Number(record.weight) - min) / span;
-        const height = 34 + ratio * 58;
-        const latestClass = index === records.length - 1 ? " is-latest" : "";
-        return `<div class="inbody-mini-trend-bar${latestClass}" style="height:${height.toFixed(1)}%" title="${escapeHtml(record.date)} ${formatKg2(record.weight)}kg"></div>`;
-      }).join("");
-      const change = weights[weights.length - 1] - weights[0];
-      caption.textContent = `최근 ${records.length}회 ${formatSignedKg2(change)}kg 변화`;
-    }
-
     function getDisplayBodyFatPercent(record){
       if (!record) return null;
       if (Number.isFinite(record.bodyFatPercent)) return record.bodyFatPercent;
@@ -32271,15 +32150,10 @@ Notes:
           return `<div class="inbody-delta-row"><span>${row.label}</span><strong class="inbody-delta-value ${row.tone}">${value}</strong></div>`;
         }).join("");
       }
-      const rows = document.getElementById("inbodySummaryRows");
-      if (!rows) return;
-      rows.setAttribute("aria-hidden", "true");
-      rows.innerHTML = "";
       renderInbodyDetailView();
       renderInbodyTrendView();
       syncInbodyViewPanels();
       renderInbodyHistoryDialog();
-      renderInbodyMiniTrend();
       updateInbodyWarning();
       syncInbodyRecordEditUi();
     }
@@ -32381,7 +32255,6 @@ Notes:
 
       const todayBalance = getTodayMacroBalance(result);
       const todayAdherence = getTodayAdherenceScore(result);
-      const todaySnapshot = buildTodayDataSnapshot(result);
       const recentContext = buildRecentContext(result);
       const todayCoachSignals = getDailyCoachSignals({
         currentResult: result,
@@ -32392,13 +32265,11 @@ Notes:
       });
       const todayCoach = generateDailyCoachOutput(todayCoachSignals);
       renderTodayShellSummary(result, showPlaceholder, todayCoach);
-      // 5.3.3: todaySnapshot is a read-only bridge for upcoming UI layers.
       renderTodayConsumptionPanel(todayBalance);
       renderTodayRemainingPanel(todayBalance);
       renderTodayMealPanel(todayBalance);
       renderTodayAdherencePanel(todayAdherence, { coach: todayCoach });
       renderCoachPanel(result, todayBalance, todayAdherence, { recentContext });
-      renderTodaySignalSummary(todaySnapshot);
       renderFlowRows(result);
       renderMetaRows(result);
       renderInfoAndWarnings(result);
@@ -38300,14 +38171,14 @@ Notes:
           setActiveTab("records");
           const recordsEditPanel = document.getElementById("recordsEditPanel");
           const mealSurface = document.querySelector(".selected-meals-surface-panel");
-          assertTest(recordsEditPanel.hidden && recordsEditPanel.getAttribute("aria-hidden") === "true", "Records large direct edit panel should stay hidden");
+          assertTest(recordsEditPanel.hidden && recordsEditPanel.getAttribute("aria-hidden") === "true", "Records compatibility anchor should stay hidden from the user-facing surface");
           assertTest(!!mealSurface?.querySelector("[data-open-record-meal-entry]"), "Records meal surface should provide add meal action");
           assertTest(!!mealSurface?.querySelector("[data-open-record-edit-panel]"), "Records meal surface should provide weight and memo action");
           assertTest(!!document.getElementById("recordMealEditOverlay") && !!document.getElementById("recordInfoEditOverlay"), "Records small edit dialogs should be mounted");
           assertExcludesAll(getRenderedBodyText(), ["선택 날짜 수정", "기본 기록 직접 입력", "식사 직접 입력", "날짜 직접 입력 / 백업", "백업 파일을 관리"], "Records visible copy should not show the old direct-management panel");
           assertTest(!!document.querySelector(".records-archive-panel"), "Records archive should remain the main section");
-          assertTest(recordsEditPanel.contains(ids.recordDate), "hidden compatibility host should still contain date input for existing helpers");
-          assertTest(recordsEditPanel.contains(document.getElementById("saveMealBtn")), "hidden compatibility host should still contain meal save for existing helpers");
+          assertTest(recordsEditPanel.contains(ids.recordDate), "Records compatibility anchor should still contain date input for existing helpers");
+          assertTest(recordsEditPanel.contains(document.getElementById("saveMealBtn")), "Records compatibility anchor should still contain meal save for existing helpers");
 
           setActiveTab("settings");
           render();
@@ -38316,8 +38187,8 @@ Notes:
           assertTest(document.getElementById("settingsProfileHost").contains(ids.height), "Settings profile group should keep height input");
           assertTest(document.getElementById("settingsLifestyleHost").contains(ids.activityLevel), "Settings lifestyle group should keep default activity input");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weightDuration), "Settings training group should keep base weight duration input");
-          assertTest(getComputedStyle(document.getElementById("settingsCalculationInputHost")).display === "none", "Today-owned mirror should stay hidden in Settings");
-          assertTest(document.getElementById("settingsCalculationInputHost").contains(document.getElementById("saveTodayInputWithInbodyBtn")), "hidden mirror should preserve InBody save button");
+          assertTest(getComputedStyle(document.getElementById("settingsCalculationInputHost")).display === "none", "Settings calculation compatibility mirror should stay hidden");
+          assertTest(document.getElementById("settingsCalculationInputHost").contains(document.getElementById("saveTodayInputWithInbodyBtn")), "Settings calculation compatibility mirror should preserve InBody save button");
         }));
 
         results.push(runNamedTest("UX2-8 user-facing copy and fixed constants stay clean", () => {
@@ -38420,10 +38291,10 @@ Notes:
           assertTest(!!document.getElementById("selectedMealsList"), "Records selected-date meal list host should remain mounted");
           assertTest(getComputedStyle(document.querySelector(".selected-meals-detail-preview")).display === "none", "Records meal totals and rows should not be visible before detail view");
           assertExcludesAll(getRenderedBodyText(), ["선택 날짜 수정", "기본 기록 직접 입력", "식사 직접 입력", "백업 안내", "날짜 직접 입력 / 백업", "백업 파일을 관리"], "Records visible copy should not show the old large direct-management wording");
-          assertTest(editPanel.contains(ids.recordDate), "record date input should remain mounted for existing helpers");
-          assertTest(editPanel.contains(document.getElementById("recordWeight")), "record weight input should remain mounted for existing helpers");
-          assertTest(editPanel.contains(document.getElementById("saveRecordBtn")), "record save button should remain mounted for existing helpers");
-          assertTest(editPanel.contains(document.getElementById("saveMealBtn")), "meal save button should remain mounted for existing helpers");
+          assertTest(editPanel.contains(ids.recordDate), "Records compatibility anchor should keep record date mounted for existing helpers");
+          assertTest(editPanel.contains(document.getElementById("recordWeight")), "Records compatibility anchor should keep record weight mounted for existing helpers");
+          assertTest(editPanel.contains(document.getElementById("saveRecordBtn")), "Records compatibility anchor should keep record save mounted for existing helpers");
+          assertTest(editPanel.contains(document.getElementById("saveMealBtn")), "Records compatibility anchor should keep meal save mounted for existing helpers");
           assertTest(document.getElementById("dataManagementPanel").contains(document.getElementById("exportJsonBtn")) && document.getElementById("dataManagementPanel").contains(document.getElementById("importJsonBtn")), "records-only backup buttons should live in Data Management");
         }));
 
@@ -38440,7 +38311,7 @@ Notes:
           assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.routinePlan), "training group should contain routine plan");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weeklyTrainingDays), "training group should contain weekly training days");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weightDuration), "training group should contain base weight duration");
-          assertTest(getComputedStyle(document.getElementById("settingsCalculationInputHost")).display === "none", "legacy calculation input mirror should be hidden");
+          assertTest(getComputedStyle(document.getElementById("settingsCalculationInputHost")).display === "none", "Settings calculation compatibility mirror should remain hidden");
         }));
 
         results.push(runNamedTest("C4.3 Settings default edits keep draft-free calculation active", () => {
@@ -41342,12 +41213,11 @@ Notes:
           ]);
           setActiveTab("inbody");
           render();
+          document.getElementById("inbodyViewDetailTab")?.click();
           const text = panelText("inbodyPanel");
           assertIncludesAll(text, [
             "측정 기록 보기",
             "기록 목록은 InBody 안에서 확인합니다.",
-            "최근 InBody 기록",
-            "측정 기록은 InBody 안에서 수정·삭제합니다.",
             "중립 관찰"
           ], "InBody screen should keep entry, latest values and internal history link");
           assertExcludesAll(text, [
@@ -43883,6 +43753,7 @@ Notes:
               isSuspicious: false
             }
           ];
+          uiState.inbodyView = "summary";
           setActiveTab("inbody");
           render();
         };
@@ -43895,11 +43766,12 @@ Notes:
           assertTest(!!document.querySelector("[data-stitch-inbody-shell]"), "InBody should render Stitch shell root");
           assertTest(!!document.querySelector(".inbody-stitch-hero"), "InBody should render result-first hero card");
           assertTest(!!document.querySelector(".inbody-stitch-layout"), "InBody should render analysis/input layout");
-          assertTest(!!document.querySelector(".inbody-mini-trend-card"), "InBody should render Stitch-style mini trend card");
+          assertTest(!document.querySelector(".inbody-mini-trend-card"), "InBody should not render the removed mini weight trend card");
         }));
 
         results.push(runNamedTest("C4.8-UI3 latest result date KPI and comparison areas render", () => {
           seedInbodyShell();
+          document.getElementById("inbodyViewDetailTab")?.click();
           const panel = document.getElementById("inbodyPanel");
           assertTest((document.getElementById("inbodyLatestDateInline")?.textContent || "").includes(today), "latest measured date should show near result title");
           assertTest(document.querySelectorAll(".inbody-stitch-kpi-card").length === 4, "InBody hero should render four result cards");
@@ -43908,16 +43780,24 @@ Notes:
           assertTest((document.getElementById("inbodyInsightText")?.textContent || "").length > 0, "neutral observation should render insight text");
         }));
 
-        results.push(runNamedTest("v7.3-I InBody inner tabs split summary detail and trend without adding inputs", () => {
+        results.push(runNamedTest("v7.3-W InBody inner tabs split input analysis and trend without adding inputs", () => {
           seedInbodyShell();
-          assertTest(document.querySelectorAll("[data-inbody-view-tab]").length === 3, "InBody should render summary/detail/trend inner tabs");
-          assertTest(!document.getElementById("inbodySummaryView")?.hidden, "summary view should be the default InBody surface");
+          assertTest(document.querySelectorAll("[data-inbody-view-tab]").length === 3, "InBody should render input/analysis/trend inner tabs");
+          assertTest((document.getElementById("inbodyViewSummaryTab")?.textContent || "").includes("입력"), "first InBody tab should be labeled input");
+          assertTest((document.getElementById("inbodyViewDetailTab")?.textContent || "").includes("분석"), "second InBody tab should be labeled analysis");
+          assertTest(!document.getElementById("inbodySummaryView")?.hidden, "input view should be the default InBody surface");
+          assertTest(document.querySelector(".inbody-input-card")?.hidden === false, "input view should show the InBody input card");
+          assertTest(document.querySelector(".inbody-trend-card")?.hidden === true, "input view should not show comparison analysis");
           assertTest(document.getElementById("inbodyDetailView")?.hidden === true, "detail view should start hidden");
           document.getElementById("inbodyViewDetailTab")?.click();
-          assertTest(!document.getElementById("inbodyDetailView")?.hidden, "detail tab should reveal detail metrics");
-          assertTest(document.querySelector(".inbody-stitch-hero")?.hidden === false, "detail tab should keep the measured result card visible");
-          assertTest(document.querySelectorAll("#inbodyDetailMetricGrid .inbody-detail-metric").length >= 6, "detail view should render core and derived metrics");
-          assertTest(document.querySelectorAll("#inbodyDetailView input").length === 0, "detail view should not add more required inputs");
+          assertTest(!document.getElementById("inbodyDetailView")?.hidden, "analysis tab should reveal detail metrics");
+          assertTest(document.querySelector(".inbody-stitch-hero")?.hidden === false, "analysis tab should keep the measured result card visible");
+          assertTest(document.querySelector(".inbody-trend-card")?.hidden === false, "analysis tab should show previous-measurement comparison");
+          assertTest(document.querySelector(".inbody-observation-card")?.hidden === false, "analysis tab should show neutral observation copy");
+          assertTest(!document.querySelector(".inbody-mini-trend-card"), "analysis tab should rely on comparison/trend views, not the removed mini trend card");
+          assertTest(document.querySelector(".inbody-input-card")?.hidden === true, "analysis tab should not show the input form");
+          assertTest(document.querySelectorAll("#inbodyDetailMetricGrid .inbody-detail-metric").length >= 6, "analysis view should render core and derived metrics");
+          assertTest(document.querySelectorAll("#inbodyDetailView input").length === 0, "analysis view should not add more required inputs");
           document.getElementById("inbodyViewTrendTab")?.click();
           assertTest(!document.getElementById("inbodyTrendView")?.hidden, "trend tab should reveal trend charts");
           assertTest(document.querySelector(".inbody-stitch-hero")?.hidden === true, "trend tab should hide the measured result card");
@@ -43958,13 +43838,12 @@ Notes:
           assertTest(document.getElementById("inbodyTrendFilterOverlay")?.classList.contains("hidden"), "data filter dialog should close after apply");
         }));
 
-        results.push(runNamedTest("v6.7-D33 InBody trend avoids duplicate hidden summary copy", () => {
+        results.push(runNamedTest("v6.7-D33 InBody trend avoids duplicate legacy summary copy", () => {
           seedInbodyShell();
           const panelText = document.getElementById("inbodyPanel")?.textContent || "";
-          const legacyRowsText = (document.getElementById("inbodySummaryRows")?.textContent || "").trim();
           const observationCount = (panelText.match(/중립 관찰/g) || []).length;
           assertTest(observationCount === 1, "InBody neutral observation label should appear once in the panel text");
-          assertTest(legacyRowsText === "", "legacy hidden summary rows should not duplicate trend and observation copy");
+          assertTest(!document.getElementById("inbodySummaryRows"), "removed hidden summary row anchor should not return");
           assertTest((document.getElementById("inbodyInsightText")?.textContent || "").trim().length > 0, "visible neutral observation text should remain");
         }));
 
@@ -43973,9 +43852,8 @@ Notes:
           ["inbodyDate", "inbodyWeight", "inbodySkeletalMuscle", "inbodyBodyFat", "inbodyBodyFatPercent", "saveInbodyBtn", "inbodyHistoryDialogList"].forEach(id => {
             assertTest(!!document.getElementById(id), `${id} should remain mounted`);
           });
-          assertTest(!document.getElementById("inbodyRecordList"), "inline InBody history list should not be mounted");
+          assertTest(!document.getElementById("inbodyRecordList"), "legacy inline InBody history list should stay absent; the history modal owns records");
           assertTest(document.querySelectorAll("#inbodyHistoryDialogList .inbody-record").length === 2, "InBody history modal should render existing records");
-          assertTest(document.querySelectorAll("#inbodyMiniTrendBars .inbody-mini-trend-bar").length >= 2, "mini trend should render from existing records");
           assertTest(!!document.querySelector("#inbodyHistoryDialogList [data-load-inbody]"), "record edit action should remain");
           assertTest(!!document.querySelector("#inbodyHistoryDialogList [data-delete-inbody]"), "record delete action should remain");
         }));
@@ -44885,10 +44763,9 @@ Notes:
           const hero = document.querySelector(".today-work-hero");
           const shell = document.querySelector(".today-stitch-hero");
           const status = document.getElementById("todayRecordStatusPanel");
-          const lead = document.getElementById("todayShellLead");
           assertTest(!!hero && !!status && hero.contains(status), "Today record status should live inside the work card");
           assertTest(!Array.from(shell?.children || []).includes(status), "Today record status should no longer be a separate hero grid card");
-          assertTest(!!lead && lead.classList.contains("hidden") && !(lead.textContent || "").trim(), "Today work helper copy should stay hidden and empty");
+          assertTest(!document.getElementById("todayShellLead"), "removed Today helper anchor should not return as a hidden no-op node");
           assertTest(!getRenderedBodyText().includes("오늘 식사와 몸 상태를 기록하고, 필요한 계산 기준만 바로 조정합니다."), "repetitive Today work helper copy should not be visible");
         }));
 
@@ -59244,7 +59121,7 @@ Notes:
             "--stitch-action-radius:8px",
             ".record-start-card,.records-entry-card",
             ".recent-flow-achievement-card,.recent-flow-daily-card",
-            ".inbody-mini-trend-card,.inbody-observation-card",
+            ".inbody-observation-card",
             ".today-intake-row,.today-meal-empty,.today-meal-stat",
             ".recent-flow-related-row",
             ".recent-flow-date-chip,.recent-flow-related-more",
