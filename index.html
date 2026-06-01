@@ -1,8 +1,11 @@
 <!--
 Version: 7.3
-Stage: v7.3-W InBody 입력/분석/변화 책임 분리
+Stage: v7.3-X 세션별 요일 계획 Today 자동 반영
 Date: 2026-05-28
 Notes:
+- v7.3-X Settings 운동 기준에 세션별 요일 계획을 추가하고 Today 기본 웨이트 세션을 날짜 요일에 맞춰 자동 선택
+- v7.3-X 한 요일이 여러 세션에 중복 배정되면 알림으로 차단하고, 계획이 있는 상태에서 미지정 요일은 휴식으로 처리
+- v7.3-X 날짜 계획은 Today 기본값에만 반영하며 Records 저장 구조 / score / Coach / recentContext / InBody gate / dual basis 변경 없음
 - v7.3-W InBody 내부 탭을 입력 / 분석 / 변화로 정리하고 입력 탭은 기록 입력 중심, 분석 탭은 지난 측정 대비·중립 관찰 중심으로 분리
 - v7.3-W InBody 변화 탭은 기존처럼 장기 변화 그래프 전용으로 유지하고 최신 결과 카드는 숨김 유지
 - v7.3-W 산식 / score / Coach / recentContext / InBody gate / dual basis / schema-import-export 변경 없음
@@ -3433,6 +3436,89 @@ Notes:
     }
     .settings-stitch-shell .settings-group.settings-disclosure-group > .section-group-head > div{
       min-width:0;
+    }
+    .routine-weekday-schedule{
+      grid-column:1 / -1;
+      padding:14px;
+      border-radius:12px;
+      border:1px solid color-mix(in srgb, var(--line) 76%, white 24%);
+      background:#fff;
+    }
+    .routine-weekday-schedule-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:12px;
+      margin-bottom:10px;
+    }
+    .routine-weekday-schedule-head h5{
+      margin:0;
+      color:var(--deep);
+      font-size:15px;
+      line-height:1.3;
+    }
+    .routine-weekday-schedule-head p,
+    .routine-weekday-schedule-note{
+      margin:3px 0 0;
+      color:var(--muted);
+      font-size:12.5px;
+      line-height:1.45;
+    }
+    .routine-weekday-schedule-rows{
+      display:grid;
+      gap:8px;
+    }
+    .routine-weekday-row{
+      display:grid;
+      grid-template-columns:minmax(92px, 140px) minmax(0, 1fr);
+      align-items:center;
+      gap:10px;
+      padding:10px;
+      border-radius:10px;
+      background:color-mix(in srgb, var(--surface-soft) 72%, white 28%);
+      border:1px solid color-mix(in srgb, var(--line) 82%, white 18%);
+    }
+    .routine-weekday-session{
+      font-weight:800;
+      color:var(--deep);
+      font-size:13px;
+    }
+    .routine-weekday-options{
+      display:flex;
+      flex-wrap:wrap;
+      gap:6px;
+      min-width:0;
+    }
+    .routine-weekday-chip{
+      display:inline-flex;
+      align-items:center;
+      gap:5px;
+      min-height:30px;
+      padding:5px 8px;
+      border-radius:999px;
+      border:1px solid color-mix(in srgb, var(--line) 78%, white 22%);
+      background:#fff;
+      color:var(--ink);
+      font-size:12px;
+      font-weight:800;
+      cursor:pointer;
+      user-select:none;
+    }
+    .routine-weekday-chip input{
+      width:14px;
+      height:14px;
+      accent-color:var(--primary);
+      margin:0;
+    }
+    .routine-weekday-chip:has(input:checked){
+      color:#fff;
+      background:var(--primary);
+      border-color:var(--primary);
+    }
+    @media (max-width: 640px){
+      .routine-weekday-row{
+        grid-template-columns:1fr;
+      }
     }
     .settings-stitch-shell .settings-group.settings-disclosure-group > .section-group-head h4,
     .settings-stitch-shell .settings-group.settings-disclosure-group > .section-group-head p{
@@ -14858,6 +14944,16 @@ Notes:
                 <p>루틴과 주간 웨이트 기준입니다. 오늘 세션·유산소는 Today에서 관리합니다.</p>
               </div>
               <div class="settings-host settings-fields-grid" id="settingsTrainingDefaultsHost"></div>
+              <div class="routine-weekday-schedule" id="routineWeekdaySchedulePanel">
+                <div class="routine-weekday-schedule-head">
+                  <div>
+                    <h5>요일별 세션 계획</h5>
+                    <p>요일마다 Today 기본 웨이트 세션을 자동으로 고릅니다.</p>
+                  </div>
+                </div>
+                <div class="routine-weekday-schedule-rows" id="routineWeekdayScheduleRows"></div>
+                <p class="routine-weekday-schedule-note" id="routineWeekdayScheduleNote">미지정 요일은 휴식으로 봅니다. 주간 웨이트일수 기준은 기존 최근 기록/직접 입력 기준을 유지합니다.</p>
+              </div>
               <div class="cardio-preset-settings" id="cardioPresetSettingsHost">
                 <div class="cardio-preset-settings-head">
                   <div>
@@ -15739,6 +15835,17 @@ Notes:
         ]
       }
     };
+    const ROUTINE_WEEKDAY_PLAN_GENERAL = "general";
+    const ROUTINE_WEEKDAY_OPTIONS = [
+      { key: "mon", label: "월", day: 1 },
+      { key: "tue", label: "화", day: 2 },
+      { key: "wed", label: "수", day: 3 },
+      { key: "thu", label: "목", day: 4 },
+      { key: "fri", label: "금", day: 5 },
+      { key: "sat", label: "토", day: 6 },
+      { key: "sun", label: "일", day: 0 }
+    ];
+    const ROUTINE_WEEKDAY_KEYS = ROUTINE_WEEKDAY_OPTIONS.map(item => item.key);
 
     const MODE_CONFIGS = {
       general: {
@@ -15812,6 +15919,7 @@ Notes:
       weeklyTrainingDaysManual: false,
       generalAdvancedSettings: false,
       generalLowDigestCarbs: false,
+      routineWeekdaySchedule: {},
       routinePlan: "ppl_ul",
       routine: "PUSH",
       intensityOverride: 0.80,
@@ -15998,6 +16106,7 @@ Notes:
       Object.entries(snapshot).forEach(([key, value]) => {
         localStorage.setItem(storageKey(key), String(value));
       });
+      localStorage.setItem(storageKey("routineWeekdaySchedule"), JSON.stringify(normalizeRoutineWeekdaySchedule(state.routineWeekdaySchedule || {})));
       localStorage.setItem(storageKey("records"), JSON.stringify(recordsState.items));
     }
 
@@ -16316,6 +16425,7 @@ Notes:
       if (isAllowedOption(raw.routinePlan, Object.keys(ROUTINE_SCHEMES))) safe.routinePlan = raw.routinePlan;
       const routineValues = ROUTINE_SCHEMES[safe.routinePlan].items.map(item => item.value);
       if (isAllowedOption(raw.routine, routineValues)) safe.routine = raw.routine;
+      safe.routineWeekdaySchedule = normalizeRoutineWeekdaySchedule(raw.routineWeekdaySchedule || {});
       safe.intensityOverride = clamp(parseNumberOrDefault(raw.intensityOverride, safe.intensityOverride), 0, 1);
       safe.weightDuration = clamp(parseNumberOrDefault(raw.weightDuration, safe.weightDuration), 0, 240);
       if (isAllowedOption(raw.cardioType, Object.keys(CARDIO_TYPES))) safe.cardioType = raw.cardioType;
@@ -16348,6 +16458,7 @@ Notes:
         generalLowDigestCarbs: !!ids.generalLowDigestCarbs?.checked,
         routinePlan: state.routinePlan,
         routine: state.routine,
+        routineWeekdaySchedule: state.routineWeekdaySchedule || {},
         intensityOverride: ids.intensityOverride?.value,
         weightDuration: ids.weightDuration?.value,
         cardioType: ids.cardioType?.value,
@@ -16809,7 +16920,11 @@ Notes:
 
     function getSettingsDefaultTodayIntensityOverride(routineSession = state.routine || DEFAULT_STATE.routine){
       if (ids.generalAdvancedSettings?.checked || state.generalAdvancedSettings) {
-        return normalizeTodayCalculationNumber(ids.intensityOverride?.value) ?? DEFAULT_STATE.intensityOverride;
+        if (routineSession === (state.routine || DEFAULT_STATE.routine)) {
+          return normalizeTodayCalculationNumber(ids.intensityOverride?.value) ?? DEFAULT_STATE.intensityOverride;
+        }
+        const routineEntry = getRoutineItems().find(item => item.value === routineSession);
+        return normalizeTodayCalculationNumber(routineEntry?.xw) ?? DEFAULT_STATE.intensityOverride;
       }
       const items = getGeneralRoutineItems();
       const fallback = items.find(item => item.value !== "REST") || items[0] || { value: DEFAULT_STATE.routine, xw: DEFAULT_STATE.intensityOverride };
@@ -16822,7 +16937,7 @@ Notes:
       return Number.isFinite(value) ? Math.max(0, value) : DEFAULT_STATE.weightDuration;
     }
 
-    function getSettingsCalculationDefaults(){
+    function getSettingsCalculationDefaults(date = getTodayDateString()){
       const weight = normalizeTodayCalculationNumber(ids.weight?.value) ?? DEFAULT_STATE.weight;
       const bodyFatPercent = normalizeTodayCalculationNumber(ids.bodyFat?.value);
       const bodyFatMassInput = normalizeTodayCalculationNumber(ids.bodyFatMass?.value);
@@ -16830,7 +16945,7 @@ Notes:
       const activityLevel = isAllowedOption(ids.activityLevel?.value, Object.keys(ACTIVITY_COEFF)) ? ids.activityLevel.value : DEFAULT_STATE.activityLevel;
       const workType = isAllowedOption(ids.workType?.value, Object.keys(WORK_TYPE_Y)) ? ids.workType.value : DEFAULT_STATE.workType;
       const cardioType = isAllowedOption(ids.cardioType?.value, Object.keys(CARDIO_TYPES)) ? ids.cardioType.value : DEFAULT_STATE.cardioType;
-      const todayRoutineSession = state.routine || DEFAULT_STATE.routine;
+      const todayRoutineSession = getScheduledRoutineSessionForDate(date) || state.routine || DEFAULT_STATE.routine;
       return {
         calculationWeight: weight,
         skeletalMuscle: normalizeTodayCalculationNumber(ids.skeletal?.value) ?? DEFAULT_STATE.skeletal,
@@ -16958,7 +17073,7 @@ Notes:
       const targetDate = normalizeDateString(date) || getTodayDateString();
       materializeTodayBodyStatusDefaults(targetDate);
       materializeTodayCardioDefaults(targetDate);
-      const defaults = getSettingsCalculationDefaults();
+      const defaults = getSettingsCalculationDefaults(targetDate);
       const draft = normalizeTodayCalculationDraft(todayCalculationDrafts[targetDate] || {});
       const hasDraftRoutineSession = Object.prototype.hasOwnProperty.call(draft, "todayRoutineSession");
       const hasDraftIntensityOverride = Object.prototype.hasOwnProperty.call(draft, "todayIntensityOverride");
@@ -17091,6 +17206,7 @@ Notes:
       const routineValues = ROUTINE_SCHEMES[loaded.routinePlan].items.map(item => item.value);
       const routine = readStoredValue("routine");
       if (isAllowedOption(routine, routineValues)) loaded.routine = routine;
+      loaded.routineWeekdaySchedule = normalizeRoutineWeekdaySchedule(readStoredValue("routineWeekdaySchedule"));
 
       loaded.intensityOverride = parseNumberOrDefault(readStoredValue("intensityOverride"), loaded.intensityOverride);
       loaded.weightDuration = parseNumberOrDefault(readStoredValue("weightDuration"), loaded.weightDuration);
@@ -17152,6 +17268,7 @@ Notes:
       dataManagementState.pendingImport = null;
       state.weeklyTrainingDaysManual = false;
       state.weeklyTrainingDays = getRecentWeightTrainingDayCount();
+      state.routineWeekdaySchedule = {};
       applyStateToInputs();
       populateRecordInputsFromToday();
       render();
@@ -17502,6 +17619,141 @@ Notes:
 
     function getRoutineEntry(value){
       return getRoutineItems().find(item => item.value === value) ?? getRoutineItems()[0];
+    }
+
+    function parseRoutineWeekdaySchedule(raw = {}){
+      if (!raw) return {};
+      if (typeof raw === "string") {
+        try {
+          const parsed = JSON.parse(raw);
+          return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        } catch (_error) {
+          return {};
+        }
+      }
+      return typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    }
+
+    function getRoutineSchedulePlanKey(plan = state.routinePlan, advanced = state.generalAdvancedSettings){
+      if (!advanced) return ROUTINE_WEEKDAY_PLAN_GENERAL;
+      return ROUTINE_SCHEMES[plan] ? plan : DEFAULT_STATE.routinePlan;
+    }
+
+    function getRoutineScheduleItemsForPlanKey(planKey){
+      if (planKey === ROUTINE_WEEKDAY_PLAN_GENERAL) return getGeneralRoutineItems();
+      return ROUTINE_SCHEMES[planKey]?.items || ROUTINE_SCHEMES[DEFAULT_STATE.routinePlan].items;
+    }
+
+    function normalizeRoutineWeekdaySchedule(raw = {}){
+      const source = parseRoutineWeekdaySchedule(raw);
+      const safe = {};
+      [ROUTINE_WEEKDAY_PLAN_GENERAL, ...Object.keys(ROUTINE_SCHEMES)].forEach(planKey => {
+        const planSource = source[planKey];
+        if (!planSource || typeof planSource !== "object" || Array.isArray(planSource)) return;
+        const allowedSessions = getRoutineScheduleItemsForPlanKey(planKey)
+          .map(item => item.value)
+          .filter(value => value !== "REST");
+        const planSafe = {};
+        const usedWeekdays = new Set();
+        allowedSessions.forEach(session => {
+          const rawDays = Array.isArray(planSource[session]) ? planSource[session] : [];
+          const days = [];
+          rawDays.forEach(day => {
+            if (!ROUTINE_WEEKDAY_KEYS.includes(day) || usedWeekdays.has(day)) return;
+            usedWeekdays.add(day);
+            days.push(day);
+          });
+          if (days.length) planSafe[session] = days;
+        });
+        if (Object.keys(planSafe).length) safe[planKey] = planSafe;
+      });
+      return safe;
+    }
+
+    function hasRoutineWeekdaySchedule(planKey = getRoutineSchedulePlanKey()){
+      const schedule = normalizeRoutineWeekdaySchedule(state.routineWeekdaySchedule || {});
+      const planSchedule = schedule[planKey] || {};
+      return Object.values(planSchedule).some(days => Array.isArray(days) && days.length);
+    }
+
+    function getRoutineWeekdayKeyForDate(date = getTodayDateString()){
+      const normalized = normalizeDateString(date) || getTodayDateString();
+      const [year, month, day] = normalized.split("-").map(Number);
+      const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+      return ROUTINE_WEEKDAY_OPTIONS.find(item => item.day === weekday)?.key || "mon";
+    }
+
+    function getScheduledRoutineSessionForDate(date = getTodayDateString(), plan = state.routinePlan, advanced = state.generalAdvancedSettings){
+      const planKey = getRoutineSchedulePlanKey(plan, advanced);
+      const schedule = normalizeRoutineWeekdaySchedule(state.routineWeekdaySchedule || {});
+      const planSchedule = schedule[planKey] || {};
+      if (!Object.values(planSchedule).some(days => Array.isArray(days) && days.length)) return null;
+      const weekday = getRoutineWeekdayKeyForDate(date);
+      const items = getRoutineScheduleItemsForPlanKey(planKey).filter(item => item.value !== "REST");
+      const match = items.find(item => Array.isArray(planSchedule[item.value]) && planSchedule[item.value].includes(weekday));
+      return match ? match.value : "REST";
+    }
+
+    function getRoutineWeekdayScheduleConflict(planKey, session, weekday){
+      const schedule = normalizeRoutineWeekdaySchedule(state.routineWeekdaySchedule || {});
+      const planSchedule = schedule[planKey] || {};
+      return Object.entries(planSchedule).find(([otherSession, days]) => otherSession !== session && Array.isArray(days) && days.includes(weekday))?.[0] || "";
+    }
+
+    function handleRoutineWeekdayScheduleChange(input){
+      if (!input?.matches?.("[data-routine-weekday-input]")) return;
+      const planKey = input.dataset.planKey || getRoutineSchedulePlanKey();
+      const session = input.dataset.session || "";
+      const weekday = input.dataset.weekday || "";
+      if (!session || !ROUTINE_WEEKDAY_KEYS.includes(weekday)) return;
+      const schedule = normalizeRoutineWeekdaySchedule(state.routineWeekdaySchedule || {});
+      schedule[planKey] = schedule[planKey] || {};
+      const currentDays = Array.isArray(schedule[planKey][session]) ? [...schedule[planKey][session]] : [];
+      if (input.checked) {
+        const conflict = getRoutineWeekdayScheduleConflict(planKey, session, weekday);
+        if (conflict) {
+          input.checked = false;
+          const conflictLabel = getRoutineScheduleItemsForPlanKey(planKey).find(item => item.value === conflict)?.label || conflict;
+          alert(`이미 ${conflictLabel} 세션에 배정된 요일입니다. 한 요일은 한 세션에만 배정할 수 있습니다.`);
+          return;
+        }
+        if (!currentDays.includes(weekday)) currentDays.push(weekday);
+      } else {
+        const index = currentDays.indexOf(weekday);
+        if (index >= 0) currentDays.splice(index, 1);
+      }
+      if (currentDays.length) schedule[planKey][session] = ROUTINE_WEEKDAY_KEYS.filter(day => currentDays.includes(day));
+      else delete schedule[planKey][session];
+      if (!Object.keys(schedule[planKey]).length) delete schedule[planKey];
+      state.routineWeekdaySchedule = normalizeRoutineWeekdaySchedule(schedule);
+      saveState();
+      render();
+    }
+
+    function renderRoutineWeekdayScheduleUI(){
+      const panel = document.getElementById("routineWeekdaySchedulePanel");
+      const rows = document.getElementById("routineWeekdayScheduleRows");
+      if (!panel || !rows) return;
+      const planKey = getRoutineSchedulePlanKey();
+      const items = getRoutineScheduleItemsForPlanKey(planKey).filter(item => item.value !== "REST");
+      const schedule = normalizeRoutineWeekdaySchedule(state.routineWeekdaySchedule || {});
+      state.routineWeekdaySchedule = schedule;
+      const planSchedule = schedule[planKey] || {};
+      rows.innerHTML = items.map(item => {
+        const checkedDays = Array.isArray(planSchedule[item.value]) ? planSchedule[item.value] : [];
+        const weekdayControls = ROUTINE_WEEKDAY_OPTIONS.map(day => `
+          <label class="routine-weekday-chip">
+            <input type="checkbox" data-routine-weekday-input="true" data-plan-key="${escapeHtml(planKey)}" data-session="${escapeHtml(item.value)}" data-weekday="${day.key}" ${checkedDays.includes(day.key) ? "checked" : ""}>
+            <span>${day.label}</span>
+          </label>
+        `).join("");
+        return `
+          <div class="routine-weekday-row">
+            <div class="routine-weekday-session">${escapeHtml(item.label)}</div>
+            <div class="routine-weekday-options">${weekdayControls}</div>
+          </div>
+        `;
+      }).join("") || `<div class="routine-weekday-schedule-note">선택 가능한 운동 세션이 없습니다.</div>`;
     }
 
     function getCarbsPlausibilityCapKg(mode = state.mode, options = {}){
@@ -32194,6 +32446,7 @@ Notes:
       updateExpertAlphaUI();
       applyModeFreeAdvancedCopy();
       syncRoutineUI();
+      renderRoutineWeekdayScheduleUI();
       syncTodaySliderHelpLabels();
       syncGoalUI();
       renderMealLabelChips();
@@ -32331,6 +32584,7 @@ Notes:
       });
       ids.generalAdvancedSettings.addEventListener("change", () => {
         state.generalAdvancedSettings = !!ids.generalAdvancedSettings.checked;
+        state.routineWeekdaySchedule = normalizeRoutineWeekdaySchedule(state.routineWeekdaySchedule || {});
         state.renderedRoutineKey = "";
         render();
       });
@@ -32359,10 +32613,15 @@ Notes:
 
       ids.routinePlan.addEventListener("change", () => {
         state.routinePlan = ids.routinePlan.value;
+        state.routineWeekdaySchedule = normalizeRoutineWeekdaySchedule(state.routineWeekdaySchedule || {});
         const firstTraining = getRoutineItems().find(item => item.value !== "REST") ?? getRoutineItems()[0];
         setRoutineFromCurrentPlan(firstTraining.value);
         state.renderedRoutineKey = "";
         render();
+      });
+
+      document.getElementById("routineWeekdayScheduleRows")?.addEventListener("change", event => {
+        handleRoutineWeekdayScheduleChange(event.target);
       });
 
       document.getElementById("resetBtn").addEventListener("click", () => {
@@ -43443,6 +43702,114 @@ Notes:
       });
     }
 
+    function runRoutineWeekdayScheduleTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const originalAlert = window.alert;
+        const alerts = [];
+        window.alert = message => alerts.push(String(message || ""));
+        try {
+          results.push(runNamedTest("v7.3-X Settings renders session weekday schedule controls", () => {
+            setActiveTab("settings");
+            state.generalAdvancedSettings = true;
+            ids.generalAdvancedSettings.checked = true;
+            state.routinePlan = "ppl_ul";
+            ids.routinePlan.value = "ppl_ul";
+            state.routineWeekdaySchedule = {};
+            render();
+            const panel = document.getElementById("routineWeekdaySchedulePanel");
+            assertTest(!!panel && document.querySelector(".settings-training-group")?.contains(panel), "weekday schedule panel should live in Settings training group");
+            assertTest(document.querySelectorAll("[data-routine-weekday-input]").length >= 35, "advanced routine sessions should expose weekday checkboxes");
+            assertIncludesAll(panel.textContent || "", ["요일별 세션 계획", "미지정 요일은 휴식"], "weekday schedule copy should explain default rest days");
+          }));
+
+          results.push(runNamedTest("v7.3-X duplicate weekday assignment is blocked by alert", () => {
+            state.generalAdvancedSettings = true;
+            ids.generalAdvancedSettings.checked = true;
+            state.routinePlan = "ppl_ul";
+            ids.routinePlan.value = "ppl_ul";
+            state.routineWeekdaySchedule = {};
+            renderRoutineWeekdayScheduleUI();
+            const pushMon = document.querySelector('[data-routine-weekday-input][data-session="PUSH"][data-weekday="mon"]');
+            const legsMon = document.querySelector('[data-routine-weekday-input][data-session="LEGS"][data-weekday="mon"]');
+            pushMon.checked = true;
+            handleRoutineWeekdayScheduleChange(pushMon);
+            legsMon.checked = true;
+            handleRoutineWeekdayScheduleChange(legsMon);
+            assertTest(alerts.some(message => message.includes("이미") && message.includes("요일")), "duplicate weekday should show an alert");
+            assertTest(!legsMon.checked, "duplicate checkbox should be reverted");
+            assertTest(state.routineWeekdaySchedule.ppl_ul.PUSH.includes("mon"), "original weekday assignment should remain");
+            assertTest(!state.routineWeekdaySchedule.ppl_ul.LEGS?.includes("mon"), "duplicate weekday should not be stored");
+          }));
+
+          results.push(runNamedTest("v7.3-X Today defaults follow weekday schedule by date", () => {
+            todayCalculationDrafts = {};
+            state.generalAdvancedSettings = true;
+            ids.generalAdvancedSettings.checked = true;
+            state.routinePlan = "ppl_ul";
+            ids.routinePlan.value = "ppl_ul";
+            state.routine = "PUSH";
+            ids.intensityOverride.value = "0.80";
+            ids.weightDuration.value = "60";
+            state.routineWeekdaySchedule = normalizeRoutineWeekdaySchedule({
+              ppl_ul: {
+                PUSH: ["mon", "thu"],
+                LEGS: ["tue"]
+              }
+            });
+            const monday = getEffectiveTodayCalculationValues("2026-06-01");
+            const tuesday = getEffectiveTodayCalculationValues("2026-06-02");
+            const wednesday = getEffectiveTodayCalculationValues("2026-06-03");
+            assertTest(monday.todayRoutineSession === "PUSH", "Monday should use scheduled PUSH");
+            assertTest(tuesday.todayRoutineSession === "LEGS", "Tuesday should use scheduled LEGS");
+            assertClose(tuesday.todayIntensityOverride, 1.00, 0.0001, "scheduled LEGS should use LEGS default intensity");
+            assertTest(wednesday.todayRoutineSession === "REST", "unassigned weekday should become REST when schedule exists");
+            assertClose(wednesday.todayIntensityOverride, 0, 0.0001, "REST day should set intensity to zero");
+            assertClose(wednesday.todayWeightDuration, 0, 0.0001, "REST day should set weight duration to zero");
+          }));
+
+          results.push(runNamedTest("v7.3-X Today draft session overrides weekday schedule", () => {
+            const date = "2026-06-02";
+            todayCalculationDrafts = {
+              [date]: normalizeTodayCalculationDraft({ todayRoutineSession: "PULL" })
+            };
+            state.generalAdvancedSettings = true;
+            ids.generalAdvancedSettings.checked = true;
+            state.routinePlan = "ppl_ul";
+            state.routine = "PUSH";
+            state.routineWeekdaySchedule = normalizeRoutineWeekdaySchedule({ ppl_ul: { LEGS: ["tue"] } });
+            const values = getEffectiveTodayCalculationValues(date);
+            assertTest(values.todayRoutineSession === "PULL", "explicit Today draft session should win over scheduled weekday");
+            assertClose(values.todayIntensityOverride, 0.85, 0.0001, "draft session without custom intensity should use session default");
+          }));
+
+          results.push(runNamedTest("v7.3-X general mode schedule supports 운동 days and rest days", () => {
+            todayCalculationDrafts = {};
+            state.generalAdvancedSettings = false;
+            ids.generalAdvancedSettings.checked = false;
+            state.routine = "PUSH";
+            state.routineWeekdaySchedule = normalizeRoutineWeekdaySchedule({ general: { PUSH: ["mon", "wed", "fri"] } });
+            const monday = getEffectiveTodayCalculationValues("2026-06-01");
+            const tuesday = getEffectiveTodayCalculationValues("2026-06-02");
+            assertTest(monday.todayRoutineSession === "PUSH", "general scheduled training day should use 운동 session");
+            assertTest(tuesday.todayRoutineSession === "REST", "general unscheduled day should use 휴식");
+          }));
+
+          results.push(runNamedTest("v7.3-X full backup preserves routine weekday schedule", () => {
+            state.routineWeekdaySchedule = normalizeRoutineWeekdaySchedule({ ppl_ul: { PUSH: ["mon"], LOWER: ["sat"] } });
+            const payload = buildFullBackupPayload("2026-06-02T00:00:00.000Z");
+            assertTest(payload.data.settings.routineWeekdaySchedule.ppl_ul.PUSH.includes("mon"), "full backup should include weekday schedule");
+            state.routineWeekdaySchedule = {};
+            restoreFullBackupData(payload.data);
+            assertTest(state.routineWeekdaySchedule.ppl_ul.LOWER.includes("sat"), "full restore should restore weekday schedule");
+          }));
+        } finally {
+          window.alert = originalAlert;
+        }
+        return results;
+      });
+    }
+
     function runStitchSettingsShellTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -43585,6 +43952,7 @@ Notes:
           assertTest(typeof window.runStitchWeeklyShellTests === "function", "Weekly shell suite should remain exported");
           assertTest(typeof window.runStitchInBodyShellTests === "function", "InBody shell suite should remain exported");
           assertTest(typeof window.runSmartRestoreImportTests === "function", "smart restore suite should remain exported");
+          assertTest(typeof window.runRoutineWeekdayScheduleTests === "function", "routine weekday schedule suite should remain exported");
         }));
 
         results.push(runNamedTest("C4.8-UI4 Settings shell remains mobile safe", () => {
@@ -59533,6 +59901,7 @@ Notes:
     window.runTodayRecordConfirmationTests = runTodayRecordConfirmationTests;
     window.runUserFacingModeRemovalTests = runUserFacingModeRemovalTests;
     window.runModeFreeCalculationContextTests = runModeFreeCalculationContextTests;
+    window.runRoutineWeekdayScheduleTests = runRoutineWeekdayScheduleTests;
     window.runStitchSettingsShellTests = runStitchSettingsShellTests;
     window.runStitchRecordsShellTests = runStitchRecordsShellTests;
     window.runSharedMealSurfaceTests = runSharedMealSurfaceTests;
