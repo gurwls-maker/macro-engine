@@ -1,8 +1,11 @@
 <!--
 Version: 7.3
-Stage: v7.3-X 세션별 요일 계획 Today 자동 반영
+Stage: v7.3-Y 백업 저장 폴더 기억
 Date: 2026-05-28
 Notes:
+- v7.3-Y Data Management 전체 백업 / 기록만 백업 내보내기에서 사용자가 지정한 저장 폴더를 기억하고 다음 백업부터 같은 위치에 저장
+- v7.3-Y 저장 폴더 기억은 지원 브라우저에서만 적용하고, 권한이 없거나 지원하지 않으면 기존 저장창 / 다운로드 fallback 유지
+- v7.3-Y 산식 / score / Coach / recentContext / InBody gate / dual basis / Records 저장 구조 변경 없음
 - v7.3-X Settings 운동 기준에 세션별 요일 계획을 추가하고 Today 기본 웨이트 세션을 날짜 요일에 맞춰 자동 선택
 - v7.3-X 한 요일이 여러 세션에 중복 배정되면 알림으로 차단하고, 계획이 있는 상태에서 미지정 요일은 휴식으로 처리
 - v7.3-X 날짜 계획은 Today 기본값에만 반영하며 Records 저장 구조 / score / Coach / recentContext / InBody gate / dual basis 변경 없음
@@ -3113,6 +3116,18 @@ Notes:
     .data-import-preview{
       margin-top:10px;
     }
+    .backup-folder-row{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:8px;
+      margin-top:8px;
+    }
+    .backup-folder-status{
+      margin:6px 0 0;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.45;
+    }
     .settings-stitch-shell{
       display:grid;
       grid-template-columns:minmax(0,1fr) minmax(320px,.9fr);
@@ -3583,6 +3598,11 @@ Notes:
     .settings-data-card .data-management-actions,
     .settings-data-card .data-management-subactions{
       margin-top:0;
+    }
+    .settings-data-card .backup-folder-row .secondary-btn{
+      min-height:34px;
+      border-radius:var(--stitch-action-radius);
+      font-size:12.5px;
     }
     /* text-action: data-management buttons keep their wide grid layout, but share the common text-action corner token. */
     .settings-data-card .data-management-actions .primary-btn,
@@ -15069,6 +15089,11 @@ Notes:
                   <button class="secondary-btn" id="importBackupBtn" type="button">백업 불러오기</button>
                   <input id="importBackupFile" type="file" accept="application/json" class="hidden">
                 </div>
+                <div class="backup-folder-row" id="backupFolderControls">
+                  <button class="secondary-btn" id="chooseBackupFolderBtn" type="button">저장 폴더 지정</button>
+                  <button class="secondary-btn" id="clearBackupFolderBtn" type="button">지정 해제</button>
+                </div>
+                <p class="backup-folder-status" id="backupFolderStatus">저장 폴더를 지정하면 다음 백업부터 같은 위치에 저장합니다.</p>
                 <div class="data-management-feedback" id="dataManagementFeedback"></div>
                 <div class="data-import-preview" id="dataImportPreviewHost"></div>
               </div>
@@ -15977,7 +16002,9 @@ Notes:
     };
     const dataManagementState = {
       feedback: null,
-      pendingImport: null
+      pendingImport: null,
+      backupDirectoryName: null,
+      backupDirectorySupported: null
     };
     const TODAY_CALCULATION_DRAFT_STORAGE_KEY = "todayCalculationDrafts.v1";
     const TODAY_CALCULATION_DRAFT_NUMBER_FIELDS = [
@@ -16802,6 +16829,199 @@ Notes:
     }
 
     const BACKUP_SAVE_PICKER_ID = "macroEngineBackup";
+    const BACKUP_DIRECTORY_DB_NAME = "macroEngineBackupDirectory";
+    const BACKUP_DIRECTORY_DB_VERSION = 1;
+    const BACKUP_DIRECTORY_STORE = "handles";
+    const BACKUP_DIRECTORY_KEY = "backupDirectory";
+
+    function supportsBackupDirectoryMemory(){
+      return typeof window !== "undefined"
+        && typeof window.showDirectoryPicker === "function"
+        && typeof window.indexedDB !== "undefined";
+    }
+
+    function idbRequestToPromise(request){
+      return new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error("indexeddb_request_failed"));
+      });
+    }
+
+    function idbTransactionDone(transaction){
+      return new Promise((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error || new Error("indexeddb_transaction_failed"));
+        transaction.onabort = () => reject(transaction.error || new Error("indexeddb_transaction_aborted"));
+      });
+    }
+
+    function openBackupDirectoryDb(){
+      return new Promise((resolve, reject) => {
+        if (!supportsBackupDirectoryMemory()) {
+          reject(new Error("backup_directory_memory_unsupported"));
+          return;
+        }
+        const request = window.indexedDB.open(BACKUP_DIRECTORY_DB_NAME, BACKUP_DIRECTORY_DB_VERSION);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(BACKUP_DIRECTORY_STORE)) db.createObjectStore(BACKUP_DIRECTORY_STORE);
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error("backup_directory_db_open_failed"));
+      });
+    }
+
+    async function getRememberedBackupDirectoryHandle(){
+      if (!supportsBackupDirectoryMemory()) return null;
+      let db = null;
+      try {
+        db = await openBackupDirectoryDb();
+        const transaction = db.transaction(BACKUP_DIRECTORY_STORE, "readonly");
+        const handle = await idbRequestToPromise(transaction.objectStore(BACKUP_DIRECTORY_STORE).get(BACKUP_DIRECTORY_KEY));
+        await idbTransactionDone(transaction);
+        return handle || null;
+      } catch (error) {
+        console.warn("Could not read remembered backup folder.", error);
+        return null;
+      } finally {
+        if (db) db.close();
+      }
+    }
+
+    async function setRememberedBackupDirectoryHandle(handle){
+      if (!supportsBackupDirectoryMemory() || !handle) return false;
+      let db = null;
+      try {
+        db = await openBackupDirectoryDb();
+        const transaction = db.transaction(BACKUP_DIRECTORY_STORE, "readwrite");
+        transaction.objectStore(BACKUP_DIRECTORY_STORE).put(handle, BACKUP_DIRECTORY_KEY);
+        await idbTransactionDone(transaction);
+        return true;
+      } catch (error) {
+        console.warn("Could not remember backup folder.", error);
+        return false;
+      } finally {
+        if (db) db.close();
+      }
+    }
+
+    async function clearRememberedBackupDirectoryHandle(){
+      if (!supportsBackupDirectoryMemory()) return false;
+      let db = null;
+      try {
+        db = await openBackupDirectoryDb();
+        const transaction = db.transaction(BACKUP_DIRECTORY_STORE, "readwrite");
+        transaction.objectStore(BACKUP_DIRECTORY_STORE).delete(BACKUP_DIRECTORY_KEY);
+        await idbTransactionDone(transaction);
+        return true;
+      } catch (error) {
+        console.warn("Could not clear remembered backup folder.", error);
+        return false;
+      } finally {
+        if (db) db.close();
+      }
+    }
+
+    async function ensureBackupDirectoryPermission(handle){
+      if (!handle) return false;
+      const options = { mode: "readwrite" };
+      if (typeof handle.queryPermission === "function") {
+        const current = await handle.queryPermission(options);
+        if (current === "granted") return true;
+      }
+      if (typeof handle.requestPermission === "function") {
+        return await handle.requestPermission(options) === "granted";
+      }
+      return true;
+    }
+
+    async function writeBlobToRememberedBackupDirectory(blob, filename){
+      const handle = await getRememberedBackupDirectoryHandle();
+      if (!handle) return null;
+      try {
+        const allowed = await ensureBackupDirectoryPermission(handle);
+        if (!allowed) return null;
+        const fileHandle = await handle.getFileHandle(filename, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        dataManagementState.backupDirectoryName = handle.name || "지정한 폴더";
+        dataManagementState.backupDirectorySupported = true;
+        return { saved: true, method: "directory", directoryName: dataManagementState.backupDirectoryName };
+      } catch (error) {
+        console.warn("Remembered backup folder failed; falling back to save picker.", error);
+        return null;
+      }
+    }
+
+    async function refreshBackupDirectoryStatus(renderStatus = true){
+      dataManagementState.backupDirectorySupported = supportsBackupDirectoryMemory();
+      if (!dataManagementState.backupDirectorySupported) {
+        dataManagementState.backupDirectoryName = null;
+      } else {
+        const handle = await getRememberedBackupDirectoryHandle();
+        dataManagementState.backupDirectoryName = handle?.name || null;
+      }
+      if (renderStatus) renderBackupDirectoryStatus();
+      return dataManagementState.backupDirectoryName;
+    }
+
+    function renderBackupDirectoryStatus(){
+      const status = document.getElementById("backupFolderStatus");
+      const chooseButton = document.getElementById("chooseBackupFolderBtn");
+      const clearButton = document.getElementById("clearBackupFolderBtn");
+      if (!status) return;
+      const supported = dataManagementState.backupDirectorySupported ?? supportsBackupDirectoryMemory();
+      if (!supported) {
+        status.textContent = "이 브라우저에서는 저장 폴더 기억을 지원하지 않아 저장창 또는 다운로드 설정을 따릅니다.";
+        if (chooseButton) chooseButton.disabled = true;
+        if (clearButton) clearButton.disabled = true;
+        return;
+      }
+      if (chooseButton) chooseButton.disabled = false;
+      if (clearButton) clearButton.disabled = !dataManagementState.backupDirectoryName;
+      status.textContent = dataManagementState.backupDirectoryName
+        ? `저장 폴더: ${dataManagementState.backupDirectoryName}`
+        : "저장 폴더를 지정하면 다음 백업부터 같은 위치에 저장합니다.";
+    }
+
+    async function chooseBackupExportDirectory(){
+      if (!supportsBackupDirectoryMemory()) {
+        setDataManagementFeedback("warn", "이 브라우저에서는 저장 폴더 기억을 지원하지 않습니다.");
+        renderDataManagementPanel();
+        return;
+      }
+      try {
+        const handle = await window.showDirectoryPicker({ id: BACKUP_SAVE_PICKER_ID, mode: "readwrite" });
+        const allowed = await ensureBackupDirectoryPermission(handle);
+        if (!allowed) {
+          setDataManagementFeedback("warn", "저장 폴더 권한을 허용하지 않아 지정하지 않았습니다.");
+          renderDataManagementPanel();
+          return;
+        }
+        const remembered = await setRememberedBackupDirectoryHandle(handle);
+        dataManagementState.backupDirectoryName = remembered ? (handle.name || "지정한 폴더") : null;
+        dataManagementState.backupDirectorySupported = true;
+        setDataManagementFeedback(remembered ? "ok" : "warn", remembered ? "백업 저장 폴더를 지정했습니다." : "저장 폴더를 기억하지 못했습니다. 브라우저 저장창을 사용합니다.");
+        renderDataManagementPanel();
+      } catch (error) {
+        if (isFileSaveAbort(error)) {
+          setDataManagementFeedback("warn", "저장 폴더 지정을 취소했습니다.");
+        } else {
+          console.warn("Backup folder selection failed.", error);
+          setDataManagementFeedback("warn", "저장 폴더를 지정하지 못했습니다. 브라우저 저장창을 사용합니다.");
+        }
+        renderDataManagementPanel();
+      }
+    }
+
+    async function clearBackupExportDirectory(){
+      await clearRememberedBackupDirectoryHandle();
+      dataManagementState.backupDirectoryName = null;
+      dataManagementState.backupDirectorySupported = supportsBackupDirectoryMemory();
+      setDataManagementFeedback("ok", "지정한 백업 저장 폴더를 해제했습니다.");
+      renderDataManagementPanel();
+    }
 
     function buildSaveFilePickerOptions(filename, description = "JSON 파일", extension = ".json", mimeType = "application/json", pickerId = BACKUP_SAVE_PICKER_ID){
       return {
@@ -16831,6 +17051,9 @@ Notes:
     }
 
     async function saveBlobFile(blob, filename, options = {}){
+      const directoryResult = await writeBlobToRememberedBackupDirectory(blob, filename);
+      if (directoryResult?.saved) return directoryResult;
+
       if (typeof window.showSaveFilePicker === "function") {
         try {
           const handle = await window.showSaveFilePicker(buildSaveFilePickerOptions(
@@ -17266,6 +17489,8 @@ Notes:
       recordsState.feedback = null;
       dataManagementState.feedback = null;
       dataManagementState.pendingImport = null;
+      dataManagementState.backupDirectoryName = null;
+      dataManagementState.backupDirectorySupported = null;
       state.weeklyTrainingDaysManual = false;
       state.weeklyTrainingDays = getRecentWeightTrainingDayCount();
       state.routineWeekdaySchedule = {};
@@ -21121,6 +21346,8 @@ Notes:
       const previewHost = document.getElementById("dataImportPreviewHost");
       if (feedbackHost) feedbackHost.innerHTML = formatDataManagementFeedbackHtml();
       if (previewHost) previewHost.innerHTML = "";
+      renderBackupDirectoryStatus();
+      refreshBackupDirectoryStatus(true);
     }
 
     function renderDataImportConfirmDialog(){
@@ -21194,7 +21421,7 @@ Notes:
         renderDataManagementPanel();
         return;
       }
-      setDataManagementFeedback("ok", result.method === "picker" ? "선택한 위치에 전체 백업 파일을 저장했습니다." : "전체 백업 파일을 만들었습니다.");
+      setDataManagementFeedback("ok", result.method === "directory" ? "지정한 폴더에 전체 백업 파일을 저장했습니다." : result.method === "picker" ? "선택한 위치에 전체 백업 파일을 저장했습니다." : "전체 백업 파일을 만들었습니다.");
       renderDataManagementPanel();
     }
 
@@ -26559,7 +26786,7 @@ Notes:
         return;
       }
       localStorage.setItem(storageKey("lastBackupAt"), new Date().toISOString());
-      setDataManagementFeedback("ok", result.method === "picker" ? "선택한 위치에 기록 백업 파일을 저장했습니다. 설정과 Today 계산값은 포함되지 않습니다." : "기록 중심 파일을 만들었습니다. 설정과 Today 계산값은 포함되지 않습니다.");
+      setDataManagementFeedback("ok", result.method === "directory" ? "지정한 폴더에 기록 백업 파일을 저장했습니다. 설정과 Today 계산값은 포함되지 않습니다." : result.method === "picker" ? "선택한 위치에 기록 백업 파일을 저장했습니다. 설정과 Today 계산값은 포함되지 않습니다." : "기록 중심 파일을 만들었습니다. 설정과 Today 계산값은 포함되지 않습니다.");
       render();
     }
 
@@ -33017,6 +33244,8 @@ Notes:
         applyMealReuseSelection(item.getAttribute("data-meal-reuse-date"), item.getAttribute("data-meal-reuse-id"));
       });
       document.getElementById("exportFullBackupBtn")?.addEventListener("click", exportFullBackupJson);
+      document.getElementById("chooseBackupFolderBtn")?.addEventListener("click", chooseBackupExportDirectory);
+      document.getElementById("clearBackupFolderBtn")?.addEventListener("click", clearBackupExportDirectory);
       document.getElementById("importBackupBtn")?.addEventListener("click", () => document.getElementById("importBackupFile")?.click());
       document.getElementById("importBackupFile")?.addEventListener("change", event => {
         const file = event.target.files?.[0];
@@ -33306,6 +33535,8 @@ Notes:
         const dataManagementSnapshot = JSON.parse(snapshot.dataManagementState || "{}");
         dataManagementState.feedback = dataManagementSnapshot.feedback || null;
         dataManagementState.pendingImport = dataManagementSnapshot.pendingImport || null;
+        dataManagementState.backupDirectoryName = dataManagementSnapshot.backupDirectoryName || null;
+        dataManagementState.backupDirectorySupported = Object.prototype.hasOwnProperty.call(dataManagementSnapshot, "backupDirectorySupported") ? dataManagementSnapshot.backupDirectorySupported : null;
         cardioPresetState = normalizeCardioPresetState(JSON.parse(snapshot.cardioPresetState || "{}"));
         mealTemplateState = normalizeMealTemplateState(JSON.parse(snapshot.mealTemplateState || "{}"));
         cardioPresetDialogOpen = !!snapshot.cardioPresetDialogOpen;
@@ -34059,6 +34290,8 @@ Notes:
       recordsState.feedback = null;
       dataManagementState.feedback = null;
       dataManagementState.pendingImport = null;
+      dataManagementState.backupDirectoryName = null;
+      dataManagementState.backupDirectorySupported = null;
       cardioPresetState = normalizeCardioPresetState();
       cardioPresetDialogOpen = false;
       todayCalculationDrafts = {};
@@ -40671,6 +40904,8 @@ Notes:
           assertIncludesAll(panel.textContent || "", ["데이터 관리", "전체 백업 만들기", "백업 불러오기", "기록만 내보내기", "기록만 불러오기"], "Data Management should expose full backup and records-only actions");
           assertTest(document.getElementById("dataManagementPanel").contains(document.getElementById("exportJsonBtn")), "records-only export should move to Data Management");
           assertTest(document.getElementById("dataManagementPanel").contains(document.getElementById("importJsonBtn")), "records-only import should move to Data Management");
+          assertTest(panel.contains(document.getElementById("chooseBackupFolderBtn")), "backup folder chooser should remain in Data Management");
+          assertTest(panel.contains(document.getElementById("clearBackupFolderBtn")), "backup folder clear button should remain in Data Management");
         }));
 
         results.push(runNamedTest("v7.3 Data Management exports prefer native save location picker when available", () => {
@@ -40679,6 +40914,8 @@ Notes:
           assertTest(options.suggestedName === "macro-engine-full-backup-2026-05-26.json", "save picker should suggest the backup filename");
           assertTest(options.types?.[0]?.accept?.["application/json"]?.includes(".json"), "save picker should constrain JSON files");
           assertTest(typeof saveBlobFile === "function" && typeof downloadBlobWithAnchor === "function", "save picker and download fallback helpers should exist");
+          assertTest(typeof chooseBackupExportDirectory === "function" && typeof clearBackupExportDirectory === "function", "backup folder memory controls should exist");
+          assertTest(typeof getRememberedBackupDirectoryHandle === "function" && typeof setRememberedBackupDirectoryHandle === "function", "backup folder memory should use a persisted directory handle");
         }));
 
         results.push(runNamedTest("C4.7-A full backup payload includes app data and excludes temporary UI state", () => {
