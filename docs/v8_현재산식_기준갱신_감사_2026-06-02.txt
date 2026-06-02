@@ -1709,6 +1709,37 @@ v8.0-U에서는 v8.0-T runtime candidate-v2 target-delta proposal을 production 
 - 이 QA는 모바일 screenshot audit이나 실제 production formula approval을 대체하지 않는다.
 - production `targetCal` 적용은 여전히 별도 formula approval / production wiring / visual QA가 필요하다.
 
+## 11-19. 2026-06-03 v8.0-V mobile screenshot audit analyzer 1차
+
+v8.0-V에서는 v8.0-U가 남긴 mobile screenshot audit / production visual QA 경계를 분리했다. 이번 단계는 최신 앱 상태를 `tools/render_audit/capture_render_audit.cjs`로 캡처하고, `tools/render_audit/analyze_render_audit.cjs`로 manifest와 PNG를 자동 분석하는 1차 시각 감사 근거다. 이 단계는 candidate-v2 formula approval, production `targetCal` application, 또는 formula wiring 이후의 production visual QA가 아니다.
+
+추가된 도구:
+
+- `tools/render_audit/analyze_render_audit.cjs`
+- `capture_render_audit.cjs`가 생성한 ignored `manifest.json`과 `screenshots/*.png`를 읽는다.
+- 모바일 Today / Records / Recent / InBody / Settings / backup-import / edit modal 표면이 모두 캡처됐는지 확인한다.
+- 각 PNG가 존재하고 viewport width와 맞으며, viewport height 이상이고, sampled PNG pixel statistics 기준으로 비어 있지 않은지 확인한다.
+- 모바일 캡처는 full-page expanded 상태와 PNG height / capture height 일치를 확인한다.
+
+최신 실행 근거:
+
+- `capture_render_audit.cjs`: 47 captures 생성
+- desktop captures: 33
+- mobile captures: 14
+- required mobile captures: 14
+- `analyze_render_audit.cjs`: `failedCount=0`
+- `minMobileImageHeight=1601`
+- `maxMobileImageHeight=4909`
+- `minUniqueSampleColorCount=547`
+- `minLuminanceStdDev=24.244`
+- 직접 눈으로 확인한 모바일 스크린샷: `34_mobile_today_rich.png`, `36_mobile_records.png`, `40_mobile_settings.png`
+
+해석:
+
+- v8.0-V는 "모바일 캡처를 돌렸다"가 아니라, 캡처 manifest와 PNG 자체를 자동 검증하는 도구를 추가한 단계다.
+- 이 단계로 first-pass mobile/desktop screenshot audit evidence gate는 닫을 수 있다.
+- 단, candidate-v2 target delta가 production `targetCal`에 실제 적용된 뒤의 production visual QA는 아직 실행할 수 없으므로 별도 open gate로 유지한다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -2042,6 +2073,13 @@ v8.0-U에서는 v8.0-T runtime candidate-v2 target-delta proposal을 production 
 - 2026-06-03 v8.0-U full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-U desktop full 99 suites / 1049 cases / failed 0
 - 2026-06-03 v8.0-U profileFormulaUserFacingQa 직접 추출: `version=8.0-U`, `stage=9-9_profile_formula_user_facing_qa_v0`, `targetDeltaKcal=25.029155555555462`, `coachHasProfileTargetDeltaDecision=true`, `recordDetailHasProfileTargetDelta=true`, `recordDetailHasProfileTargetRateDelta=true`, `surfaceForbiddenTermCount=0`, `targetDeltaApplied=false`, `canApplyAutomatically=false`
+- 2026-06-03 v8.0-V render audit capture 확인: `node .\tools\render_audit\capture_render_audit.cjs`
+- v8.0-V render audit capture 47 captures 생성: desktop 33 / mobile 14
+- 2026-06-03 v8.0-V render audit manifest analyzer 확인: `node .\tools\render_audit\analyze_render_audit.cjs`
+- v8.0-V render audit analyzer `failedCount=0`, `minMobileImageHeight=1601`, `maxMobileImageHeight=4909`, `minUniqueSampleColorCount=547`, `minLuminanceStdDev=24.244`
+- 2026-06-03 v8.0-V manual mobile screenshot spot-check: `34_mobile_today_rich.png`, `36_mobile_records.png`, `40_mobile_settings.png`
+- 2026-06-03 v8.0-V full internal suite 재확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-V desktop full 99 suites / 1049 cases / failed 0
 - 2026-06-03 v8.0-T runtime mixed high-load probe 직접 확인:
   - production `targetCal=3283.4951111111113`
   - proposed candidate-v2 targetCal `3308.524266666667`
@@ -2052,11 +2090,11 @@ v8.0-U에서는 v8.0-T runtime candidate-v2 target-delta proposal을 production 
 
 실행하지 않은 것:
 
-- mobile screenshot audit
+- mobile screenshot audit: v8.0-V first-pass capture/analyzer evidence complete; production formula wiring 이후 visual QA는 별도 open gate
 - candidate formula production approval
 - profile-specific macro formula production implementation
 - candidate-v2 target delta production formula application
-- user-facing profile formula QA after candidate-v2 contract readiness: v8.0-U runtime Coach/Records QA complete; broader mobile screenshot and production visual QA remain open
+- user-facing profile formula QA after candidate-v2 contract readiness: v8.0-U runtime Coach/Records QA complete; v8.0-V first-pass screenshot audit complete; production wiring 이후 visual QA는 open
 - 80,621,568,000개 8-2 full cross-product 전수 실행
 - 18개 human-review scenario의 사람 눈 수치 승인
 
@@ -2083,3 +2121,4 @@ v8.0-R score Coach candidate-v2 contract 이후에는 score/Coach 계약 3개도
 v8.0-S protein guard candidate-v2 resolution contract 이후에는 legacy 2.2g/kg BW diet guide floor와 ISSN general range를 분리해 `proteinGuardConflictCount=0`, `proteinGuardResolvedCount=4`, `productionBlockerCount=0`, `productionReady=true`가 되었다. 그러나 candidate-v2 target delta는 여전히 production `targetCal`에 적용되지 않고, formula approval도 아직 아니다.
 v8.0-T candidate-v2 runtime target-delta proposal wiring 이후에는 실제 `calculate()` Today 경로가 `profileMacroCandidateV2RuntimeProposal`과 targetRateContext candidate-v2 metadata를 생성한다. mixed high-load probe는 production `targetCal=3283.4951111111113`, proposed candidate target `3308.524266666667`, `targetDeltaKcal=25.029155555555462`를 보존하지만 `appliedToTarget=false`, `canApplyAutomatically=false`이므로 production targetCal 적용이나 formula approval로 읽으면 안 된다.
 v8.0-U candidate-v2 runtime user-facing QA 이후에는 같은 mixed high-load runtime delta가 Coach / Records 표면에서 검토 대상으로 보존되는지 확인했다. 직접 추출 기준 `coachHasProfileTargetDeltaDecision=true`, `recordDetailHasProfileTargetDelta=true`, `recordDetailHasProfileTargetRateDelta=true`, `surfaceForbiddenTermCount=0`이지만 `targetDeltaApplied=false`, `canApplyAutomatically=false`이므로 여전히 production targetCal 적용이나 formula approval로 읽으면 안 된다.
+v8.0-V mobile screenshot audit analyzer 이후에는 `capture_render_audit.cjs` 47개 캡처와 `analyze_render_audit.cjs` PNG/manifest 검증으로 first-pass mobile/desktop screenshot audit evidence gate를 닫았다. 그러나 candidate-v2 target delta production wiring 이후의 production visual QA는 아직 실행되지 않았으므로 formula approval이나 production targetCal 적용으로 읽으면 안 된다.
