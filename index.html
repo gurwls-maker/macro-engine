@@ -1,8 +1,10 @@
 <!--
 Version: 8.0
-Stage: v8.0-I maintain production contract review 1차 구현
+Stage: v8.0-J maintain production goal 1차 구현
 Date: 2026-06-03
 Notes:
+- v8.0-J maintain 목표를 production GOALS에 추가하고 rate / cardio reflection / fat profile / score / Coach / snapshot / backup 계약을 함께 닫는 1차 구현
+- v8.0-J maintain 수치 정책은 ISSN protein range와 DRI AMDR을 guard reference로 쓰되, kcal delta / cardio 반영률 / score tolerance는 product policy로 문서화하며 외부 운동생리학 근거로 과장하지 않음
 - v8.0-I maintainGoalContract report-only layer를 추가해 유지 목표를 production에 넣기 전 필요한 GOALS / rate / fat / score / Coach / snapshot / export-import 계약을 코드 기준으로 점검
 - v8.0-I maintain 축의 현재 recomp fallback은 계산 편의용 임시값일 뿐 유지 목표 승인 산식이 아니며, 산식 / score / Coach / recentContext / InBody gate / backup schema 변경 없음
 - v8.0-H profileSession별 carbohydrate policy review report-only 레이어를 추가해 running / strength / powerbuilding / mixed 세션을 production routine fallback과 분리 검토
@@ -15849,6 +15851,17 @@ Notes:
         femaleFatKg: 0.80,
         fatPct: 0.24
       },
+      maintain: {
+        label: "유지",
+        hint: "체중을 크게 움직이기보다 현재 흐름을 안정적으로 유지하도록 좁은 중립 범위에서 잡습니다.",
+        factor: 1.00,
+        deltaMin: -120,
+        deltaMax: 120,
+        proteinKg: 2.0,
+        maleFatKg: 0.70,
+        femaleFatKg: 0.80,
+        fatPct: 0.24
+      },
       lean_bulk: {
         label: "린매스업",
         hint: "지방 증가를 과하게 만들지 않도록 작은 흑자 위주로 잡습니다.",
@@ -15877,6 +15890,7 @@ Notes:
       diet: 0.40,
       cut: 0.40,
       recomp: 0.50,
+      maintain: 0.50,
       lean_bulk: 0.60,
       bulk: 0.80
     };
@@ -15907,6 +15921,7 @@ Notes:
       diet: { kind: "loss", minRate: -0.0080, maxRate: -0.0030, defaultRate: -0.0050, deltaMin: -750, deltaMax: -150 },
       cut: { kind: "loss", minRate: -0.0100, maxRate: -0.0050, defaultRate: -0.0065, deltaMin: -900, deltaMax: -250 },
       recomp: { kind: "recomp", minRate: -0.0020, maxRate: 0.0015, defaultRate: 0.0000, deltaMin: -200, deltaMax: 180 },
+      maintain: { kind: "maintain", minRate: -0.0010, maxRate: 0.0010, defaultRate: 0.0000, deltaMin: -120, deltaMax: 120 },
       lean_bulk: { kind: "gain", minRate: 0.0010, maxRate: 0.0030, defaultRate: 0.0020, deltaMin: 50, deltaMax: 280 },
       bulk: { kind: "gain", minRate: 0.0025, maxRate: 0.0050, defaultRate: 0.0035, deltaMin: 120, deltaMax: 500 }
     });
@@ -16084,12 +16099,14 @@ Notes:
 
     const GOAL_TARGET_FLOOR_RULES = Object.freeze({
       recomp: { belowBurnKcal: 200 },
+      maintain: { belowBurnKcal: 120 },
       lean_bulk: { belowBurnKcal: 150 },
       bulk: { surplusKcal: 0 }
     });
 
     const GOAL_AWARE_MACRO_SOFT_RANGE_KG = Object.freeze({
       recomp: { carbsKg: 7.0, fatKg: 1.60 },
+      maintain: { carbsKg: 7.0, fatKg: 1.60 },
       lean_bulk: { carbsKg: 8.5, fatKg: 1.75 },
       bulk: { carbsKg: 10.0, fatKg: 2.0 }
     });
@@ -16108,6 +16125,12 @@ Notes:
         fatActionFloorKg: { male: 0.60, female: 0.65 }
       },
       recomp: {
+        fatTargetPctLowEnergy: 0.28,
+        fatTargetPctHighEnergy: 0.24,
+        fatPhysioFloorKg: { male: 0.45, female: 0.50 },
+        fatActionFloorKg: { male: 0.60, female: 0.65 }
+      },
+      maintain: {
         fatTargetPctLowEnergy: 0.28,
         fatTargetPctHighEnergy: 0.24,
         fatPhysioFloorKg: { male: 0.45, female: 0.50 },
@@ -23581,6 +23604,51 @@ Notes:
           ]
         }
       },
+      maintain: {
+        calorie: {
+          okMin: 90,
+          okMax: 110,
+          low: [
+            { max: 65, severity: 3 },
+            { max: 80, severity: 2 },
+            { max: 90, severity: 1 }
+          ],
+          high: [
+            { min: 140, severity: 3 },
+            { min: 122, severity: 2 },
+            { min: 110, severity: 1 }
+          ]
+        },
+        protein: DAILY_COACH_SIGNAL_THRESHOLDS.protein,
+        carb: {
+          okMin: 85,
+          okMax: 115,
+          low: [
+            { max: 50, severity: 3 },
+            { max: 70, severity: 2 },
+            { max: 85, severity: 1 }
+          ],
+          high: [
+            { min: 150, severity: 3 },
+            { min: 130, severity: 2 },
+            { min: 115, severity: 1 }
+          ]
+        },
+        fat: {
+          okMin: 85,
+          okMax: 115,
+          low: [
+            { max: 50, severity: 3 },
+            { max: 70, severity: 2 },
+            { max: 85, severity: 1 }
+          ],
+          high: [
+            { min: 150, severity: 3 },
+            { min: 130, severity: 2 },
+            { min: 115, severity: 1 }
+          ]
+        }
+      },
       bulk: {
         calorie: {
           okMin: 92,
@@ -23989,6 +24057,33 @@ Notes:
           "previous_over_intake",
           "other_kcal",
           "calorie_high"
+        ]
+      },
+      maintain: {
+        gatePolicy: DAILY_COACH_COMMON_GATE_POLICY,
+        comboPolicy: {
+          decisionTypes: DAILY_COACH_COMBO_POLICY_TYPES
+        },
+        priority: [
+          "data_quality_severe",
+          "data_quality_insufficient",
+          "alcohol_high_protein_low",
+          "alcohol_high_fat_high",
+          "alcohol_high",
+          "protein_low_severe",
+          "protein_low",
+          "calorie_fat_high",
+          "calorie_low_protein_low",
+          "calorie_carb_low",
+          "carb_low_training",
+          "calorie_high",
+          "fat_high",
+          "recovery_current_over",
+          "recovery_current_low",
+          "recovery",
+          "previous_today_high",
+          "previous_over_intake",
+          "other_kcal"
         ]
       },
       bulk: {
@@ -24504,6 +24599,47 @@ Notes:
             }
           }
         },
+        maintain: {
+          calorie: {
+            high: {
+              state: "유지 기준으로는 칼로리 초과가 눈에 띕니다.",
+              reason: "유지 목표에서는 큰 흑자를 오래 누적하지 않는 것이 중요합니다.",
+              action: "오늘은 추가 간식과 야식을 멈추고, 다음 식사는 단백질과 수분 위주로 가볍게 정리하세요."
+            },
+            low: {
+              state: "유지 기준으로는 하루 섭취량이 낮은 편입니다.",
+              reason: "유지 목표에서도 섭취 부족이 반복되면 회복과 컨디션이 흔들릴 수 있습니다.",
+              action: "남은 식사는 단백질을 지키고, 필요한 만큼 탄수화물을 가볍게 보강하세요."
+            }
+          },
+          protein: {
+            low: {
+              state: "유지 목표에 비해 단백질이 부족합니다.",
+              reason: "체중을 유지하더라도 단백질이 부족하면 운동 회복과 제지방 유지가 약해질 수 있습니다.",
+              action: "다음 식사에서 단백질 식품을 먼저 보강하고 총량은 목표 주변으로 맞추세요."
+            },
+            high: proteinHigh
+          },
+          carb: {
+            low: {
+              state: "유지 기준으로는 탄수화물이 조금 부족한 편입니다.",
+              reason: "운동일에는 탄수화물이 너무 낮으면 수행과 회복 흐름이 약해질 수 있습니다.",
+              action: "운동 전후 식사 안에서 밥, 감자, 과일처럼 소화 쉬운 탄수화물을 보강하세요."
+            },
+            high: {
+              state: "유지 기준으로는 탄수화물 초과량을 점검할 구간입니다.",
+              reason: "탄수화물 초과가 총칼로리 초과와 겹치면 유지 목표에서 벗어나기 쉽습니다.",
+              action: "남은 식사에서는 주식과 간식 탄수화물을 더 늘리지 말고 단백질을 확인하세요."
+            }
+          },
+          fat: {
+            high: {
+              state: "유지 기준으로는 지방 초과가 눈에 띕니다.",
+              reason: "지방은 칼로리 밀도가 높아 초과가 반복되면 유지 목표가 쉽게 흑자로 기울 수 있습니다.",
+              action: "남은 식사에서는 기름진 음식, 견과류, 소스류를 줄이고 단백질은 담백하게 유지하세요."
+            }
+          }
+        },
         lean_bulk: {
           calorie: {
             high: {
@@ -24601,6 +24737,11 @@ Notes:
             reason: "순수 에탄올 칼로리와 고지방 섭취가 겹치면 하루 초과가 쉽게 커집니다.",
             action: "술과 기름진 음식은 여기서 끊고 단백질과 수분만 챙기세요."
           },
+          maintain: {
+            state: "술과 지방이 함께 높아 유지 흐름을 흔듭니다.",
+            reason: "유지 목표에서는 술과 고지방 섭취가 겹칠 때 초과가 쉽게 누적됩니다.",
+            action: "술과 기름진 음식은 여기서 멈추고 단백질과 수분으로 마무리하세요."
+          },
           lean_bulk: {
             state: "술과 지방이 함께 높아 회복에 부담이 큽니다.",
             reason: "칼로리는 들어왔지만 린매스업에 필요한 회복 재료로 보기 어렵습니다.",
@@ -24635,6 +24776,11 @@ Notes:
             reason: "지방은 칼로리 밀도가 높아 초과가 누적되면 감량 속도가 바로 느려질 수 있습니다.",
             action: "오늘은 여기서 마무리하세요. 기름진 음식과 간식은 끊으세요."
           },
+          maintain: {
+            state: "칼로리와 지방이 함께 높아 유지 범위를 벗어나기 쉽습니다.",
+            reason: "유지 목표에서는 고지방 초과가 반복되면 작은 초과도 체중 흐름을 바꿀 수 있습니다.",
+            action: "오늘은 여기서 마무리하고, 다음 식사는 단백질과 채소 위주로 가볍게 정리하세요."
+          },
           lean_bulk: {
             state: "먹은 양은 충분하지만 술·기름진 음식 비중이 높습니다.",
             reason: "린매스업의 작은 흑자가 지방, 소스, 간식 위주로 채워지고 있습니다.",
@@ -24651,6 +24797,11 @@ Notes:
             state: "단백질까지 부족한 저섭취입니다.",
             reason: "감량 중에도 단백질이 부족하면 근손실 방지와 포만감 유지가 어려워집니다.",
             action: "칼로리를 더 깎지 말고 단백질부터 채우세요."
+          },
+          maintain: {
+            state: "총량과 단백질이 함께 부족합니다.",
+            reason: "유지 목표에서도 단백질이 부족한 저섭취가 반복되면 회복과 제지방 유지가 흔들릴 수 있습니다.",
+            action: "단백질을 먼저 채우고, 부족한 총량은 소화 쉬운 탄수화물로 가볍게 보강하세요."
           },
           lean_bulk: {
             state: "회복 재료가 부족합니다.",
@@ -24669,6 +24820,11 @@ Notes:
             reason: "감량 중이라도 운동 전후 탄수화물이 너무 낮으면 수행과 회복이 흔들릴 수 있습니다.",
             action: "탄수화물은 운동 전후 식사 안에서만 필요한 만큼 보완하세요."
           },
+          maintain: {
+            state: "운동일 기준으로 탄수화물 보완이 필요합니다.",
+            reason: "유지 목표에서도 운동량이 있는 날에는 탄수화물이 너무 낮으면 수행과 회복이 흔들릴 수 있습니다.",
+            action: "탄수화물은 운동 전후 식사 안에서 필요한 만큼만 보강하세요."
+          },
           lean_bulk: {
             state: "운동 수행과 회복 재료가 부족합니다.",
             reason: "총량과 탄수화물이 함께 낮아 훈련 에너지와 회복 흐름이 약해질 수 있습니다.",
@@ -24685,12 +24841,22 @@ Notes:
             state: "운동 전후 탄수화물이 조금 부족합니다.",
             reason: "다이어트 중이라도 운동일에는 필요한 탄수화물이 있어야 합니다.",
             action: "탄수화물은 운동 전후 식사 안에서 필요한 만큼만 보완하세요."
+          },
+          maintain: {
+            state: "운동 전후 탄수화물이 조금 부족합니다.",
+            reason: "유지 목표에서도 운동일 탄수화물이 너무 낮으면 수행과 회복이 약해질 수 있습니다.",
+            action: "탄수화물은 운동 전후 식사 안에서 필요한 만큼만 보완하세요."
           }
         },
         recovery_current_low: {
           diet: {
             state: "낮게 먹어도 되는 날일 수 있지만 단백질은 핵심입니다.",
             reason: "전날 회복 부담이 있어 오늘은 무리해서 채우기보다 식단 질을 지키는 편이 낫습니다.",
+            action: "단백질은 지키고 탄수화물은 운동 여부에 맞춰 필요한 만큼만 넣으세요."
+          },
+          maintain: {
+            state: "오늘은 유지 총량보다 회복 품질이 먼저입니다.",
+            reason: "전날 회복 부담이 있으면 목표를 억지로 맞추기보다 단백질과 수분을 지키는 편이 안정적입니다.",
             action: "단백질은 지키고 탄수화물은 운동 여부에 맞춰 필요한 만큼만 넣으세요."
           },
           lean_bulk: {
@@ -24712,6 +24878,11 @@ Notes:
             reason: "현재 초과량은 감량 흐름을 늦출 수 있습니다.",
             action: "오늘은 여기서 마무리하세요. 간식과 야식은 끊으세요."
           },
+          maintain: {
+            state: "유지 기준으로 칼로리 초과가 큽니다.",
+            reason: "현재 초과량이 반복되면 유지 목표가 흑자 흐름으로 바뀔 수 있습니다.",
+            action: "오늘은 여기서 마무리하고, 다음 식사는 단백질과 수분 위주로 정리하세요."
+          },
           lean_bulk: {
             state: "린매스업 기준으로 칼로리 초과가 큽니다.",
             reason: "초과량이 커지면 작은 흑자보다 체지방 증가 쪽으로 기울 수 있습니다.",
@@ -24724,6 +24895,11 @@ Notes:
           }
         },
         calorie_low: {
+          maintain: {
+            state: "유지 기준으로 총량이 부족합니다.",
+            reason: "유지 목표에서도 총량 부족이 반복되면 회복과 컨디션이 흔들릴 수 있습니다.",
+            action: "단백질을 먼저 맞추고 탄수화물로 부족분을 가볍게 채우세요."
+          },
           lean_bulk: {
             state: "린매스업 기준으로 총량이 부족합니다.",
             reason: "작은 흑자를 만들 재료가 부족하면 회복과 성장 흐름이 약해집니다.",
@@ -24740,6 +24916,11 @@ Notes:
             state: "다이어트 중 단백질이 부족합니다.",
             reason: "단백질 부족은 근손실 방지와 포만감 유지에 불리합니다.",
             action: "지방 낮은 단백질부터 보강하세요."
+          },
+          maintain: {
+            state: "유지 목표에 비해 단백질이 부족합니다.",
+            reason: "단백질 부족은 회복과 제지방 유지 품질을 낮출 수 있습니다.",
+            action: "다음 식사에서 단백질 식품을 먼저 보완하세요."
           },
           lean_bulk: {
             state: "린매스업 기준으로 단백질이 부족합니다.",
@@ -24758,6 +24939,11 @@ Notes:
             reason: "휴식일이면 크게 볼 문제는 아니지만 운동일에는 수행과 회복에 영향을 줍니다.",
             action: "탄수화물은 운동 전후로만 필요한 만큼 보완하세요."
           },
+          maintain: {
+            state: "유지 기준으로 탄수화물이 낮습니다.",
+            reason: "휴식일이면 큰 문제는 아닐 수 있지만 운동일에는 수행과 회복에 영향을 줄 수 있습니다.",
+            action: "운동 전후 식사에서 필요한 만큼만 탄수화물을 보완하세요."
+          },
           lean_bulk: {
             state: "린매스업 기준으로 탄수화물이 부족합니다.",
             reason: "탄수화물이 부족하면 훈련 에너지와 회복 흐름이 약해집니다.",
@@ -24775,6 +24961,11 @@ Notes:
             reason: "탄수화물 초과가 칼로리 초과로 이어지면 감량 흐름이 느려질 수 있습니다.",
             action: "남은 식사에서는 주식과 간식 탄수화물을 줄이세요."
           },
+          maintain: {
+            state: "유지 기준으로 탄수화물 초과를 확인할 구간입니다.",
+            reason: "탄수화물 초과가 총칼로리 초과와 겹치면 유지 흐름이 흔들릴 수 있습니다.",
+            action: "남은 식사에서는 주식과 간식 탄수화물을 더 늘리지 마세요."
+          },
           lean_bulk: {
             state: "린매스업 기준으로 탄수화물 초과를 가볍게 점검하세요.",
             reason: "운동일에는 일부 허용되지만 칼로리 초과와 겹치면 체지방 증가 쪽으로 기울 수 있습니다.",
@@ -24786,6 +24977,11 @@ Notes:
             state: "다이어트 기준으로 지방 초과가 큽니다.",
             reason: "지방은 칼로리 밀도가 높아 감량 흐름을 막기 쉽습니다.",
             action: "간식, 튀김, 소스, 기름진 음식은 끊으세요."
+          },
+          maintain: {
+            state: "유지 기준으로 지방 초과가 큽니다.",
+            reason: "고지방 초과가 반복되면 유지 목표가 쉽게 흑자 흐름으로 바뀔 수 있습니다.",
+            action: "소스, 튀김, 견과류, 기름진 추가 메뉴를 줄이세요."
           },
           lean_bulk: {
             state: "먹은 양은 충분하지만 지방 비중이 높습니다.",
@@ -24804,6 +25000,11 @@ Notes:
             reason: "어제 술 기록 뒤에는 수분과 단백질을 먼저 확인해야 합니다.",
             action: "굶어서 만회하지 마세요. 단백질과 수분을 챙기고 술과 간식은 끊으세요."
           },
+          maintain: {
+            state: "전날 술 영향이 남아 있을 수 있습니다.",
+            reason: "유지 목표에서도 술 기록 뒤에는 목표 숫자보다 수분과 단백질 회복이 먼저입니다.",
+            action: "굶어서 만회하지 말고 단백질과 수분을 챙기며 술과 간식은 끊으세요."
+          },
           lean_bulk: {
             state: "전날 술 영향으로 회복 품질을 확인할 날입니다.",
             reason: "어제 술 기록 뒤에는 수분과 단백질이 회복 품질을 좌우합니다.",
@@ -24820,6 +25021,11 @@ Notes:
             state: "어제 섭취가 목표보다 조금 높았습니다.",
             reason: "하루 목표를 낮춰 갚기보다 오늘 목표 안으로 돌아오는 게 더 안정적입니다.",
             action: "굶어서 만회하지 마세요. 단백질은 지키고 간식과 야식은 제한하세요."
+          },
+          maintain: {
+            state: "어제 섭취가 목표보다 조금 높았습니다.",
+            reason: "유지 목표에서는 하루를 낮춰 갚기보다 오늘 목표 주변으로 돌아오는 편이 안정적입니다.",
+            action: "굶어서 만회하지 말고 단백질은 지키며 간식과 야식은 제한하세요."
           },
           lean_bulk: {
             state: "어제 섭취가 목표보다 조금 높았습니다.",
@@ -25071,6 +25277,12 @@ Notes:
           if (previousSeverity === "moderate") return "굶어서 만회하지 말고, 단백질을 먼저 채우세요. 운동이 없다면 탄수화물은 낮게 가도 됩니다.";
           if (previousSeverity === "high") return "단백질은 지키고, 지방·술·간식은 끊어주세요. 배고픔이 심하면 단백질과 수분을 먼저 잡으세요.";
           return "굶지 말고 단백질은 지키세요. 술·고지방·야식은 중단하고, 수분과 수면 회복을 우선하세요.";
+        }
+        if (goal === "maintain") {
+          if (previousSeverity === "light") return "오늘은 평소 유지 목표 주변으로 돌아가세요. 단백질은 채우고 술과 간식은 추가하지 마세요.";
+          if (previousSeverity === "moderate") return "굶어서 만회하지 말고 단백질과 수분을 먼저 잡으세요. 탄수화물은 운동 여부에 맞춰 필요한 만큼만 넣으세요.";
+          if (previousSeverity === "high") return "오늘은 유지 목표를 억지로 맞추기보다 단백질과 수분을 먼저 지키세요. 지방·술·간식은 끊어주세요.";
+          return "단백질과 수분, 수면 회복을 우선하세요. 술·고지방·야식은 중단하고 총량은 목표 주변으로만 복귀하세요.";
         }
         if (goal === "bulk") {
           if (previousSeverity === "light") return "단백질은 지키고, 부족한 칼로리는 술이나 기름진 음식이 아니라 식사로 채우세요.";
@@ -25620,6 +25832,13 @@ Notes:
       kcal: { ...MACRO_SCORE_PROFILES.lean_bulk.kcal, underRatio: 0.12, overRatio: 0.12, nearUnderRatio: 0.97, nearOverRatio: 1.03 },
       carbs: { ...MACRO_SCORE_PROFILES.lean_bulk.carbs },
       fat: { ...MACRO_SCORE_PROFILES.lean_bulk.fat }
+    };
+
+    MACRO_SCORE_PROFILES.maintain = {
+      protein: { ...MACRO_SCORE_PROFILES.lean_bulk.protein },
+      kcal: { ...MACRO_SCORE_PROFILES.lean_bulk.kcal, underRatio: 0.10, overRatio: 0.10, minTolerance: 140, nearUnderRatio: 0.97, nearOverRatio: 1.03 },
+      carbs: { ...MACRO_SCORE_PROFILES.lean_bulk.carbs, overRatio: 0.26 },
+      fat: { ...MACRO_SCORE_PROFILES.lean_bulk.fat, overRatio: 0.30 }
     };
 
     function getMacroScoreProfile(goalType){
@@ -32320,31 +32539,37 @@ Notes:
         },
         weight_up_muscle_up: {
           diet: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. ${evidenceText}오늘은 식단 기록 기준으로 술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          maintain: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. ${evidenceText}유지 목표라면 총량은 더 올리지 말고 현재 식사 질을 유지하세요.`,
           lean_bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. ${evidenceText}현재 식사량을 유지하세요.`,
           bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. ${evidenceText}현재 식사량을 유지하세요.`
         },
         fat_gain_dominant: {
           diet: `${source}, 체지방 쪽 증가가 더 큽니다. ${evidenceText}술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          maintain: `${source}, 체지방 쪽 증가가 더 큽니다. ${evidenceText}유지 목표라면 칼로리를 더 올리지 말고 술·기름진 음식·기타 칼로리부터 정리하세요.`,
           lean_bulk: `${source}, 체중은 늘었지만 체지방 쪽 증가가 더 큽니다. ${evidenceText}칼로리를 더 올리지 말고 술·기름진 음식부터 정리하세요.`,
           bulk: `${source}, 체지방만 빠르게 오르는 쪽입니다. ${evidenceText}술·안주·튀김으로 더 채우지 마세요.`
         },
         muscle_change_weak: {
           diet: `${source}, 골격근량 변화가 약합니다. ${evidenceText}칼로리를 더 줄이지 말고 단백질부터 지키세요.`,
+          maintain: `${source}, 골격근량 변화가 약합니다. ${evidenceText}단백질을 지키고 탄수화물은 운동량에 맞춰 유지하세요.`,
           lean_bulk: `${source}, 골격근량 변화가 약합니다. ${evidenceText}회복 재료가 부족하지 않게 단백질과 탄수화물을 먼저 채우세요.`,
           bulk: `${source}, 체중 증가에 비해 골격근량 변화가 약합니다. ${evidenceText}단백질부터 고정하고 탄수화물은 식사로 채우세요.`
         },
         weight_down_muscle_down: {
           diet: `${source}, 체중은 줄었지만 골격근량도 같이 줄어드는 쪽입니다. ${evidenceText}칼로리를 더 줄이지 말고 단백질부터 지키세요.`,
+          maintain: `${source}, 체중과 골격근량이 같이 줄어드는 쪽입니다. ${evidenceText}유지 목표라면 단백질과 총량을 목표 주변으로 복귀시키세요.`,
           lean_bulk: `${source}, 체중과 골격근량이 같이 줄어드는 쪽입니다. ${evidenceText}회복 재료가 부족하지 않게 단백질과 탄수화물을 먼저 채우세요.`,
           bulk: `${source}, 벌크업인데 골격근량이 줄어드는 쪽입니다. ${evidenceText}단백질부터 고정하고 탄수화물은 식사로 채우세요.`
         },
         no_meaningful_change: {
           diet: `${source}, 체지방 변화가 거의 없습니다. ${evidenceText}술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          maintain: `${source}, 큰 변화는 아직 보이지 않습니다. ${evidenceText}유지 목표라면 현재 흐름을 유지하되 기록 품질을 계속 보강하세요.`,
           lean_bulk: `${source}, 골격근량 변화가 약합니다. ${evidenceText}회복 재료가 부족하지 않게 단백질과 탄수화물을 먼저 채우세요.`,
           bulk: `${source}, 골격근량 변화가 약합니다. ${evidenceText}단백질부터 고정하고 탄수화물은 식사로 채우세요.`
         },
         unclear: {
           diet: `${source}, 변화 방향이 섞여 있습니다. ${evidenceText}오늘은 술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          maintain: `${source}, 변화 방향이 섞여 있습니다. ${evidenceText}오늘은 유지 목표 주변으로 돌아오고 단백질과 기록 품질을 먼저 확인하세요.`,
           lean_bulk: `${source}, 변화 방향이 섞여 있습니다. ${evidenceText}칼로리를 더 올리지 말고 단백질과 탄수화물부터 식사로 채우세요.`,
           bulk: `${source}, 변화 방향이 섞여 있습니다. ${evidenceText}술·안주·튀김으로 더 채우지 마세요.`
         }
@@ -32371,36 +32596,43 @@ Notes:
       const highTexts = {
         fat_down_muscle_stable: {
           diet: `${source}, 체지방은 줄고 골격근량은 유지되는 쪽입니다. 현재 식단을 유지하세요.`,
+          maintain: `${source}, 체지방은 줄고 골격근량은 유지되는 쪽입니다. 유지 목표라면 현재 식단 품질을 유지하세요.`,
           lean_bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 현재 식사량을 유지하세요.`,
           bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 현재 식사량을 유지하세요.`
         },
         weight_up_muscle_up: {
           diet: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 오늘은 식단 기록 기준으로 술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          maintain: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 유지 목표라면 총량은 더 올리지 말고 현재 식사 질을 유지하세요.`,
           lean_bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 현재 식사량을 유지하세요.`,
           bulk: `${source}, 체중과 골격근량이 같이 오르는 흐름입니다. 현재 식사량을 유지하세요.`
         },
         fat_gain_dominant: {
           diet: `${source}, 체지방 쪽 증가가 더 큽니다. 술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          maintain: `${source}, 체지방 쪽 증가가 더 큽니다. 유지 목표라면 칼로리를 더 올리지 말고 술·기름진 음식·기타 칼로리부터 정리하세요.`,
           lean_bulk: `${source}, 체중은 늘었지만 체지방 쪽 증가가 더 큽니다. 칼로리를 더 올리지 말고 술·기름진 음식부터 정리하세요.`,
           bulk: `${source}, 체지방만 빠르게 오르는 쪽입니다. 술·안주·튀김으로 더 채우지 마세요.`
         },
         muscle_change_weak: {
           diet: `${source}, 골격근량 변화가 약합니다. 칼로리를 더 줄이지 말고 단백질부터 지키세요.`,
+          maintain: `${source}, 골격근량 변화가 약합니다. 단백질을 지키고 탄수화물은 운동량에 맞춰 유지하세요.`,
           lean_bulk: `${source}, 골격근량 변화가 약합니다. 회복 재료가 부족하지 않게 단백질과 탄수화물을 먼저 채우세요.`,
           bulk: `${source}, 체중 증가에 비해 골격근량 변화가 약합니다. 단백질부터 고정하고 탄수화물은 식사로 채우세요.`
         },
         weight_down_muscle_down: {
           diet: `${source}, 체중은 줄었지만 골격근량도 같이 줄어드는 쪽입니다. 칼로리를 더 줄이지 말고 단백질부터 지키세요.`,
+          maintain: `${source}, 체중과 골격근량이 같이 줄어드는 쪽입니다. 유지 목표라면 단백질과 총량을 목표 주변으로 복귀시키세요.`,
           lean_bulk: `${source}, 체중과 골격근량이 같이 줄어드는 쪽입니다. 회복 재료가 부족하지 않게 단백질과 탄수화물을 먼저 채우세요.`,
           bulk: `${source}, 벌크업인데 골격근량이 줄어드는 쪽입니다. 단백질부터 고정하고 탄수화물은 식사로 채우세요.`
         },
         no_meaningful_change: {
           diet: `${source}, 체지방 변화가 거의 없습니다. 술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          maintain: `${source}, 큰 변화는 아직 보이지 않습니다. 유지 목표라면 현재 흐름을 유지하되 기록 품질을 계속 보강하세요.`,
           lean_bulk: `${source}, 골격근량 변화가 약합니다. 회복 재료가 부족하지 않게 단백질과 탄수화물을 먼저 채우세요.`,
           bulk: `${source}, 골격근량 변화가 약합니다. 단백질부터 고정하고 탄수화물은 식사로 채우세요.`
         },
         unclear: {
           diet: `${source}, 변화 방향이 섞여 있습니다. 오늘은 술·기름진 음식·기타 칼로리부터 줄이세요.`,
+          maintain: `${source}, 변화 방향이 섞여 있습니다. 오늘은 유지 목표 주변으로 돌아오고 단백질과 기록 품질을 먼저 확인하세요.`,
           lean_bulk: `${source}, 변화 방향이 섞여 있습니다. 칼로리를 더 올리지 말고 단백질과 탄수화물부터 식사로 채우세요.`,
           bulk: `${source}, 변화 방향이 섞여 있습니다. 술·안주·튀김으로 더 채우지 마세요.`
         }
@@ -41300,7 +41532,7 @@ Notes:
         const seedFullBackupFixture = () => {
           setValidTodayBalanceTestInputs();
           state.mode = "athlete";
-          state.goal = "diet";
+          state.goal = "maintain";
           state.weeklyTrainingDaysManual = true;
           state.weeklyTrainingDays = 5;
           ids.height.value = "181";
@@ -41411,9 +41643,11 @@ Notes:
           assertTest(payload.kind === FULL_BACKUP_KIND, "full backup should use full-backup kind");
           assertTest(payload.backupVersion === FULL_BACKUP_VERSION, "full backup should include backup version");
           assertTest(payload.appVersion === "v8.0", "full backup should include current app version");
+          assertTest(payload.data.settings.goal === "maintain", "full backup should include maintain Settings goal");
           assertTest(payload.data.settings.height === 181, "full backup should include Settings profile");
           assertTest(payload.data.settings.activityLevel === "active", "full backup should include Settings life pattern");
           assertTest(payload.data.records.length === 1 && payload.data.records[0].meals.length === 1, "full backup should include Records and meals");
+          assertTest(payload.data.records[0].goalSnapshot?.goal === "maintain", "full backup should preserve maintain record goalSnapshot");
           assertTest(payload.data.inbodyRecords.length === 1, "full backup should include InBody records");
           assertTest(payload.data.cardioPresets.items.length === 1 && payload.data.cardioPresets.defaultId === preset.id, "full backup should include cardio presets");
           assertTest(payload.data.mealTemplates.items.length === 1 && payload.data.mealTemplates.items[0].id === mealTemplate.id, "full backup should include meal templates");
@@ -41429,9 +41663,10 @@ Notes:
           const detected = detectBackupImportPayload(payload);
           assertTest(detected.type === "full", "full backup should be detected");
           restoreFullBackupData(detected.data);
-          assertTest(state.mode === "athlete" && state.goal === "diet", "restore should recover mode and goal");
+          assertTest(state.mode === "athlete" && state.goal === "maintain", "restore should recover mode and maintain goal");
           assertTest(ids.height.value === "181" && ids.gender.value === "female", "restore should recover profile inputs");
           assertTest(recordsState.items.length === 1 && recordsState.items[0].meals.length === 1, "restore should recover records and meals");
+          assertTest(recordsState.items[0].goalSnapshot?.goal === "maintain", "restore should recover maintain record goalSnapshot");
           assertTest(state.inbodyRecords.length === 1, "restore should recover InBody records");
           assertTest(cardioPresetState.items.length === 1 && cardioPresetState.defaultId === preset.id, "restore should recover cardio presets");
           assertTest(mealTemplateState.items.length === 1 && mealTemplateState.items[0].id === mealTemplate.id, "restore should recover meal templates");
@@ -44229,7 +44464,7 @@ Notes:
         results.push(runNamedTest("C2 protected calculation and context constants remain unchanged", () => {
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "quick edit should not change scoring version");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "quick edit should not change recent context windows");
-          assertTest(JSON.stringify(CARDIO_TARGET_REFLECTION_RATES) === JSON.stringify({ diet: 0.4, cut: 0.4, recomp: 0.5, lean_bulk: 0.6, bulk: 0.8 }), "quick edit should keep cardio reflection rates aligned with all goal types");
+          assertTest(JSON.stringify(CARDIO_TARGET_REFLECTION_RATES) === JSON.stringify({ diet: 0.4, cut: 0.4, recomp: 0.5, maintain: 0.5, lean_bulk: 0.6, bulk: 0.8 }), "quick edit should keep cardio reflection rates aligned with all goal types");
           assertTest(typeof generateDailyCoachOutput === "function", "Coach decision path should remain available");
           assertTest(typeof buildRecentContext === "function", "recent context should remain available");
           assertTest(typeof buildInbodyTrendContext === "function", "InBody trend context should remain available");
@@ -52139,8 +52374,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-I";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-I maintain production contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-J";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-J maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -52343,10 +52578,13 @@ Notes:
         }
         case "goal":
           next.axisGoal = axisValue;
-          next.goal = axisValue === "maintain" ? "recomp" : axisValue;
-          if (axisValue === "maintain") {
+          next.goal = Object.prototype.hasOwnProperty.call(GOALS, axisValue) ? axisValue : "recomp";
+          if (axisValue === "maintain" && next.goal !== "maintain") {
             next.productionGoalFallback = "recomp";
             next.productionGoalFallbackReason = "current_app_has_no_maintain_goal_key";
+          } else {
+            next.productionGoalFallback = null;
+            next.productionGoalFallbackReason = null;
           }
           break;
         case "activityLevel":
@@ -52913,6 +53151,7 @@ Notes:
         cardioTargetReflectionRate: Number.isFinite(source.cardioTargetReflectionRate) ? source.cardioTargetReflectionRate : result.cardioTargetReflectionRate,
         reflectedCardioKcalForTarget: Number.isFinite(source.reflectedCardioKcalForTarget) ? source.reflectedCardioKcalForTarget : result.reflectedCardioKcalForTarget,
         unreflectedCardioKcalForTarget: Number.isFinite(source.unreflectedCardioKcalForTarget) ? source.unreflectedCardioKcalForTarget : result.unreflectedCardioKcalForTarget,
+        policyKind: context.policyKind || null,
         selectedWeeklyRate: Number.isFinite(context.selectedWeeklyRate) ? context.selectedWeeklyRate : null,
         weeklyBodyWeightDeltaKg: Number.isFinite(context.weeklyBodyWeightDeltaKg) ? context.weeklyBodyWeightDeltaKg : null,
         rawGoalDelta: source.rawGoalDelta,
@@ -53366,13 +53605,21 @@ Notes:
 
     function buildV8CandidateGoalRateDesign(axisCoverageSummary){
       const hasMaintainAxis = !!axisCoverageSummary?.coveredAxisValues?.goal?.includes("maintain");
+      const hasMaintainProductionGoal = hasV8OwnContractKey(GOALS, "maintain");
       return [
         {
           key: "maintain",
-          status: hasMaintainAxis ? "axis_present_but_production_goal_key_missing" : "missing_axis",
-          requiredDecision: "add_maintain_goal_key_before_production_formula",
-          evidenceLevel: "internal_formula_evidence",
-          affectedContracts: ["GOALS", "targetRateContext", "goalSnapshot", "scoreRemaining", "CoachRecent", "exportImport"]
+          status: hasMaintainAxis && hasMaintainProductionGoal
+            ? "production_goal_key_present_contract_linked"
+            : (hasMaintainAxis ? "axis_present_but_production_goal_key_missing" : "missing_axis"),
+          requiredDecision: hasMaintainProductionGoal
+            ? "keep_maintain_goal_contract_tests_green_before_formula_expansion"
+            : "add_maintain_goal_key_before_production_formula",
+          evidenceLevel: hasMaintainProductionGoal
+            ? "internal_formula_contract_plus_external_macro_guard_references"
+            : "internal_formula_evidence",
+          affectedContracts: ["GOALS", "targetRateContext", "goalSnapshot", "scoreRemaining", "CoachRecent", "exportImport"],
+          productionFormulaStatus: hasMaintainProductionGoal ? "v8_maintain_goal_available" : "pending"
         },
         {
           key: "diet_cut_rate",
@@ -53443,6 +53690,7 @@ Notes:
 
     function buildV8CandidateDesignReport(macroAudit, axisCoverageSummary){
       const macroPolicies = buildV8CandidateMacroPolicyDesign(macroAudit);
+      const maintainGoalAvailable = hasV8OwnContractKey(GOALS, "maintain");
       return {
         meta: {
           stage: "9-5_9-6_candidate_design_scaffold",
@@ -53461,9 +53709,11 @@ Notes:
         profileDesign: buildV8CandidateProfileDesign(macroAudit),
         goalRateDesign: buildV8CandidateGoalRateDesign(axisCoverageSummary),
         macroPolicyDesign: macroPolicies,
-        requiredNextDecisions: macroPolicies.map(item => item.key).concat(["maintain_goal_mapping", "profile_session_input_contract"]),
+        requiredNextDecisions: macroPolicies.map(item => item.key).concat(
+          maintainGoalAvailable ? ["maintain_contract_regression_guard", "profile_session_input_contract"] : ["maintain_goal_mapping", "profile_session_input_contract"]
+        ),
         unresolvedProductionContracts: [
-          "GOALS maintain key",
+          maintainGoalAvailable ? "maintain contract regression guard" : "GOALS maintain key",
           "Records goalSnapshot schema review for new profile inputs",
           "Today / Settings profile input ownership",
           "score / remaining / Coach / recentContext copy gates after formula approval",
@@ -53495,6 +53745,44 @@ Notes:
       };
     }
 
+    const V8_MAINTAIN_PRODUCTION_REFERENCES = Object.freeze({
+      issnProtein2017: V8_MACRO_AUDIT_REFERENCES.issnProtein2017,
+      driAmdr: {
+        evidenceLevel: "external_population_nutrition_reference_guard",
+        source: "Institute of Medicine Dietary Reference Intakes Table C-5 Acceptable Macronutrient Distribution Ranges",
+        url: "https://www.ncbi.nlm.nih.gov/books/NBK208874/",
+        scope: "population_macronutrient_distribution_range_guard_not_sports_formula",
+        appUse: "confirm_maintain_fat_and_macro_distribution_stays_inside_broad_guardrails"
+      },
+      maintainProductPolicy: {
+        evidenceLevel: "internal_product_policy",
+        source: "v8 maintain production contract",
+        scope: "app_goal_behavior_and_user_experience",
+        appUse: "zero-centered maintenance target with narrow kcal guard and neutral Coach wording"
+      }
+    });
+
+    function hasV8MaintainCoachCopyContract(){
+      const macroState = getDailyCoachGoalWording({ key: "calorie", status: "high" }, "maintain", "state");
+      const macroReason = getDailyCoachGoalWording({ key: "protein", status: "low" }, "maintain", "reason");
+      const comboState = getDailyCoachDecisionCopy({ copyIntent: "calorie_fat_high" }, "maintain", "state");
+      const singleState = getDailyCoachDecisionCopy({ copyIntent: "calorie_low" }, "maintain", "state");
+      return [macroState, macroReason, comboState, singleState].every(text => String(text || "").includes("유지"));
+    }
+
+    function hasV8MaintainSnapshotContract(){
+      const snapshot = normalizeGoalSnapshot({
+        targetCal: 2400,
+        protein: 150,
+        carbs: 300,
+        fat: 75,
+        mode: "athlete",
+        goal: "maintain",
+        weight: 75
+      });
+      return snapshot?.goal === "maintain";
+    }
+
     function buildV8MaintainGoalContractReport(axisCases, candidateDesign){
       const cases = Array.isArray(axisCases) ? axisCases : [];
       const maintainCases = cases.filter(item => item?.input?.axisGoal === "maintain");
@@ -53507,6 +53795,9 @@ Notes:
       const hasMacroScoreProfile = hasV8OwnContractKey(MACRO_SCORE_PROFILES, "maintain");
       const hasCoachThresholdProfile = hasV8OwnContractKey(DAILY_COACH_SIGNAL_THRESHOLD_PROFILES, "maintain");
       const hasCoachDecisionProfile = hasV8OwnContractKey(DAILY_COACH_DECISION_PROFILES, "maintain");
+      const hasCoachCopyContract = hasV8MaintainCoachCopyContract();
+      const hasSnapshotContract = hasV8MaintainSnapshotContract();
+      const hasBackupCompatibilityContract = productionGoalExists && hasSnapshotContract;
       const goalRateFallback = hasGoalRatePolicy
         ? "maintain"
         : (getGoalRatePolicy("maintain") === GOAL_RATE_POLICIES.lean_bulk ? "lean_bulk" : "unknown");
@@ -53631,21 +53922,25 @@ Notes:
         makeV8MaintainContractItem({
           key: "getDailyCoachGoalWording.maintain",
           area: "daily_coach_goal_copy",
-          present: false,
-          currentFallback: productionGoalExists ? "empty_copy_risk_if_goal_key_exists_without_wording" : "lean_bulk_hidden_fallback_until_goal_key_exists",
+          present: hasCoachCopyContract,
+          currentFallback: hasCoachCopyContract
+            ? "maintain_copy_present"
+            : (productionGoalExists ? "empty_copy_risk_if_goal_key_exists_without_wording" : "lean_bulk_hidden_fallback_until_goal_key_exists"),
           silentFallbackRisk: true,
-          currentBehavior: productionGoalExists
-            ? "Maintain wording is not proven dedicated."
-            : "Because GOALS.maintain is missing, getDailyCoachGoalType('maintain') hides copy gaps by returning lean_bulk.",
+          currentBehavior: hasCoachCopyContract
+            ? "Maintain-specific macro and decision copy is present for core Coach paths."
+            : (productionGoalExists
+              ? "Maintain wording is not proven dedicated."
+              : "Because GOALS.maintain is missing, getDailyCoachGoalType('maintain') hides copy gaps by returning lean_bulk."),
           requiredBeforeProduction: "Add dedicated maintenance wording for calorie/protein/carb/fat high-low states and combo decisions.",
           userImpactRisk: "Users may see lean-bulk-like guidance or missing guidance while expecting maintenance."
         }),
         makeV8MaintainContractItem({
           key: "normalizeGoalSnapshot.goal=maintain",
           area: "records_goal_snapshot",
-          present: productionGoalExists,
-          currentFallback: productionGoalExists ? "maintain_preserved" : "rejected_by_Object.keys(GOALS)_validation",
-          currentBehavior: productionGoalExists
+          present: hasSnapshotContract,
+          currentFallback: hasSnapshotContract ? "maintain_preserved" : "rejected_by_Object.keys(GOALS)_validation",
+          currentBehavior: hasSnapshotContract
             ? "goalSnapshot validation would allow maintain through Object.keys(GOALS)."
             : "normalizeGoalSnapshot accepts only Object.keys(GOALS), so stored maintain snapshots are not preserved today.",
           requiredBeforeProduction: "Verify saved records, stale-basis detection, and manual/auto Today sync with maintain snapshots.",
@@ -53666,14 +53961,17 @@ Notes:
         makeV8MaintainContractItem({
           key: "backup/export/import maintain compatibility",
           area: "data_management",
-          present: false,
-          currentFallback: "dependent_on_GOALS_validation_and_goalSnapshot_tests",
-          currentBehavior: "Backup/import paths rely on normalized settings and record snapshots; no dedicated maintain compatibility test exists yet.",
+          present: hasBackupCompatibilityContract,
+          currentFallback: hasBackupCompatibilityContract ? "settings_and_snapshot_round_trip_supported" : "dependent_on_GOALS_validation_and_goalSnapshot_tests",
+          currentBehavior: hasBackupCompatibilityContract
+            ? "Backup/import compatibility follows settings and goalSnapshot validation, with maintain round-trip tests required."
+            : "Backup/import paths rely on normalized settings and record snapshots; no dedicated maintain compatibility test exists yet.",
           requiredBeforeProduction: "Round-trip maintain settings and records through export/import and backup restore tests.",
           userImpactRisk: "A maintenance user's saved state may not survive migration or backup restore as intended."
         })
       ];
       const missingContracts = contracts.filter(item => item.status !== "present");
+      const maintainProductionApproved = productionGoalExists && missingContracts.length === 0;
       const fallbackComparison = maintainCase ? {
         caseId: maintainCase.id,
         axisGoal: maintainCase.input.axisGoal,
@@ -53683,26 +53981,35 @@ Notes:
         proteinG: maintainCase.current.macro.protein_g,
         carbsG: maintainCase.current.macro.carb_g,
         fatG: maintainCase.current.macro.fat_g,
-        nonClaim: "recomp fallback output is only the current production comparison path, not maintain formula approval"
+        nonClaim: maintainProductionApproved
+          ? "maintain production goal mapping is available, but this does not approve profile-specific macro formula or full v8 completion"
+          : "recomp fallback output is only the current production comparison path, not maintain formula approval"
       } : null;
       return {
         meta: {
-          stage: "9-6_maintain_production_contract_review_v0",
+          stage: maintainProductionApproved
+            ? "9-6_maintain_production_contract_review_v1"
+            : "9-6_maintain_production_contract_review_v0",
           reportOnly: true,
           productionFormulaChanged: false,
-          maintainProductionApproved: false,
+          productionMaintainGoalAvailable: productionGoalExists,
+          maintainProductionApproved,
           sourceCandidateDesignStage: candidateDesign?.meta?.stage || null,
           evidencePolicy: "This is internal code-contract evidence plus product-policy review; it is not external exercise physiology evidence.",
-          nonGoal: "does_not_add_GOALS_maintain_or_change_calculate_score_coach_recent_context_inbody_or_schema"
+          nonGoal: maintainProductionApproved
+            ? "does_not_claim_profile_specific_macro_formula_or_full_v8_completion"
+            : "does_not_add_GOALS_maintain_or_change_calculate_score_coach_recent_context_inbody_or_schema"
         },
+        evidenceReferences: V8_MAINTAIN_PRODUCTION_REFERENCES,
         summary: {
           axisMaintainCaseCount: maintainCases.length,
           productionGoalExists,
           missingContractCount: missingContracts.length,
           productionBlockerCount: missingContracts.filter(item => item.productionBlocker).length,
-          silentFallbackRiskCount: contracts.filter(item => item.silentFallbackRisk).length,
-          autoExposureRiskCount: contracts.filter(item => item.autoExposureRisk).length,
-          currentAxisFallbackGoal: fallbackComparison?.productionGoalFallback || null,
+          silentFallbackRiskCount: contracts.filter(item => item.silentFallbackRisk && !item.present).length,
+          autoExposureRiskCount: contracts.filter(item => item.autoExposureRisk && !item.present).length,
+          currentAxisProductionGoal: fallbackComparison?.productionGoalFallback || null,
+          currentAxisFallbackGoal: maintainCase?.input?.productionGoalFallback || null,
           currentTargetRateFallback: goalRateFallback,
           currentFatTargetFallback: fatTargetFallback,
           currentMacroScoreFallback: macroScoreFallback,
@@ -53710,11 +54017,17 @@ Notes:
         },
         fallbackComparison,
         contracts,
-        requiredNextActions: [
-          "Do not add GOALS.maintain alone.",
-          "Define target-rate, cardio reflection, fat/macro score, Coach threshold/decision/copy, snapshot, and export-import contracts together.",
-          "Only after those contracts have tests should maintain become a production goal."
-        ]
+        requiredNextActions: maintainProductionApproved
+          ? [
+            "Keep GOALS.maintain tied to rate, cardio reflection, fat/macro score, Coach, snapshot, and export/import tests.",
+            "Do not treat maintain production availability as profile-specific macro formula approval.",
+            "Review maintain kcal guard and Coach wording with user-facing QA after broader v8 formula work."
+          ]
+          : [
+            "Do not add GOALS.maintain alone.",
+            "Define target-rate, cardio reflection, fat/macro score, Coach threshold/decision/copy, snapshot, and export-import contracts together.",
+            "Only after those contracts have tests should maintain become a production goal."
+          ]
       };
     }
 
@@ -53825,7 +54138,8 @@ Notes:
           evidenceLevel: "external_sports_nutrition_reference_plus_internal_formula_comparison",
           targetChanged: false,
           profileSpecificCarbohydratePolicyApplied: false,
-          maintainGoalMappingApplied: false,
+          maintainGoalMappingApplied: input?.axisGoal === "maintain" && input?.goal === "maintain",
+          maintainProductionGoalAvailable: hasV8OwnContractKey(GOALS, "maintain"),
           proteinCapKg: bodyweightCapKg,
           contestPrepLike,
           nonClaim: "does_not_approve_production_formula_or_profile_specific_macro_policy"
@@ -53928,7 +54242,7 @@ Notes:
           targetPolicyChanged: false,
           targetChanged: false,
           profileSpecificCarbohydratePolicyApplied: false,
-          maintainGoalMappingApplied: false,
+          maintainGoalMappingApplied: hasV8OwnContractKey(GOALS, "maintain"),
           evidencePolicy: "external references are candidate review thresholds; internal formula evidence only compares current implementation behavior",
           nonGoal: "does_not_change_production_calculate_score_coach_recent_context_inbody_or_schema"
         },
@@ -53944,7 +54258,9 @@ Notes:
           carbs: "allocate remaining unchanged target calories to carbohydrate after protein and fat",
           unresolved: [
             "profile-specific carbohydrate policy is not applied in candidate-v0",
-            "maintain goal mapping is not implemented in candidate-v0",
+            hasV8OwnContractKey(GOALS, "maintain")
+              ? "maintain production goal is available, but candidate-v0 does not change maintain macro formula beyond current production calculation"
+              : "maintain goal mapping is not implemented in candidate-v0",
             "candidate-v0 does not approve production formula changes"
           ]
         },
@@ -54362,7 +54678,7 @@ Notes:
               "The 8-2 full Cartesian product is not claimed as executed; axis-category coverage is executed and reported separately.",
               "9-3 macro audit is report-only and classifies current macro risks before formula changes.",
               "9-5/9-6 candidateDesign is a report-only scaffold; it does not approve or apply a new formula.",
-              "9-6 maintainGoalContract is report-only; it prevents a GOALS.maintain-only change from being treated as a complete production goal.",
+              "9-6 maintainGoalContract now checks the production maintain goal contracts and keeps GOALS.maintain tied to rate, score, Coach, snapshot, and export/import paths.",
               "9-7 context macro candidate-v0 is report-only; it keeps target calories unchanged and compares macro redistribution only.",
               "9-7 profileSession carbohydrate policy review is report-only; it separates running/resistance/mixed session needs from production routine fallback.",
               "Do not treat candidate-no-weekly-xw or candidate-v8-context-macro-v0 as the final v8 formula."
@@ -54380,6 +54696,7 @@ Notes:
             maintainGoalContract: {
               stage: maintainGoalContract.meta.stage,
               productionGoalExists: maintainGoalContract.summary.productionGoalExists,
+              maintainProductionApproved: maintainGoalContract.meta.maintainProductionApproved,
               missingContractCount: maintainGoalContract.summary.missingContractCount,
               silentFallbackRiskCount: maintainGoalContract.summary.silentFallbackRiskCount,
               currentAxisFallbackGoal: maintainGoalContract.summary.currentAxisFallbackGoal
@@ -54463,14 +54780,16 @@ Notes:
           assertTest(findInvalidCalibrationNumber(report).length === 0, "v8 runner report should not contain NaN or Infinity");
         }));
 
-        results.push(runNamedTest("v8.0-D axis coverage preserves maintain as an axis-only goal with explicit production fallback", () => {
+        results.push(runNamedTest("v8.0-J axis coverage uses maintain as a production goal after contract closure", () => {
           const report = runV8ScenarioRunner();
           const maintainCase = report.axisCoverage.cases.find(item => item.axisCoverage?.axis === "goal" && item.axisCoverage.value === "maintain");
           assertTest(!!maintainCase, "8-2 goal axis should include 유지/maintain separately from human-review goals");
           assertTest(maintainCase.input.axisGoal === "maintain", "maintain should remain as the scenario axis goal");
-          assertTest(maintainCase.input.goal === "recomp", "maintain axis case should use recomp only as current production fallback");
-          assertTest(maintainCase.input.goalAxisStatus === "axis_only_pending_production_goal_mapping", "maintain fallback should be explicitly marked as pending production mapping");
-          assertTest(maintainCase.input.productionGoalFallbackReason === "current_app_has_no_maintain_goal_key", "maintain fallback reason should be explicit");
+          assertTest(maintainCase.input.goal === "maintain", "maintain axis case should now use the production maintain goal");
+          assertTest(maintainCase.input.goalAxisStatus === "production_goal", "maintain should be marked as a production goal after contract closure");
+          assertTest(maintainCase.input.productionGoalFallback === null, "maintain should no longer need a production goal fallback");
+          assertClose(maintainCase.current.target.selectedWeeklyRate, 0, 0.0001, "maintain selected weekly rate should be neutral by default");
+          assertTest(maintainCase.current.target.policyKind === "maintain", "maintain target policy should expose maintain kind");
         }));
 
         results.push(runNamedTest("v8.0-D profile sessions are not collapsed into generic production routines", () => {
@@ -54576,7 +54895,8 @@ Notes:
             assertTest(design.inputCatalog.some(item => item.key === key), `${key} input candidate should exist`);
           });
           const maintain = design.goalRateDesign.find(item => item.key === "maintain");
-          assertTest(maintain?.status === "axis_present_but_production_goal_key_missing", "maintain should remain pending production goal mapping");
+          assertTest(maintain?.status === "production_goal_key_present_contract_linked", "maintain should be production-linked after v8.0-J contract closure");
+          assertTest(maintain?.productionFormulaStatus === "v8_maintain_goal_available", "maintain production status should be explicit");
           ["protein_context_gate", "fat_carb_joint_redistribution", "profile_specific_carbohydrate_policy", "bodyweight_lbm_adjusted_basis_policy"].forEach(key => {
             assertTest(design.macroPolicyDesign.some(item => item.key === key && item.status === "candidate_required_not_approved_formula"), `${key} macro policy design should be pending and not approved`);
             assertTest(design.requiredNextDecisions.includes(key), `${key} should be listed as a required next decision`);
@@ -54585,26 +54905,29 @@ Notes:
           assertTest(proteinGate.triggeredBy.humanReviewDietDefaultNear24 === report.macroAudit.humanReviewSummary.findingCounts.diet_default_near_2_4g_bodyweight_requires_candidate_review, "protein gate should be driven by macroAudit human-review count");
           const runningProfile = design.profileDesign.find(item => item.profile === "running");
           assertTest(runningProfile.status === "pending_profile_specific_formula", "running profile should remain pending profile-specific formula");
-          assertIncludesAll(design.unresolvedProductionContracts.join(" "), ["GOALS", "goalSnapshot", "export/import"], "candidate design should list unresolved production contracts");
+          assertIncludesAll(design.unresolvedProductionContracts.join(" "), ["maintain contract", "goalSnapshot", "export/import"], "candidate design should list remaining production contracts");
         }));
 
-        results.push(runNamedTest("v8.0-I maintain contract blocks GOALS-only production mapping and exposes fallback conflicts", () => {
+        results.push(runNamedTest("v8.0-J maintain contract closes production goal contracts without approving full v8 formula", () => {
           const report = runV8ScenarioRunner();
           const contract = report.maintainGoalContract;
-          assertTest(contract?.meta?.stage === "9-6_maintain_production_contract_review_v0", "maintain contract should identify 9-6 contract review stage");
+          assertTest(contract?.meta?.stage === "9-6_maintain_production_contract_review_v1", "maintain contract should identify 9-6 contract review v1 stage");
           assertTest(contract.meta.reportOnly === true, "maintain contract should be report-only");
-          assertTest(contract.meta.productionFormulaChanged === false, "maintain contract must not change production formula");
-          assertTest(contract.meta.maintainProductionApproved === false, "maintain contract must not approve production maintain");
+          assertTest(contract.meta.productionFormulaChanged === false, "maintain contract runner must not mutate production formula at runtime");
+          assertTest(contract.meta.productionMaintainGoalAvailable === true, "maintain production goal should be available");
+          assertTest(contract.meta.maintainProductionApproved === true, "maintain production contract should be approved after all contracts are present");
           assertIncludesAll(contract.meta.evidencePolicy, ["internal code-contract", "not external exercise physiology"], "maintain contract should classify its evidence level honestly");
           assertTest(contract.summary.axisMaintainCaseCount === 1, "maintain axis should have one required-axis coverage case");
-          assertTest(contract.summary.productionGoalExists === false, "GOALS.maintain should remain absent before a production-safe change");
-          assertTest(contract.summary.missingContractCount >= 10, "maintain should still have multiple unresolved production contracts");
-          assertTest(contract.summary.silentFallbackRiskCount >= 5, "maintain contract should expose silent fallback risks");
-          assertTest(contract.summary.currentAxisFallbackGoal === "recomp", "v8 axis case should still use recomp only as explicit report fallback");
-          assertTest(contract.summary.currentTargetRateFallback === "lean_bulk", "missing maintain rate policy should be detected as lean_bulk fallback");
-          assertTest(contract.summary.currentFatTargetFallback === "lean_bulk", "missing maintain fat profile should be detected as lean_bulk fallback");
-          assertTest(contract.summary.currentMacroScoreFallback === "lean_bulk", "missing maintain score profile should be detected as lean_bulk fallback");
-          assertTest(contract.summary.currentCoachDecisionFallback === "lean_bulk", "missing maintain Coach decision profile should be detected as lean_bulk fallback");
+          assertTest(contract.summary.productionGoalExists === true, "GOALS.maintain should exist after production-safe change");
+          assertTest(contract.summary.missingContractCount === 0, "maintain should have no unresolved production contracts");
+          assertTest(contract.summary.currentAxisFallbackGoal === null, "v8 maintain axis should no longer use recomp fallback");
+          assertTest(contract.summary.currentTargetRateFallback === "maintain", "maintain rate policy should be dedicated");
+          assertTest(contract.summary.currentFatTargetFallback === "maintain", "maintain fat profile should be dedicated");
+          assertTest(contract.summary.currentMacroScoreFallback === "maintain", "maintain score profile should be dedicated");
+          assertTest(contract.summary.currentCoachDecisionFallback === "maintain", "maintain Coach decision profile should be dedicated");
+          assertTest(contract.evidenceReferences.issnProtein2017.evidenceLevel === "external_sports_nutrition_reference", "maintain protein guard should use external sports nutrition reference");
+          assertTest(contract.evidenceReferences.driAmdr.evidenceLevel === "external_population_nutrition_reference_guard", "AMDR guard should be marked as broad population reference");
+          assertTest(contract.evidenceReferences.maintainProductPolicy.evidenceLevel === "internal_product_policy", "maintain kcal guard should remain product policy");
           const contractKeys = contract.contracts.map(item => item.key).join(" ");
           assertIncludesAll(contractKeys, [
             "GOALS.maintain",
@@ -54617,12 +54940,15 @@ Notes:
             "backup/export/import maintain compatibility"
           ], "maintain contract should list the cross-app production contracts");
           const rate = contract.contracts.find(item => item.key === "GOAL_RATE_POLICIES.maintain");
-          assertTest(rate?.silentFallbackRisk === true && rate.currentFallback === "lean_bulk", "target-rate fallback conflict should be explicit");
+          assertTest(rate?.present === true && rate.currentFallback === "maintain", "target-rate contract should be dedicated");
+          const coachCopy = contract.contracts.find(item => item.key === "getDailyCoachGoalWording.maintain");
+          assertTest(coachCopy?.present === true && coachCopy.currentFallback === "maintain_copy_present", "maintain Coach copy contract should be present");
+          const snapshot = contract.contracts.find(item => item.key === "normalizeGoalSnapshot.goal=maintain");
+          assertTest(snapshot?.present === true && snapshot.currentFallback === "maintain_preserved", "maintain snapshot contract should be present");
           const ui = contract.contracts.find(item => item.key === "Settings/Today goal chip integration");
           assertTest(ui?.autoExposureRisk === true, "goal chip auto-exposure risk should be explicit");
-          assertTest(contract.fallbackComparison?.productionGoalFallback === "recomp", "fallback comparison should preserve current report-only recomp path");
-          assertIncludesAll(contract.fallbackComparison?.nonClaim, ["not", "approval"], "fallback comparison should state it is not maintain approval");
-          assertIncludesAll(contract.requiredNextActions.join(" "), ["Do not add GOALS.maintain alone", "tests"], "next actions should block GOALS-only implementation");
+          assertTest(contract.fallbackComparison?.productionGoalFallback === "maintain", "fallback comparison should now use production maintain path");
+          assertIncludesAll(contract.requiredNextActions.join(" "), ["Keep GOALS.maintain tied", "profile-specific macro formula"], "next actions should keep maintain scoped");
         }));
 
         results.push(runNamedTest("v8.0-G 9-7 context macro candidate compares required 1913 without approving production", () => {
@@ -54634,7 +54960,7 @@ Notes:
           assertTest(comparison.meta.candidateFormulaApproved === false, "candidate formula comparison must not approve a formula");
           assertTest(comparison.meta.targetChanged === false && comparison.summary.targetChangedCount === 0, "candidate-v0 should not change target calories");
           assertTest(comparison.meta.profileSpecificCarbohydratePolicyApplied === false, "candidate-v0 should not claim profile-specific carbohydrate policy");
-          assertTest(comparison.meta.maintainGoalMappingApplied === false, "candidate-v0 should not claim maintain goal mapping");
+          assertTest(comparison.meta.maintainGoalMappingApplied === true, "candidate-v0 should see the production maintain goal mapping as available");
           assertTest(comparison.evidenceReferences.issnProtein2017.evidenceLevel === "external_sports_nutrition_reference", "ISSN protein should remain external evidence");
           assertTest(comparison.evidenceReferences.currentFormulaReport.evidenceLevel === "internal_formula_coverage_only", "current formula evidence should remain internal only");
           const required = comparison.requiredRegression;
@@ -58725,7 +59051,7 @@ Notes:
             "recovery_current_low",
             "previous_today_high"
           ];
-          ["diet", "lean_bulk", "bulk"].forEach(goal => {
+          ["diet", "maintain", "lean_bulk", "bulk"].forEach(goal => {
             const profile = getDailyCoachDecisionProfile(goal);
             assertTest(Array.isArray(profile.priority) && profile.priority.length > 0, `${goal} profile should expose priority`);
             assertTest(profile.comboPolicy?.decisionTypes?.length > 0, `${goal} profile should expose combo policy`);
@@ -58753,6 +59079,19 @@ Notes:
           assertTest(shouldKeepProteinLowAboveRecovery({ configKey: "calorie", proteinLow: true }) === false, "protein low guard should only apply to protein card");
           const cardKeys = Object.keys(DAILY_COACH_CARD_POLICIES).sort().join(",");
           assertTest(cardKeys === "calorie,carb,fat,protein", "card policy should only expose macro card keys");
+        }));
+
+        results.push(runNamedTest("v8.0-J daily coach has dedicated maintain thresholds and copy", () => {
+          const maintainThresholds = getDailyCoachThresholdProfile("maintain");
+          assertTest(maintainThresholds !== getDailyCoachThresholdProfile("lean_bulk"), "maintain should not reuse lean_bulk thresholds by reference");
+          assertTest(maintainThresholds.calorie.okMin === 90 && maintainThresholds.calorie.okMax === 110, "maintain calorie ok band should be neutral and narrow");
+          const highText = getGoalCoachText("maintain", { kcal: 1.25 }).text;
+          assertIncludesAll(highText, ["유지", "칼로리", "목표"], "maintain high calorie Coach copy should be goal-specific");
+          assertExcludesAll(highText, ["린매스업", "벌크업", "다이어트 기준"], "maintain Coach copy should not fall through to other goal wording");
+          const lowText = getGoalCoachText("maintain", { kcal: 0.75, protein: 0.70 }).text;
+          assertIncludesAll(lowText, ["유지", "단백질"], "maintain low intake Coach copy should mention maintain and protein");
+          const combo = getDailyCoachDecisionCopy({ copyIntent: "calorie_fat_high" }, "maintain", "state");
+          assertIncludesAll(combo, ["유지", "지방"], "maintain combo copy should be dedicated");
         }));
 
         function setupPreviousDayCoachScenario(config = {}){

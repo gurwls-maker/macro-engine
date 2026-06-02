@@ -717,7 +717,11 @@ v8 산식은 대표 케이스 몇 개만 보고 통과시키지 않는다.
 - 8-2 필수축 검증과 8-3 사람이 반드시 볼 18개 케이스는 서로 다른 레이어다.
 - v8.0-D 1차 러너는 8-2 필수축의 각 카테고리를 한 번씩 실제 계산하는 category sweep과 8-3의 18개 human-review 표를 분리한다. 전체 80,621,568,000 cross-product를 실행했다고 주장하지 않는다.
 - 80,621,568,000개 full cross-product는 단일 브라우저 내부 테스트로 돌릴 대상이 아니다. 1ms/케이스여도 약 933일이 걸리며, 결과 저장과 사람 검토도 불가능하다. 후속 검증은 full 축 정의를 보존한 상태에서 category sweep, pairwise/orthogonal coverage, targeted stress, 필요 시 shard runner 순서로 설계한다.
-- `유지` 목표는 8-2 필수축에 남긴다. 다만 현재 production `GOALS`에는 별도 유지 키가 없으므로, v8.0-D report-only 러너에서는 유지 축을 `axisGoal=maintain`으로 보존하고 계산 fallback만 `productionGoalFallback=recomp`로 적는다. 실제 maintain 기능 추가는 목표 rate, macro, Records snapshot, score/remaining, Coach/Recent, export/import 영향까지 포함하는 별도 production 변경으로 다룬다.
+- `유지` 목표는 8-2 필수축에 남긴다.
+  - v8.0-D/I의 `axisGoal=maintain`, `productionGoalFallback=recomp` 기록은 당시 production `GOALS.maintain`이 없다는 히스토리다. 유지 목표를 리컴프로 확정했다는 뜻이 아니며, v8.0-J 이후 현재 상태로 읽으면 안 된다.
+  - v8.0-J 현재는 production `GOALS.maintain`을 추가했고, rate / cardio reflection / target floor / macro soft range / fat target / score / Coach threshold·decision·copy / `goalSnapshot` / backup-export-import 계약을 함께 닫는 1차 구현 상태다.
+  - 단, v8.0-J는 maintain 목표를 production 선택지로 여는 작업이지, 운동 프로필별 macro formula 또는 전체 v8 산식 승인이 아니다.
+  - maintain 수치 근거는 섞어 말하지 않는다. 단백질 범위는 ISSN 2017 sports nutrition reference, macro distribution guard는 IOM DRI Table C-5 AMDR의 broad population reference를 참고한다. `deltaMin=-120`, `deltaMax=120`, cardio reflection 0.50, score/Coach tolerance는 외부 운동생리학 근거가 아니라 앱의 제품 정책 근거다.
 - 업무 강도 보정축은 감각적으로 "차이를 보이게" 고르면 안 된다.
   - v8.0-D의 `active` fixture 근거는 내부 산식 coverage 근거다. 출처는 현재 `index.html`의 `WORK_TYPE_Y` 값과 `workloadY = clamp(WORK_TYPE_Y[workType] + workAdj, 0, 1)` 경로다.
   - `office(0)`에서 `low(-0.2)`를 검증하면 clamp로 0이 되어 base와 같은 케이스가 된다. `active(0.55)`를 기준으로 두면 low/base/high가 0.35/0.55/0.75로 모두 유효 범위 안에 남아, 업무 보정축의 카테고리 누락 여부를 확인할 수 있다.
@@ -845,6 +849,7 @@ v8 산식은 대표 케이스 몇 개만 보고 통과시키지 않는다.
 - 9-2의 사용자 노출 핫픽스 축은 v8.0-A/B/C로 1차 정리했다.
 - 2026-06-02 v8.0-D에서 9-4 현재/candidate side-by-side 시나리오 러너 1차본을 작성했다. 이 러너는 8-2 필수축 category sweep과 8-3 human-review 18개를 분리한다. 다음 큰 작업은 러너 출력으로 9-3 단백질/지방/탄수 감사와 9-5/9-6 candidate 설계를 이어가는 것이다.
 - 2026-06-02 v8.0-D1에서 기존 v8.0-A/B/C/D 작업의 근거 등급을 재감사했다. 내부 코드 근거와 제품 정책 근거를 외부 운동생리학 근거처럼 읽지 않도록, 업무 보정축 active fixture와 단백질 180.5g 항목의 근거 수준을 문서와 report metadata에 분리했다.
+- 2026-06-03 v8.0-J에서 maintain production goal 1차를 추가했다. 이는 v8.0-D/I의 maintain fallback 히스토리를 현재 상태로 갱신한 것이며, profile-specific macro formula와 전체 v8 산식 승인은 여전히 별도 단계다.
 
 통과 조건:
 - Records 식사/메모 수정만으로 Today 기준갱신이 뜨지 않는다.
@@ -888,7 +893,9 @@ v8 산식은 대표 케이스 몇 개만 보고 통과시키지 않는다.
 진행 상태:
 - 2026-06-02 v8.0-D에서 `runV8ScenarioRunner()`와 `runV8ScenarioRunnerTests()`를 추가했다.
 - 러너는 8-2 필수축 category sweep과 8-3의 18개 human-review 케이스를 별도 레이어로 출력하며, human-review에는 필수 회귀 케이스 `required_user_rest_diet_1913`을 포함한다.
-- 목표 축은 문서의 `유지 / 다이어트 / 커팅 / 린매스업 / 벌크업`을 보존한다. 단, 현재 앱 production `GOALS`에는 별도 유지 키가 없으므로 유지 축 케이스는 `axisGoal=maintain`, `productionGoalFallback=recomp`로 명시한다. 이것은 유지 목표를 리컴프로 확정했다는 뜻이 아니다.
+- 목표 축은 문서의 `유지 / 다이어트 / 커팅 / 린매스업 / 벌크업`을 보존한다.
+  - v8.0-D/I 당시 유지 축 케이스는 production `GOALS.maintain` 부재를 드러내기 위해 `axisGoal=maintain`, `productionGoalFallback=recomp`로 명시했다. 이것은 유지 목표를 리컴프로 확정했다는 뜻이 아니다.
+  - v8.0-J 현재 유지 축 케이스는 `axisGoal=maintain`, `goal=maintain`, `goalAxisStatus=production_goal`, `productionGoalFallback=null`로 바뀌었다. 이 변경은 maintain production 계약 1차 완료를 뜻하지만, profile-specific macro formula 승인을 뜻하지 않는다.
 - 운동 프로필 축은 `bodybuilding / powerbuilding / strength / running / mixed`를 report field로만 둔다. `bodybuilding` 외 프로필은 아직 active UI 기능이나 승인된 산식이 아니다.
 - 운동 프로필별 오늘 세션은 report-only session과 production routine fallback을 분리한다. 러닝의 오늘 세션은 러닝 세션이어야 하며, `UPPER` 같은 값은 보조 웨이트 계산용 fallback으로만 기록한다.
 - candidate 열은 기존 report-only `candidate-no-weekly-xw` 비교값이다. 이것을 v8 최종 candidate 또는 production 산식으로 해석하면 안 된다.
@@ -916,7 +923,8 @@ v8 산식은 대표 케이스 몇 개만 보고 통과시키지 않는다.
   - 입력 후보는 `exerciseProfile`, `profileSession`, `performanceLevel`, `bodyCompReliability`, `recent14RecordCoverage`, `recent28Trend`로 분리했다.
   - non-bodybuilding 프로필은 아직 active formula가 아니며 `pending_profile_specific_formula` 상태로 남긴다.
   - 러닝 / 스트렝스 / 파워빌딩 / 혼합형은 profile-specific macro formula와 session-specific carbohydrate / recovery rule이 필요하다.
-  - unresolved production contracts에는 `GOALS maintain key`, Records `goalSnapshot` schema 검토, Today / Settings profile input ownership, score / remaining / Coach / recentContext copy gate, export/import compatibility를 남겼다.
+  - v8.0-F 당시 unresolved production contracts에는 `GOALS maintain key`, Records `goalSnapshot` schema 검토, Today / Settings profile input ownership, score / remaining / Coach / recentContext copy gate, export/import compatibility를 남겼다.
+  - v8.0-J 이후 `GOALS maintain key` 자체는 production 계약과 함께 닫혔다. 남은 항목은 maintain contract 회귀 보호, Records `goalSnapshot` schema review for new profile inputs, Today / Settings profile input ownership, score / remaining / Coach / recentContext copy gates after broader formula approval, export/import compatibility다.
 
 9-6. 6단계: 목표별 변화율 candidate 설계
 
@@ -933,16 +941,24 @@ v8 산식은 대표 케이스 몇 개만 보고 통과시키지 않는다.
 
 진행 상태:
 - 2026-06-03 v8.0-F에서 목표 rate 설계축을 `candidateDesign.goalRateDesign`으로 분리했다.
-  - `maintain`은 8-2 축에 존재하지만 production `GOALS` key가 없으므로 `axis_present_but_production_goal_key_missing` 상태다.
+  - v8.0-F 당시 `maintain`은 8-2 축에 존재하지만 production `GOALS` key가 없으므로 `axis_present_but_production_goal_key_missing` 상태였다.
+  - v8.0-J 이후 `maintain`은 `production_goal_key_present_contract_linked` / `v8_maintain_goal_available` 상태다. 이 상태는 maintain production 선택지의 1차 계약이 닫혔다는 뜻이지, diet/cut/lean_bulk/bulk 또는 profile-specific macro formula까지 승인했다는 뜻이 아니다.
   - diet/cut rate는 목표, 체성분, 운동 프로필, deficit, 최근 trend를 함께 봐야 하며 주간 웨이트일수 단독 기준으로 확정하지 않는다.
   - lean_bulk/bulk rate는 recent28 feedback과 profile-specific macro formula 없이는 production으로 확정하지 않는다.
   - 이 단계는 승인 산식이 아니라, 9-7 candidate 산식 비교 전에 반드시 해결할 결정 목록이다.
 - 2026-06-03 v8.0-I에서 `runV8ScenarioRunner()`에 `maintainGoalContract` report-only 레이어를 추가했다.
   - 이 레이어는 `GOALS.maintain`만 추가하는 변경을 금지한다. 유지 목표가 실제 production 선택지가 되려면 `GOALS`, `CARDIO_TARGET_REFLECTION_RATES`, `GOAL_RATE_POLICIES`, `GOAL_TARGET_FLOOR_RULES`, `GOAL_AWARE_MACRO_SOFT_RANGE_KG`, `FAT_TARGET_PROFILES`, `MACRO_SCORE_PROFILES`, `DAILY_COACH_SIGNAL_THRESHOLD_PROFILES`, `DAILY_COACH_DECISION_PROFILES`, Coach copy, `goalSnapshot`, goal chip UI, backup/export/import 계약을 함께 닫아야 한다.
-  - 현재 v8 axis case의 `maintain -> recomp` fallback은 시나리오 비교용 임시 경로일 뿐 유지 목표 승인 산식이 아니다.
+  - v8.0-I 당시 v8 axis case의 `maintain -> recomp` fallback은 시나리오 비교용 임시 경로일 뿐 유지 목표 승인 산식이 아니다.
   - 반대로 production 내부에서 maintain key만 생기고 rate/fat/score/Coach profile이 빠지면 여러 함수가 `lean_bulk` fallback으로 조용히 흐를 수 있다. 이 충돌을 `maintainGoalContract.summary.currentTargetRateFallback`, `currentFatTargetFallback`, `currentMacroScoreFallback`, `currentCoachDecisionFallback`에 남긴다.
   - v8.0-I 기준 runner summary는 `axisMaintainCaseCount=1`, `productionGoalExists=false`, `missingContractCount=13`, `silentFallbackRiskCount=6`, `autoExposureRiskCount=1`이다.
   - 이 근거는 내부 코드 계약 + 제품 정책 감사 근거이며 외부 운동생리학 근거가 아니다.
+- 2026-06-03 v8.0-J에서 maintain production goal 1차를 구현했다.
+  - production에 `GOALS.maintain`을 추가하되, 단독 추가로 닫지 않고 `CARDIO_TARGET_REFLECTION_RATES.maintain`, `GOAL_RATE_POLICIES.maintain`, `GOAL_TARGET_FLOOR_RULES.maintain`, `GOAL_AWARE_MACRO_SOFT_RANGE_KG.maintain`, `FAT_TARGET_PROFILES.maintain`, `MACRO_SCORE_PROFILES.maintain`, `DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.maintain`, `DAILY_COACH_DECISION_PROFILES.maintain`, Coach copy, `normalizeGoalSnapshot.goal=maintain`, goal chip UI, backup/export/import maintain compatibility를 함께 검사한다.
+  - runner 직접 추출 기준 `maintainGoalContract.summary`: `axisMaintainCaseCount=1`, `productionGoalExists=true`, `missingContractCount=0`, `productionBlockerCount=0`, `silentFallbackRiskCount=0`, `autoExposureRiskCount=0`, `currentAxisProductionGoal=maintain`, `currentAxisFallbackGoal=null`, `currentTargetRateFallback=maintain`, `currentFatTargetFallback=maintain`, `currentMacroScoreFallback=maintain`, `currentCoachDecisionFallback=maintain`.
+  - maintain axis case 직접 추출 기준: `axisGoal=maintain`, `goal=maintain`, `goalAxisStatus=production_goal`, `profileSession=bodybuilding_push`, `selectedWeeklyRate=0`, `policyKind=maintain`, `targetBurnBase=2537.7748276923076`, `finalTargetCal=2537.7748276923076`, `cardioTargetReflectionRate=0.50`, `goalTargetFloor=2417.7748276923076`, `goalTargetFloorApplied=false`.
+  - maintain macro 직접 추출 기준: protein 135g / 1.8g/kg BW / 21.28% kcal, fat 60g / 0.8g/kg BW / 21.28% kcal, carbs 364.44g / 4.859g/kg BW / 57.44% kcal, macro gap 0.
+  - 근거 분리: protein range는 ISSN 2017 sports nutrition reference guard, macro distribution은 IOM DRI Table C-5 AMDR broad guard를 사용한다. kcal 중립 범위 ±120, cardio reflection 0.50, score/Coach threshold는 internal product policy다. 이 수치들을 외부 운동생리학 근거로 과장하지 않는다.
+  - v8.0-J 이후에도 `maintainProductionApproved=true`는 maintain production goal 계약만 뜻한다. `does_not_claim_profile_specific_macro_formula_or_full_v8_completion`을 함께 남긴다.
 
 9-7. 7단계: candidate 산식 비교
 
@@ -956,7 +972,8 @@ v8 산식은 대표 케이스 몇 개만 보고 통과시키지 않는다.
   - 이 후보는 targetCal, totalBurn, score, Coach, recentContext, InBody gate, backup schema를 바꾸지 않는다.
   - 일반 diet / non-contest-prep 맥락에서는 단백질을 ISSN 2017 general exercising-individual review upper range인 bodyweight 2.0g/kg까지 낮추는 비교만 수행한다.
   - 지방은 현재값을 유지하되 외부 contest-prep reference floor보다 낮을 때만 report-only로 올리고, 남은 target kcal은 탄수로 재배분한다.
-  - profile-specific carbohydrate policy, maintain goal mapping, production contract는 적용하지 않는다.
+  - v8.0-G 당시에는 profile-specific carbohydrate policy, maintain goal mapping, production contract를 적용하지 않았다.
+  - v8.0-J 이후 candidate-v0 report는 production maintain mapping을 볼 수 있으므로 `maintainGoalMappingApplied=true`로 바뀐다. 다만 candidate-v0는 maintain macro formula를 current production 계산 이상으로 바꾸지 않으며, profile-specific carbohydrate policy나 전체 v8 formula를 승인하지 않는다.
 - 필수 1913 케이스의 v8.0-G runner 출력:
   - current: target 1913.3kcal / protein 180.5g / carbs 196.3g / fat 45.1g
   - candidate-v0: target 1913.3kcal / protein 150.4g / carbs 226.4g / fat 45.1g
@@ -1016,6 +1033,6 @@ v8의 산식 1차 완료는 아래를 모두 만족해야 한다.
 
 아래 지시로 시작하면 된다.
 
-“docs/README.md, docs/v8_운동프로필_산식_정밀설계.txt, docs/v8_현재산식_기준갱신_감사_2026-06-02.txt를 먼저 읽어라. v8 1단계 감사와 9-2 기준갱신 핫픽스는 v8.0-A/B/C에, 9-4 side-by-side 시나리오 러너 1차본은 v8.0-D에 반영되어 있고, v8.0-D1에서는 내부 코드 근거 / 제품 정책 근거 / 외부 운동생리학 근거를 분리하는 재감사를 추가했다. v8.0-D는 8-2 필수축 category sweep과 8-3 human-review 18개를 분리한다. 먼저 현재 `index.html`과 문서가 어긋나는지 대조하고, `runV8ScenarioRunner()` 출력으로 9-3 단백질/지방/탄수 감사 또는 9-5/9-6 candidate 설계를 이어가라. 내부 코드 근거를 외부 운동생리학 근거처럼 통과시키지 말고, 아직 candidate-no-weekly-xw를 승인 산식으로 적용하지 마라.”
+“docs/README.md, docs/v8_운동프로필_산식_정밀설계.txt, docs/v8_현재산식_기준갱신_감사_2026-06-02.txt를 먼저 읽어라. v8 1단계 감사와 9-2 기준갱신 핫픽스는 v8.0-A/B/C에, 9-4 side-by-side 시나리오 러너 1차본은 v8.0-D에 반영되어 있고, v8.0-D1에서는 내부 코드 근거 / 제품 정책 근거 / 외부 운동생리학 근거를 분리하는 재감사를 추가했다. v8.0-D는 8-2 필수축 category sweep과 8-3 human-review 18개를 분리한다. v8.0-I의 maintain missing-contract 상태는 v8.0-J maintain production goal 1차로 갱신되었지만, 이것을 profile-specific macro formula 또는 전체 v8 완료로 읽으면 안 된다. 먼저 현재 `index.html`과 문서가 어긋나는지 대조하고, `runV8ScenarioRunner()` 출력으로 9-3 단백질/지방/탄수 감사 또는 9-5/9-6 candidate 설계를 이어가라. 내부 코드 근거를 외부 운동생리학 근거처럼 통과시키지 말고, 아직 candidate-no-weekly-xw나 candidate-v8-context-macro-v0를 승인 산식으로 적용하지 마라.”
 
 이 첫 작업이 끝난 뒤에만 핫픽스 또는 candidate 산식 설계로 넘어간다.
