@@ -1185,7 +1185,65 @@ candidate-v1가 하지 않는 일:
 
 - v8.0-K는 profile-specific macro formula의 production 구현이 아니라 candidate feasibility audit이다.
 - 단백질 context 후보와 maintain production goal만으로는 mixed profile 탄수 문제가 해결되지 않는다.
-- 다음 단계는 806억 full axis를 보존한 pairwise/targeted stress runner 또는 profile formula candidate-v2 중 하나다. candidate-v2를 진행한다면 target/rate와 protein/fat guard를 같이 열어야 하며, score/Coach/Records 계약까지 검토해야 한다.
+- v8.0-L 이후 다음 단계는 pairwiseStress에서 드러난 축 충돌을 바탕으로 targeted stress를 더 늘리거나, profile formula candidate-v2를 진행하는 것이다. candidate-v2를 진행한다면 target/rate와 protein/fat guard를 같이 열어야 하며, score/Coach/Records 계약까지 검토해야 한다.
+
+## 11-9. 2026-06-03 v8.0-L 8-2 pairwise / targeted stress 1차
+
+v8.0-L에서는 80,621,568,000개 full cross-product를 실행했다고 주장하지 않으면서도, category sweep보다 강한 축 상호작용 검증을 추가했다.
+
+pairwiseStress의 성격:
+
+- stage: `8-2_pairwise_targeted_stress_v0`
+- `reportOnly`: true
+- `productionFormulaChanged`: false
+- `fullCartesianRun`: false
+- nominal full Cartesian count: 80,621,568,000
+- coverage mode: constrained pairwise covering array plus calculated stress cases
+
+제약:
+
+- `profileSession`은 `exerciseProfile`과 맞아야 한다. 단 `rest`는 모든 프로필의 휴식일로 허용한다.
+- `rest` session은 positive `weightDuration`을 가질 수 없다.
+- non-rest training session은 `weightDuration=0`을 가질 수 없다.
+- `weeklyTrainingDays=0`은 non-rest training session 또는 positive `weightDuration`과 묶지 않는다.
+- `performanceLevel=none`은 non-rest training session, weekly training, positive `weightDuration`과 묶지 않는다.
+- running/mixed cardio session은 `cardio=none`과 묶지 않는다.
+
+직접 추출 summary:
+
+- `axisCount`: 20
+- `includedPairRequirementCount`: 2472
+- `excludedPairRequirementCount`: 49
+- `generatedTupleCount`: 50
+- `calculatedCaseCount`: 50
+- `coveredPairRequirementCount`: 2472
+- `missingPairRequirementCount`: 0
+- `effectiveTupleMismatchCaseCount`: 0
+- `derivedTupleMismatchCaseCount`: 31
+- `inactiveTupleMismatchCaseCount`: 13
+- `highPriorityJudgmentCaseCount`: 0
+
+excluded pair 사유:
+
+- `exercise_profile_session_mismatch`: 20
+- `no_performance_with_training_session`: 5
+- `training_session_without_weight_duration`: 5
+- `weekly_zero_with_training_session`: 5
+- `no_performance_with_weekly_training`: 3
+- `no_performance_with_weight_duration`: 3
+- `rest_session_with_weight_duration`: 3
+- `weekly_zero_with_weight_duration`: 3
+- `running_session_without_cardio_axis`: 1
+- `mixed_session_without_cardio_axis`: 1
+
+해석:
+
+- 50개 pairwise stress case는 18개 human-review case를 대체하지 않는다.
+- 2,472개 valid pair를 빠짐없이 덮지만, 80,621,568,000개 full cross-product 전체를 실행한 것은 아니다.
+- `effectiveTupleMismatchCaseCount=0`이므로 직접 제어 가능한 pairwise tuple 값은 계산 입력에 보존된다.
+- `derivedTupleMismatchCaseCount=31`은 FFMI가 height/weight/bodyFat과 동시에 독립적으로 맞기 어려운 파생축이라는 사실을 드러낸다. 이것은 숨길 문제가 아니라, FFMI 축을 production input으로 쓸 때 제약/우선순위를 정해야 한다는 근거다.
+- `inactiveTupleMismatchCaseCount=13`은 rest day에서 intensity가 비활성화되는 것처럼 계산상 축이 꺼지는 케이스다.
+- 다음 targeted stress는 derived FFMI conflict, rest-day inactive intensity, mixed carb unresolved, maintain + non-bodybuilding profile을 묶어 사람 눈 수치 검토를 확대하는 방향이 맞다.
 
 ## 12. 검증 메모
 
@@ -1342,6 +1400,22 @@ candidate-v1가 하지 않는 일:
 - v8.0-K desktop core 26 suites / 364 cases / failed 0
 - 2026-06-03 v8.0-K full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-K desktop full 99 suites / 1042 cases / failed 0
+- 2026-06-03 v8.0-L pairwise stress 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-L scenario runner suite 1 suite / 15 cases / failed 0
+- 2026-06-03 v8.0-L pairwise stress 직접 추출:
+  - `pairwiseStress.summary.includedPairRequirementCount=2472`
+  - `excludedPairRequirementCount=49`
+  - `generatedTupleCount=50`
+  - `calculatedCaseCount=50`
+  - `coveredPairRequirementCount=2472`
+  - `missingPairRequirementCount=0`
+  - `effectiveTupleMismatchCaseCount=0`
+  - `derivedTupleMismatchCaseCount=31`
+  - `inactiveTupleMismatchCaseCount=13`
+- 2026-06-03 v8.0-L calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-L desktop calibration 14 suites / 123 cases / failed 0
+- 2026-06-03 v8.0-L full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-L desktop full 99 suites / 1043 cases / failed 0
 
 실행하지 않은 것:
 
@@ -1365,3 +1439,4 @@ v8.0-H 9-7 profileSession carbohydrate policy review 이후에는 `profileSessio
 v8.0-I 9-6 maintain production contract review 당시에는 `maintainGoalContract`가 report-only / productionFormulaChanged false였고, maintain production approval은 의도적으로 열지 않았다. 이 단계는 `maintain -> recomp` report fallback과 `lean_bulk` silent fallback 위험을 분리하며, `GOALS.maintain` 단독 추가를 막는지 `runV8ScenarioRunnerTests`로 확인했다.
 v8.0-J maintain production goal 1차 이후에는 `maintainGoalContract`가 report-only / productionFormulaChanged false로 남되 `productionMaintainGoalAvailable=true`, `maintainProductionApproved=true`, `missingContractCount=0`, `currentAxisFallbackGoal=null`로 바뀌는지 확인했다. 이 승인은 maintain production goal 계약에 한정되며, profile-specific macro formula 또는 전체 v8 완료를 뜻하지 않는다.
 v8.0-K profile macro candidate-v1 이후에는 `profileMacroCandidateComparison`이 report-only / productionFormulaChanged false / candidateFormulaApproved false로 남고, running/mixed 탄수 floor를 targetCal 변경 없이 맞출 수 있는지 검토했다. 직접 추출 결과 mixed floor 시도 3건은 모두 target/protein/fat 보호선 때문에 unresolved로 남았고, 이는 candidate-v2에서 target/rate와 protein/fat guard를 함께 열어야 한다는 근거다.
+v8.0-L pairwise stress 이후에는 8-2 full Cartesian을 실행했다고 주장하지 않으면서, 제약상 가능한 pair 2,472개를 50개 계산 케이스로 모두 덮는지 확인했다. 직접 제어 가능한 tuple mismatch는 0이며, FFMI 파생축과 rest-day inactive intensity는 별도 mismatch로 분리했다.

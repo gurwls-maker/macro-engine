@@ -1,8 +1,10 @@
 <!--
 Version: 8.0
-Stage: v8.0-K profile macro candidate-v1 1차 구현
+Stage: v8.0-L pairwise stress runner 1차 구현
 Date: 2026-06-03
 Notes:
+- v8.0-L 8-2 필수축 full cross-product를 실행했다고 주장하지 않고, 제약 기반 pairwise/targeted stress report-only 레이어를 추가해 806억 축을 더 강하게 검증
+- v8.0-L pairwise 제약은 profile/session, rest/duration, running/mixed cardio coherence를 명시하고 제외 pair를 별도 집계해 18개 human-review와 혼동하지 않게 함
 - v8.0-K profile-specific macro candidate-v1 report-only 레이어를 추가해 running/mixed 탄수 floor를 targetCal 변경 없이 fat/protein 보호선 안에서 재배분 가능한지 검토
 - v8.0-K resistance carbohydrate reference의 저자 표기를 Escobar / VanDusseldorp / Kerksick 2016으로 정정하고, resistance range는 제한적 review reference이지 production floor가 아님을 고정
 - v8.0-J maintain 목표를 production GOALS에 추가하고 rate / cardio reflection / fat profile / score / Coach / snapshot / backup 계약을 함께 닫는 1차 구현
@@ -52376,8 +52378,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-K";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-K profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-L";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-L pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -53121,7 +53123,8 @@ Notes:
         cardioIncline: definition.cardioCombo.cardioIncline,
         inbodyReliability: definition.inbodyReliability,
         recent14: definition.recent14,
-        recent28: definition.recent28
+        recent28: definition.recent28,
+        pairwiseTuple: definition.pairwiseTuple || null
       };
     }
 
@@ -54840,6 +54843,390 @@ Notes:
       };
     }
 
+    const V8_PAIRWISE_PROFILE_SESSION_ALLOWED_PROFILES = Object.freeze({
+      rest: ["bodybuilding", "powerbuilding", "strength", "running", "mixed"],
+      bodybuilding_push: ["bodybuilding"],
+      powerbuilding_lower: ["powerbuilding"],
+      strength_heavy_lower: ["strength"],
+      running_tempo: ["running"],
+      mixed_strength_cardio: ["mixed"]
+    });
+
+    function getV8PairwiseConstraintViolations(tuple){
+      const violations = [];
+      const profile = tuple.exerciseProfile;
+      const session = tuple.profileSession;
+      const duration = tuple.weightDuration;
+      const weeklyTrainingDays = tuple.weeklyTrainingDays;
+      const performance = tuple.performanceLevel;
+      const cardio = tuple.cardio;
+      const allowedProfiles = session ? V8_PAIRWISE_PROFILE_SESSION_ALLOWED_PROFILES[session] : null;
+      if (profile && session && allowedProfiles && !allowedProfiles.includes(profile)) {
+        violations.push("exercise_profile_session_mismatch");
+      }
+      if (session === "rest" && duration !== undefined && Number(duration) > 0) {
+        violations.push("rest_session_with_weight_duration");
+      }
+      if (session && session !== "rest" && duration !== undefined && Number(duration) === 0) {
+        violations.push("training_session_without_weight_duration");
+      }
+      if (weeklyTrainingDays !== undefined && Number(weeklyTrainingDays) === 0 && session && session !== "rest") {
+        violations.push("weekly_zero_with_training_session");
+      }
+      if (weeklyTrainingDays !== undefined && Number(weeklyTrainingDays) === 0 && duration !== undefined && Number(duration) > 0) {
+        violations.push("weekly_zero_with_weight_duration");
+      }
+      if (performance === "none" && session && session !== "rest") {
+        violations.push("no_performance_with_training_session");
+      }
+      if (performance === "none" && weeklyTrainingDays !== undefined && Number(weeklyTrainingDays) > 0) {
+        violations.push("no_performance_with_weekly_training");
+      }
+      if (performance === "none" && duration !== undefined && Number(duration) > 0) {
+        violations.push("no_performance_with_weight_duration");
+      }
+      if (session === "running_tempo" && cardio === "none") {
+        violations.push("running_session_without_cardio_axis");
+      }
+      if (session === "mixed_strength_cardio" && cardio === "none") {
+        violations.push("mixed_session_without_cardio_axis");
+      }
+      return violations;
+    }
+
+    function isV8PairwiseTupleAllowed(tuple){
+      return getV8PairwiseConstraintViolations(tuple).length === 0;
+    }
+
+    function getV8PairwiseAxes(){
+      return V8_REQUIRED_AXIS_DEFINITIONS.map((axis, index) => ({ ...axis, index }));
+    }
+
+    function getV8PairwiseValueId(value){
+      return String(value).replace(/[^a-z0-9]+/gi, "_").toLowerCase();
+    }
+
+    function makeV8PairwisePairId(axisA, valueA, axisB, valueB){
+      const first = axisA.index < axisB.index ? { axis: axisA, value: valueA } : { axis: axisB, value: valueB };
+      const second = axisA.index < axisB.index ? { axis: axisB, value: valueB } : { axis: axisA, value: valueA };
+      return `${first.axis.key}=${getV8PairwiseValueId(first.value)}|${second.axis.key}=${getV8PairwiseValueId(second.value)}`;
+    }
+
+    function buildV8PairwiseRequirementCatalog(){
+      const axes = getV8PairwiseAxes();
+      const included = [];
+      const excluded = [];
+      axes.forEach((axisA, index) => {
+        axes.slice(index + 1).forEach(axisB => {
+          axisA.values.forEach(valueA => {
+            axisB.values.forEach(valueB => {
+              const tuple = { [axisA.key]: valueA, [axisB.key]: valueB };
+              const violations = getV8PairwiseConstraintViolations(tuple);
+              const item = {
+                id: makeV8PairwisePairId(axisA, valueA, axisB, valueB),
+                axisA: axisA.key,
+                valueA,
+                axisB: axisB.key,
+                valueB,
+                violations
+              };
+              if (violations.length) excluded.push(item);
+              else included.push(item);
+            });
+          });
+        });
+      });
+      return { included, excluded };
+    }
+
+    function getV8PairwiseTuplePairIds(tuple){
+      const axes = getV8PairwiseAxes().filter(axis => Object.prototype.hasOwnProperty.call(tuple, axis.key));
+      const ids = [];
+      axes.forEach((axisA, index) => {
+        axes.slice(index + 1).forEach(axisB => {
+          const partial = { [axisA.key]: tuple[axisA.key], [axisB.key]: tuple[axisB.key] };
+          if (isV8PairwiseTupleAllowed(partial)) {
+            ids.push(makeV8PairwisePairId(axisA, tuple[axisA.key], axisB, tuple[axisB.key]));
+          }
+        });
+      });
+      return ids;
+    }
+
+    function scoreV8PairwiseCandidateValue(tuple, axis, value, uncovered){
+      const next = { ...tuple, [axis.key]: value };
+      if (!isV8PairwiseTupleAllowed(next)) return -1;
+      return getV8PairwiseTuplePairIds(next).filter(id => uncovered.has(id)).length;
+    }
+
+    function buildV8PairwiseTuples(options = {}){
+      const maxRows = Number(options.maxRows) || 240;
+      const axes = getV8PairwiseAxes();
+      const catalog = buildV8PairwiseRequirementCatalog();
+      const requirementById = Object.fromEntries(catalog.included.map(item => [item.id, item]));
+      const uncovered = new Set(catalog.included.map(item => item.id));
+      const tuples = [];
+      while (uncovered.size > 0 && tuples.length < maxRows) {
+        const seed = requirementById[[...uncovered][0]];
+        let tuple = {
+          [seed.axisA]: seed.valueA,
+          [seed.axisB]: seed.valueB
+        };
+        axes.forEach(axis => {
+          if (Object.prototype.hasOwnProperty.call(tuple, axis.key)) return;
+          const ranked = axis.values
+            .map(value => ({ value, score: scoreV8PairwiseCandidateValue(tuple, axis, value, uncovered) }))
+            .filter(item => item.score >= 0)
+            .sort((a, b) => b.score - a.score || String(a.value).localeCompare(String(b.value)));
+          if (ranked.length) tuple = { ...tuple, [axis.key]: ranked[0].value };
+        });
+        if (!isV8PairwiseTupleAllowed(tuple)) break;
+        const covered = getV8PairwiseTuplePairIds(tuple).filter(id => uncovered.has(id));
+        if (!covered.length) break;
+        covered.forEach(id => uncovered.delete(id));
+        tuples.push({
+          id: `pairwise_${String(tuples.length + 1).padStart(3, "0")}`,
+          tuple,
+          coveredPairCount: covered.length,
+          coveredPairIds: covered
+        });
+      }
+      return {
+        tuples,
+        includedPairRequirements: catalog.included,
+        excludedPairRequirements: catalog.excluded,
+        missingPairIds: [...uncovered],
+        missingPairRequirements: [...uncovered].map(id => requirementById[id])
+      };
+    }
+
+    function getV8PairwiseStat(row){
+      const tuple = row.tuple;
+      const heights = { low: 160, average: 173, high: 188 };
+      const weights = { underweight: 50, normal: 75, overweight: 88, obese: 105, severe_obese: 132 };
+      const bodyFat = { low: 10, normal: 18, high: 28, very_high: 42 };
+      const skeletal = { low: 27, normal: 35, high: 45 };
+      return makeV8AxisStat(`V8PW${String(row.id).replace(/[^0-9]/g, "").padStart(3, "0")}`, {
+        gender: tuple.gender || "male",
+        height: heights[tuple.heightBand] || 173,
+        weight: weights[tuple.weightBand] || 75,
+        bodyFat: bodyFat[tuple.bodyFatBand] ?? 18,
+        skeletal: skeletal[tuple.skeletalMuscleBand] ?? 35,
+        label: `pairwise ${row.id}`,
+        category: `pairwise_${tuple.ffmiBand || "ffmi_unspecified"}`
+      });
+    }
+
+    function getV8PairwiseProfileSession(tuple){
+      const profile = tuple.exerciseProfile || "bodybuilding";
+      const session = tuple.profileSession || "bodybuilding_push";
+      if (session === "rest") {
+        return makeV8ProfileSession(
+          profile,
+          "rest",
+          "REST",
+          "REST",
+          profile === "bodybuilding" ? "same_as_current_production_routine" : "rest day uses REST fallback until profile formula is active"
+        );
+      }
+      return buildV8ProfileSessionAxisDefinition(session).profileSession;
+    }
+
+    function getV8PairwiseActivityCombo(row){
+      const tuple = row.tuple;
+      const workAdjMap = { low: -0.2, base: 0, high: 0.2 };
+      return makeV8ActivityCombo(
+        `V8PW_ACTIVITY_${row.id}`,
+        `pairwise ${row.id} activity`,
+        tuple.activityLevel || "moderate",
+        tuple.workType || "office",
+        workAdjMap[tuple.workAdjustment] ?? 0
+      );
+    }
+
+    function getV8PairwiseCardioCombo(row){
+      const tuple = row.tuple;
+      const cardioMap = {
+        none: makeV8CardioCombo(`V8PW_CARDIO_NONE_${row.id}`, "유산소 없음"),
+        short: makeV8CardioCombo(`V8PW_CARDIO_SHORT_${row.id}`, "짧은 유산소 20분", "treadmill_walk", 20, 5, 0),
+        moderate: makeV8CardioCombo(`V8PW_CARDIO_MOD_${row.id}`, "보통 유산소 40분", "treadmill_walk", 40, 6, 5),
+        many: makeV8CardioCombo(`V8PW_CARDIO_MANY_${row.id}`, "많은 유산소 70분", "treadmill_run", 70, 8, 1)
+      };
+      return cardioMap[tuple.cardio] || cardioMap.none;
+    }
+
+    function buildV8PairwiseStressDefinition(row, index){
+      const tuple = row.tuple;
+      const profileSession = getV8PairwiseProfileSession(tuple);
+      const weeklyTrainingDays = Number(tuple.weeklyTrainingDays ?? 4);
+      const weightDuration = Number(tuple.weightDuration ?? 60);
+      const intensityMap = { low: 0.45, base: 0.75, high: 1.00 };
+      const intensity = intensityMap[tuple.intensity] ?? 0.75;
+      const goal = tuple.goal || "diet";
+      return {
+        id: row.id,
+        title: `8-2 pairwise stress: ${row.id}`,
+        layer: "pairwiseStress",
+        axisCoverage: null,
+        pairwiseTuple: tuple,
+        stat: getV8PairwiseStat(row),
+        axisGoal: goal,
+        goal: Object.prototype.hasOwnProperty.call(GOALS, goal) ? goal : "recomp",
+        productionGoalFallback: Object.prototype.hasOwnProperty.call(GOALS, goal) ? null : "recomp",
+        productionGoalFallbackReason: Object.prototype.hasOwnProperty.call(GOALS, goal) ? null : "pairwise_goal_missing_production_key",
+        mode: "athlete",
+        activityCombo: getV8PairwiseActivityCombo(row),
+        weightCombo: makeV8WeightCombo(
+          `V8PW_WEIGHT_${row.id}`,
+          `pairwise ${row.id} / ${profileSession.label}`,
+          weeklyTrainingDays,
+          weightDuration,
+          weightDuration > 0 ? profileSession.productionRoutineFallback : "REST",
+          weightDuration > 0 ? intensity : 0
+        ),
+        cardioCombo: getV8PairwiseCardioCombo(row),
+        exerciseProfile: tuple.exerciseProfile || profileSession.exerciseProfile || "bodybuilding",
+        profileSession,
+        performanceLevel: tuple.performanceLevel || "normal",
+        inbodyReliability: tuple.inbodyReliability || "direct_input",
+        recent14: tuple.recent14 || "sufficient",
+        recent28: tuple.recent28 || "target_appropriate"
+      };
+    }
+
+    function getV8PairwiseEffectiveAxisValue(input, axisKey){
+      const height = Number(input.height);
+      const weight = Number(input.weight);
+      const bodyFat = Number(input.bodyFat);
+      const skeletal = Number(input.skeletal);
+      const ffmi = Number(input.ffmi);
+      switch (axisKey) {
+        case "gender": return input.gender;
+        case "heightBand": return height <= 165 ? "low" : (height >= 185 ? "high" : "average");
+        case "weightBand": return weight <= 55 ? "underweight" : (weight >= 125 ? "severe_obese" : (weight >= 100 ? "obese" : (weight >= 85 ? "overweight" : "normal")));
+        case "bodyFatBand": return bodyFat <= 12 ? "low" : (bodyFat >= 40 ? "very_high" : (bodyFat >= 25 ? "high" : "normal"));
+        case "skeletalMuscleBand": return skeletal <= 28 ? "low" : (skeletal >= 44 ? "high" : "normal");
+        case "ffmiBand": return ffmi <= 18 ? "low" : (ffmi >= 24 ? "high" : "normal");
+        case "goal": return input.axisGoal || input.goal;
+        case "activityLevel": return input.activityLevel;
+        case "workType": return input.workType;
+        case "workAdjustment": return input.workAdj < -0.01 ? "low" : (input.workAdj > 0.01 ? "high" : "base");
+        case "weeklyTrainingDays": return Number(input.weeklyTrainingDays);
+        case "exerciseProfile": return input.exerciseProfile;
+        case "performanceLevel": return input.performanceLevel;
+        case "profileSession": return input.profileSession;
+        case "weightDuration": return Number(input.todayWeightDuration);
+        case "intensity": {
+          const intensity = Number(input.todayIntensityOverride);
+          return intensity <= 0.5 ? "low" : (intensity >= 0.95 ? "high" : "base");
+        }
+        case "cardio": {
+          const duration = Number(input.cardioDuration);
+          if (!duration) return "none";
+          if (duration <= 25) return "short";
+          if (duration <= 50) return "moderate";
+          return "many";
+        }
+        case "inbodyReliability": return input.inbodyReliability;
+        case "recent14": return input.recent14;
+        case "recent28": return input.recent28;
+        default: return undefined;
+      }
+    }
+
+    function buildV8PairwiseStressReport(pairwiseRows, pairwiseCases, pairwiseBuild){
+      const mismatchRows = pairwiseCases.map(item => {
+        const mismatches = [];
+        const tuple = item.input.pairwiseTuple || {};
+        Object.keys(tuple).forEach(axisKey => {
+          const expected = tuple[axisKey];
+          const actual = getV8PairwiseEffectiveAxisValue(item.input, axisKey);
+          if (String(expected) !== String(actual)) {
+            mismatches.push({ axis: axisKey, expected, actual });
+          }
+        });
+        return { caseId: item.id, mismatches };
+      }).filter(item => item.mismatches.length > 0);
+      const directMismatchRows = mismatchRows
+        .map(item => ({
+          ...item,
+          mismatches: item.mismatches.filter(mismatch => {
+            if (mismatch.axis === "ffmiBand") return false;
+            if (mismatch.axis === "intensity") {
+              const sourceCase = pairwiseCases.find(caseItem => caseItem.id === item.caseId);
+              return Number(sourceCase?.input?.todayWeightDuration) > 0;
+            }
+            return true;
+          })
+        }))
+        .filter(item => item.mismatches.length > 0);
+      const derivedMismatchRows = mismatchRows
+        .map(item => ({ ...item, mismatches: item.mismatches.filter(mismatch => mismatch.axis === "ffmiBand") }))
+        .filter(item => item.mismatches.length > 0);
+      const inactiveMismatchRows = mismatchRows
+        .map(item => ({
+          ...item,
+          mismatches: item.mismatches.filter(mismatch => {
+            const sourceCase = pairwiseCases.find(caseItem => caseItem.id === item.caseId);
+            return mismatch.axis === "intensity" && Number(sourceCase?.input?.todayWeightDuration) === 0;
+          })
+        }))
+        .filter(item => item.mismatches.length > 0);
+      const excludedByReason = {};
+      pairwiseBuild.excludedPairRequirements.forEach(item => {
+        item.violations.forEach(reason => {
+          excludedByReason[reason] = (excludedByReason[reason] || 0) + 1;
+        });
+      });
+      return {
+        meta: {
+          stage: "8-2_pairwise_targeted_stress_v0",
+          reportOnly: true,
+          productionFormulaChanged: false,
+          fullCartesianRun: false,
+          nominalFullCartesianCaseCount: getV8NominalAxisProduct(),
+          coverageMode: "constrained_pairwise_covering_array_plus_calculated_stress_cases",
+          nonGoal: "does_not_claim_80b_full_cross_product_or_human_review_approval"
+        },
+        constraints: {
+          profileSessionAllowedProfiles: V8_PAIRWISE_PROFILE_SESSION_ALLOWED_PROFILES,
+          rules: [
+            "profileSession must match exerciseProfile unless session is rest",
+            "rest session cannot carry positive weightDuration",
+            "non-rest training session cannot use weightDuration=0",
+            "weeklyTrainingDays=0 cannot pair with non-rest training sessions or positive weightDuration",
+            "performanceLevel none cannot pair with non-rest training session",
+            "performanceLevel none cannot pair with weekly training or positive weightDuration",
+            "running and mixed cardio sessions cannot pair with cardio none"
+          ]
+        },
+        summary: {
+          axisCount: V8_REQUIRED_AXIS_DEFINITIONS.length,
+          nominalFullCartesianCaseCount: getV8NominalAxisProduct(),
+          fullCartesianRun: false,
+          includedPairRequirementCount: pairwiseBuild.includedPairRequirements.length,
+          excludedPairRequirementCount: pairwiseBuild.excludedPairRequirements.length,
+          generatedTupleCount: pairwiseRows.length,
+          calculatedCaseCount: pairwiseCases.length,
+          coveredPairRequirementCount: pairwiseBuild.includedPairRequirements.length - pairwiseBuild.missingPairIds.length,
+          missingPairRequirementCount: pairwiseBuild.missingPairIds.length,
+          excludedByReason,
+          effectiveTupleMismatchCaseCount: directMismatchRows.length,
+          derivedTupleMismatchCaseCount: derivedMismatchRows.length,
+          inactiveTupleMismatchCaseCount: inactiveMismatchRows.length,
+          highPriorityJudgmentCaseCount: pairwiseCases.filter(item => [
+            ...(item.current?.judgments || []),
+            ...(item.candidate?.judgments || [])
+          ].some(text => String(text).includes("high") || String(text).includes("위험"))).length
+        },
+        missingPairRequirements: pairwiseBuild.missingPairRequirements.slice(0, 20),
+        effectiveTupleMismatches: directMismatchRows.slice(0, 20),
+        derivedTupleMismatches: derivedMismatchRows.slice(0, 20),
+        inactiveTupleMismatches: inactiveMismatchRows.slice(0, 20),
+        cases: pairwiseCases
+      };
+    }
+
     function buildV8ScenarioOutput(kind, definition, result, source){
       const safeSource = source || result;
       const output = {
@@ -54885,7 +55272,7 @@ Notes:
       return {
         id: definition.id,
         title: definition.title,
-        layer: definition.axisCoverage ? "axisCoverage" : "humanReview",
+        layer: definition.layer || (definition.axisCoverage ? "axisCoverage" : "humanReview"),
         axisCoverage: definition.axisCoverage || null,
         requiredRegression: !!definition.requiredRegression,
         input: buildV8ScenarioInputSummary(definition, result),
@@ -54981,8 +55368,12 @@ Notes:
       return withCalibrationReportSandbox(() => {
         const axisDefinitions = buildV8RequiredAxisCoverageDefinitions();
         const humanDefinitions = buildV8HumanReviewScenarioDefinitions();
+        const pairwiseBuild = buildV8PairwiseTuples();
+        const pairwiseDefinitions = pairwiseBuild.tuples.map((row, index) => buildV8PairwiseStressDefinition(row, index));
         const axisCases = axisDefinitions.map((definition, index) => buildV8ScenarioCase(definition, index));
         const humanReviewCases = humanDefinitions.map((definition, index) => buildV8ScenarioCase(definition, index));
+        const pairwiseStressCases = pairwiseDefinitions.map((definition, index) => buildV8ScenarioCase(definition, index + axisCases.length + humanReviewCases.length));
+        const pairwiseStress = buildV8PairwiseStressReport(pairwiseBuild.tuples, pairwiseStressCases, pairwiseBuild);
         const requiredCase = humanReviewCases.find(item => item.requiredRegression) || null;
         const axisCoverageSummary = summarizeV8AxisCoverageCases(axisCases);
         const humanReviewSummary = summarizeV8ScenarioCases(humanReviewCases);
@@ -55006,6 +55397,7 @@ Notes:
             nominalFullCartesianCaseCount: getV8NominalAxisProduct(),
             axisCoverageCaseCount: axisDefinitions.length,
             humanReviewCaseCount: humanDefinitions.length,
+            pairwiseStressCaseCount: pairwiseDefinitions.length,
             candidateModel: "candidate-no-weekly-xw",
             candidateStatus: "report_only_existing_candidate_not_approved_formula",
             contextMacroCandidateModel: V8_CONTEXT_MACRO_CANDIDATE_MODEL,
@@ -55016,6 +55408,7 @@ Notes:
             notes: [
               "This runner is a 9-4 scaffold: it compares current production with an existing report-only candidate before changing formulas.",
               "8-2 required axis coverage and 8-3 human-review cases are separate report layers.",
+              "8-2 pairwiseStress is a constrained pairwise covering array; it does not claim the 80B full Cartesian product.",
               "Exercise profile and recent-record axes are included as report fields first; they are not active production settings yet.",
               "Profile-specific sessions are reported separately from the current production routine fallback.",
               "The 8-2 full Cartesian product is not claimed as executed; axis-category coverage is executed and reported separately.",
@@ -55065,6 +55458,13 @@ Notes:
               profileCarbFloorAttemptedCount: profileMacroCandidateComparison.summary.profileCarbFloorAttemptedCount,
               profileCarbFloorMetCount: profileMacroCandidateComparison.summary.profileCarbFloorMetCount,
               profileCarbFloorUnresolvedCount: profileMacroCandidateComparison.summary.profileCarbFloorUnresolvedCount
+            },
+            pairwiseStress: {
+              stage: pairwiseStress.meta.stage,
+              generatedTupleCount: pairwiseStress.summary.generatedTupleCount,
+              includedPairRequirementCount: pairwiseStress.summary.includedPairRequirementCount,
+              missingPairRequirementCount: pairwiseStress.summary.missingPairRequirementCount,
+              excludedPairRequirementCount: pairwiseStress.summary.excludedPairRequirementCount
             }
           },
           macroAudit,
@@ -55073,6 +55473,7 @@ Notes:
           candidateFormulaComparison,
           profileSessionCarbPolicy,
           profileMacroCandidateComparison,
+          pairwiseStress,
           axisCoverage: {
             summary: axisCoverageSummary,
             cases: options.includeAxisCases === false ? [] : axisCases
@@ -55364,7 +55765,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-K", "v8 runner version should advance to 8.0-K");
+          assertTest(report.meta.version === "8.0-L", "v8 runner version should advance to 8.0-L");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -55386,6 +55787,25 @@ Notes:
           assertTest(strength?.candidate?.profilePolicy?.profileCarbFloorAttempted === false, "strength case should not force a carb floor");
           assertIncludesAll(strength.findingIds, ["resistance_profile_carb_floor_not_applied_limited_directness"], "strength case should preserve limited-directness resistance caution");
           assertTest(findInvalidCalibrationNumber(comparison).length === 0, "profile macro candidate report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("v8.0-L pairwise stress covers constrained 8-2 pairs without claiming full Cartesian", () => {
+          const report = runV8ScenarioRunner();
+          const pairwise = report.pairwiseStress;
+          assertTest(pairwise?.meta?.stage === "8-2_pairwise_targeted_stress_v0", "pairwise stress should identify 8-2 pairwise stage");
+          assertTest(pairwise.meta.reportOnly === true, "pairwise stress should be report-only");
+          assertTest(pairwise.meta.fullCartesianRun === false, "pairwise stress must not claim the full 80B cross-product");
+          assertTest(pairwise.summary.nominalFullCartesianCaseCount === 80621568000, "pairwise stress should preserve the full Cartesian count");
+          assertTest(pairwise.summary.includedPairRequirementCount > 2000, "pairwise stress should enumerate required pair coverage, not only a few examples");
+          assertTest(pairwise.summary.generatedTupleCount > 0 && pairwise.summary.generatedTupleCount < pairwise.summary.includedPairRequirementCount, "pairwise stress should use a compact covering array");
+          assertTest(pairwise.summary.calculatedCaseCount === pairwise.summary.generatedTupleCount, "every generated pairwise tuple should be calculated");
+          assertTest(pairwise.summary.missingPairRequirementCount === 0, "constrained pairwise coverage should not miss included pairs");
+          assertTest(pairwise.summary.excludedPairRequirementCount > 0, "pairwise stress should explicitly exclude incoherent profile/session pairs");
+          assertTest(pairwise.summary.excludedByReason.exercise_profile_session_mismatch > 0, "profile/session mismatch exclusions should be counted");
+          assertTest(pairwise.summary.effectiveTupleMismatchCaseCount === 0, "direct pairwise tuple values should survive into calculated inputs");
+          assertTest(pairwise.summary.derivedTupleMismatchCaseCount > 0, "derived FFMI mismatches should be reported separately instead of hidden");
+          assertTest(pairwise.summary.inactiveTupleMismatchCaseCount > 0, "inactive rest-day intensity mismatches should be reported separately");
+          assertTest(findInvalidCalibrationNumber(pairwise).length === 0, "pairwise stress report should not contain NaN or Infinity");
         }));
 
         results.push(runNamedTest("v8.0-D text report is human-readable and candidate is not production-approved", () => {

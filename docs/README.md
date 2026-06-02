@@ -18,6 +18,7 @@
    - 산식 근거를 볼 때는 이 문서의 `0-4. 근거 등급 원칙`을 따른다. 내부 코드 근거나 제품 정책 근거를 외부 운동생리학 근거처럼 통과시키면 안 된다.
    - v8.0-J 이후 maintain은 production goal 1차 계약이 닫힌 상태지만, profile-specific macro formula와 전체 v8 완료로 읽으면 안 된다.
    - v8.0-K 이후 profile macro candidate-v1은 report-only feasibility audit이며, mixed 탄수 floor unresolved를 production 승인으로 덮으면 안 된다.
+   - v8.0-L 이후 pairwiseStress는 8-2 full 축의 constrained pairwise 계산 레이어다. 80,621,568,000개 전수 실행이나 18개 human-review 수치 승인이 아니다.
 
 4. `v8_현재산식_기준갱신_감사_2026-06-02.txt`
    - v8 1단계 현재 산식 / Today-Records 기준갱신 감사 완료 리포트다.
