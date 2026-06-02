@@ -1,8 +1,11 @@
 <!--
 Version: 8.0
-Stage: v8.0-B selected macro basis 기준갱신 정책 고정
+Stage: v8.0-C record_detail_edit 기준 보호 및 잔재 플래그 정리
 Date: 2026-06-02
 Notes:
+- v8.0-C record_detail_edit snapshot은 자동 Today sync가 덮지 않고, 사용자가 수동 기준갱신을 누를 때만 today_manual_confirm으로 교체
+- v8.0-C suppressTodayRecordAutoSync는 실제 분기에서 읽히지 않는 잔재 플래그라 제거
+- v8.0-C 산식 / score formula / Coach / recentContext / InBody gate / backup schema 변경 없음
 - v8.0-B guide/activity basis 토글은 선택 basis가 탄단지/점수 기준을 바꾸는 경우 Today-Records 기준갱신 대상으로 유지
 - v8.0-B selectedMacroBasis 문자열은 records/export/localStorage schema에 저장하지 않고, 저장된 goalSnapshot은 선택 basis의 산출 탄단지 기준만 보관
 - v8.0-B 산식 / score formula / Coach / recentContext / InBody gate / backup schema 변경 없음
@@ -16378,7 +16381,6 @@ Notes:
       feedback: null
     };
     let cardioPresetDialogOpen = false;
-    let suppressTodayRecordAutoSync = false;
     let pendingInbodyTodayApplyChoice = null;
     let pendingRecordWeightTodayApplyChoice = null;
     let pendingRecentFlowRecordOpenDate = null;
@@ -26550,12 +26552,7 @@ Notes:
       };
       setTodayInputFeedback("ok", "오늘 계산용 체중에 반영했습니다.", { action });
       setRecordFeedback("ok", "오늘 계산용 체중에 반영했습니다.", { action });
-      suppressTodayRecordAutoSync = true;
-      try {
-        render();
-      } finally {
-        suppressTodayRecordAutoSync = false;
-      }
+      render();
       const after = calculate();
       return { applied: true, pending, before, after };
     }
@@ -26683,12 +26680,7 @@ Notes:
       const applied = applyInbodyRecordToTodayBodyStatus(record, { loadType: TODAY_BODY_STATUS_LOAD_RECORD });
       if (!applied.applied) return applied;
       closeInbodyRecordSelectDialog();
-      suppressTodayRecordAutoSync = true;
-      try {
-        render();
-      } finally {
-        suppressTodayRecordAutoSync = false;
-      }
+      render();
       const after = calculate();
       setTodayInputFeedback("ok", "InBody 기록을 오늘 몸 상태에 적용했습니다.", {
         action: {
@@ -26770,12 +26762,7 @@ Notes:
       if (!pending?.record) return { applied: false, reason: "no_pending_choice" };
       const applied = applyInbodyRecordToTodayBodyStatus(pending.record, { loadType: TODAY_BODY_STATUS_LOAD_LATEST });
       pendingInbodyTodayApplyChoice = null;
-      suppressTodayRecordAutoSync = true;
-      try {
-        render();
-      } finally {
-        suppressTodayRecordAutoSync = false;
-      }
+      render();
       const feedback = document.getElementById("inbodyFeedback");
       if (feedback) {
         feedback.innerHTML = `<div class="notice"><h4>오늘 계산에 적용</h4><ul><li>방금 저장한 InBody 값을 오늘 계산에 적용했습니다.</li></ul>${buildTodayResultFeedbackActionHtml({
@@ -26808,12 +26795,7 @@ Notes:
           summary: getTodayResultFeedbackSummary(calculate(), { weight: latest.weight })
         }
       });
-      suppressTodayRecordAutoSync = true;
-      try {
-        render();
-      } finally {
-        suppressTodayRecordAutoSync = false;
-      }
+      render();
       return { loaded: true, latest };
     }
 
@@ -26826,12 +26808,7 @@ Notes:
       }
       const applied = applyInbodyRecordToTodayBodyStatus(latest, { loadType: TODAY_BODY_STATUS_LOAD_LATEST });
       if (!applied.applied) return { loaded: false, reason: applied.reason };
-      suppressTodayRecordAutoSync = true;
-      try {
-        render();
-      } finally {
-        suppressTodayRecordAutoSync = false;
-      }
+      render();
       const nextFeedback = document.getElementById("inbodyFeedback");
       if (nextFeedback) {
         nextFeedback.innerHTML = `<div class="notice"><h4>Today 몸 상태에 적용</h4><ul><li>최신 InBody 값을 Today 몸 상태에 적용했습니다.</li></ul>${buildTodayResultFeedbackActionHtml({
@@ -44388,6 +44365,33 @@ Notes:
           uiState.selectedMacroBasis = "activity";
           render();
           assertTest(getTodayRecordConfirmationState(calculate()).status === "current", "returning to the saved selected macro outputs should clear stale state");
+        })));
+
+        results.push(runNamedTest("v8.0-C record_detail_edit snapshot is protected from auto sync but can be manually confirmed", () => withRecordTestSandbox(() => {
+          const seeded = seedCurrentRecord();
+          upsertRecord({
+            date: today,
+            snapshotSource: "record_detail_edit"
+          });
+          const beforeChange = getRecordByDate(today);
+          assertTest(beforeChange.snapshotSource === "record_detail_edit", "fixture should mark the record snapshot as manually edited in Records");
+          setTodayCalculationDraftField("todayCardioDuration", "55", { markCardioUserEdited: true });
+          const changedResult = calculate();
+          const autoSync = syncTodayRecordGoalSnapshot(changedResult);
+          const afterAutoSync = getRecordByDate(today);
+          assertTest(autoSync.synced === false && autoSync.reason === "record_detail_edit_snapshot", "auto sync should not overwrite a record_detail_edit snapshot");
+          assertTest(afterAutoSync.snapshotSource === "record_detail_edit", "blocked auto sync should keep the record_detail_edit source");
+          assertTest(areGoalSnapshotsEquivalent(afterAutoSync.goalSnapshot, seeded.snapshot), "blocked auto sync should keep the manually edited snapshot");
+
+          render();
+          const staleState = getTodayRecordConfirmationState(changedResult);
+          assertTest(staleState.status === "stale", "manual Records snapshot should still show a user-confirmable basis mismatch");
+          document.querySelector("[data-update-today-record-basis]")?.click();
+          const afterManualConfirm = getRecordByDate(today);
+          assertTest(afterManualConfirm.snapshotSource === "today_manual_confirm", "manual confirmation should replace record_detail_edit source explicitly");
+          assertTest(areGoalSnapshotsEquivalent(afterManualConfirm.goalSnapshot, buildGoalSnapshotFromCurrentState(changedResult, "today_manual_confirm")), "manual confirmation should store the current Today basis");
+          assertTest(afterManualConfirm.note === beforeChange.note, "manual confirmation should preserve record memo");
+          assertTest(getTodayRecordConfirmationState(calculate()).status === "current", "manual confirmation should clear the stale prompt");
         })));
 
         results.push(runNamedTest("C4.8-A2 stale state appears after Today cardio basis changes", () => {

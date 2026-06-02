@@ -515,11 +515,24 @@ targetCal은 바뀌지 않지만 selected basis의 탄수/지방이 달라지므
 현재 기준갱신 흐름은 자동 저장보다 표시/수동 갱신 중심이라 즉시 버그로 단정하지 않는다.
 하지만 이름과 역할이 어긋나 있을 가능성이 있으므로 기준갱신 핫픽스 단계에서 확인해야 한다.
 
+2026-06-02 v8.0-C 반영:
+
+- `render()`는 자동 Today snapshot sync를 호출하지 않는다.
+- 이 플래그는 실제 분기에서 읽히지 않는 잔재 상태였으므로 제거했다.
+- 관련 InBody / 기록 체중 적용 흐름은 기존처럼 `render()`를 호출한다. 산식, score formula, Coach, recentContext, InBody gate, backup schema는 바꾸지 않았다.
+
 4. `record_detail_edit` source
 
 `syncTodayRecordGoalSnapshot()`은 `snapshotSource === "record_detail_edit"`이면 자동 sync를 막는다.
 그러나 `getTodayRecordConfirmationState()`는 해당 source여도 현재 기준과 다르면 stale 패널을 보여준다.
 이건 "사용자가 Records에서 당시 기준을 직접 편집한 기록"과 "Today 기준으로 다시 덮어쓸 수 있는 기록"의 UX 경계가 더 필요할 수 있다.
+
+2026-06-02 v8.0-C 반영:
+
+- `record_detail_edit` snapshot은 자동 Today sync가 덮지 않는 보호 기준으로 유지한다.
+- Today 기준과 다르면 stale 패널은 계속 보여준다. 이는 사용자가 명시적으로 현재 Today 기준으로 다시 저장할 수 있게 하는 경계다.
+- 사용자가 기준갱신 버튼을 누르면 `today_manual_confirm`으로 snapshot source가 바뀌고, 식사 / 공복 체중 / 메모는 유지된다.
+- `runTodayRecordConfirmationTests`에 자동 sync 차단과 수동 confirm 허용을 동시에 검증하는 v8.0-C 회귀 테스트를 추가했다.
 
 ## 9. 위험 지점 목록
 
@@ -554,8 +567,9 @@ P2 후보:
    - 선택 basis가 macro 기준을 바꾸면 기준갱신 대상으로 본다.
    - `selectedMacroBasis` 문자열은 UI-only 상태로 유지하고, 저장 snapshot에는 선택 basis의 산출 macro 값만 보관한다.
 
-3. `suppressTodayRecordAutoSync`가 실제 조건 분기에 쓰이지 않는다.
-   - 죽은 플래그인지, 빠진 조건인지 확인 필요.
+3. `suppressTodayRecordAutoSync`가 실제 조건 분기에 쓰이지 않는다. [v8.0-C 처리 완료]
+   - 실제 auto sync 분기가 빠진 것이 아니라, 더 이상 읽히지 않는 잔재 플래그였다.
+   - 플래그를 제거하고 관련 흐름은 기존 `render()` 호출로 단순화했다.
 
 ## 10. 다음 작업 기준
 
@@ -588,7 +602,8 @@ P2 후보:
 5. Today-Records 기준갱신의 사용자 노출 정책은 v8.0-A / v8.0-B에서 1차 고정했다.
    - snapshotless detailed 상태 분리는 v8.0-A에서 처리했다.
    - selected basis 토글 정책은 v8.0-B에서 처리했다.
-   - 남은 9-2 점검은 `suppressTodayRecordAutoSync` 이름/역할 불일치와 `record_detail_edit` UX 경계 확인이다.
+   - `suppressTodayRecordAutoSync` 잔재 정리와 `record_detail_edit` UX 경계 확인은 v8.0-C에서 처리했다.
+   - 다음 큰 작업은 9-4 현재/candidate side-by-side 시나리오 러너다.
 
 ## 11. 2026-06-02 추가 보강: 감사 한계와 다음 검증 요구
 
@@ -657,6 +672,14 @@ P2 후보:
 - v8.0-B desktop smoke 10 suites / 121 cases / failed 0
 - 2026-06-02 v8.0-B core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
 - v8.0-B desktop core 26 suites / 364 cases / failed 0
+- 2026-06-02 v8.0-C record_detail_edit 경계 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runTodayRecordConfirmationTests`
+- v8.0-C Today record confirmation suite 1 suite / 11 cases / failed 0
+- 2026-06-02 v8.0-C mobile 확인: `node .\tools\render_audit\run_internal_tests.cjs --mobile --suite=runTodayRecordConfirmationTests`
+- v8.0-C mobile Today record confirmation suite 1 suite / 11 cases / failed 0
+- 2026-06-02 v8.0-C smoke 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=smoke`
+- v8.0-C desktop smoke 10 suites / 121 cases / failed 0
+- 2026-06-02 v8.0-C core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
+- v8.0-C desktop core 26 suites / 364 cases / failed 0
 
 실행하지 않은 것:
 
@@ -668,3 +691,4 @@ P2 후보:
 최초 작성 시점에는 구현 변경이 없는 감사 산출물이었으므로 전체 테스트를 생략했다.
 v8.0-A snapshotless 기준 저장 상태 분리 이후에는 관련 suite, mobile viewport suite, desktop smoke, desktop core를 실행했다.
 v8.0-B selected macro basis 정책 고정 이후에는 Today record confirmation suite를 desktop/mobile viewport에서 실행했고, desktop smoke/core 회귀도 다시 실행했다.
+v8.0-C record_detail_edit 보호 / 잔재 플래그 정리 이후에는 Today record confirmation suite를 desktop/mobile viewport에서 실행했고, desktop smoke/core 회귀도 다시 실행했다.
