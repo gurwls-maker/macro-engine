@@ -1,8 +1,11 @@
 <!--
 Version: 8.0
-Stage: v8.0-G 9-7 context macro candidate 비교 1차 구현
+Stage: v8.0-H 9-7 profile session carbohydrate policy 검토 1차 구현
 Date: 2026-06-03
 Notes:
+- v8.0-H profileSession별 carbohydrate policy review report-only 레이어를 추가해 running / strength / powerbuilding / mixed 세션을 production routine fallback과 분리 검토
+- v8.0-H current / candidate-v8-context-macro-v0 탄수 g/kg를 세션 부하별 외부근거 검토범위와 비교하되 profile-specific formula / score / Coach / recentContext / InBody gate / backup schema 변경 없음
+- v8.0-H resistance profile은 endurance carb range를 무리하게 덮어씌우지 않도록 resistance-specific evidence limitation을 별도 finding으로 남김
 - v8.0-G 9-7 candidate-v8-context-macro-v0 report-only 비교를 추가해 targetCal / score / Coach / recentContext / InBody gate / backup schema 변경 없이 current vs context macro candidate를 비교
 - v8.0-G 필수 1913 케이스에서 ISSN general protein cap review를 계약으로 적용해 diet 2.4g/kg high-priority 신호를 report-only로 비교하고, 아직 남는 신호는 remaining findings로 보존
 - v8.0-G candidate-v0는 승인 산식이 아니며 profile-specific carbohydrate / maintain / production contract는 아직 보류
@@ -52134,8 +52137,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-G";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-G context macro candidate comparison + candidate design + current macro audit + current/candidate axis + human-review scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-H";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-H profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -53248,6 +53251,16 @@ Notes:
       }
     });
 
+    const V8_PROFILE_SESSION_CARB_REFERENCES = Object.freeze({
+      resistanceCarbohydrateReview2016: {
+        evidenceLevel: "external_sports_nutrition_reference_with_limited_directness",
+        source: "Henselmans and Schoenfeld review: carbohydrate intake and resistance-based exercise, 2016",
+        url: "https://www.cambridge.org/core/journals/british-journal-of-nutrition/article/carbohydrate-intake-and-resistancebased-exercise-are-current-recommendations-reflective-of-actual-need/45C97BD7A99949777E3474E50709A7DA",
+        scope: "resistance_training_carbohydrate_need_is_less_conclusive_than_endurance",
+        appUse: "avoid_overapplying_endurance_carbohydrate_ranges_to_strength_powerbuilding_or_bodybuilding_sessions"
+      }
+    });
+
     function getV8FindingCount(summary, findingId){
       return Number(summary?.findingCounts?.[findingId]) || 0;
     }
@@ -53695,6 +53708,234 @@ Notes:
       };
     }
 
+    function getV8ProfileSessionCarbPolicy(input){
+      const profile = input?.exerciseProfile || "bodybuilding";
+      const session = input?.profileSession || "";
+      const weightDuration = Math.max(0, Number(input?.todayWeightDuration) || 0);
+      const cardioDuration = Math.max(0, Number(input?.cardioDuration) || 0);
+      const totalDuration = weightDuration + cardioDuration;
+      const hasTraining = totalDuration > 0;
+      if (!hasTraining || session === "rest") {
+        return {
+          profile,
+          profileLoadClass: "rest_or_no_training",
+          externalCarbReviewRangeGPerKg: null,
+          evidenceKeys: ["currentFormulaReport"],
+          evidenceLevel: "product_policy_plus_internal_formula_evidence",
+          interpretation: "rest day has no performance carbohydrate floor in this report layer",
+          directness: "no_external_floor_applied"
+        };
+      }
+      if (profile === "running") {
+        const range = cardioDuration >= 180 || totalDuration >= 240
+          ? { min: 8, max: 12, basis: "very_high_endurance_commitment" }
+          : (cardioDuration >= 60 || totalDuration > 90
+            ? { min: 6, max: 10, basis: "moderate_high_endurance_or_mixed_duration" }
+            : { min: 5, max: 7, basis: "around_one_hour_endurance_load" });
+        return {
+          profile,
+          profileLoadClass: range.basis,
+          externalCarbReviewRangeGPerKg: { min: range.min, max: range.max },
+          evidenceKeys: ["acsmNutritionAthleticPerformance2016"],
+          evidenceLevel: "external_sports_nutrition_reference",
+          interpretation: "running carbohydrate need is driven by cardio-carried load, not by the UPPER support routine fallback",
+          directness: "endurance_training_load_reference"
+        };
+      }
+      if (profile === "mixed") {
+        const range = cardioDuration >= 45 && weightDuration >= 45
+          ? { min: 6, max: 10, basis: "mixed_weight_cardio_moderate_high_load" }
+          : { min: 5, max: 7, basis: "mixed_weight_cardio_moderate_load" };
+        return {
+          profile,
+          profileLoadClass: range.basis,
+          externalCarbReviewRangeGPerKg: { min: range.min, max: range.max },
+          evidenceKeys: ["acsmNutritionAthleticPerformance2016", "resistanceCarbohydrateReview2016"],
+          evidenceLevel: "external_sports_nutrition_reference_plus_limited_resistance_directness",
+          interpretation: "mixed profile needs a priority rule because endurance and resistance references do not collapse into one production routine",
+          directness: "mixed_profile_requires_app_policy"
+        };
+      }
+      if (profile === "bodybuilding") {
+        return {
+          profile,
+          profileLoadClass: weightDuration >= 75 ? "bodybuilding_high_volume_resistance" : "bodybuilding_moderate_resistance",
+          externalCarbReviewRangeGPerKg: { min: 4, max: 7 },
+          evidenceKeys: ["resistanceCarbohydrateReview2016"],
+          evidenceLevel: "external_sports_nutrition_reference_with_limited_directness",
+          interpretation: "bodybuilding carbohydrate range is a review reference, not a performance guarantee or production floor",
+          directness: "resistance_training_reference_limited"
+        };
+      }
+      return {
+        profile,
+        profileLoadClass: profile === "strength" ? "strength_power_resistance" : "powerbuilding_hybrid_resistance",
+        externalCarbReviewRangeGPerKg: { min: 3, max: 5 },
+        evidenceKeys: ["resistanceCarbohydrateReview2016"],
+        evidenceLevel: "external_sports_nutrition_reference_with_limited_directness",
+        interpretation: "strength and powerbuilding need resistance-specific policy; endurance ranges are not directly applied",
+        directness: "resistance_training_reference_limited"
+      };
+    }
+
+    function makeV8ProfileSessionCarbFinding(id, severity, evidenceKeys, note, details = {}){
+      return {
+        id,
+        severity,
+        evidenceKeys,
+        note,
+        details
+      };
+    }
+
+    function getV8ProfileCarbRangePosition(value, range){
+      if (!range || !Number.isFinite(value)) return "not_applicable";
+      if (value < range.min - 1e-6) return "below_review_floor";
+      if (value > range.max + 1e-6) return "above_review_range";
+      return "inside_review_range";
+    }
+
+    function buildV8ProfileSessionCarbPolicyCase(item, candidateComparison){
+      const input = item?.input || {};
+      const policy = getV8ProfileSessionCarbPolicy(input);
+      const weight = Math.max(1, Number(input.weight) || 1);
+      const currentCarbsKg = Number(item?.current?.macro?.carb_g_per_kg_bodyweight);
+      const candidateCarbsKg = Number(candidateComparison?.candidate?.carbsG) / weight;
+      const range = policy.externalCarbReviewRangeGPerKg;
+      const findings = [];
+      if (input.exerciseProfile !== "bodybuilding") {
+        findings.push(makeV8ProfileSessionCarbFinding(
+          "profile_formula_pending_non_bodybuilding",
+          "review",
+          ["currentFormulaReport"],
+          "Non-bodybuilding profile still uses production routine fallback rather than an approved profile formula.",
+          { exerciseProfile: input.exerciseProfile, profileSession: input.profileSession }
+        ));
+      }
+      if (input.exerciseProfile !== "bodybuilding" && input.todayRoutineRole === "production_calculation_fallback") {
+        findings.push(makeV8ProfileSessionCarbFinding(
+          "production_routine_fallback_not_profile_session",
+          "review",
+          ["currentFormulaReport"],
+          "Production routine is a calculation fallback and should not be presented as the user's actual profile session.",
+          {
+            profileSession: input.profileSession,
+            productionRoutineFallback: input.productionRoutineFallback,
+            productionRoutineFallbackReason: input.productionRoutineFallbackReason
+          }
+        ));
+      }
+      if (input.exerciseProfile === "running") {
+        findings.push(makeV8ProfileSessionCarbFinding(
+          "running_load_carried_by_cardio_not_macro_policy",
+          "high",
+          ["acsmNutritionAthleticPerformance2016", "currentFormulaReport"],
+          "Running load is represented by cardio fields, but macro policy is not yet profile/session-specific.",
+          { cardioDuration: input.cardioDuration, cardioSpeed: input.cardioSpeed, productionRoutineFallback: input.productionRoutineFallback }
+        ));
+      }
+      if (policy.directness === "resistance_training_reference_limited") {
+        findings.push(makeV8ProfileSessionCarbFinding(
+          "resistance_carb_evidence_limited_do_not_overapply_endurance_range",
+          "review",
+          ["resistanceCarbohydrateReview2016"],
+          "Resistance-training carbohydrate evidence is less direct than endurance guidance; v8 should not blindly apply endurance ranges here.",
+          { exerciseProfile: input.exerciseProfile, profileSession: input.profileSession }
+        ));
+      }
+      if (range && Number.isFinite(currentCarbsKg) && currentCarbsKg < range.min - 1e-6) {
+        findings.push(makeV8ProfileSessionCarbFinding(
+          "current_carb_below_profile_session_review_floor",
+          policy.directness === "endurance_training_load_reference" ? "high" : "review",
+          policy.evidenceKeys,
+          "Current carbohydrate g/kg falls below the profile/session review floor for this report layer.",
+          { carbGPerKgBodyweight: currentCarbsKg, reviewFloor: range.min, profileLoadClass: policy.profileLoadClass }
+        ));
+      }
+      if (range && Number.isFinite(candidateCarbsKg) && candidateCarbsKg < range.min - 1e-6) {
+        findings.push(makeV8ProfileSessionCarbFinding(
+          "candidate_v0_carb_still_below_profile_session_review_floor",
+          policy.directness === "endurance_training_load_reference" ? "high" : "review",
+          policy.evidenceKeys,
+          "candidate-v8-context-macro-v0 still does not meet the profile/session carbohydrate review floor.",
+          { carbGPerKgBodyweight: candidateCarbsKg, reviewFloor: range.min, profileLoadClass: policy.profileLoadClass }
+        ));
+      }
+      return {
+        caseId: item.id,
+        title: item.title,
+        layer: item.layer,
+        requiredRegression: !!item.requiredRegression,
+        exerciseProfile: input.exerciseProfile,
+        profileSession: input.profileSession,
+        profileSessionStatus: input.profileSessionStatus,
+        todayRoutine: input.todayRoutine,
+        todayRoutineRole: input.todayRoutineRole,
+        productionRoutineFallback: input.productionRoutineFallback,
+        productionRoutineFallbackReason: input.productionRoutineFallbackReason,
+        weight,
+        currentCarbsGPerKgBodyweight: Number.isFinite(currentCarbsKg) ? currentCarbsKg : null,
+        candidateCarbsGPerKgBodyweight: Number.isFinite(candidateCarbsKg) ? candidateCarbsKg : null,
+        currentRangePosition: getV8ProfileCarbRangePosition(currentCarbsKg, range),
+        candidateRangePosition: getV8ProfileCarbRangePosition(candidateCarbsKg, range),
+        policy,
+        findingIds: findings.map(finding => finding.id),
+        findings
+      };
+    }
+
+    function summarizeV8ProfileSessionCarbPolicyCases(cases){
+      const allFindingIds = cases.flatMap(item => item.findingIds);
+      const counts = Object.fromEntries([...new Set(allFindingIds)].sort().map(id => [
+        id,
+        allFindingIds.filter(item => item === id).length
+      ]));
+      return {
+        caseCount: cases.length,
+        profileFormulaPendingCount: cases.filter(item => item.findingIds.includes("profile_formula_pending_non_bodybuilding")).length,
+        productionFallbackCount: cases.filter(item => item.findingIds.includes("production_routine_fallback_not_profile_session")).length,
+        currentBelowReviewFloorCount: cases.filter(item => item.findingIds.includes("current_carb_below_profile_session_review_floor")).length,
+        candidateBelowReviewFloorCount: cases.filter(item => item.findingIds.includes("candidate_v0_carb_still_below_profile_session_review_floor")).length,
+        highPriorityCaseCount: cases.filter(item => item.findings.some(finding => finding.severity === "high")).length,
+        findingCounts: counts,
+        currentCarbsGPerKgBodyweight: summarizeCalibrationValues(cases.map(item => item.currentCarbsGPerKgBodyweight)),
+        candidateCarbsGPerKgBodyweight: summarizeCalibrationValues(cases.map(item => item.candidateCarbsGPerKgBodyweight)),
+        profiles: Object.fromEntries([...new Set(cases.map(item => item.exerciseProfile))].sort().map(profile => [
+          profile,
+          cases.filter(item => item.exerciseProfile === profile).length
+        ]))
+      };
+    }
+
+    function buildV8ProfileSessionCarbPolicyReport(cases, candidateFormulaComparison){
+      const comparisonById = Object.fromEntries((candidateFormulaComparison?.cases || []).map(item => [item.caseId, item]));
+      const policyCases = cases.map(item => buildV8ProfileSessionCarbPolicyCase(item, comparisonById[item.id]));
+      const axisCases = policyCases.filter(item => item.layer === "axisCoverage");
+      const humanCases = policyCases.filter(item => item.layer === "humanReview");
+      return {
+        meta: {
+          stage: "9-7_profile_session_carbohydrate_policy_review_v0",
+          reportOnly: true,
+          productionFormulaChanged: false,
+          candidateFormulaApproved: false,
+          sourceCandidateFormulaStage: candidateFormulaComparison?.meta?.stage || null,
+          profileSpecificCarbohydratePolicyApplied: false,
+          targetChanged: false,
+          scoreCoachRecentContextChanged: false,
+          nonGoal: "does_not_apply_profile_specific_macro_formula_or_ui_schema_changes"
+        },
+        evidenceReferences: {
+          acsmNutritionAthleticPerformance2016: V8_CANDIDATE_DESIGN_REFERENCES.acsmNutritionAthleticPerformance2016,
+          resistanceCarbohydrateReview2016: V8_PROFILE_SESSION_CARB_REFERENCES.resistanceCarbohydrateReview2016,
+          currentFormulaReport: V8_MACRO_AUDIT_REFERENCES.currentFormulaReport
+        },
+        summary: summarizeV8ProfileSessionCarbPolicyCases(policyCases),
+        axisCoverageSummary: summarizeV8ProfileSessionCarbPolicyCases(axisCases),
+        humanReviewSummary: summarizeV8ProfileSessionCarbPolicyCases(humanCases),
+        cases: policyCases
+      };
+    }
+
     function buildV8ScenarioOutput(kind, definition, result, source){
       const safeSource = source || result;
       const output = {
@@ -53844,6 +54085,7 @@ Notes:
         const macroAudit = buildV8MacroAuditReport(axisCases, humanReviewCases, requiredCase);
         const candidateDesign = buildV8CandidateDesignReport(macroAudit, axisCoverageSummary);
         const candidateFormulaComparison = buildV8ContextMacroCandidateComparison([...axisCases, ...humanReviewCases], macroAudit);
+        const profileSessionCarbPolicy = buildV8ProfileSessionCarbPolicyReport([...axisCases, ...humanReviewCases], candidateFormulaComparison);
         const report = {
           meta: {
             version: V8_SCENARIO_RUNNER_VERSION,
@@ -53872,6 +54114,7 @@ Notes:
               "9-3 macro audit is report-only and classifies current macro risks before formula changes.",
               "9-5/9-6 candidateDesign is a report-only scaffold; it does not approve or apply a new formula.",
               "9-7 context macro candidate-v0 is report-only; it keeps target calories unchanged and compares macro redistribution only.",
+              "9-7 profileSession carbohydrate policy review is report-only; it separates running/resistance/mixed session needs from production routine fallback.",
               "Do not treat candidate-no-weekly-xw or candidate-v8-context-macro-v0 as the final v8 formula."
             ]
           },
@@ -53890,11 +54133,19 @@ Notes:
               targetChangedCount: candidateFormulaComparison.summary.targetChangedCount,
               proteinReducedCount: candidateFormulaComparison.summary.proteinReducedCount,
               candidateHighPriorityCaseCount: candidateFormulaComparison.summary.candidateHighPriorityCaseCount
+            },
+            profileSessionCarbPolicy: {
+              stage: profileSessionCarbPolicy.meta.stage,
+              profileFormulaPendingCount: profileSessionCarbPolicy.summary.profileFormulaPendingCount,
+              currentBelowReviewFloorCount: profileSessionCarbPolicy.summary.currentBelowReviewFloorCount,
+              candidateBelowReviewFloorCount: profileSessionCarbPolicy.summary.candidateBelowReviewFloorCount,
+              highPriorityCaseCount: profileSessionCarbPolicy.summary.highPriorityCaseCount
             }
           },
           macroAudit,
           candidateDesign,
           candidateFormulaComparison,
+          profileSessionCarbPolicy,
           axisCoverage: {
             summary: axisCoverageSummary,
             cases: options.includeAxisCases === false ? [] : axisCases
@@ -54108,6 +54359,33 @@ Notes:
           ], "required 1913 resolved findings should identify the protein-context change");
           assertTest(required.remainingFindingIds.length > 0, "candidate-v0 should keep unresolved findings instead of overclaiming final approval");
           assertIncludesAll(required.candidate.redistributionReason.join(" "), ["target_calorie_unchanged", "residual_kcal_reallocated_to_carbs"], "candidate-v0 redistribution reason should explain the macro-only comparison");
+        }));
+
+        results.push(runNamedTest("v8.0-H 9-7 profile session carbohydrate policy separates running and resistance review without approving formula", () => {
+          const report = runV8ScenarioRunner();
+          const policy = report.profileSessionCarbPolicy;
+          assertTest(policy?.meta?.stage === "9-7_profile_session_carbohydrate_policy_review_v0", "profile session carb policy should identify v8.0-H stage");
+          assertTest(policy.meta.reportOnly === true, "profile session carb policy should be report-only");
+          assertTest(policy.meta.productionFormulaChanged === false, "profile session carb policy must not change production formula");
+          assertTest(policy.meta.candidateFormulaApproved === false, "profile session carb policy must not approve a formula");
+          assertTest(policy.meta.profileSpecificCarbohydratePolicyApplied === false, "profile-specific carbohydrate formula should remain pending");
+          assertTest(policy.evidenceReferences.acsmNutritionAthleticPerformance2016.evidenceLevel === "external_sports_nutrition_reference", "ACSM/AND/DC reference should remain external evidence");
+          assertTest(policy.evidenceReferences.resistanceCarbohydrateReview2016.evidenceLevel.includes("limited_directness"), "resistance carbohydrate evidence should be marked limited-directness");
+          assertTest(policy.summary.caseCount === report.axisCoverage.cases.length + report.humanReview.cases.length, "profile policy should cover axis and human-review cases");
+          assertTest(policy.summary.profileFormulaPendingCount > 0, "profile policy should count non-bodybuilding pending formulas");
+          assertTest(policy.summary.productionFallbackCount > 0, "profile policy should expose production routine fallback cases");
+          const running = policy.cases.find(item => item.caseId === "running_focused");
+          assertTest(running?.exerciseProfile === "running", "running-focused case should exist in profile policy report");
+          assertTest(running.policy.externalCarbReviewRangeGPerKg.min === 5, "running tempo case should use the around-one-hour endurance review floor");
+          assertTest(running.productionRoutineFallback === "UPPER", "running case should preserve UPPER only as production fallback");
+          assertIncludesAll(running.findingIds, [
+            "profile_formula_pending_non_bodybuilding",
+            "production_routine_fallback_not_profile_session",
+            "running_load_carried_by_cardio_not_macro_policy"
+          ], "running profile policy findings should separate actual running load from support routine fallback");
+          const strength = policy.cases.find(item => item.caseId === "strength_focused");
+          assertTest(strength?.policy?.directness === "resistance_training_reference_limited", "strength case should use limited-directness resistance policy");
+          assertIncludesAll(strength.findingIds, ["resistance_carb_evidence_limited_do_not_overapply_endurance_range"], "strength case should warn against overapplying endurance carb ranges");
         }));
 
         results.push(runNamedTest("v8.0-D text report is human-readable and candidate is not production-approved", () => {

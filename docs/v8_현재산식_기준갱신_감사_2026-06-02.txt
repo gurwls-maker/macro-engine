@@ -903,6 +903,73 @@ candidate-v0가 하지 않는 일:
 - v8.0-G는 "현재 diet 2.4g/kg BW 기본값이 일반 사용자 기본값으로는 과한 신호를 만든다"는 현재 감사 결과를 후보 비교 수치로 확인한 단계다.
 - profile-specific carbohydrate, maintain, Records snapshot, export/import contract는 다음 단계에서 별도로 다뤄야 한다.
 
+## 11-5. 2026-06-03 v8.0-H 9-7 profileSession carbohydrate policy review 1차
+
+v8.0-H에서는 산식을 바꾸지 않고 `runV8ScenarioRunner()`에 `profileSessionCarbPolicy` report-only 레이어를 추가했다.
+
+이 레이어의 목적:
+
+- 운동 프로필별 세션을 production routine fallback과 분리해서 본다.
+- current와 `candidate-v8-context-macro-v0`의 탄수 g/kg를 profileSession별 검토범위와 비교한다.
+- running / mixed의 endurance-carried load와 bodybuilding / strength / powerbuilding의 resistance load를 같은 규칙으로 뭉개지 않는다.
+- profile-specific carbohydrate formula를 승인하거나 적용하지 않는다.
+
+근거 검토:
+
+- Academy / Dietitians of Canada / ACSM 2016 position stand는 운동 수행과 회복이 훈련/경기 시나리오별 nutrition strategy에 의해 개선될 수 있고, 식품/영양소의 양과 timing이 scenario-specific이어야 한다고 제시한다. 이 문서는 v8.0-H에서 running/mixed training-load carbohydrate review reference로만 사용한다.
+- Henselmans / Schoenfeld 2016 BJN review는 resistance-based exercise의 carbohydrate 필요량은 endurance보다 직접 확립되어 있지 않으며, strength/power/bodybuilding 맥락에는 별도 주의가 필요하다는 근거로 사용한다.
+- 따라서 v8.0-H는 endurance carb range를 strength / powerbuilding / bodybuilding에 그대로 씌우지 않고, `resistance_carb_evidence_limited_do_not_overapply_endurance_range` finding을 남긴다.
+- `currentFormulaReport`는 내부 구현 근거이며, production routine fallback이 actual profile session과 다르다는 사실을 드러내는 데만 쓴다.
+
+v8.0-H runner summary:
+
+- 전체 profileSessionCarbPolicy case count: 91
+- profileFormulaPendingCount: 13
+- productionFallbackCount: 13
+- currentBelowReviewFloorCount: 56
+- candidateBelowReviewFloorCount: 50
+- highPriorityCaseCount: 3
+
+human-review summary:
+
+- case count: 18
+- profileFormulaPendingCount: 5
+- productionFallbackCount: 5
+- currentBelowReviewFloorCount: 4
+- candidateBelowReviewFloorCount: 3
+- highPriorityCaseCount: 1
+
+대표 확인:
+
+- `running_focused`
+  - profileSession: `running_tempo_50m_support_upper`
+  - productionRoutineFallback: `UPPER`
+  - current/candidate carbs: 6.83g/kg
+  - review range: 5-7g/kg
+  - interpretation: 탄수량 자체는 around-one-hour endurance review range 안이지만, `UPPER`는 보조 상체 fallback일 뿐 actual running session이 아니며 cardio-carried running load가 아직 macro policy에 연결되지 않았다.
+  - findings: `profile_formula_pending_non_bodybuilding`, `production_routine_fallback_not_profile_session`, `running_load_carried_by_cardio_not_macro_policy`
+- `strength_focused`
+  - profileSession: `strength_heavy_lower_90m`
+  - productionRoutineFallback: `LOWER`
+  - current/candidate carbs: 5.67g/kg
+  - resistance review range: 3-5g/kg
+  - interpretation: high carb 자체를 오류로 단정하지 않는다. 다만 strength profile에는 endurance range를 그대로 적용하지 않고 resistance-specific policy를 별도로 설계해야 한다.
+  - findings: `profile_formula_pending_non_bodybuilding`, `production_routine_fallback_not_profile_session`, `resistance_carb_evidence_limited_do_not_overapply_endurance_range`
+- `low_reliability_user` mixed case
+  - profileSession: `mixed_strength_cardio_70m`
+  - current carbs: 5.52g/kg
+  - candidate-v0 carbs: 5.88g/kg
+  - mixed review floor: 6g/kg
+  - interpretation: v8.0-G의 단백질 context 후보만으로는 mixed profile carbohydrate floor 문제가 해결되지 않는다.
+- `required_user_rest_diet_1913`
+  - rest-day case이므로 performance carbohydrate floor를 적용하지 않는다.
+
+해석 주의:
+
+- v8.0-H는 "profile-specific carbohydrate formula"를 구현한 것이 아니다.
+- v8.0-H는 세션별 탄수 정책을 앱에 적용하기 전에, 어떤 프로필이 production routine fallback 때문에 오해될 수 있는지와 어떤 케이스가 current/candidate-v0 모두에서 여전히 세션 부하와 충돌하는지를 드러내는 감사 레이어다.
+- 다음 단계에서는 이 결과를 바탕으로 maintain goal mapping 또는 profile-specific macro candidate-v1 중 어느 것을 production contract와 먼저 연결할지 결정해야 한다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -989,6 +1056,18 @@ candidate-v0가 하지 않는 일:
 - v8.0-G desktop smoke 10 suites / 121 cases / failed 0
 - 2026-06-03 v8.0-G core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
 - v8.0-G desktop core 26 suites / 364 cases / failed 0
+- 2026-06-03 v8.0-H diff 확인: `git diff --check`
+- v8.0-H diff check passed
+- 2026-06-03 v8.0-H profileSession carbohydrate policy 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-H scenario runner suite 1 suite / 12 cases / failed 0
+- 2026-06-03 v8.0-H profileSessionCarbPolicy summary 직접 확인: Playwright Edge/Chrome fallback으로 `window.runV8ScenarioRunner().profileSessionCarbPolicy` 추출
+- v8.0-H profileSessionCarbPolicy 91 cases, profileFormulaPendingCount 13, productionFallbackCount 13, currentBelowReviewFloorCount 56, candidateBelowReviewFloorCount 50, highPriorityCaseCount 3 확인
+- 2026-06-03 v8.0-H calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-H desktop calibration 14 suites / 120 cases / failed 0
+- 2026-06-03 v8.0-H smoke 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=smoke`
+- v8.0-H desktop smoke 10 suites / 121 cases / failed 0
+- 2026-06-03 v8.0-H core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
+- v8.0-H desktop core 26 suites / 364 cases / failed 0
 
 실행하지 않은 것:
 
@@ -1007,3 +1086,4 @@ v8.0-D1 근거 등급 재감사 이후에는 업무 보정축 active fixture가 
 v8.0-E 9-3 현재 탄단지 감사 레이어 이후에는 `macroAudit`가 report-only / productionFormulaChanged false로 남고, 필수 1913 케이스가 단백질 context mismatch와 carb/fat 내부 충돌을 모두 표시하는지 `runV8ScenarioRunnerTests`로 확인했다.
 v8.0-F 9-5/9-6 candidate 설계 레이어 이후에는 `candidateDesign`이 report-only / productionFormulaChanged false / candidateFormulaApproved false로 남고, maintain key, protein context gate, fat/carb joint redistribution, profile-specific carbohydrate policy, profile session input contract가 required next decision에 포함되는지 `runV8ScenarioRunnerTests`로 확인했다.
 v8.0-G 9-7 context macro candidate-v0 비교 이후에는 `candidateFormulaComparison`이 report-only / productionFormulaChanged false / candidateFormulaApproved false로 남고, 필수 1913 케이스에서 targetCal은 유지하며 protein 180.5g -> 150.4g, carbs 196.3g -> 226.4g로 바뀌되 remaining findings가 보존되는지 `runV8ScenarioRunnerTests`로 확인했다.
+v8.0-H 9-7 profileSession carbohydrate policy review 이후에는 `profileSessionCarbPolicy`가 report-only / productionFormulaChanged false / candidateFormulaApproved false로 남고, running 세션의 cardio-carried load와 UPPER fallback을 분리하며, resistance profile에는 endurance range를 무리하게 적용하지 않는 finding이 남는지 `runV8ScenarioRunnerTests`로 확인했다.
