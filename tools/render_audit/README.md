@@ -11,6 +11,7 @@ node .\tools\render_audit\run_internal_tests.cjs
 node .\tools\render_audit\run_internal_tests.cjs --mobile
 node .\tools\render_audit\capture_render_audit.cjs
 node .\tools\render_audit\analyze_render_audit.cjs
+node .\tools\render_audit\run_v8_full_cartesian_shard.cjs --start=0 --limit=8 --max-cases=8
 ```
 
 특정 브라우저 채널을 지정해야 할 때:
@@ -29,6 +30,7 @@ node .\tools\render_audit\run_internal_tests.cjs
 - `pages/`
 - `_debug/`
 - `seeds/`
+- `v8_full_cartesian_shards/`
 
 필요한 기준 스크린샷은 `_ui_refs/current_baseline_YYYY_MM_DD` 같은 ignored 폴더에 별도로 복사해서 사용합니다.
 
@@ -48,3 +50,17 @@ It verifies:
 - each mobile capture is full-page expanded and its PNG height matches the captured scroll height
 
 This tool is a visual-audit evidence gate. It does not approve formulas or mutate app state.
+
+## V8 Full Cartesian Shard Pilot
+
+`run_v8_full_cartesian_shard.cjs` loads `index.html` in the same browser harness and calls `runV8FullCartesianShard()`.
+
+Use it only for bounded shard evidence:
+
+```powershell
+node .\tools\render_audit\run_v8_full_cartesian_shard.cjs --start=0 --limit=8 --max-cases=8
+node .\tools\render_audit\run_v8_full_cartesian_shard.cjs --start=1152 --limit=3 --max-cases=3
+```
+
+The JSON output is ignored under `tools/render_audit/v8_full_cartesian_shards/`.
+This does not execute the full `80,621,568,000` Cartesian set and must not be used to close the full V8 gate by itself.

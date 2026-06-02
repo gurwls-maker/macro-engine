@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-AC full Cartesian execution contract
+Stage: v8.0-AD deterministic full Cartesian shard pilot
 Date: 2026-06-03
 Notes:
+- v8.0-AD adds a bounded full Cartesian shard executor and manifest tool so future 8-2 shard runs can produce evidence without closing the full execution gate early
 - v8.0-AC adds a deterministic 8-2 full Cartesian index/shard contract so the 80,621,568,000 required-axis product is traceable without pretending it has been executed
 - v8.0-AB extends render audit to capture the wired candidate-v2 production case on Today and Records, and analyzer now requires runtime evidence that selectedMacroBasis=profile_candidate_v2 and productionTargetCalApplied=true
 - v8.0-AA wires the approved candidate-v2 target/macro output into the production calculate() result for active profile target-delta cases while keeping post-wiring visual QA and full V8 completion open
@@ -53394,8 +53395,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-AC";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-AC full Cartesian execution contract + v8.0-AB post-wiring production visual QA + v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-AD";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-AD deterministic full Cartesian shard pilot + v8.0-AC full Cartesian execution contract + v8.0-AB post-wiring production visual QA + v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -58906,6 +58907,125 @@ Notes:
       };
     }
 
+    function buildV8FullCartesianShardDefinition(decoded, ordinal){
+      const rowId = `full_cartesian_${String(decoded.index).padStart(11, "0")}`;
+      const base = buildV8PairwiseStressDefinition({
+        id: rowId,
+        tuple: decoded.tuple,
+        coveredPairCount: 0,
+        coveredPairIds: []
+      }, ordinal);
+      return {
+        ...base,
+        id: rowId,
+        title: `8-2 full Cartesian shard: ${decoded.indexLabel}`,
+        layer: "fullCartesianShard",
+        calibrationAxis: "v8FullCartesianShard",
+        fullCartesianIndex: decoded.index,
+        fullCartesianIndexLabel: decoded.indexLabel,
+        fullCartesianTuple: decoded.tuple,
+        fullCartesianConstraintViolations: decoded.constraintViolations
+      };
+    }
+
+    function summarizeV8FullCartesianShardCases(calculatedCases, constraintOnlyCases){
+      const targetValues = calculatedCases.map(item => item.current?.target?.finalTargetCal);
+      const carbValues = calculatedCases.map(item => item.current?.macro?.carb_g_per_kg_bodyweight);
+      const constraintReasons = constraintOnlyCases.flatMap(item => item.constraintViolations || []);
+      const countValues = values => Object.fromEntries([...new Set(values)].sort().map(value => [
+        value,
+        values.filter(item => item === value).length
+      ]));
+      return {
+        calculatedCaseCount: calculatedCases.length,
+        constraintOnlyCaseCount: constraintOnlyCases.length,
+        constraintViolationCounts: countValues(constraintReasons),
+        calculatedTargetCal: summarizeCalibrationValues(targetValues),
+        calculatedCarbsGPerKgBodyweight: summarizeCalibrationValues(carbValues)
+      };
+    }
+
+    function runV8FullCartesianShard(options = {}){
+      return withCalibrationReportSandbox(() => {
+        const total = getV8NominalAxisProduct();
+        const requestedStart = Number(options.startIndex ?? options.start ?? 0);
+        const startIndex = Number.isInteger(requestedStart) && requestedStart >= 0
+          ? Math.min(requestedStart, total)
+          : 0;
+        const requestedEnd = Number(options.endExclusive ?? options.end);
+        const requestedLimit = Number(options.caseLimit ?? options.limit ?? 100);
+        const maxCasesInput = Number(options.maxCases ?? 1000);
+        const maxCases = Number.isInteger(maxCasesInput) && maxCasesInput > 0 ? maxCasesInput : 1000;
+        const plannedEndExclusive = Number.isInteger(requestedEnd) && requestedEnd >= startIndex
+          ? Math.min(requestedEnd, total)
+          : Math.min(startIndex + (Number.isInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : 100), total);
+        const executedEndExclusive = Math.min(plannedEndExclusive, startIndex + maxCases);
+        const calculatedCases = [];
+        const constraintOnlyCases = [];
+        for (let index = startIndex; index < executedEndExclusive; index += 1) {
+          const decoded = decodeV8FullCartesianTupleIndex(index);
+          if (decoded.constraintViolations.length) {
+            constraintOnlyCases.push({
+              index: decoded.index,
+              indexLabel: decoded.indexLabel,
+              tuple: decoded.tuple,
+              calculated: false,
+              constraintViolations: decoded.constraintViolations
+            });
+            continue;
+          }
+          const definition = buildV8FullCartesianShardDefinition(decoded, calculatedCases.length);
+          const caseResult = buildV8ScenarioCase(definition, calculatedCases.length);
+          calculatedCases.push({
+            index: decoded.index,
+            indexLabel: decoded.indexLabel,
+            tuple: decoded.tuple,
+            calculated: true,
+            input: caseResult.input,
+            current: caseResult.current,
+            candidate: caseResult.candidate,
+            delta: caseResult.delta
+          });
+        }
+        const shardSummary = summarizeV8FullCartesianShardCases(calculatedCases, constraintOnlyCases);
+        return {
+          meta: {
+            stage: "8-2_full_cartesian_shard_execution_v0",
+            version: V8_SCENARIO_RUNNER_VERSION,
+            generatedAt: new Date().toISOString(),
+            reportOnly: true,
+            fullCartesianRun: false,
+            boundedShardRun: true,
+            productionFormulaChanged: false,
+            candidateFormulaApproved: false,
+            startIndex,
+            endExclusive: plannedEndExclusive,
+            executedEndExclusive,
+            requestedCaseCount: plannedEndExclusive - startIndex,
+            decodedCaseCount: executedEndExclusive - startIndex,
+            maxCases,
+            truncated: executedEndExclusive < plannedEndExclusive,
+            coverageMode: "bounded_full_cartesian_shard_execution_pilot",
+            nonGoal: "does_not_close_full_8_2_cartesian_execution_or_full_v8_completion"
+          },
+          summary: {
+            nominalFullCartesianCaseCount: total,
+            decodedCaseCount: executedEndExclusive - startIndex,
+            requestedCaseCount: plannedEndExclusive - startIndex,
+            calculatedCaseCount: shardSummary.calculatedCaseCount,
+            constraintOnlyCaseCount: shardSummary.constraintOnlyCaseCount,
+            constraintViolationCounts: shardSummary.constraintViolationCounts,
+            calculatedTargetCal: shardSummary.calculatedTargetCal,
+            calculatedCarbsGPerKgBodyweight: shardSummary.calculatedCarbsGPerKgBodyweight,
+            full8_2CartesianExecutionClosed: false,
+            fullV8CompletionClosed: false
+          },
+          calculatedCases: options.includeCases === false ? [] : calculatedCases,
+          constraintOnlyCases: options.includeCases === false ? [] : constraintOnlyCases
+        };
+      });
+    }
+
     function buildV8ScenarioTextReport(cases){
       const lines = [
         "# v8 scenario runner report",
@@ -59053,6 +59173,8 @@ Notes:
             fullCartesianPlannedShardSize: fullCartesianExecutionContract.summary.defaultShardSize,
             fullCartesianPlannedShardCount: fullCartesianExecutionContract.summary.plannedShardCount,
             fullCartesianPilotTupleCount: fullCartesianExecutionContract.summary.pilotTupleCount,
+            fullCartesianShardExecutorStage: "8-2_full_cartesian_shard_execution_v0",
+            fullCartesianShardExecutorStatus: "bounded_pilot_available_not_full_run",
             axisCoverageCaseCount: axisDefinitions.length,
             humanReviewCaseCount: humanDefinitions.length,
             pairwiseStressCaseCount: pairwiseDefinitions.length,
@@ -59078,6 +59200,7 @@ Notes:
               "8-2 required axis coverage and 8-3 human-review cases are separate report layers.",
               "8-2 pairwiseStress is a constrained pairwise covering array; it does not claim the 80B full Cartesian product.",
               "8-2 fullCartesianExecutionContract defines stable row indexes, axis strides, pilot tuple decoding, and shard boundaries; it is contract-only and does not close the 80B execution gate.",
+              "8-2 runV8FullCartesianShard can execute bounded shard ranges and separates constraint-only tuples from calculated plausible sessions; it still does not claim the full 80B execution gate.",
               "Exercise profile/session inputs are production data contracts now; candidate-v2 is production-applied for active runtime target-delta cases and AB verifies the post-wiring Today/Records visual surfaces.",
               "Profile-specific sessions are reported separately from the current production routine fallback.",
               "The 8-2 full Cartesian product is not claimed as executed; axis-category coverage, pairwise/targeted stress, and the full-product shard contract are reported separately.",
@@ -59302,10 +59425,10 @@ Notes:
           assertTest(findInvalidCalibrationNumber(report).length === 0, "v8 runner report should not contain NaN or Infinity");
         }));
 
-        results.push(runNamedTest("v8.0-AC full Cartesian contract indexes 8-2 without closing execution", () => {
+        results.push(runNamedTest("v8.0-AC contract is preserved inside the v8.0-AD shard runner stage", () => {
           const report = runV8ScenarioRunner();
           const contract = report.fullCartesianExecutionContract;
-          assertTest(report.meta.version === "8.0-AC", "v8 runner version should advance to 8.0-AC");
+          assertTest(report.meta.version === "8.0-AD", "v8 runner version should advance to 8.0-AD");
           assertTest(contract?.meta?.stage === "8-2_full_cartesian_execution_contract_v0", "full Cartesian contract should identify the 8-2 execution-contract stage");
           assertTest(contract.meta.reportOnly === true, "full Cartesian contract should be report-only");
           assertTest(contract.meta.fullCartesianRun === false, "full Cartesian contract must not claim all combinations were executed");
@@ -59326,6 +59449,29 @@ Notes:
           assertTest(contract.summary.full8_2CartesianExecutionClosed === false, "contract must keep full_8_2_cartesian_execution open");
           assertTest(report.profileFormulaApprovalDecision.notApprovedYet.includes("full_8_2_cartesian_execution"), "approval decision should still list the full Cartesian gate");
           assertTest(findInvalidCalibrationNumber(contract).length === 0, "full Cartesian contract should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("v8.0-AD shard executor runs bounded coherent ranges and separates constraints", () => {
+          const coherent = runV8FullCartesianShard({ startIndex: 0, caseLimit: 8, maxCases: 8 });
+          assertTest(coherent?.meta?.stage === "8-2_full_cartesian_shard_execution_v0", "shard executor should identify the 8-2 shard execution stage");
+          assertTest(coherent.meta.version === "8.0-AD", "shard executor should use the AD version");
+          assertTest(coherent.meta.boundedShardRun === true, "shard executor should identify bounded shard execution");
+          assertTest(coherent.meta.fullCartesianRun === false, "bounded shard executor must not claim full Cartesian execution");
+          assertTest(coherent.summary.decodedCaseCount === 8, "coherent pilot shard should decode every requested row");
+          assertTest(coherent.summary.calculatedCaseCount === 8, "coherent pilot shard should calculate plausible rest rows");
+          assertTest(coherent.summary.constraintOnlyCaseCount === 0, "coherent pilot shard should not mark rest rows as constraint-only");
+          const blocked = runV8FullCartesianShard({ startIndex: 1152, caseLimit: 3, maxCases: 3 });
+          assertTest(blocked.summary.decodedCaseCount === 3, "constraint pilot shard should decode every requested row");
+          assertTest(blocked.summary.calculatedCaseCount === 0, "constraint pilot shard should not calculate incoherent training rows");
+          assertTest(blocked.summary.constraintOnlyCaseCount === 3, "constraint pilot shard should keep incoherent rows as constraint-only");
+          assertIncludesAll(Object.keys(blocked.summary.constraintViolationCounts).join(" "), [
+            "training_session_without_weight_duration",
+            "weekly_zero_with_training_session",
+            "no_performance_with_training_session"
+          ], "constraint pilot shard should report the expected incoherent session reasons");
+          assertTest(blocked.summary.full8_2CartesianExecutionClosed === false, "shard executor must keep full_8_2_cartesian_execution open");
+          assertTest(findInvalidCalibrationNumber(coherent).length === 0, "coherent shard report should not contain NaN or Infinity");
+          assertTest(findInvalidCalibrationNumber(blocked).length === 0, "constraint shard report should not contain NaN or Infinity");
         }));
 
         results.push(runNamedTest("v8.0-J axis coverage uses maintain as a production goal after contract closure", () => {
@@ -59560,7 +59706,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-AC", "v8 runner version should advance to 8.0-AC");
+          assertTest(report.meta.version === "8.0-AD", "v8 runner version should advance to 8.0-AD");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -59699,7 +59845,7 @@ Notes:
 
         results.push(runNamedTest("v8.0-S protein guard resolution closes candidate-v2 production contract blockers", () => {
           const report = runV8ScenarioRunner();
-          assertTest(report.meta.version === "8.0-AC", "v8 runner version should advance to v8.0-AC");
+          assertTest(report.meta.version === "8.0-AD", "v8 runner version should advance to v8.0-AD");
           const contract = report.profileMacroCandidateV2Contract;
           assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v4_guard_resolution", "candidate-v2 contract should identify 9-8 guard resolution contract review");
           assertTest(contract.meta.reportOnly === true, "candidate-v2 contract should be report-only");
@@ -59993,7 +60139,7 @@ Notes:
           const report = runV8ScenarioRunner();
           const approval = report.humanReviewNumericalApproval;
           const comparison = report.profileMacroCandidateV2Comparison;
-          assertTest(report.meta.version === "8.0-AC", "v8 runner should expose the AC stage while preserving the X numerical fix");
+          assertTest(report.meta.version === "8.0-AD", "v8 runner should expose the AD stage while preserving the X numerical fix");
           assertTest(approval?.meta?.stage === V8_HUMAN_REVIEW_NUMERICAL_APPROVAL_STAGE, "human-review numerical approval should identify the 8-3 stage");
           assertTest(approval.meta.reportOnly === true, "human-review numerical approval should be report-only");
           assertTest(approval.meta.productionFormulaChanged === false, "human-review numerical approval must not change production formulas");
@@ -60034,7 +60180,7 @@ Notes:
         results.push(runNamedTest("v8.0-Y profile formula approval preflight is ready but not approved or wired", () => {
           const report = runV8ScenarioRunner();
           const preflight = report.profileFormulaApprovalPreflight;
-          assertTest(report.meta.version === "8.0-AC", "v8 runner should expose the AC stage while preserving the Y preflight");
+          assertTest(report.meta.version === "8.0-AD", "v8 runner should expose the AD stage while preserving the Y preflight");
           assertTest(report.meta.profileFormulaApprovalPreflightStatus === "report_only_ready_for_explicit_formula_approval_decision_not_approved", "top-level meta should identify report-only preflight status");
           assertTest(preflight?.meta?.stage === V8_PROFILE_FORMULA_APPROVAL_PREFLIGHT_STAGE, "approval preflight should identify the 9-10 stage");
           assertTest(preflight.meta.reportOnly === true, "approval preflight should be report-only");
@@ -60077,7 +60223,7 @@ Notes:
         results.push(runNamedTest("v8.0-AB profile formula approval decision includes post-wiring visual QA evidence", () => {
           const report = runV8ScenarioRunner();
           const decision = report.profileFormulaApprovalDecision;
-          assertTest(report.meta.version === "8.0-AC", "v8 runner should expose the AC contract scenario version");
+          assertTest(report.meta.version === "8.0-AD", "v8 runner should expose the AD shard scenario version");
           assertTest(report.meta.profileMacroCandidateV2Status === "approved_applied_and_post_wiring_visual_qa_complete", "candidate-v2 status should include AB visual QA completion");
           assertTest(report.meta.profileFormulaApprovalDecisionStatus === "approved_applied_and_post_wiring_visual_qa_complete", "top-level meta should expose the AB approval decision status");
           assertTest(decision?.meta?.stage === V8_PROFILE_FORMULA_APPROVAL_DECISION_STAGE, "approval decision should identify the 9-11 stage");
@@ -60136,6 +60282,7 @@ Notes:
           assertClose(after.totalBurn, before.totalBurn, 0.0001, "v8 runner should not change production totalBurn");
           assertTest(JSON.stringify(recordsState.items) === beforeRecords, "v8 runner should not mutate records");
           assertTest(typeof window.runV8ScenarioRunner === "function", "runV8ScenarioRunner should be exported");
+          assertTest(typeof window.runV8FullCartesianShard === "function", "runV8FullCartesianShard should be exported for shard manifests");
           assertTest(typeof window.runV8ScenarioRunnerTests === "function", "runV8ScenarioRunnerTests should be exported");
           assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
           assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
@@ -68851,6 +68998,7 @@ Notes:
     window.runCalibrationScanReport = runCalibrationScanReport;
     window.runCalibrationModeCoverageReport = runCalibrationModeCoverageReport;
     window.runV8ScenarioRunner = runV8ScenarioRunner;
+    window.runV8FullCartesianShard = runV8FullCartesianShard;
     window.runCalibrationPhysiologyReview = runCalibrationPhysiologyReview;
     window.runCalibrationWeeklyBudgetReview = runCalibrationWeeklyBudgetReview;
     window.runCalibrationCardioTargetPolicyReview = runCalibrationCardioTargetPolicyReview;

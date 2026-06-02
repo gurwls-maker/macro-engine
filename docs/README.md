@@ -1,8 +1,17 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AD deterministic full Cartesian shard pilot note
+
+- `index.html` now exports `runV8FullCartesianShard()` at stage `8-2_full_cartesian_shard_execution_v0`.
+- `tools/render_audit/run_v8_full_cartesian_shard.cjs` runs bounded shard ranges in a browser and writes ignored JSON evidence under `tools/render_audit/v8_full_cartesian_shards/`.
+- Pilot evidence on 2026-06-03: `--start=0 --limit=8 --max-cases=8` decoded 8 rows, calculated 8 rows, constraint-only 0; `--start=1152 --limit=3 --max-cases=3` decoded 3 rows, calculated 0 rows, constraint-only 3.
+- Constraint-only rows are not calculated as plausible sessions; the pilot at index 1152 reports `training_session_without_weight_duration`, `weekly_zero_with_training_session`, and `no_performance_with_training_session`.
+- This is a bounded shard executor/pilot only. It does not execute all `80,621,568,000` rows and does not close `full_8_2_cartesian_execution` or `full_v8_completion`.
+- Verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1054 cases / failed 0.
+
 # v8.0-AC full Cartesian execution contract note
 
-- `runV8ScenarioRunner()` now reports version `8.0-AC` and adds `fullCartesianExecutionContract` at `8-2_full_cartesian_execution_contract_v0`.
+- v8.0-AC introduced `fullCartesianExecutionContract` at `8-2_full_cartesian_execution_contract_v0`; the current runner version may be later.
 - The contract recomputes the 20 required-axis product as `80,621,568,000`, exposes deterministic axis strides, and decodes pilot indexes `0`, `1`, middle, `80,621,567,998`, and `80,621,567,999`.
 - The default shard contract is `100,000` rows per shard, so the planned full run is `806,216` shards and the final shard contains `68,000` rows.
 - This is an execution/audit contract only. It does not execute the full Cartesian set, does not replace pairwise/targeted stress or the 18 human-review cases, and does not add new exercise-physiology evidence.
