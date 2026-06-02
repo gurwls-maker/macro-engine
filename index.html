@@ -15919,6 +15919,21 @@ Notes:
       return "beginner";
     }
 
+    function getTargetRateActualLbm(s, fallbackLbmBase = 0){
+      const weight = Math.max(1, Number(s?.weight) || 1);
+      const bodyFatMass = Number(s?.bodyFatMass);
+      if (Number.isFinite(bodyFatMass) && bodyFatMass >= 0 && bodyFatMass < weight) {
+        return Math.max(1, weight - bodyFatMass);
+      }
+      const bodyFatPct = getTargetRateBodyFatPct(s);
+      if (Number.isFinite(bodyFatPct)) {
+        return Math.max(1, weight * (1 - bodyFatPct / 100));
+      }
+      const safeFallback = Number(fallbackLbmBase);
+      if (Number.isFinite(safeFallback) && safeFallback > 0) return safeFallback;
+      return weight * 0.8;
+    }
+
     function selectGoalWeeklyRate(goal, s, modeCfg = {}){
       const policy = getGoalRatePolicy(goal);
       const bodyFatBand = getTargetRateBodyFatBand(s);
@@ -15961,7 +15976,9 @@ Notes:
       const clampedGoalDelta = clamp(rawGoalDelta, policy.deltaMin, policy.deltaMax);
       const rawTargetCal = targetBurnBase + rawGoalDelta;
       const targetCalBeforeFloor = targetBurnBase + clampedGoalDelta;
-      const lbmForEnergyAvailability = Math.max(0, Number(config.lbmEffective) || Number(config.lbmBase) || weight * (1 - (Number(getTargetRateBodyFatPct(s)) || 20) / 100));
+      // Energy availability is a physiological floor, so it uses actual body composition.
+      // Mode-adjusted LBM may support BMR/protein estimation, but must not raise the safety floor.
+      const lbmForEnergyAvailability = getTargetRateActualLbm(s, config.lbmBase);
       const exerciseKcalForEnergyAvailability = Math.max(0, Number(config.weightKcal) || 0) + Math.max(0, Number(config.cardio?.kcal) || 0) + Math.max(0, Number(config.epocKcal) || 0);
       const energyAvailabilityBeforeFloor = lbmForEnergyAvailability > 0
         ? (targetCalBeforeFloor - exerciseKcalForEnergyAvailability) / lbmForEnergyAvailability
@@ -34229,43 +34246,43 @@ Notes:
       "snapshotProtein",
       "snapshotFat"
     ]);
-    const MODE_GOLDEN_EXPECTED_HASH = "4303fcd6cdea8";
+    const MODE_GOLDEN_EXPECTED_HASH = "16851cfe56b255";
     const MODE_GOLDEN_SCENARIO_COUNT = 50;
     const MODE_GOLDEN_MODES = Object.freeze(["general", "athlete", "expert"]);
     const MODE_GOLDEN_EXPECTED_ROWS = Object.freeze([
       { key: "diet_low_no_inbody_male|general", values: Object.freeze([1743,2021,1920,180,192,48,2.4,0.6,2.25,0,0,400,0,92,1920,180,192,48]) },
-      { key: "diet_low_no_inbody_male|athlete", values: Object.freeze([1764,2046,1937,184,192,48,2.4,0.6,2.3,0.4,1,400,0,92,1937,184,192,48]) },
-      { key: "diet_low_no_inbody_male|expert", values: Object.freeze([1775,2058,1951,188,192,48,2.4,0.6,2.35,0.75,1,400,0,92,1951,188,192,48]) },
+      { key: "diet_low_no_inbody_male|athlete", values: Object.freeze([1764,2046,1920,180,192,48,2.4,0.6,2.25,0.4,1,400,0,92,1920,180,192,48]) },
+      { key: "diet_low_no_inbody_male|expert", values: Object.freeze([1775,2058,1920,180,192,48,2.4,0.6,2.25,0.75,1,400,0,92,1920,180,192,48]) },
       { key: "diet_low_no_inbody_male__high_activity|general", values: Object.freeze([1743,2543,2103,226,192,48,2.4,0.6,2.82,0,0,600,0,92,2103,226,192,48]) },
       { key: "diet_low_no_inbody_male__high_activity|athlete", values: Object.freeze([1764,2575,2135,234,192,48,2.4,0.6,2.92,0.4,1,600,0,92,2135,234,192,48]) },
       { key: "diet_low_no_inbody_male__high_activity|expert", values: Object.freeze([1775,2590,2150,238,192,48,2.4,0.6,2.97,0.75,1,600,0,92,2150,238,192,48]) },
       { key: "diet_low_no_inbody_male__rest_day|general", values: Object.freeze([1743,1986,1920,180,192,48,2.4,0.6,2.25,0,0,400,0,92,1920,180,192,48]) },
-      { key: "diet_low_no_inbody_male__rest_day|athlete", values: Object.freeze([1764,2011,1937,184,192,48,2.4,0.6,2.3,0.4,1,400,0,92,1937,184,192,48]) },
-      { key: "diet_low_no_inbody_male__rest_day|expert", values: Object.freeze([1775,2023,1951,188,192,48,2.4,0.6,2.35,0.75,1,400,0,92,1951,188,192,48]) },
+      { key: "diet_low_no_inbody_male__rest_day|athlete", values: Object.freeze([1764,2011,1920,180,192,48,2.4,0.6,2.25,0.4,1,400,0,92,1920,180,192,48]) },
+      { key: "diet_low_no_inbody_male__rest_day|expert", values: Object.freeze([1775,2023,1920,180,192,48,2.4,0.6,2.25,0.75,1,400,0,92,1920,180,192,48]) },
       { key: "diet_low_no_inbody_male__cardio_bias|general", values: Object.freeze([1743,2424,2323,281,192,48,2.4,0.6,3.51,0,0,560,0,92,2323,281,192,48]) },
-      { key: "diet_low_no_inbody_male__cardio_bias|athlete", values: Object.freeze([1764,2449,2340,285,192,48,2.4,0.6,3.56,0.4,1,560,0,92,2340,285,192,48]) },
-      { key: "diet_low_no_inbody_male__cardio_bias|expert", values: Object.freeze([1775,2461,2354,289,192,48,2.4,0.6,3.61,0.75,1,560,0,92,2354,289,192,48]) },
+      { key: "diet_low_no_inbody_male__cardio_bias|athlete", values: Object.freeze([1764,2449,2323,281,192,48,2.4,0.6,3.51,0.4,1,560,0,92,2323,281,192,48]) },
+      { key: "diet_low_no_inbody_male__cardio_bias|expert", values: Object.freeze([1775,2461,2323,281,192,48,2.4,0.6,3.51,0.75,1,560,0,92,2323,281,192,48]) },
       { key: "diet_low_no_inbody_male__low_digest|general", values: Object.freeze([1743,2021,1920,180,192,48,2.4,0.6,2.25,0,0,400,0,92,1920,180,192,48]) },
-      { key: "diet_low_no_inbody_male__low_digest|athlete", values: Object.freeze([1764,2046,1937,184,192,48,2.4,0.6,2.3,0.4,1,400,0,92,1937,184,192,48]) },
-      { key: "diet_low_no_inbody_male__low_digest|expert", values: Object.freeze([1776,2060,1953,188,192,48,2.4,0.6,2.35,0.8,1,400,0,92,1953,188,192,48]) },
+      { key: "diet_low_no_inbody_male__low_digest|athlete", values: Object.freeze([1764,2046,1920,180,192,48,2.4,0.6,2.25,0.4,1,400,0,92,1920,180,192,48]) },
+      { key: "diet_low_no_inbody_male__low_digest|expert", values: Object.freeze([1776,2060,1920,180,192,48,2.4,0.6,2.25,0.8,1,400,0,92,1920,180,192,48]) },
       { key: "diet_4w_cardio_no_inbody_male|general", values: Object.freeze([1755,2845,2692,365,197,49,2.4,0.6,4.46,0,0,574,0,92,2692,365,197,49]) },
-      { key: "diet_4w_cardio_no_inbody_male|athlete", values: Object.freeze([1840,2976,2742,378,197,49,2.4,0.6,4.61,0.4,1,574,0,92,2742,378,197,49]) },
-      { key: "diet_4w_cardio_no_inbody_male|expert", values: Object.freeze([1855,2995,2763,383,197,49,2.4,0.6,4.67,0.75,1,574,0,92,2763,383,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male|athlete", values: Object.freeze([1840,2976,2718,372,197,49,2.4,0.6,4.54,0.4,1,574,0,92,2718,372,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male|expert", values: Object.freeze([1855,2995,2718,372,197,49,2.4,0.6,4.54,0.75,1,574,0,92,2718,372,197,49]) },
       { key: "diet_4w_cardio_no_inbody_male__high_activity|general", values: Object.freeze([1755,3232,2692,365,197,49,2.4,0.6,4.46,0,0,615,0,92,2692,365,197,49]) },
       { key: "diet_4w_cardio_no_inbody_male__high_activity|athlete", values: Object.freeze([1840,3381,2817,397,197,49,2.4,0.6,4.84,0.4,1,615,0,92,2817,397,197,49]) },
       { key: "diet_4w_cardio_no_inbody_male__high_activity|expert", values: Object.freeze([1855,3403,2839,402,197,49,2.4,0.6,4.91,0.75,1,615,0,92,2839,402,197,49]) },
       { key: "diet_4w_cardio_no_inbody_male__rest_day|general", values: Object.freeze([1755,2141,2017,197,197,49,2.4,0.6,2.4,0,0,410,0,92,2017,197,197,49]) },
-      { key: "diet_4w_cardio_no_inbody_male__rest_day|athlete", values: Object.freeze([1840,2244,2041,203,197,49,2.4,0.6,2.47,0.4,1,410,0,92,2041,203,197,49]) },
-      { key: "diet_4w_cardio_no_inbody_male__rest_day|expert", values: Object.freeze([1855,2263,2062,208,197,49,2.4,0.6,2.54,0.75,1,410,0,92,2062,208,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__rest_day|athlete", values: Object.freeze([1840,2244,2017,197,197,49,2.4,0.6,2.4,0.4,1,410,0,92,2017,197,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__rest_day|expert", values: Object.freeze([1855,2263,2017,197,197,49,2.4,0.6,2.4,0.75,1,410,0,92,2017,197,197,49]) },
       { key: "diet_4w_cardio_no_inbody_male__cardio_bias|general", values: Object.freeze([1755,3064,2911,420,197,49,2.4,0.6,5.12,0,0,574,0,92,2911,420,197,49]) },
-      { key: "diet_4w_cardio_no_inbody_male__cardio_bias|athlete", values: Object.freeze([1840,3195,2961,433,197,49,2.4,0.6,5.28,0.4,1,574,0,92,2961,433,197,49]) },
-      { key: "diet_4w_cardio_no_inbody_male__cardio_bias|expert", values: Object.freeze([1855,3214,2982,438,197,49,2.4,0.6,5.34,0.75,1,574,0,92,2982,438,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__cardio_bias|athlete", values: Object.freeze([1840,3195,2937,427,197,49,2.4,0.6,5.2,0.4,1,574,0,92,2937,427,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__cardio_bias|expert", values: Object.freeze([1855,3214,2937,427,197,49,2.4,0.6,5.2,0.75,1,574,0,92,2937,427,197,49]) },
       { key: "diet_4w_cardio_no_inbody_male__low_digest|general", values: Object.freeze([1755,2845,2692,365,197,49,2.4,0.6,4.46,0,0,574,0,92,2692,365,197,49]) },
-      { key: "diet_4w_cardio_no_inbody_male__low_digest|athlete", values: Object.freeze([1840,2976,2742,378,197,49,2.4,0.6,4.61,0.4,1,574,0,92,2742,378,197,49]) },
-      { key: "diet_4w_cardio_no_inbody_male__low_digest|expert", values: Object.freeze([1857,2998,2766,384,197,49,2.4,0.6,4.68,0.8,1,574,0,92,2766,384,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__low_digest|athlete", values: Object.freeze([1840,2976,2718,372,197,49,2.4,0.6,4.54,0.4,1,574,0,92,2718,372,197,49]) },
+      { key: "diet_4w_cardio_no_inbody_male__low_digest|expert", values: Object.freeze([1857,2998,2718,372,197,49,2.4,0.6,4.54,0.8,1,574,0,92,2718,372,197,49]) },
       { key: "diet_inbody_male|general", values: Object.freeze([1698,2937,2632,373,182,46,2.4,0.6,4.91,0,0,570,0,92,2632,373,182,46]) },
-      { key: "diet_inbody_male|athlete", values: Object.freeze([1837,3167,2743,401,182,46,2.4,0.6,5.27,0.4,1,570,0,92,2743,401,182,46]) },
-      { key: "diet_inbody_male|expert", values: Object.freeze([1883,3228,2806,417,182,46,2.4,0.6,5.48,0.75,1,570,0,92,2806,417,182,46]) },
+      { key: "diet_inbody_male|athlete", values: Object.freeze([1837,3167,2735,399,182,46,2.4,0.6,5.25,0.4,1,570,0,92,2735,399,182,46]) },
+      { key: "diet_inbody_male|expert", values: Object.freeze([1883,3228,2796,414,182,46,2.4,0.6,5.45,0.75,1,570,0,92,2796,414,182,46]) },
       { key: "diet_inbody_male__high_activity|general", values: Object.freeze([1698,3144,2713,393,182,46,2.4,0.6,5.17,0,0,570,0,92,2713,393,182,46]) },
       { key: "diet_inbody_male__high_activity|athlete", values: Object.freeze([1837,3387,2956,454,182,46,2.4,0.6,5.97,0.4,1,570,0,92,2956,454,182,46]) },
       { key: "diet_inbody_male__high_activity|expert", values: Object.freeze([1883,3454,3022,471,182,46,2.4,0.6,6.19,0.75,1,570,0,92,3022,471,182,46]) },
@@ -34273,11 +34290,11 @@ Notes:
       { key: "diet_inbody_male__rest_day|athlete", values: Object.freeze([1837,2425,2090,238,182,46,2.4,0.6,3.13,0.4,1,570,0,92,2090,238,182,46]) },
       { key: "diet_inbody_male__rest_day|expert", values: Object.freeze([1883,2485,2150,253,182,46,2.4,0.6,3.32,0.75,1,570,0,92,2150,253,182,46]) },
       { key: "diet_inbody_male__cardio_bias|general", values: Object.freeze([1698,3065,2759,405,182,46,2.4,0.6,5.33,0,0,570,0,92,2759,405,182,46]) },
-      { key: "diet_inbody_male__cardio_bias|athlete", values: Object.freeze([1837,3294,2871,433,182,46,2.4,0.6,5.69,0.4,1,570,0,92,2871,433,182,46]) },
-      { key: "diet_inbody_male__cardio_bias|expert", values: Object.freeze([1883,3355,2934,448,182,46,2.4,0.6,5.9,0.75,1,570,0,92,2934,448,182,46]) },
+      { key: "diet_inbody_male__cardio_bias|athlete", values: Object.freeze([1837,3294,2798,415,182,46,2.4,0.6,5.46,0.4,1,570,0,92,2798,415,182,46]) },
+      { key: "diet_inbody_male__cardio_bias|expert", values: Object.freeze([1883,3355,2854,428,182,46,2.4,0.6,5.64,0.75,1,570,0,92,2854,428,182,46]) },
       { key: "diet_inbody_male__low_digest|general", values: Object.freeze([1698,2937,2632,373,182,46,2.4,0.6,4.91,0,0,570,0,92,2632,373,182,46]) },
-      { key: "diet_inbody_male__low_digest|athlete", values: Object.freeze([1837,3167,2743,401,182,46,2.4,0.6,5.27,0.4,1,570,0,92,2743,401,182,46]) },
-      { key: "diet_inbody_male__low_digest|expert", values: Object.freeze([1889,3236,2815,419,182,46,2.4,0.6,5.51,0.8,1,570,0,92,2815,419,182,46]) },
+      { key: "diet_inbody_male__low_digest|athlete", values: Object.freeze([1837,3167,2735,399,182,46,2.4,0.6,5.25,0.4,1,570,0,92,2735,399,182,46]) },
+      { key: "diet_inbody_male__low_digest|expert", values: Object.freeze([1889,3236,2805,416,182,46,2.4,0.6,5.48,0.8,1,570,0,92,2805,416,182,46]) },
       { key: "lean_5w_low_cardio_female|general", values: Object.freeze([1305,1950,2022,298,116,41,2,0.7,5.14,0,0,406,0,91,2022,298,116,41]) },
       { key: "lean_5w_low_cardio_female|athlete", values: Object.freeze([1412,2115,2186,339,116,41,2,0.7,5.85,0.4,1,406,0,91,2186,339,116,41]) },
       { key: "lean_5w_low_cardio_female|expert", values: Object.freeze([1469,2185,2257,357,116,41,2,0.7,6.15,0.75,1,406,0,91,2257,357,116,41]) },
@@ -34309,20 +34326,20 @@ Notes:
       { key: "bulk_5w_no_cardio_male__low_digest|athlete", values: Object.freeze([1932,3060,3330,537,148,66,1.8,0.8,6.55,0.4,1,820,0,89,3330,537,148,66]) },
       { key: "bulk_5w_no_cardio_male__low_digest|expert", values: Object.freeze([1971,3111,3382,550,148,66,1.8,0.8,6.71,0.8,1,820,0,89,3382,550,148,66]) },
       { key: "high_work_training_male|general", values: Object.freeze([1826,3396,2747,357,211,53,2.4,0.6,4.05,0,0,660,0,92,2747,357,211,53]) },
-      { key: "high_work_training_male|athlete", values: Object.freeze([1835,3453,2819,375,211,53,2.4,0.6,4.26,0.4,1,660,0,92,2819,375,211,53]) },
-      { key: "high_work_training_male|expert", values: Object.freeze([1853,3478,2844,381,211,53,2.4,0.6,4.33,0.75,1,660,0,92,2844,381,211,53]) },
+      { key: "high_work_training_male|athlete", values: Object.freeze([1835,3453,2791,368,211,53,2.4,0.6,4.18,0.4,1,660,0,92,2791,368,211,53]) },
+      { key: "high_work_training_male|expert", values: Object.freeze([1853,3478,2791,368,211,53,2.4,0.6,4.18,0.75,1,660,0,92,2791,368,211,53]) },
       { key: "high_work_training_male__high_activity|general", values: Object.freeze([1826,3396,2747,357,211,53,2.4,0.6,4.05,0,0,660,0,92,2747,357,211,53]) },
-      { key: "high_work_training_male__high_activity|athlete", values: Object.freeze([1835,3453,2819,375,211,53,2.4,0.6,4.26,0.4,1,660,0,92,2819,375,211,53]) },
-      { key: "high_work_training_male__high_activity|expert", values: Object.freeze([1853,3478,2844,381,211,53,2.4,0.6,4.33,0.75,1,660,0,92,2844,381,211,53]) },
+      { key: "high_work_training_male__high_activity|athlete", values: Object.freeze([1835,3453,2791,368,211,53,2.4,0.6,4.18,0.4,1,660,0,92,2791,368,211,53]) },
+      { key: "high_work_training_male__high_activity|expert", values: Object.freeze([1853,3478,2791,368,211,53,2.4,0.6,4.18,0.75,1,660,0,92,2791,368,211,53]) },
       { key: "high_work_training_male__rest_day|general", values: Object.freeze([1826,2630,2068,187,211,53,2.4,0.6,2.13,0,0,660,0,92,2068,187,211,53]) },
       { key: "high_work_training_male__rest_day|athlete", values: Object.freeze([1835,2642,2081,190,211,53,2.4,0.6,2.16,0.4,1,660,0,92,2081,190,211,53]) },
       { key: "high_work_training_male__rest_day|expert", values: Object.freeze([1853,2668,2106,197,211,53,2.4,0.6,2.23,0.75,1,660,0,92,2106,197,211,53]) },
       { key: "high_work_training_male__cardio_bias|general", values: Object.freeze([1826,3473,2824,376,211,53,2.4,0.6,4.27,0,0,660,0,92,2824,376,211,53]) },
-      { key: "high_work_training_male__cardio_bias|athlete", values: Object.freeze([1835,3529,2896,394,211,53,2.4,0.6,4.48,0.4,1,660,0,92,2896,394,211,53]) },
-      { key: "high_work_training_male__cardio_bias|expert", values: Object.freeze([1853,3555,2921,400,211,53,2.4,0.6,4.55,0.75,1,660,0,92,2921,400,211,53]) },
+      { key: "high_work_training_male__cardio_bias|athlete", values: Object.freeze([1835,3529,2868,387,211,53,2.4,0.6,4.4,0.4,1,660,0,92,2868,387,211,53]) },
+      { key: "high_work_training_male__cardio_bias|expert", values: Object.freeze([1853,3555,2868,387,211,53,2.4,0.6,4.4,0.75,1,660,0,92,2868,387,211,53]) },
       { key: "high_work_training_male__low_digest|general", values: Object.freeze([1826,3396,2747,357,211,53,2.4,0.6,4.05,0,0,660,0,92,2747,357,211,53]) },
-      { key: "high_work_training_male__low_digest|athlete", values: Object.freeze([1835,3453,2819,375,211,53,2.4,0.6,4.26,0.4,1,660,0,92,2819,375,211,53]) },
-      { key: "high_work_training_male__low_digest|expert", values: Object.freeze([1855,3482,2848,382,211,53,2.4,0.6,4.34,0.8,1,660,0,92,2848,382,211,53]) },
+      { key: "high_work_training_male__low_digest|athlete", values: Object.freeze([1835,3453,2791,368,211,53,2.4,0.6,4.18,0.4,1,660,0,92,2791,368,211,53]) },
+      { key: "high_work_training_male__low_digest|expert", values: Object.freeze([1855,3482,2791,368,211,53,2.4,0.6,4.18,0.8,1,660,0,92,2791,368,211,53]) },
       { key: "low_bodyfat_male|general", values: Object.freeze([1650,2715,2779,444,140,49,2,0.7,6.35,0,0,595,0,91,2779,444,140,49]) },
       { key: "low_bodyfat_male|athlete", values: Object.freeze([1803,2971,3035,508,140,49,2,0.7,7.26,0.4,1,595,0,91,3035,508,140,49]) },
       { key: "low_bodyfat_male|expert", values: Object.freeze([1845,3027,3091,522,140,49,2,0.7,7.46,0.8,1,595,0,91,3091,522,140,49]) },
@@ -34339,20 +34356,20 @@ Notes:
       { key: "low_bodyfat_male__low_digest|athlete", values: Object.freeze([1803,2971,3035,508,140,49,2,0.7,7.26,0.4,1,595,0,91,3035,508,140,49]) },
       { key: "low_bodyfat_male__low_digest|expert", values: Object.freeze([1845,3027,3091,522,140,49,2,0.7,7.46,0.8,1,595,0,91,3091,522,140,49]) },
       { key: "high_bodyfat_female|general", values: Object.freeze([1372,1965,1810,179,175,44,2.4,0.6,2.45,0,0,511,0,92,1810,179,175,44]) },
-      { key: "high_bodyfat_female|athlete", values: Object.freeze([1408,2008,1830,184,175,44,2.4,0.6,2.52,0.4,1,511,0,92,1830,184,175,44]) },
-      { key: "high_bodyfat_female|expert", values: Object.freeze([1419,2021,1845,188,175,44,2.4,0.6,2.57,0.75,1,511,0,92,1845,188,175,44]) },
+      { key: "high_bodyfat_female|athlete", values: Object.freeze([1408,2008,1812,179,175,44,2.4,0.6,2.45,0.4,1,511,0,92,1812,179,175,44]) },
+      { key: "high_bodyfat_female|expert", values: Object.freeze([1419,2021,1812,179,175,44,2.4,0.6,2.45,0.75,1,511,0,92,1812,179,175,44]) },
       { key: "high_bodyfat_female__high_activity|general", values: Object.freeze([1372,2377,1817,180,175,44,2.4,0.6,2.47,0,0,548,0,92,1817,180,175,44]) },
       { key: "high_bodyfat_female__high_activity|athlete", values: Object.freeze([1408,2431,1871,194,175,44,2.4,0.6,2.66,0.4,1,548,0,92,1871,194,175,44]) },
       { key: "high_bodyfat_female__high_activity|expert", values: Object.freeze([1419,2447,1887,198,175,44,2.4,0.6,2.71,0.75,1,548,0,92,1887,198,175,44]) },
       { key: "high_bodyfat_female__rest_day|general", values: Object.freeze([1372,1564,1424,82,175,44,2.4,0.6,1.13,0,0,365,0,92,1424,82,175,44]) },
-      { key: "high_bodyfat_female__rest_day|athlete", values: Object.freeze([1408,1605,1441,87,175,44,2.4,0.6,1.19,0.4,1,365,0,92,1441,87,175,44]) },
-      { key: "high_bodyfat_female__rest_day|expert", values: Object.freeze([1419,1618,1457,90,175,44,2.4,0.6,1.24,0.75,1,365,0,92,1457,90,175,44]) },
+      { key: "high_bodyfat_female__rest_day|athlete", values: Object.freeze([1408,1605,1424,82,175,44,2.4,0.6,1.13,0.4,1,365,0,92,1424,82,175,44]) },
+      { key: "high_bodyfat_female__rest_day|expert", values: Object.freeze([1419,1618,1424,82,175,44,2.4,0.6,1.13,0.75,1,365,0,92,1424,82,175,44]) },
       { key: "high_bodyfat_female__cardio_bias|general", values: Object.freeze([1372,2176,2021,232,175,44,2.4,0.6,3.17,0,0,511,0,92,2021,232,175,44]) },
-      { key: "high_bodyfat_female__cardio_bias|athlete", values: Object.freeze([1408,2219,2040,236,175,44,2.4,0.6,3.24,0.4,1,511,0,92,2040,236,175,44]) },
-      { key: "high_bodyfat_female__cardio_bias|expert", values: Object.freeze([1419,2232,2056,240,175,44,2.4,0.6,3.29,0.75,1,511,0,92,2056,240,175,44]) },
+      { key: "high_bodyfat_female__cardio_bias|athlete", values: Object.freeze([1408,2219,2023,232,175,44,2.4,0.6,3.18,0.4,1,511,0,92,2023,232,175,44]) },
+      { key: "high_bodyfat_female__cardio_bias|expert", values: Object.freeze([1419,2232,2023,232,175,44,2.4,0.6,3.18,0.75,1,511,0,92,2023,232,175,44]) },
       { key: "high_bodyfat_female__low_digest|general", values: Object.freeze([1372,1965,1810,179,175,44,2.4,0.6,2.45,0,0,511,0,92,1810,179,175,44]) },
-      { key: "high_bodyfat_female__low_digest|athlete", values: Object.freeze([1408,2008,1830,184,175,44,2.4,0.6,2.52,0.4,1,511,0,92,1830,184,175,44]) },
-      { key: "high_bodyfat_female__low_digest|expert", values: Object.freeze([1421,2023,1847,188,175,44,2.4,0.6,2.58,0.8,1,511,0,92,1847,188,175,44]) },
+      { key: "high_bodyfat_female__low_digest|athlete", values: Object.freeze([1408,2008,1812,179,175,44,2.4,0.6,2.45,0.4,1,511,0,92,1812,179,175,44]) },
+      { key: "high_bodyfat_female__low_digest|expert", values: Object.freeze([1421,2023,1812,179,175,44,2.4,0.6,2.45,0.8,1,511,0,92,1812,179,175,44]) },
       { key: "lean_home_inbody_male|general", values: Object.freeze([1694,2734,2852,441,152,53,2,0.7,5.81,0,0,646,0,91,2852,441,152,53]) },
       { key: "lean_home_inbody_male|athlete", values: Object.freeze([1786,2880,2956,467,152,53,2,0.7,6.15,0.32,1,646,0,91,2956,467,152,53]) },
       { key: "lean_home_inbody_male|expert", values: Object.freeze([1819,2923,2999,478,152,53,2,0.7,6.29,0.6,1,646,0,91,2999,478,152,53]) },
@@ -34369,20 +34386,20 @@ Notes:
       { key: "lean_home_inbody_male__low_digest|athlete", values: Object.freeze([1786,2880,2956,467,152,53,2,0.7,6.15,0.32,1,646,0,91,2956,467,152,53]) },
       { key: "lean_home_inbody_male__low_digest|expert", values: Object.freeze([1823,2929,3006,480,152,53,2,0.7,6.31,0.64,1,646,0,91,3006,480,152,53]) },
       { key: "snapshot_like_record|general", values: Object.freeze([1676,2742,2433,327,180,45,2.4,0.6,4.36,0,0,563,0,92,2433,327,180,45]) },
-      { key: "snapshot_like_record|athlete", values: Object.freeze([1749,2856,2520,349,180,45,2.4,0.6,4.65,0.4,1,563,0,92,2520,349,180,45]) },
-      { key: "snapshot_like_record|expert", values: Object.freeze([1792,2912,2581,364,180,45,2.4,0.6,4.85,0.75,1,563,0,92,2581,364,180,45]) },
+      { key: "snapshot_like_record|athlete", values: Object.freeze([1749,2856,2450,331,180,45,2.4,0.6,4.42,0.4,1,563,0,92,2450,331,180,45]) },
+      { key: "snapshot_like_record|expert", values: Object.freeze([1792,2912,2450,331,180,45,2.4,0.6,4.42,0.75,1,563,0,92,2450,331,180,45]) },
       { key: "snapshot_like_record__high_activity|general", values: Object.freeze([1676,3030,2465,335,180,45,2.4,0.6,4.47,0,0,563,0,92,2465,335,180,45]) },
       { key: "snapshot_like_record__high_activity|athlete", values: Object.freeze([1749,3152,2628,376,180,45,2.4,0.6,5.01,0.4,1,563,0,92,2628,376,180,45]) },
       { key: "snapshot_like_record__high_activity|expert", values: Object.freeze([1792,3216,2692,392,180,45,2.4,0.6,5.22,0.75,1,563,0,92,2692,392,180,45]) },
       { key: "snapshot_like_record__rest_day|general", values: Object.freeze([1676,2125,1845,180,180,45,2.4,0.6,2.4,0,0,563,0,92,1845,180,180,45]) },
-      { key: "snapshot_like_record__rest_day|athlete", values: Object.freeze([1749,2221,1915,197,180,45,2.4,0.6,2.63,0.4,1,563,0,92,1915,197,180,45]) },
-      { key: "snapshot_like_record__rest_day|expert", values: Object.freeze([1792,2277,1976,213,180,45,2.4,0.6,2.84,0.75,1,563,0,92,1976,213,180,45]) },
+      { key: "snapshot_like_record__rest_day|athlete", values: Object.freeze([1749,2221,1845,180,180,45,2.4,0.6,2.4,0.4,1,563,0,92,1845,180,180,45]) },
+      { key: "snapshot_like_record__rest_day|expert", values: Object.freeze([1792,2277,1865,185,180,45,2.4,0.6,2.47,0.75,1,563,0,92,1865,185,180,45]) },
       { key: "snapshot_like_record__cardio_bias|general", values: Object.freeze([1676,2854,2545,355,180,45,2.4,0.6,4.73,0,0,563,0,92,2545,355,180,45]) },
-      { key: "snapshot_like_record__cardio_bias|athlete", values: Object.freeze([1749,2968,2632,377,180,45,2.4,0.6,5.02,0.4,1,563,0,92,2632,377,180,45]) },
-      { key: "snapshot_like_record__cardio_bias|expert", values: Object.freeze([1792,3025,2693,392,180,45,2.4,0.6,5.23,0.75,1,563,0,92,2693,392,180,45]) },
+      { key: "snapshot_like_record__cardio_bias|athlete", values: Object.freeze([1749,2968,2562,359,180,45,2.4,0.6,4.79,0.4,1,563,0,92,2562,359,180,45]) },
+      { key: "snapshot_like_record__cardio_bias|expert", values: Object.freeze([1792,3025,2562,359,180,45,2.4,0.6,4.79,0.75,1,563,0,92,2562,359,180,45]) },
       { key: "snapshot_like_record__low_digest|general", values: Object.freeze([1676,2742,2433,327,180,45,2.4,0.6,4.36,0,0,563,0,92,2433,327,180,45]) },
-      { key: "snapshot_like_record__low_digest|athlete", values: Object.freeze([1749,2856,2520,349,180,45,2.4,0.6,4.65,0.4,1,563,0,92,2520,349,180,45]) },
-      { key: "snapshot_like_record__low_digest|expert", values: Object.freeze([1799,2921,2589,366,180,45,2.4,0.6,4.88,0.8,1,563,0,92,2589,366,180,45]) }
+      { key: "snapshot_like_record__low_digest|athlete", values: Object.freeze([1749,2856,2450,331,180,45,2.4,0.6,4.42,0.4,1,563,0,92,2450,331,180,45]) },
+      { key: "snapshot_like_record__low_digest|expert", values: Object.freeze([1799,2921,2450,331,180,45,2.4,0.6,4.42,0.8,1,563,0,92,2450,331,180,45]) }
     ]);
 
     function getModeGoldenHash(text, seed = 0){
@@ -34955,8 +34972,8 @@ Notes:
         results.push(runNamedTest("C4.8-M2-1 golden anchor values remain stable", () => {
           const anchors = {
             "diet_low_no_inbody_male|general": [1743, 2021, 1920, 180, 192, 48, 2.4, 0.6, 2.25, 0, 0, 400, 0, 92, 1920, 180, 192, 48],
-            "diet_low_no_inbody_male|athlete": [1764, 2046, 1937, 184, 192, 48, 2.4, 0.6, 2.3, 0.4, 1, 400, 0, 92, 1937, 184, 192, 48],
-            "diet_low_no_inbody_male|expert": [1775, 2058, 1951, 188, 192, 48, 2.4, 0.6, 2.35, 0.75, 1, 400, 0, 92, 1951, 188, 192, 48],
+            "diet_low_no_inbody_male|athlete": [1764, 2046, 1920, 180, 192, 48, 2.4, 0.6, 2.25, 0.4, 1, 400, 0, 92, 1920, 180, 192, 48],
+            "diet_low_no_inbody_male|expert": [1775, 2058, 1920, 180, 192, 48, 2.4, 0.6, 2.25, 0.75, 1, 400, 0, 92, 1920, 180, 192, 48],
             "lean_home_inbody_male|general": [1694, 2734, 2852, 441, 152, 53, 2, 0.7, 5.81, 0, 0, 646, 0, 91, 2852, 441, 152, 53],
             "lean_home_inbody_male|athlete": [1786, 2880, 2956, 467, 152, 53, 2, 0.7, 6.15, 0.32, 1, 646, 0, 91, 2956, 467, 152, 53],
             "lean_home_inbody_male|expert": [1819, 2923, 2999, 478, 152, 53, 2, 0.7, 6.29, 0.6, 1, 646, 0, 91, 2999, 478, 152, 53],
@@ -46710,7 +46727,7 @@ Notes:
 
         results.push(runNamedTest("macro target current goal acceptance ranges", () => {
           const ranges = {
-            diet: { protein: [175, 185], fat: [44, 48], carbs: [295, 305] },
+            diet: { protein: [175, 185], fat: [44, 48], carbs: [265, 275] },
             lean_bulk: { protein: [148, 152], fat: [51, 55], carbs: [370, 380] },
             bulk: { protein: [133, 138], fat: [78, 82], carbs: [370, 380] }
           };
@@ -55153,6 +55170,17 @@ Notes:
           assertTest(resultsByGoal.recomp.targetCal <= resultsByGoal.lean_bulk.targetCal + 1e-6, "recomp target should not exceed lean_bulk target");
           assertTest(resultsByGoal.lean_bulk.targetCal <= resultsByGoal.bulk.targetCal + 1e-6, "lean_bulk target should not exceed bulk target");
           assertTest(resultsByGoal.cut.targetRateContext.energyAvailabilityAfterFloor >= ENERGY_AVAILABILITY_FLOOR_KCAL_PER_LBM_KG - 1e-6, "cut target should respect energy availability floor");
+        }));
+
+        results.push(runNamedTest("v7 energy availability floor uses actual LBM, not adjusted calculation LBM", () => {
+          const scenario = getModeGoldenScenarios().find(item => item.name === "diet_inbody_male__rest_day");
+          assertTest(!!scenario, "diet inbody scenario should exist");
+          applyModeGoldenScenario({ ...scenario, skeletal: 42 }, "expert");
+          const result = calculate();
+          const actualLbm = result.s.weight * (1 - result.s.bodyFat / 100);
+          assertTest(result.lbmEffective > actualLbm + 1, "fixture should create a higher adjusted calculation LBM");
+          assertClose(result.targetRateContext.lbmForEnergyAvailability, actualLbm, 0.01, "energy availability should use actual body-composition LBM");
+          assertTest(result.targetRateContext.lbmForEnergyAvailability < result.lbmEffective, "energy availability LBM should not inherit expert adjustment");
         }));
 
         results.push(runNamedTest("C4.8-CAL1 goal snapshots store authoritative target and macros", () => {
