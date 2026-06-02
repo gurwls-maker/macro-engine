@@ -2082,6 +2082,38 @@ AG 추가 검증:
 - 프로필 전용 세션의 xw/default duration/cardio default는 현재 제품 설계값이다. 외부 운동생리학 근거로 과장하지 말고, 향후 별도 근거/사용자 테스트/정책 문서로 보강해야 한다.
 - AG visual QA는 first-pass render audit와 spot-check를 통과했지만, 모든 프로필별 실제 사용자 설정 조합을 사람이 훑은 완료 선언은 아니다.
 
+## 11-32. 2026-06-03 v8.0-AH profile-owned visual QA evidence 재감사 1차
+
+AG 재감사 원칙을 AA/AB runtime and render-audit evidence에도 적용했다. 발견된 문제는 앱 계산 경로 자체보다 evidence fixture의 소유권이었다.
+
+발견한 충돌:
+
+- candidate-v2 runtime QA와 `profileCandidateV2` render payload가 `exerciseProfile=mixed`, `profileSession=mixed_strength_cardio`를 쓰면서도 시작 routine input은 `routinePlan=ppl_ul`, `routine=PUSH`, `todayRoutineSession=PUSH`였다.
+- `getEffectiveTodayCalculationValues()`가 이 값을 mixed 기본 세션으로 정규화할 수 있더라도, 그 증거는 사용자가 실제로 mixed routine plan/session을 선택한 상황을 검증한 것이 아니다.
+- 따라서 이는 AG에서 지적한 “profileSession만 맞추고 실제 루틴/세션 소유권은 우회하는” 문제와 같은 계열이다.
+
+보강한 내용:
+
+- `buildV8RuntimeCandidateV2UserFacingFixture()`는 이제 `routinePlan=mixed_balanced`, `routine=mixed_strength_cardio`, `todayRoutineSession=mixed_strength_cardio`를 직접 넣는다.
+- `capture_render_audit.cjs`의 `profileCandidateV2` settings / Today draft / saved snapshot도 같은 profile-owned routine input으로 갱신했다.
+- `getRuntimeMeta()`는 runtime metadata에 `routinePlan`과 `routine`을 포함한다.
+- `analyze_render_audit.cjs`는 8개 post-wiring candidate-v2 captures에서 `routinePlan=mixed_balanced`와 `routine=mixed_strength_cardio`를 필수로 검사한다.
+- `runV8ScenarioRunner()` version은 `8.0-AH`로 올라갔다.
+
+실행한 확인:
+
+- `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests` → 1 suite / 26 cases / failed 0
+- `node .\tools\render_audit\capture_render_audit.cjs` → 55 captures
+- `node .\tools\render_audit\analyze_render_audit.cjs` → 55 captures / 8 post-wiring candidate-v2 captures / failed 0
+- `node .\tools\render_audit\run_internal_tests.cjs --profile=full` → 99 suites / 1056 cases / failed 0
+
+판단:
+
+- AH는 post-wiring visual/runtime evidence의 정합성을 높인 단계다.
+- AH는 새 외부 운동생리학 근거가 아니며, candidate-v2 공식 승인 범위를 넓히지 않는다.
+- AH는 `full_8_2_cartesian_execution` 또는 `full_v8_completion`을 닫지 않는다.
+- 다음 full-axis 작업은 shard 실행 결과를 누적 관리하는 ledger/checkpoint, gap summary, dirty-source/truncated/overlap evidence 분리다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -2502,6 +2534,14 @@ AG 추가 검증:
 - v8.0-AF batch folder analyzer 2 manifests / failed 0 / decoded 16 / calculated 8 / constraint-only 8 / truncated 0
 - 2026-06-03 v8.0-AF full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-AF desktop full 99 suites / 1054 cases / failed 0
+- 2026-06-03 v8.0-AH scenario runner 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-AH scenario runner suite 1 suite / 26 cases / failed 0
+- 2026-06-03 v8.0-AH render audit capture 확인: `node .\tools\render_audit\capture_render_audit.cjs`
+- v8.0-AH render audit capture 55 captures
+- 2026-06-03 v8.0-AH render audit analyzer 확인: `node .\tools\render_audit\analyze_render_audit.cjs`
+- v8.0-AH render audit analyzer 55 captures / 8 post-wiring candidate-v2 captures / failed 0
+- 2026-06-03 v8.0-AH full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-AH desktop full 99 suites / 1056 cases / failed 0
 - 2026-06-03 v8.0-T runtime mixed high-load probe 직접 확인:
   - production `targetCal=3283.4951111111113`
   - proposed candidate-v2 targetCal `3308.524266666667`
@@ -2550,6 +2590,7 @@ v8.0-Y profile formula approval preflight 이후에는 `profileFormulaApprovalPr
 v8.0-Z profile formula approval decision 이후에는 `candidate-v8-profile-macro-v2-linked-target-v0`가 production wiring을 위한 승인 산식으로 선택됐다. 그러나 `productionFormulaChanged=false`, `productionTargetCalApplied=false`, `productionVisualQaCompleted=false`, `fullV8Complete=false`이므로 실제 production targetCal 적용과 post-wiring visual QA는 다음 단계다.
 v8.0-AA production candidate-v2 target wiring 이후에는 active runtime target-delta cases에서 approved candidate-v2 target/macro가 production `calculate()` 결과에 적용된다. 직접 추출 기준 `productionTargetCal=3312.9411753385825`, `targetDeltaApplied=true`, `productionTargetCalApplied=true`, `recentGateStatus=applied`, `coachHasProfileTargetDeltaAppliedDecision=true`다. scenario runner의 과거 report-only baseline은 `profileCandidateV2ProductionWiring=false`로 보호하며, sandbox 복구 누수도 수정했다. AA 자체는 post-wiring production visual QA, 80,621,568,000개 full Cartesian 실행, full V8 completion을 닫지 않았다.
 v8.0-AB post-wiring production visual QA 이후에는 `profileCandidateV2` payload와 55개 render audit capture로 AA 적용 케이스를 desktop/mobile Today/Records에서 검증했다. analyzer 기준 8개 post-wiring 캡처 모두 `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, `recentGateStatus=applied`를 통과했고, basis-open 화면에서 `프로필 목표 보정 29 kcal`, `주간 변화 보정 0.027 kg/주`가 확인됐다. 그러나 80,621,568,000개 full Cartesian 실행과 full V8 completion은 아직 open이다.
+v8.0-AH profile-owned visual QA evidence 재감사 이후에는 AB의 post-wiring capture가 단순히 derived `profileSession`만 맞춘 증거가 아니라 `exerciseProfile=mixed`, `routinePlan=mixed_balanced`, `routine=mixed_strength_cardio`를 함께 가진 사용자 소유 루틴/세션 증거인지 검사한다. 이것은 visual/runtime evidence 강화이며, full Cartesian 실행 완료나 full V8 completion이 아니다.
 v8.0-AC full Cartesian execution contract 이후에는 `fullCartesianExecutionContract`가 20축 product `80,621,568,000`, deterministic axis stride/index decode, pilot tuple decode, `100,000` row shard / `806,216` planned shard / final `68,000` row boundary를 report한다. 이것은 전수 실행 계약일 뿐 full Cartesian 실행 완료가 아니며, `full_8_2_cartesian_execution`과 `full_v8_completion`은 아직 open이다.
 v8.0-AD deterministic full Cartesian shard pilot 이후에는 `runV8FullCartesianShard()`와 `run_v8_full_cartesian_shard.cjs`가 bounded shard evidence를 생성한다. coherent pilot은 8건 계산, constraint pilot은 3건 constraint-only로 분리했다. 이것도 전체 806억 row 실행이 아니므로 `full_8_2_cartesian_execution`과 `full_v8_completion`은 아직 open이다.
 v8.0-AE shard manifest integrity 이후에는 shard evidence가 `v8_full_cartesian_shard_manifest_v1` schema, report/manifest hash, source hash, decoded accounting, calculation issue count, non-claim flags를 포함하고 analyzer로 재검증된다. analyzer 기준 2 manifests / failed 0이지만, 이것도 bounded evidence integrity일 뿐 전체 806억 row 실행 완료가 아니므로 `full_8_2_cartesian_execution`과 `full_v8_completion`은 아직 open이다.

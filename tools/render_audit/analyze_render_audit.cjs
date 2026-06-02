@@ -251,6 +251,8 @@ function analyzeManifest(){
       calculable: runtime.isCalculable === true,
       exerciseProfile: runtime.exerciseProfile === "mixed",
       profileSession: runtime.profileSession === "mixed_strength_cardio",
+      routinePlan: runtime.routinePlan === "mixed_balanced",
+      routine: runtime.routine === "mixed_strength_cardio",
       selectedMacroBasis: runtime.selectedMacroBasis === "profile_candidate_v2",
       productionWiringApplied: runtime.productionWiringApplied === true,
       productionTargetCalApplied: runtime.productionTargetCalApplied === true,

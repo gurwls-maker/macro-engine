@@ -1,5 +1,15 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AH profile-owned visual QA evidence realignment note
+
+- AH re-audit found that the AA/AB runtime and render-audit fixture still started the mixed candidate-v2 case from `routinePlan=ppl_ul` / `routine=PUSH`, relying on normalization to reach `profileSession=mixed_strength_cardio`.
+- That was the same class of shortcut the AG profile/session correction was meant to prevent: the evidence named the right derived session but did not prove the user-owned `exerciseProfile + routinePlan + routine` input.
+- The candidate-v2 runtime QA and render-audit payload now use `exerciseProfile=mixed`, `routinePlan=mixed_balanced`, and `routine=mixed_strength_cardio` directly.
+- `analyze_render_audit.cjs` now requires all 8 post-wiring candidate-v2 captures to report `routinePlan=mixed_balanced` and `routine=mixed_strength_cardio`, in addition to `exerciseProfile=mixed`, `profileSession=mixed_strength_cardio`, `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, and `recentGateStatus=applied`.
+- `index.html` now reports scenario runner version `8.0-AH`.
+- Verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; render audit capture/analyzer = 55 captures / 8 post-wiring candidate-v2 captures / failed 0; full internal suite = 99 suites / 1056 cases / failed 0.
+- This is a visual/runtime evidence realignment only. It does not close `full_8_2_cartesian_execution` or `full_v8_completion`.
+
 # v8.0-AG profile routine ownership realignment note
 
 - `profileSession` is no longer treated as a separate user-facing session shortcut. It is a derived snapshot/draft/report field from the actual `exerciseProfile + routinePlan + routine` selection.
@@ -9,7 +19,7 @@
 - Current AG runner direct check: `profileSessionCarbPolicy.summary.productionFallbackCount=0`; `running_focused.input.todayRoutine=running_tempo`; `low_reliability_user.input.todayRoutine=mixed_strength_cardio`; `targeted_mixed_carb_unresolved.candidate.targetDeltaKcal≈128.996`; `low_reliability_user.candidate.targetDeltaKcal≈130.646`; both mixed cases reach `carbsGPerKgBodyweight=6`.
 - Historical pre-AG target-delta numbers such as `25.029`, `29.446`, `43.729`, and `51.446` remain historical evidence from the old fallback-shaped runner/runtime probes. Do not use them as the current AG profile-owned scenario expectation without re-running the current runner.
 - The old v8.0-P sentence that profile/session preservation should keep production `targetCal` unchanged was an incorrect contract interpretation. Routine/session, intensity, weight duration, and cardio defaults are production workout inputs, so profile-owned sessions can change `targetCal` through the existing workout calculation path.
-- `index.html` now reports scenario runner version `8.0-AG`.
+- At AG, `index.html` reported scenario runner version `8.0-AG`; AH is now the current reported version.
 - Verification on 2026-06-03: `runTodayQuickEditTests` = 1 suite / 27 cases / failed 0; `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1056 cases / failed 0; render audit capture/analyzer = 55 captures / failed 0. Spot-checks included Settings groups open and Today quick-open profile candidate screens on desktop/mobile.
 
 # v8.0-AF shard batch orchestration pilot note
@@ -54,7 +64,7 @@
 
 - `tools/render_audit/capture_render_audit.cjs` now includes the actual AA-wired candidate-v2 production case as a separate `profileCandidateV2` payload instead of relying on the old rich bodybuilding fixture.
 - The post-wiring visual set covers Today applied, Today quick-open, Records detail, and Records basis-open surfaces on desktop/mobile. The basis-open capture verifies that the user can see the saved profile/session target correction context, not just the collapsed record shell.
-- `tools/render_audit/analyze_render_audit.cjs` now requires 55 captures = 37 desktop + 18 mobile and checks 8 post-wiring profile-candidate captures for runtime evidence: `exerciseProfile=mixed`, `profileSession=mixed_strength_cardio`, `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, `recentGateStatus=applied`.
+- `tools/render_audit/analyze_render_audit.cjs` now requires 55 captures = 37 desktop + 18 mobile and checks 8 post-wiring profile-candidate captures for runtime evidence: `exerciseProfile=mixed`, `profileSession=mixed_strength_cardio`, `routinePlan=mixed_balanced`, `routine=mixed_strength_cardio`, `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, `recentGateStatus=applied`.
 - `runV8ScenarioRunner()` now reports version `8.0-AB`; its approval decision marks `productionVisualQaCompleted=true` and removes `post_wiring_production_visual_qa` from `notApprovedYet` while keeping full Cartesian/full V8 open.
 - Latest render audit on 2026-06-03: `captureCount=55`, `postWiringProfileCandidateCaptureCount=8`, `postWiringProfileCandidateAppliedCaptureCount=8`, `failedCount=0`, `minUniqueSampleColorCount=547`, `minLuminanceStdDev=22.743`.
 - Spot-checked screenshots: `52_mobile_today_profile_candidate_v2_applied.png`, `54_mobile_records_profile_candidate_v2_detail.png`, `55_desktop_records_profile_candidate_v2_basis_open.png`, and `56_mobile_records_profile_candidate_v2_basis_open.png`.
