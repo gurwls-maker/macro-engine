@@ -8,7 +8,7 @@
 이 문서는 산식 수정 제안서가 아니다.
 v8 기준문서가 지시한 1단계, 즉 현재 index.html의 산식과 Today-Records 기준갱신 판단 흐름을 감사한 결과이다.
 최초 감사 리포트 작성 중에는 index.html 구현을 변경하지 않았다.
-이후 v8.0-A / v8.0-B / v8.0-C 기준갱신 핫픽스와 v8.0-D 시나리오 러너 결과는 이 문서의 진행 메모와 검증 메모에 누적한다.
+이후 v8.0-A / v8.0-B / v8.0-C 기준갱신 핫픽스, v8.0-D 시나리오 러너, v8.0-D1 근거 등급 재감사 결과는 이 문서의 진행 메모와 검증 메모에 누적한다.
 
 ## 처음 보는 작업자용 사용법
 
@@ -36,6 +36,25 @@ v8 기준문서가 지시한 1단계, 즉 현재 index.html의 산식과 Today-R
 
 이 문서만 보고 임의로 수치를 고치면 안 된다.
 특히 단백질 180.5g은 "높아 보인다"는 감각으로 낮추는 대상이 아니라, 원래 의도와 부작용을 분리한 뒤 candidate formula와 scenario runner에서 비교해야 한다.
+
+## 근거 등급 규칙
+
+v8.0-D1부터 모든 산식 / 테스트 / 문서 근거는 아래 중 하나로 표시한다.
+
+1. 외부 운동생리학 / 스포츠영양 근거
+   - 논문, 공식 가이드, position stand처럼 외부 출처가 명시된 근거다.
+   - 출처가 있다고 끝난 것이 아니라 대상군, 목표, 훈련 수준, 앱의 사용자 흐름에 맞는지까지 검토해야 한다.
+2. 내부 코드 근거
+   - `index.html` 경로, snapshot, 테스트, 리포트 출력처럼 현재 구현이 어떻게 동작하는지 보여주는 근거다.
+   - 현재 동작을 증명할 뿐, 생리학적 타당성을 증명하지 않는다.
+3. 제품 정책 근거
+   - 사용자 의도, 기준문서, UX 책임, Records / Today / Coach 책임 분리처럼 앱이 어떻게 행동해야 하는지에 대한 근거다.
+   - 앱 정책으로는 사용할 수 있지만 운동생리학 근거처럼 말하면 안 된다.
+4. 미검증 생리학 후보
+   - 그럴듯한 내부 산식 또는 의도지만 외부 근거와 앱 적합성 검토가 끝나지 않은 항목이다.
+
+외부 운동생리학 근거라고 명시되어 있지 않은 기존 근거는 기본적으로 내부 코드 근거 또는 제품 정책 근거로 본다.
+이런 항목은 후속 산식 변경에서 검토대상으로 남긴다.
 
 ## 0. 감사 결론
 
@@ -345,7 +364,7 @@ carbs = (1913.2992 - 180.4999 * 4 - 45.1250 * 9) / 4
 따라서 이 케이스의 단백질 180.5g은 다음 의미다.
 
 - 원래 의도: diet 상태에서 근손실 방지를 위해 높은 단백질 범위의 중간값을 사용한다.
-- 유효한 부분: 단백질을 남은 칼로리 처리로 두지 않고 목표/체중 기준으로 먼저 정한다.
+- 내부 정책상 보존할 만한 구조 후보: 단백질을 남은 칼로리 처리로 두지 않고 목표/체중 기준으로 먼저 정한다. 단, 이것은 현재 앱 산식 구조의 장점 후보이지 외부 스포츠영양 근거로 확정한 결론은 아니다.
 - 과한 부분 후보: 모든 diet 사용자에게 bodyweight 2.4g/kg이 기본 중간값으로 적용된다.
 - 부작용: energy availability floor로 목표 칼로리가 낮게 고정될 때 탄수화물이 guide minimum 아래로 내려간다.
 - 수정 판단은 아직 금지: 현재 단계에서는 "높아 보이니 낮춘다"가 아니라, 보존할 의도와 줄여야 할 부작용을 분리해 후보안을 설계해야 한다.
@@ -550,7 +569,7 @@ P1 후보:
 
 2. final guide basis가 diet 단백질을 bodyweight 2.4g/kg으로 기본 적용한다.
    - 위치: `getDualBasisProteinRange()`, `calculateGuideBasisMacrosWithinTarget()`
-   - 근손실 방지 의도는 유효하지만, 저칼로리 floor 지배 상황에서 탄수화물을 guide minimum 아래로 밀 수 있다.
+   - 근손실 방지라는 내부 의도는 이해되지만, 외부 근거와 앱 적용범위 검토 없이 모든 diet 사용자에게 bodyweight 2.4g/kg 중간값을 확정할 수는 없다. 저칼로리 floor 지배 상황에서는 탄수화물을 guide minimum 아래로 밀 수 있으므로 미검증 생리학 후보로 남긴다.
 
 3. snapshot 없는 detailed 오늘 기록이 "갱신 필요"로 보인다. [v8.0-A 처리 완료]
    - 위치: `getTodayRecordConfirmationState()`
@@ -652,7 +671,11 @@ v8.0-D 러너 해석 주의:
 - 8-2 필수축을 모두 곱한 80,621,568,000개 조합은 v8.0-D에서 전수 실행하지 않았다. v8.0-D는 모든 필수축 카테고리를 한 번씩 계산하는 category sweep과 18개 human-review 표를 분리한 1차 러너다.
 - 80,621,568,000개 full cross-product는 단일 브라우저 내부 테스트로 돌릴 대상이 아니다. 1ms/케이스여도 약 933일이 걸리므로, 후속 검증은 full 축 정의를 보존한 상태에서 pairwise/orthogonal coverage, targeted stress, shard runner를 설계해야 한다.
 - `유지` 목표는 8-2 필수축에서 삭제하거나 리컴프로 확정하지 않는다. v8.0-D는 현재 앱에 production 유지 키가 없다는 사실만 `productionGoalFallback=recomp`로 드러낸다. 실제 maintain 추가는 목표 rate, macro, 기준갱신 snapshot, score/remaining, Coach/Recent, export/import 영향을 포함해 별도 production 변경으로 다룬다.
-- 업무 강도 보정축은 `office` 기준으로 검증하지 않는다. 현재 산식은 `workloadY = clamp(WORK_TYPE_Y[workType] + workAdj, 0, 1)`이고 `WORK_TYPE_Y.office`는 0이라서 low 보정이 clamp에 막혀 base와 겹친다. v8.0-D category sweep은 업무 보정축의 low/base/high가 앱 산식 안에서 실제로 분리되는지 보기 위해 `active` 업무 유형을 기준으로 삼는다. 이는 검증 기준 선택이지, 사용자 기본 업무 유형이나 산식을 바꾼 것이 아니다.
+- 업무 강도 보정축은 `office` 기준으로 검증하지 않는다.
+  - 현재 산식은 `workloadY = clamp(WORK_TYPE_Y[workType] + workAdj, 0, 1)`이고 `WORK_TYPE_Y.office`는 0이라서 low 보정이 clamp에 막혀 base와 겹친다.
+  - v8.0-D category sweep은 업무 보정축의 low/base/high가 앱 산식 안에서 실제로 분리되는지 보기 위해 `active` 업무 유형을 기준으로 삼는다.
+  - 이 근거는 내부 코드 근거다. `WORK_TYPE_Y` 계수, 업무활동 계수, `0.06` 업무 가산폭, 실제 직업군별 활동량 모델이 외부 운동생리학적으로 타당하다는 뜻이 아니다.
+  - v8.0-D1부터 report의 `axisCoverage.evidenceLevel`은 `internal_formula_coverage_only`로 표시하고, `impactScope`는 `report_only_axis_coverage_case_fixture`로 제한한다.
 - candidate 열은 `candidate-no-weekly-xw` 하나만 비교한다. 이는 "주간 웨이트일수 단독 영향 제거 시 차이"를 보기 위한 기존 후보일 뿐, 다각적 v8 운동 프로필 산식 전체가 아니다.
 
 다각적 기능 구현 기준:
@@ -662,6 +685,42 @@ v8.0-D 러너 해석 주의:
 - 운동 프로필은 이름만 늘리면 안 된다. 프로필마다 세션 후보, 루틴 기본값, 칼로리 보정, 단백질/지방/탄수 기준, 기록 snapshot, Settings 기본값, Today 수정 흐름이 맞아야 한다.
 - 충분히 설계하지 못한 프로필은 active 기능으로 열지 말고 disabled / 후속 후보로 둔다. 사용자가 세팅 단계에서 앱의 깊이를 의심하게 만드는 반쪽 기능은 금지한다.
 - 사용자에게 실질적으로 도움이 되는 기준은 "화면에 기능이 있다"가 아니라 "사용자가 자기 상황을 넣었을 때 결과와 다음 행동을 믿을 수 있다"이다.
+
+## 11-1. 2026-06-02 v8.0-D1 근거 등급 재감사
+
+현재까지의 v8 작업을 근거 등급 기준으로 다시 보면 아래와 같다.
+
+- v8.0-A snapshotless detailed 기록 분리
+  - 근거 등급: 제품 정책 근거 + 내부 코드 근거
+  - 의미: "갱신 필요"와 "저장 당시 계산 기준 없음"을 UX 상태로 분리한 것이다.
+  - 외부 운동생리학 근거가 필요한 산식 변경은 아니다.
+- v8.0-B selected macro basis 기준갱신 정책
+  - 근거 등급: 제품 정책 근거 + 내부 코드 근거
+  - 의미: 선택 basis가 실제 `targetCal/protein/carbs/fat` 저장값을 바꾸면 Records 기준갱신 대상으로 본다는 계약이다.
+  - 영양학적으로 guide/activity 중 하나가 더 타당하다는 결론이 아니다.
+- v8.0-C `record_detail_edit` 보호와 `suppressTodayRecordAutoSync` 잔재 정리
+  - 근거 등급: 내부 코드 근거 + 제품 정책 근거
+  - 의미: 자동 sync가 사용자의 Records 편집 기준을 덮지 않게 하는 저장 책임 정리다.
+  - 운동 / 영양 산식 근거로 사용하지 않는다.
+- v8.0-D 시나리오 러너 1차본
+  - 근거 등급: 내부 코드 근거
+  - 의미: 8-2 필수축 category sweep과 8-3 human-review 18개를 분리했고, 전체 80,621,568,000개 cross-product를 전수 실행하지 않았음을 명시한다.
+  - 각 케이스의 수치 타당성, candidate formula 승인, profile별 세션 산식 적합성은 아직 완료되지 않았다.
+- v8.0-D `유지` 목표 fallback
+  - 근거 등급: 내부 코드 근거
+  - 의미: 현재 production `GOALS`에 유지 키가 없다는 사실을 드러내기 위해 `axisGoal=maintain`, `productionGoalFallback=recomp`로 기록한 것이다.
+  - 유지 목표를 리컴프로 확정한 것이 아니며, 실제 maintain 추가는 별도 production 변경이다.
+- v8.0-D / D1 업무 강도 보정축 `active` fixture
+  - 근거 등급: 내부 코드 근거
+  - 의미: `office + low`가 clamp로 base와 겹치기 때문에, report-only category sweep에서 low/base/high가 실제로 분리되는지 보기 위한 fixture다.
+  - `WORK_TYPE_Y` 계수나 실제 직업군별 활동량 모델을 외부적으로 검증한 근거가 아니다.
+- 1913 / 196.3 / 180.5 / 45.1 단백질 회귀 케이스
+  - 근거 등급: 내부 코드 근거 + 미검증 생리학 후보
+  - 의미: 현재 guide basis에서 diet 단백질이 bodyweight 2.4g/kg까지 올라가는 구현을 재현한 것이다.
+  - "단백질을 먼저 정하고 남은 칼로리를 탄수에 배분한다"는 구조는 내부 정책상 보존 후보지만, 모든 diet 사용자에게 2.4g/kg 기본 중간값을 적용해도 된다는 외부 근거 검토는 아직 끝나지 않았다.
+
+재검토 결과, v8.0-A/B/C는 저장 / 기준갱신 / UX 책임 정리라서 외부 운동생리학 근거가 필요한 산식 변경으로 보지 않는다.
+다만 1차 감사문서의 단백질 항목과 v8.0-D 업무 보정축 설명에는 내부 근거를 외부 타당성처럼 오해할 수 있는 표현이 남아 있었으므로 v8.0-D1에서 문서와 report metadata를 보강한다.
 
 ## 12. 검증 메모
 
@@ -705,6 +764,16 @@ v8.0-D 러너 해석 주의:
 - v8.0-D desktop smoke 10 suites / 121 cases / failed 0
 - 2026-06-02 v8.0-D core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
 - v8.0-D desktop core 26 suites / 364 cases / failed 0
+- 2026-06-02 v8.0-D1 diff 확인: `git diff --check`
+- v8.0-D1 diff check passed
+- 2026-06-02 v8.0-D1 근거 등급 report 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-D1 scenario runner suite 1 suite / 8 cases / failed 0
+- 2026-06-02 v8.0-D1 calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-D1 desktop calibration 14 suites / 116 cases / failed 0
+- 2026-06-02 v8.0-D1 smoke 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=smoke`
+- v8.0-D1 desktop smoke 10 suites / 121 cases / failed 0
+- 2026-06-02 v8.0-D1 core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
+- v8.0-D1 desktop core 26 suites / 364 cases / failed 0
 
 실행하지 않은 것:
 
@@ -719,3 +788,4 @@ v8.0-A snapshotless 기준 저장 상태 분리 이후에는 관련 suite, mobil
 v8.0-B selected macro basis 정책 고정 이후에는 Today record confirmation suite를 desktop/mobile viewport에서 실행했고, desktop smoke/core 회귀도 다시 실행했다.
 v8.0-C record_detail_edit 보호 / 잔재 플래그 정리 이후에는 Today record confirmation suite를 desktop/mobile viewport에서 실행했고, desktop smoke/core 회귀도 다시 실행했다.
 v8.0-D 시나리오 러너 1차 구현 이후에는 8-2 필수축 category sweep과 8-3 human-review 분리, 유지 축 fallback 명시, 운동 프로필별 report-only session 분리를 `runV8ScenarioRunnerTests`로 확인했고, calibration/smoke/core 회귀도 다시 실행했다.
+v8.0-D1 근거 등급 재감사 이후에는 업무 보정축 active fixture가 `internal_formula_coverage_only` / `report_only_axis_coverage_case_fixture`로 남는지 `runV8ScenarioRunnerTests`에서 확인했고, calibration/smoke/core 회귀도 다시 실행했다.

@@ -1,8 +1,10 @@
 <!--
 Version: 8.0
-Stage: v8.0-D v8 axis / human-review scenario runner 1차 구현
+Stage: v8.0-D1 업무 보정축 근거 수준 재감사
 Date: 2026-06-02
 Notes:
+- v8.0-D1 업무 보정축 active fixture는 internal formula coverage 근거일 뿐, 업무활동 계수의 외부 타당성 근거가 아님을 report/docs에 명시
+- v8.0-D1 report-only axisCoverage에 fixtureBasis / evidenceLevel / impactScope를 추가하고 산식 / UI 기본값 / score / Coach / recentContext 변경 없음
 - v8.0-D 8-2 필수축 category sweep과 8-3 18개 human-review 케이스를 분리해 current / candidate-no-weekly-xw side-by-side report로 출력
 - v8.0-D 유지 칼로리 / 목표 칼로리 / 탄단지 필수 분해 필드와 사람이 읽는 텍스트 리포트 생성
 - v8.0-D 운동 프로필별 report-only session과 production routine fallback을 분리하고, 8-2 전체 cross-product 실행 여부를 meta에 명시
@@ -52342,6 +52344,14 @@ Notes:
         case "workAdjustment": {
           const workAdj = { low: -0.2, base: 0, high: 0.2 };
           next.activityCombo = makeV8ActivityCombo(`V8AX_WORKADJ_${axisValue}`, `업무 보정 ${axisValue}`, "moderate", "active", workAdj[axisValue] ?? 0);
+          next.axisCoverage = {
+            ...next.axisCoverage,
+            fixtureBasis: "active_work_type_midpoint",
+            evidenceLevel: "internal_formula_coverage_only",
+            basisReason: "WORK_TYPE_Y.office + low workAdj is clamp-collapsed to 0, while active + low/base/high remains 0.35/0.55/0.75.",
+            impactScope: "report_only_axis_coverage_case_fixture",
+            nonClaim: "does_not_validate_work_type_coefficients_or_user_defaults"
+          };
           break;
         }
         case "weeklyTrainingDays":
@@ -53248,7 +53258,7 @@ Notes:
           assertTest(strengthCase.input.todayRoutineRole === "production_calculation_fallback", "strength production routine should be marked as fallback");
         }));
 
-        results.push(runNamedTest("v8.0-D work adjustment axis uses mid-workload basis to avoid clamp-collapsed categories", () => {
+        results.push(runNamedTest("v8.0-D1 work adjustment fixture marks internal-only evidence and avoids clamp-collapsed categories", () => {
           const report = runV8ScenarioRunner();
           const workAdjCases = report.axisCoverage.cases
             .filter(item => item.axisCoverage?.axis === "workAdjustment")
@@ -53261,6 +53271,9 @@ Notes:
           assertClose(workloads.low, 0.35, 0.0001, "low work adjustment should remain inside clamp range");
           assertClose(workloads.base, 0.55, 0.0001, "base work adjustment should use active workload basis");
           assertClose(workloads.high, 0.75, 0.0001, "high work adjustment should remain inside clamp range");
+          assertTest(workAdjCases.every(item => item.axisCoverage.evidenceLevel === "internal_formula_coverage_only"), "work adjustment fixture should not overclaim external validity");
+          assertTest(workAdjCases.every(item => item.axisCoverage.impactScope === "report_only_axis_coverage_case_fixture"), "work adjustment fixture scope should stay report-only");
+          assertIncludesAll(workAdjCases[0].axisCoverage.nonClaim, ["does_not_validate", "user_defaults"], "work adjustment fixture should state non-claims");
         }));
 
         results.push(runNamedTest("v8.0-D required 1913 rest-day diet regression is in the scenario table", () => {
