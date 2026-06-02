@@ -1,5 +1,15 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-T candidate-v2 runtime target-delta proposal wiring note
+
+- `index.html` now builds `profileMacroCandidateV2RuntimeProposal` from the actual `calculate()` Today profile/session path.
+- The runtime proposal writes candidate-v2 metadata into `targetRateContext`: `profileMacroCandidateModel`, `profileMacroCandidateStage`, `profileTargetDeltaKcal`, and `profileTargetRateDeltaEquivalentKgPerWeek`.
+- Mixed high-load runtime probe: production `targetCal=3283.4951111111113`, proposed candidate target `3308.524266666667`, `targetDeltaKcal=25.029155555555462`, weekly-rate equivalent `0.022753777777777692kg/week`.
+- This is metadata wiring only. `profileCandidateDeltaContract.appliedToTarget=false`, production `targetCal` remains unchanged, `candidateFormulaApproved=false`, and `recentContext.profileCandidateV2TargetDeltaGate.canApplyAutomatically=false`.
+- Scenario runner verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 20 cases / failed 0.
+- Calibration verification on 2026-06-03: 14 suites / 128 cases / failed 0.
+- Full internal verification on 2026-06-03: 99 suites / 1048 cases / failed 0.
+
 # v8.0-S protein guard candidate-v2 resolution contract note
 
 - `index.html` now separates the candidate-v2 protein guard issue into external evidence guard vs internal legacy guide-floor conflict.

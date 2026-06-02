@@ -1635,6 +1635,36 @@ v8.0-S에서는 v8.0-R 이후 남은 `profileMacroCandidateV2Comparison.proteinG
 - 이것은 candidate-v2 formula approval이 아니다. `candidateFormulaApproved=false`, `productionFormulaChanged=false`, target-rate probe의 `appliedToTarget=false`는 계속 유지된다.
 - 다음 단계에서 실제 production formula 적용을 검토하려면, candidate-v2 target delta를 production `targetCal`에 연결하는 범위, UI/Today 표시, Records 기준갱신, score/Coach 문구가 실제 사용자에게 납득 가능한지 확인해야 한다.
 
+## 11-17. 2026-06-03 v8.0-T candidate-v2 runtime target-delta proposal wiring 1차
+
+v8.0-T에서는 v8.0-S의 `productionReady=true`를 곧바로 targetCal 적용으로 읽지 않고, 먼저 실제 `calculate()` Today 경로에서 candidate-v2 target-delta proposal metadata가 생성되고 보존되는지 구현했다. 이 단계는 formula approval이 아니며 production targetCal을 바꾸지 않는다.
+
+구현 계약:
+
+- `calculate()`는 `profileMacroCandidateV2RuntimeProposal`을 반환한다.
+- runtime proposal은 현재 Today `exerciseProfile/profileSession`, 선택된 production target/macro, `dualBasis.rangeContext`로 candidate-v2 feasibility를 다시 계산한다.
+- candidate-v2 target delta가 필요한 경우 `targetRateContext.profileMacroCandidateModel`, `profileMacroCandidateStage`, `profileTargetDeltaKcal`, `profileTargetRateDeltaEquivalentKgPerWeek`가 채워진다.
+- `profileCandidateDeltaContract.appliedToTarget=false`, `targetCalUnchangedByProfileCandidateDelta=true`, `targetRateChangedByProfileCandidateDelta=false`를 유지한다.
+- `recentContext.profileCandidateV2TargetDeltaGate`는 runtime delta를 볼 수 있지만 `canApplyAutomatically=false`를 유지한다.
+
+직접 확인한 runtime mixed high-load probe:
+
+- production `targetCal`: `3283.4951111111113`
+- proposed candidate-v2 targetCal: `3308.524266666667`
+- `targetDeltaKcal`: `25.029155555555462`
+- `targetRateDeltaEquivalentKgPerWeek`: `0.022753777777777692`
+- `profileCarbFloorAttempted=true`
+- `profileCarbFloorMet=true`
+- `profileCandidateGuardConflict.proteinGuardConflict=false`
+- `profileCandidateGuardConflict.fatGuardConflict=false`
+
+해석:
+
+- v8.0-T는 report-only candidate-v2를 실제 Today calculation metadata path에 연결했다.
+- 이것은 `candidate-v8-profile-macro-v2-linked-target-v0`의 production formula approval이 아니다.
+- production `targetCal`에는 candidate delta를 적용하지 않는다.
+- 다음 단계에서 production 적용을 검토하려면 recent28 gate의 자동 적용 조건, 사용자 승인/표시 방식, Records 기준갱신, score/Coach copy가 실제 사용자에게 납득 가능한지 별도로 QA해야 한다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -1955,6 +1985,19 @@ v8.0-S에서는 v8.0-R 이후 남은 `profileMacroCandidateV2Comparison.proteinG
 - v8.0-S desktop calibration 14 suites / 127 cases / failed 0
 - 2026-06-03 v8.0-S full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-S desktop full 99 suites / 1047 cases / failed 0
+- 2026-06-03 v8.0-T runtime candidate-v2 target-delta proposal 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-T scenario runner suite 1 suite / 20 cases / failed 0
+- 2026-06-03 v8.0-T calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-T desktop calibration 14 suites / 128 cases / failed 0
+- 2026-06-03 v8.0-T full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-T desktop full 99 suites / 1048 cases / failed 0
+- 2026-06-03 v8.0-T runtime mixed high-load probe 직접 확인:
+  - production `targetCal=3283.4951111111113`
+  - proposed candidate-v2 targetCal `3308.524266666667`
+  - `targetDeltaKcal=25.029155555555462`
+  - `targetRateDeltaEquivalentKgPerWeek=0.022753777777777692`
+  - `appliedToTarget=false`
+  - `recentContext.profileCandidateV2TargetDeltaGate.canApplyAutomatically=false`
 
 실행하지 않은 것:
 
@@ -1987,3 +2030,4 @@ v8.0-P profile/session input-snapshot contract 이후에는 Settings/Today exerc
 v8.0-Q target-rate recentContext candidate-delta contract 이후에는 candidate-v2 target/rate delta metadata와 recent28 gate contract를 닫았다. 그러나 score/Coach 계약 3개와 unresolved protein guard conflict가 남아 productionBlockerCount=4이며, candidate-v2 target delta는 production `targetCal`에 적용되지 않는다.
 v8.0-R score Coach candidate-v2 contract 이후에는 score/Coach 계약 3개도 닫혀 `missingContractCount=0`, `scoreCoachContractMissingCount=0`이 되었다. 그러나 unresolved protein/fat guard behavior가 `productionBlockerCount=1`로 남아 있고, candidate-v2 target delta는 여전히 production `targetCal`에 적용되지 않는다.
 v8.0-S protein guard candidate-v2 resolution contract 이후에는 legacy 2.2g/kg BW diet guide floor와 ISSN general range를 분리해 `proteinGuardConflictCount=0`, `proteinGuardResolvedCount=4`, `productionBlockerCount=0`, `productionReady=true`가 되었다. 그러나 candidate-v2 target delta는 여전히 production `targetCal`에 적용되지 않고, formula approval도 아직 아니다.
+v8.0-T candidate-v2 runtime target-delta proposal wiring 이후에는 실제 `calculate()` Today 경로가 `profileMacroCandidateV2RuntimeProposal`과 targetRateContext candidate-v2 metadata를 생성한다. mixed high-load probe는 production `targetCal=3283.4951111111113`, proposed candidate target `3308.524266666667`, `targetDeltaKcal=25.029155555555462`를 보존하지만 `appliedToTarget=false`, `canApplyAutomatically=false`이므로 production targetCal 적용이나 formula approval로 읽으면 안 된다.
