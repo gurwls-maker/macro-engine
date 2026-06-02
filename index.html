@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-R score Coach candidate-v2 contract
+Stage: v8.0-S protein guard candidate-v2 resolution contract
 Date: 2026-06-03
 Notes:
+- v8.0-S candidate-v2 protein guard conflict를 ISSN general range와 contest-prep 예외로 분리해 해결하되 candidate-v2 target delta를 production formula로 승인하지 않음
 - v8.0-R candidate-v2 score / Coach profile contract를 추가하되 candidate-v2 target delta와 guard conflict를 production formula로 승인하지 않음
 - v8.0-Q targetRateContext와 recentContext에 candidate-v2 target/rate delta metadata와 recent28 gate를 추가하되 targetCal / score / Coach 산식은 계속 변경하지 않음
 - v8.0-P Settings/Today 운동 프로필과 오늘 세션 입력을 추가하고 draft / state / goalSnapshot / signature / backup 경로에 보존하되 candidate-v2 산식은 계속 report-only로 유지
@@ -52993,8 +52994,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-R";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-R score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-S";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-S protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -53876,6 +53877,7 @@ Notes:
     }
 
     const V8_MACRO_AUDIT_RULES = Object.freeze({
+      proteinGeneralExerciserMinGKg: 1.4,
       proteinGeneralExerciserUpperGKg: 2.0,
       proteinDietBodyweightReviewGKg: 2.35,
       contestPrepProteinLbmMinGKg: 2.3,
@@ -53890,7 +53892,7 @@ Notes:
         source: "ISSN position stand: protein and exercise, 2017",
         url: "https://jissn.biomedcentral.com/articles/10.1186/s12970-017-0177-8",
         scope: "most_exercising_individuals_general_range",
-        appUse: "review_when_bodyweight_protein_exceeds_2_0_g_per_kg"
+        appUse: "review_when_bodyweight_protein_falls_outside_1_4_to_2_0_g_per_kg_or_when_internal_product_floor_claims_external_guard_status"
       },
       helmsContestPrep2014: {
         evidenceLevel: "external_sports_nutrition_reference",
@@ -55153,6 +55155,88 @@ Notes:
       };
     }
 
+    function buildV8ProfileMacroCandidateProteinGuardReview(input, contextCandidate, minimums, protein){
+      const weight = Math.max(1, Number(input?.weight) || 1);
+      const lbm = Math.max(1, Number(input?.lbm) || weight);
+      const proteinG = Math.max(0, Number(protein) || 0);
+      const proteinBw = proteinG / weight;
+      const proteinLbm = proteinG / lbm;
+      const legacyGuideMinG = Math.max(0, Number(minimums?.proteinMinG) || 0);
+      const legacyGuideMinKg = Number(minimums?.proteinMinKg);
+      const legacyGuideConflict = proteinG < legacyGuideMinG - 1e-6;
+      const contestPrepLike = isV8ContestPrepLikeInput(input);
+      const contextProteinSource = contextCandidate?.macro?.protein_rule_source || "";
+      const generalMinKg = V8_MACRO_AUDIT_RULES.proteinGeneralExerciserMinGKg;
+      const generalMaxKg = V8_MACRO_AUDIT_RULES.proteinGeneralExerciserUpperGKg;
+
+      if (contestPrepLike) {
+        const contestPrepMinG = V8_MACRO_AUDIT_RULES.contestPrepProteinLbmMinGKg * lbm;
+        const unresolved = proteinG < contestPrepMinG - 1e-6;
+        return {
+          status: unresolved ? "unresolved_below_contest_prep_lbm_floor" : (legacyGuideConflict ? "resolved_by_contest_prep_lbm_floor" : "ok"),
+          productionBlocker: unresolved,
+          legacyGuideConflict,
+          contestPrepLike,
+          requiredMinG: contestPrepMinG,
+          requiredMinBasis: "contest_prep_lbm_min",
+          requiredMinKg: V8_MACRO_AUDIT_RULES.contestPrepProteinLbmMinGKg,
+          proteinG,
+          proteinGPerKgBodyweight: proteinBw,
+          proteinGPerKgLbm: proteinLbm,
+          legacyGuideMinG,
+          legacyGuideMinKg,
+          evidenceKeys: ["helmsContestPrep2014", "currentFormulaReport"]
+        };
+      }
+
+      const belowGeneralRange = proteinBw < generalMinKg - 1e-6;
+      const withinGeneralRange = proteinBw >= generalMinKg - 1e-6 && proteinBw <= generalMaxKg + 1e-6;
+      const resolvedLegacyGuideConflict = legacyGuideConflict
+        && withinGeneralRange
+        && contextProteinSource.includes("general_issn_bodyweight_cap");
+      const unresolved = belowGeneralRange || (legacyGuideConflict && !resolvedLegacyGuideConflict);
+      return {
+        status: unresolved
+          ? (belowGeneralRange ? "unresolved_below_general_issn_range" : "unresolved_internal_floor_without_external_resolution")
+          : (resolvedLegacyGuideConflict ? "resolved_by_general_issn_bodyweight_range" : "ok"),
+        productionBlocker: unresolved,
+        legacyGuideConflict,
+        contestPrepLike,
+        requiredMinG: generalMinKg * weight,
+        requiredMinBasis: "general_issn_bodyweight_min",
+        requiredMinKg: generalMinKg,
+        acceptedRangeGPerKgBodyweight: { min: generalMinKg, max: generalMaxKg },
+        proteinG,
+        proteinGPerKgBodyweight: proteinBw,
+        proteinGPerKgLbm: proteinLbm,
+        legacyGuideMinG,
+        legacyGuideMinKg,
+        resolvedLegacyGuideConflict,
+        contextProteinSource,
+        evidenceKeys: ["issnProtein2017", "currentFormulaReport"]
+      };
+    }
+
+    function buildV8ProfileMacroCandidateFatGuardReview(input, contextCandidate, minimums, fat){
+      const weight = Math.max(1, Number(input?.weight) || 1);
+      const targetCal = Math.max(0, Number(contextCandidate?.target?.finalTargetCal) || 0);
+      const fatG = Math.max(0, Number(fat) || 0);
+      const fatPercentKcal = targetCal > 0 ? fatG * 9 / targetCal * 100 : 0;
+      const requiredMinG = Math.max(0, Number(minimums?.fatMinG) || 0);
+      const unresolved = fatG < requiredMinG - 1e-6;
+      return {
+        status: unresolved ? "unresolved_below_fat_guard" : "ok",
+        productionBlocker: unresolved,
+        requiredMinG,
+        requiredMinBasis: "range_context_or_15_percent_kcal_floor",
+        requiredMinKg: Number(minimums?.fatMinKg),
+        fatG,
+        fatGPerKgBodyweight: fatG / weight,
+        fatPercentKcal,
+        evidenceKeys: ["helmsContestPrep2014", "currentFormulaReport"]
+      };
+    }
+
     function buildV8ProfileMacroCandidateOutput(item, profilePolicyCase){
       const input = item?.input || {};
       const contextCandidate = buildV8ContextMacroCandidateOutput(item);
@@ -55502,6 +55586,8 @@ Notes:
       const profileCarbFloorMet = !profileCarbFloorAttempted
         || (range && Number.isFinite(carbsKg) && carbsKg >= range.min - 1e-6);
       const targetRateDeltaEquivalentKgPerWeek = targetDeltaKcal * 7 / TARGET_RATE_KCAL_PER_KG;
+      const proteinGuardReview = buildV8ProfileMacroCandidateProteinGuardReview(input, contextCandidate, minimums, protein);
+      const fatGuardReview = buildV8ProfileMacroCandidateFatGuardReview(input, contextCandidate, minimums, fat);
       const macroInfo = buildMacroAllocationInfo({
         targetCal,
         protein,
@@ -55575,32 +55661,54 @@ Notes:
         ));
         reasons.push("profile_session_carb_floor_unresolved_after_v2");
       }
-      if (profileCarbFloorAttempted && protein < minimums.proteinMinG - 1e-6) {
+      if (profileCarbFloorAttempted && proteinGuardReview.productionBlocker) {
         findings.push(makeV8ProfileMacroCandidateV2Finding(
           "profile_protein_guard_conflict_unresolved",
           "high",
-          ["issnProtein2017", "currentFormulaReport"],
-          "candidate-v2 preserves the context-candidate protein value; it does not resolve the remaining conflict with the current guide/profile protein guard.",
+          proteinGuardReview.evidenceKeys,
+          "candidate-v2 preserves the context-candidate protein value, but the protein guard review still classifies it as unresolved.",
           {
             proteinG: protein,
             proteinGPerKgBodyweight: protein / weight,
-            guardProteinMinG: minimums.proteinMinG,
-            guardProteinMinKg: minimums.proteinMinKg
+            guardProteinMinG: proteinGuardReview.requiredMinG,
+            guardProteinMinKg: proteinGuardReview.requiredMinKg,
+            guardStatus: proteinGuardReview.status,
+            legacyGuideMinG: proteinGuardReview.legacyGuideMinG,
+            legacyGuideMinKg: proteinGuardReview.legacyGuideMinKg
           }
         ));
         reasons.push("profile_protein_guard_conflict_unresolved");
       }
-      if (profileCarbFloorAttempted && fat < minimums.fatMinG - 1e-6) {
+      if (profileCarbFloorAttempted && proteinGuardReview.legacyGuideConflict && !proteinGuardReview.productionBlocker) {
+        findings.push(makeV8ProfileMacroCandidateV2Finding(
+          "profile_protein_guard_resolved_by_general_issn_range",
+          "review",
+          proteinGuardReview.evidenceKeys,
+          "candidate-v2 classifies the legacy diet protein floor conflict as resolved for this non-contest profile because protein stays inside the ISSN general exercising-individual range.",
+          {
+            proteinG: protein,
+            proteinGPerKgBodyweight: protein / weight,
+            acceptedRangeGPerKgBodyweight: proteinGuardReview.acceptedRangeGPerKgBodyweight,
+            legacyGuideMinG: proteinGuardReview.legacyGuideMinG,
+            legacyGuideMinKg: proteinGuardReview.legacyGuideMinKg,
+            guardStatus: proteinGuardReview.status,
+            contextProteinSource: proteinGuardReview.contextProteinSource
+          }
+        ));
+        reasons.push("profile_protein_guard_resolved_by_general_issn_range");
+      }
+      if (profileCarbFloorAttempted && fatGuardReview.productionBlocker) {
         findings.push(makeV8ProfileMacroCandidateV2Finding(
           "profile_fat_guard_conflict_unresolved",
           "high",
-          ["helmsContestPrep2014", "currentFormulaReport"],
+          fatGuardReview.evidenceKeys,
           "candidate-v2 preserves the context-candidate fat value; it does not resolve the remaining conflict with the fat guard.",
           {
             fatG: fat,
             fatGPerKgBodyweight: fatKg,
-            guardFatMinG: minimums.fatMinG,
-            guardFatMinKg: minimums.fatMinKg
+            guardFatMinG: fatGuardReview.requiredMinG,
+            guardFatMinKg: fatGuardReview.requiredMinKg,
+            guardStatus: fatGuardReview.status
           }
         ));
         reasons.push("profile_fat_guard_conflict_unresolved");
@@ -55610,7 +55718,7 @@ Notes:
           "profile_macro_candidate_v2_requires_production_contract",
           "review",
           ["currentFormulaReport"],
-          "candidate-v2 still needs Today/Settings profile inputs, Records snapshots, score, Coach, and export/import contracts before production.",
+          "candidate-v2 still needs explicit formula approval and target-delta production wiring before non-bodybuilding profiles can use it.",
           { exerciseProfile: input.exerciseProfile, profileSession: input.profileSession }
         ));
       }
@@ -55671,8 +55779,11 @@ Notes:
           candidateCarbsGPerKgBodyweight: carbsKg,
           targetDeltaKcal,
           targetRateDeltaEquivalentKgPerWeek,
-          proteinGuardConflict: protein < minimums.proteinMinG - 1e-6,
-          fatGuardConflict: fat < minimums.fatMinG - 1e-6,
+          proteinGuardConflict: proteinGuardReview.productionBlocker,
+          proteinGuardResolved: proteinGuardReview.legacyGuideConflict && !proteinGuardReview.productionBlocker,
+          proteinGuardReview,
+          fatGuardConflict: fatGuardReview.productionBlocker,
+          fatGuardReview,
           minimums,
           nonClaim: "does_not_approve_profile_macro_formula_target_rate_contract_or_production_ui_schema"
         },
@@ -55758,7 +55869,10 @@ Notes:
         profileCarbFloorUnresolvedCount: comparisons.filter(item => item.candidate.profilePolicy.profileCarbFloorAttempted && !item.candidate.profilePolicy.profileCarbFloorMet).length,
         targetRateContractRequiredCount: comparisons.filter(item => item.findingIds.includes("profile_carb_floor_requires_target_rate_contract")).length,
         proteinGuardConflictCount: comparisons.filter(item => item.findingIds.includes("profile_protein_guard_conflict_unresolved")).length,
+        proteinGuardResolvedCount: comparisons.filter(item => item.findingIds.includes("profile_protein_guard_resolved_by_general_issn_range")).length,
+        proteinLegacyGuideConflictCount: comparisons.filter(item => item.candidate.profilePolicy.profileCarbFloorAttempted && item.candidate.profilePolicy.proteinGuardReview?.legacyGuideConflict).length,
         fatGuardConflictCount: comparisons.filter(item => item.findingIds.includes("profile_fat_guard_conflict_unresolved")).length,
+        fatGuardResolvedCount: comparisons.filter(item => item.candidate.profilePolicy.profileCarbFloorAttempted && item.candidate.profilePolicy.fatGuardReview?.status === "ok").length,
         nonBodybuildingContractCount: comparisons.filter(item => item.findingIds.includes("profile_macro_candidate_v2_requires_production_contract")).length,
         highPriorityCaseCount: comparisons.filter(item => item.findings.some(finding => finding.severity === "high") || item.candidateAudit.findings.some(finding => finding.severity === "high")).length,
         findingCounts: counts,
@@ -55792,7 +55906,7 @@ Notes:
           targetChangedInsideReportOnlyCandidate: true,
           profileSpecificCarbohydratePolicyApplied: true,
           scoreCoachRecentContextChanged: false,
-          evidencePolicy: "profile carb floors remain review thresholds; target/rate deltas are internal product-policy candidates that require score, Coach, Records, and UI contracts before production",
+          evidencePolicy: "profile carb floors remain review thresholds; target/rate deltas are internal product-policy candidates; score/Coach/data contracts are closed but explicit formula approval and production targetCal wiring are still separate",
           nonGoal: "does_not_change_production_calculate_score_coach_recent_context_inbody_or_schema"
         },
         evidenceReferences: {
@@ -56289,6 +56403,10 @@ Notes:
       const hasConstraintOnlyGuard = (targetedStress?.summary?.constraintOnlyCaseCount || 0) > 0
         && (targetedStress?.constraintOnlyCases || []).length === targetedStress.summary.constraintOnlyCaseCount;
       const hasProteinConflictGuard = (summary.proteinGuardConflictCount || 0) > 0;
+      const hasProteinGuardBehaviorContract = hasProteinConflictGuard
+        || (summary.proteinGuardResolvedCount || 0) > 0
+        || (summary.proteinLegacyGuideConflictCount || 0) > 0
+        || (summary.profileCarbFloorAttemptedCount || 0) > 0;
       const hasTargetRateSignal = (summary.targetRateContractRequiredCount || 0) > 0;
       const contracts = [
         makeV8ProfileMacroCandidateV2ContractItem({
@@ -56452,17 +56570,22 @@ Notes:
         makeV8ProfileMacroCandidateV2ContractItem({
           key: "profileMacroCandidateV2Comparison.proteinGuardConflict",
           area: "macro_guard_conflict",
-          present: hasProteinConflictGuard,
+          present: hasProteinGuardBehaviorContract,
           productionBlocker: hasProteinConflictGuard,
-          presentStatus: "present_unresolved_guard_conflict",
-          currentFallback: hasProteinConflictGuard ? "protein_conflict_reported_not_resolved" : "no_protein_conflict_seen_in_current_cases",
+          presentStatus: hasProteinConflictGuard ? "present_unresolved_guard_conflict" : "present_guard_resolution_policy",
+          currentFallback: hasProteinConflictGuard ? "protein_conflict_reported_not_resolved" : "protein_guard_resolution_policy_present",
           currentBehavior: hasProteinConflictGuard
             ? "candidate-v2 reports protein guard conflicts instead of silently resolving them."
-            : "No protein guard conflict is visible in current candidate-v2 cases.",
+            : "candidate-v2 separates the legacy diet protein floor from the external general exercising-individual range and records resolved guard cases.",
           requiredBeforeProduction: "Resolve or explicitly justify protein guard behavior before candidate-v2 can become a production formula.",
-          userImpactRisk: "A user may receive enough carbs for a session only because protein guard behavior was left unresolved.",
+          userImpactRisk: hasProteinConflictGuard
+            ? "A user may receive enough carbs for a session only because protein guard behavior was left unresolved."
+            : "If this policy is removed, the app could again treat an internal diet floor as an external protein safety guard.",
           evidence: {
-            proteinGuardConflictCount: summary.proteinGuardConflictCount || 0
+            proteinGuardConflictCount: summary.proteinGuardConflictCount || 0,
+            proteinGuardResolvedCount: summary.proteinGuardResolvedCount || 0,
+            proteinLegacyGuideConflictCount: summary.proteinLegacyGuideConflictCount || 0,
+            fatGuardConflictCount: summary.fatGuardConflictCount || 0
           }
         }),
         makeV8ProfileMacroCandidateV2ContractItem({
@@ -56488,7 +56611,7 @@ Notes:
       const snapshotFieldMissingCount = snapshotProbe.missingNormalizedFields.length + snapshotProbe.missingSignatureFields.length;
       return {
         meta: {
-          stage: "9-8_profile_macro_candidate_v2_production_contract_review_v3_score_coach",
+          stage: "9-8_profile_macro_candidate_v2_production_contract_review_v4_guard_resolution",
           reportOnly: true,
           productionFormulaChanged: false,
           candidateFormulaApproved: false,
@@ -56504,7 +56627,7 @@ Notes:
           resistanceCarbohydrateReview2016: V8_PROFILE_SESSION_CARB_REFERENCES.resistanceCarbohydrateReview2016,
           contractReview: {
             evidenceLevel: "internal_code_contract_review_not_external_exercise_physiology",
-            source: "v8.0-R score Coach candidate-v2 contract",
+            source: "v8.0-S protein guard candidate-v2 resolution contract",
             scope: "app-wide production readiness across Settings/Today, target-rate, Records, score, Coach, recent context, and backup/import",
             appUse: "prevent report-only candidate-v2 from being misread as production-ready"
           }
@@ -56517,7 +56640,10 @@ Notes:
           profileCarbFloorUnresolvedCount: summary.profileCarbFloorUnresolvedCount || 0,
           targetRateContractRequiredCount: summary.targetRateContractRequiredCount || 0,
           proteinGuardConflictCount: summary.proteinGuardConflictCount || 0,
+          proteinGuardResolvedCount: summary.proteinGuardResolvedCount || 0,
+          proteinLegacyGuideConflictCount: summary.proteinLegacyGuideConflictCount || 0,
           fatGuardConflictCount: summary.fatGuardConflictCount || 0,
+          fatGuardResolvedCount: summary.fatGuardResolvedCount || 0,
           nonBodybuildingContractCount: summary.nonBodybuildingContractCount || 0,
           highPriorityCaseCount: summary.highPriorityCaseCount || 0
         },
@@ -56541,10 +56667,13 @@ Notes:
           recentContextContractMissingCount: missingContracts.filter(item => item.area === "recent_context").length,
           backupImportContractMissingCount: missingContracts.filter(item => item.area === "backup_import_export").length,
           unresolvedProteinGuardConflictCount: summary.proteinGuardConflictCount || 0,
+          resolvedProteinGuardPolicyCount: summary.proteinGuardResolvedCount || 0,
+          proteinLegacyGuideConflictCount: summary.proteinLegacyGuideConflictCount || 0,
           productionReady: productionBlockers.length === 0
         },
         requiredNextActions: [
-          "Resolve or explicitly justify protein/fat guard behavior before approving a profile-specific macro formula."
+          "Do not apply candidate-v2 target deltas to production targetCal until an explicit formula-approval and wiring step is completed.",
+          "Run user-facing profile formula QA before presenting candidate-v2 as a production macro formula."
         ]
       };
     }
@@ -57596,8 +57725,8 @@ Notes:
               "9-7 profileSession carbohydrate policy review is report-only; it separates running/resistance/mixed session needs from production routine fallback.",
               "9-7 profile macro candidate-v1 is report-only; it checks whether running/mixed carb floors can be met without targetCal changes and keeps resistance profiles review-only.",
               "8-2 targetedStress is a human-review queue from pairwise/profile residual signals; calculated cases and constraint-only exclusions are separated.",
-              "9-7 profile macro candidate-v2 is report-only; it tests linked target/rate deltas and reports protein/fat guard conflicts without approving production.",
-              "9-8 profile macro candidate-v2 production contract review is report-only; Settings/Today, Records snapshot, target-rate metadata, and recentContext gate contracts are closed, while score, Coach, and guard conflicts still block production.",
+              "9-7 profile macro candidate-v2 is report-only; it tests linked target/rate deltas and separates legacy protein guide-floor conflicts from external protein guard conflicts.",
+              "9-8 profile macro candidate-v2 production contract review is report-only; Settings/Today, Records snapshot, target-rate metadata, recentContext gate, score, Coach, and protein guard resolution contracts are closed, but formula approval and production targetCal wiring are still separate.",
               "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, candidate-v8-profile-macro-v1, or candidate-v8-profile-macro-v2-linked-target-v0 as the final v8 formula."
             ]
           },
@@ -57647,7 +57776,8 @@ Notes:
               profileCarbFloorMetCount: profileMacroCandidateV2Comparison.summary.profileCarbFloorMetCount,
               profileCarbFloorUnresolvedCount: profileMacroCandidateV2Comparison.summary.profileCarbFloorUnresolvedCount,
               targetRateContractRequiredCount: profileMacroCandidateV2Comparison.summary.targetRateContractRequiredCount,
-              proteinGuardConflictCount: profileMacroCandidateV2Comparison.summary.proteinGuardConflictCount
+              proteinGuardConflictCount: profileMacroCandidateV2Comparison.summary.proteinGuardConflictCount,
+              proteinGuardResolvedCount: profileMacroCandidateV2Comparison.summary.proteinGuardResolvedCount
             },
             profileMacroCandidateV2Contract: {
               stage: profileMacroCandidateV2Contract.meta.stage,
@@ -57979,7 +58109,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-R", "v8 runner version should advance to 8.0-R");
+          assertTest(report.meta.version === "8.0-S", "v8 runner version should advance to 8.0-S");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -58087,7 +58217,9 @@ Notes:
           assertTest(comparison.summary.profileCarbFloorAttemptedCount > 0, "candidate-v2 should attempt profile carb floor cases");
           assertTest(comparison.summary.targetRateContractRequiredCount > 0, "candidate-v2 should expose target-rate contract requirements");
           assertTest(comparison.summary.profileCarbFloorUnresolvedCount === 0, "candidate-v2 should resolve attempted carb floors at the feasibility layer");
-          assertTest(comparison.summary.proteinGuardConflictCount > 0, "candidate-v2 should not hide protein guard conflicts");
+          assertTest(comparison.summary.proteinGuardConflictCount === 0, "candidate-v2 should resolve protein guard conflicts that are only legacy guide-floor conflicts");
+          assertTest(comparison.summary.proteinGuardResolvedCount > 0, "candidate-v2 should keep resolved protein guard cases visible");
+          assertTest(comparison.summary.proteinLegacyGuideConflictCount === comparison.summary.proteinGuardResolvedCount, "legacy protein guide-floor conflicts should be classified instead of counted broadly");
           assertTest(comparison.targetedStressSummary.caseCount === report.meta.targetedStressCalculatedCaseCount, "candidate-v2 targeted summary should cover calculated targeted cases");
           assertTest(comparison.evidenceReferences.currentFormulaReport.evidenceLevel === "internal_formula_coverage_only", "candidate-v2 current formula evidence should remain internal-only");
 
@@ -58100,35 +58232,42 @@ Notes:
           assertIncludesAll(mixed.findingIds.join(" "), [
             "profile_carb_floor_requires_target_rate_contract",
             "profile_carb_floor_met_by_target_delta_report_only",
-            "profile_protein_guard_conflict_unresolved",
+            "profile_protein_guard_resolved_by_general_issn_range",
             "profile_macro_candidate_v2_requires_production_contract"
           ], "mixed candidate-v2 should expose target/rate and guard-contract findings");
+          assertTest(mixed.candidate.profilePolicy.proteinGuardReview.status === "resolved_by_general_issn_bodyweight_range", "mixed candidate-v2 should record why the protein guide-floor conflict is resolved");
+          assertTest(mixed.candidate.profilePolicy.proteinGuardReview.legacyGuideMinKg === 2.2, "mixed candidate-v2 should preserve the legacy guide floor that was reviewed");
+          assertTest(mixed.candidate.proteinGPerKgBodyweight === 2, "mixed candidate-v2 should keep the ISSN general cap value visible");
           assertTest(mixed.deltaFromProfileMacroCandidateV1.targetCal > 0, "candidate-v2 should open target calories compared with candidate-v1");
           assertTest(findInvalidCalibrationNumber(comparison).length === 0, "profile macro candidate-v2 report should not contain NaN or Infinity");
         }));
 
-        results.push(runNamedTest("v8.0-R score/Coach candidate-v2 contract keeps guard conflict as rollout blocker", () => {
+        results.push(runNamedTest("v8.0-S protein guard resolution closes candidate-v2 production contract blockers", () => {
           const report = runV8ScenarioRunner();
-          assertTest(report.meta.version === "8.0-R", "v8 runner version should advance to v8.0-R");
+          assertTest(report.meta.version === "8.0-S", "v8 runner version should advance to v8.0-S");
           const contract = report.profileMacroCandidateV2Contract;
-          assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v3_score_coach", "candidate-v2 contract should identify 9-8 score/Coach contract review");
+          assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v4_guard_resolution", "candidate-v2 contract should identify 9-8 guard resolution contract review");
           assertTest(contract.meta.reportOnly === true, "candidate-v2 contract should be report-only");
           assertTest(contract.meta.productionFormulaChanged === false, "candidate-v2 contract must not change production formula");
           assertTest(contract.meta.candidateFormulaApproved === false, "candidate-v2 contract must not approve candidate-v2");
-          assertTest(contract.meta.productionReady === false, "candidate-v2 should not be production-ready while app-wide contracts are missing");
+          assertTest(contract.meta.productionReady === true, "candidate-v2 contract review should be ready after guard resolution while formula approval remains separate");
           assertIncludesAll(contract.meta.evidencePolicy, ["internal code-contract", "do not approve app-wide production"], "candidate-v2 contract should not overclaim external evidence");
           assertTest(contract.candidateV2SignalSummary.targetRateContractRequiredCount > 0, "contract should carry candidate-v2 target-rate signal count");
-          assertTest(contract.candidateV2SignalSummary.proteinGuardConflictCount > 0, "contract should carry candidate-v2 protein guard conflict count");
+          assertTest(contract.candidateV2SignalSummary.proteinGuardConflictCount === 0, "contract should show unresolved protein guard conflicts are closed");
+          assertTest(contract.candidateV2SignalSummary.proteinGuardResolvedCount === 4, "contract should carry resolved protein guard case count");
           assertTest(contract.summary.missingContractCount === 0, "candidate-v2 contract should close missing production contracts after score/Coach contract closure");
-          assertTest(contract.summary.productionBlockerCount === 1, "candidate-v2 contract should keep only the unresolved protein guard as a blocker");
+          assertTest(contract.summary.productionBlockerCount === 0, "candidate-v2 contract should have no remaining production contract blockers");
           assertTest(contract.summary.presentCount === 14, "candidate-v2 contract should mark all listed app-wide contracts present");
-          assertTest(contract.summary.productionReady === false, "summary should also mark candidate-v2 as not production-ready");
+          assertTest(contract.summary.productionReady === true, "summary should mark the candidate-v2 contract review as production-ready");
           assertTest(contract.summary.settingsTodayContractMissingCount === 0, "Settings/Today profile inputs should be closed");
           assertTest(contract.summary.snapshotFieldMissingCount === 0, "snapshot/signature candidate-v2 fields should be closed");
           assertTest(contract.summary.targetRateContractMissingCount === 0, "target-rate candidate delta contract should be closed");
           assertTest(contract.summary.scoreCoachContractMissingCount === 0, "score and Coach profile contracts should be closed");
           assertTest(contract.summary.recentContextContractMissingCount === 0, "recentContext candidate target-delta gate should be closed");
           assertTest(contract.summary.backupImportContractMissingCount === 0, "backup/import candidate-v2 roundtrip should be closed through snapshot schema");
+          assertTest(contract.summary.unresolvedProteinGuardConflictCount === 0, "summary should not leave unresolved protein guard conflicts");
+          assertTest(contract.summary.resolvedProteinGuardPolicyCount === 4, "summary should keep resolved protein guard policy count");
+          assertTest(contract.summary.proteinLegacyGuideConflictCount === 4, "summary should count only attempted carb-floor legacy guide conflicts");
 
           const keys = contract.contracts.map(item => item.key).join(" ");
           assertIncludesAll(keys, [
@@ -58213,7 +58352,9 @@ Notes:
           const reportGuard = contract.contracts.find(item => item.key === "profileMacroCandidateV2Comparison.reportOnlyGuard");
           assertTest(reportGuard?.present === true && reportGuard.productionBlocker === false, "candidate-v2 report-only guard should be present and not itself a blocker");
           const proteinGuard = contract.contracts.find(item => item.key === "profileMacroCandidateV2Comparison.proteinGuardConflict");
-          assertTest(proteinGuard?.present === true && proteinGuard.productionBlocker === true, "unresolved protein guard conflict should remain a production blocker");
+          assertTest(proteinGuard?.present === true && proteinGuard.productionBlocker === false, "protein guard resolution policy should be present and not a blocker");
+          assertTest(proteinGuard.evidence.proteinGuardConflictCount === 0, "protein guard contract should show no unresolved conflicts");
+          assertTest(proteinGuard.evidence.proteinGuardResolvedCount === 4, "protein guard contract should show resolved legacy guide-floor cases");
           const constraintGuard = contract.contracts.find(item => item.key === "targetedStress.constraintOnlyTupleGuard");
           assertTest(constraintGuard?.present === true && constraintGuard.productionBlocker === false, "constraint-only tuple guard should be present");
           assertTest(findInvalidCalibrationNumber(contract).length === 0, "candidate-v2 contract report should not contain NaN or Infinity");

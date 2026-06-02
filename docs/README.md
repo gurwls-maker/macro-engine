@@ -1,5 +1,14 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-S protein guard candidate-v2 resolution contract note
+
+- `index.html` now separates the candidate-v2 protein guard issue into external evidence guard vs internal legacy guide-floor conflict.
+- For non-contest mixed/running candidate-v2 cases, protein at `2.0g/kg BW` is classified inside the ISSN general exercising-individual range, so legacy `2.2g/kg BW` diet-floor conflicts are recorded as resolved policy cases rather than unresolved production blockers.
+- Contest-prep-like cases still use the Helms/Aragon/Fitschen lean-body-mass protein context, and low-protein or fat-floor failures would still remain blockers.
+- Direct extraction on 2026-06-03: `profileMacroCandidateV2Comparison`: `proteinGuardConflictCount=0`, `proteinGuardResolvedCount=4`, `proteinLegacyGuideConflictCount=4`, `fatGuardConflictCount=0`.
+- Direct extraction on 2026-06-03: `profileMacroCandidateV2Contract`: `contractCount=14`, `presentCount=14`, `missingContractCount=0`, `productionBlockerCount=0`, `resolvedProteinGuardPolicyCount=4`, `productionReady=true`.
+- This means the production contract review is ready for an explicit approval step. It still does not apply candidate-v2 target deltas to production `targetCal` and does not approve `candidate-v8-profile-macro-v2-linked-target-v0` as the final formula.
+
 # v8.0-R score Coach candidate-v2 contract note
 
 - `index.html` now adds explicit candidate-v2 score and Daily Coach policy contracts under `profileCandidateV2`.
@@ -45,7 +54,7 @@
 - Direct extraction on 2026-06-03: candidate-v2 comparison covers 96 cases = axis coverage 73 + human-review 18 + targeted calculated 5.
 - `profileCarbFloorAttemptedCount=5`, `profileCarbFloorMetCount=5`, `profileCarbFloorUnresolvedCount=0`, `targetChangedCount=5`, `targetRateContractRequiredCount=5`, `proteinGuardConflictCount=4`.
 - For `targeted_mixed_carb_unresolved`, candidate-v2 opens `targetDeltaKcal=43.72915555555528`, `targetRateDeltaEquivalentKgPerWeek=0.03975377777777753`, and reaches `carbsGPerKgBodyweight=6`.
-- This is not production approval. At v8.0-N those target/rate deltas still needed recent trend, score, Coach, Records, Settings/Today, and backup/import contracts; v8.0-P closes the input/snapshot/backup part, v8.0-Q closes target-rate metadata plus the recentContext gate, and v8.0-R closes candidate-v2 score/Coach contracts. Protein/fat guard behavior still remains unresolved.
+- This is not production approval. At v8.0-N those target/rate deltas still needed recent trend, score, Coach, Records, Settings/Today, and backup/import contracts; v8.0-P closes the input/snapshot/backup part, v8.0-Q closes target-rate metadata plus the recentContext gate, v8.0-R closes candidate-v2 score/Coach contracts, and v8.0-S resolves the protein guard blocker as an evidence/product-policy contract. Formula approval and production `targetCal` wiring still remain separate.
 
 # v8.0-M targetedStress note
 

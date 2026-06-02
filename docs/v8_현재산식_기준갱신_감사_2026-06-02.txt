@@ -1185,7 +1185,7 @@ candidate-v1가 하지 않는 일:
 
 - v8.0-K는 profile-specific macro formula의 production 구현이 아니라 candidate feasibility audit이다.
 - 단백질 context 후보와 maintain production goal만으로는 mixed profile 탄수 문제가 해결되지 않는다.
-- v8.0-R 이후 다음 단계는 candidate-v2가 남긴 protein/fat guard conflict blocker를 기준으로 production 적용 범위를 더 좁히거나, 필요하면 shard/orthogonal coverage를 추가하는 것이다. Settings/Today input, Today draft persistence, Records snapshot/signature, backup/import roundtrip은 v8.0-P에서 닫혔고 target-rate metadata / recentContext gate는 v8.0-Q에서 닫혔으며 score/Coach candidate-v2 계약은 v8.0-R에서 닫혔다. 그래도 candidate-v2는 아직 production formula가 아니다.
+- v8.0-S 이후 다음 단계는 candidate-v2 production contract readiness를 실제 formula approval / production `targetCal` wiring / 사용자 관점 QA로 옮길지 판단하는 것이다. Settings/Today input, Today draft persistence, Records snapshot/signature, backup/import roundtrip은 v8.0-P에서 닫혔고 target-rate metadata / recentContext gate는 v8.0-Q에서 닫혔으며 score/Coach candidate-v2 계약은 v8.0-R에서 닫혔다. v8.0-S는 protein guard blocker까지 닫았지만 candidate-v2는 아직 production formula가 아니다.
 
 ## 11-9. 2026-06-03 v8.0-L 8-2 pairwise / targeted stress 1차
 
@@ -1590,6 +1590,51 @@ probe 해석:
 - 내부 제품 정책을 외부 운동생리학 근거처럼 통과시키지 않기 위해, score profile은 diet-equivalent product policy reuse로 기록했다.
 - 남은 핵심 위험은 protein/fat guard behavior다. target/rate delta, recent gate, score/Coach copy가 준비되었더라도 protein/fat guard 충돌을 해소하거나 명시적으로 정당화하기 전에는 production `targetCal`에 candidate delta를 적용하면 안 된다.
 
+## 11-16. 2026-06-03 v8.0-S protein guard candidate-v2 resolution contract 1차
+
+v8.0-S에서는 v8.0-R 이후 남은 `profileMacroCandidateV2Comparison.proteinGuardConflict` blocker를 재검토했다. 직접 추출 결과 conflict 4건은 모두 candidate-v2 protein 2.0g/kg BW와 legacy diet guide floor 2.2g/kg BW 사이의 충돌이었다. fat conflict는 0건이었다.
+
+핵심 판단:
+
+- ISSN protein 2017은 일반 운동인의 단백질 범위를 1.4-2.0g/kg/day로 다룬다. 따라서 non-contest mixed/running candidate-v2에서 2.0g/kg BW는 외부 근거 범위 안이다.
+- Helms / Aragon / Fitschen 2014의 2.3-3.1g/kg LBM protein 맥락은 natural bodybuilding contest-prep / caloric restriction context다. 현재 resolved 4건은 `cut + bodybuilding + high performance + bodyFat <= 15` 조건의 contest-prep-like 케이스가 아니다.
+- 기존 2.2g/kg BW diet floor는 앱 내부 guide floor이지, 모든 mixed/running 사용자의 외부 안전선으로 주장하면 안 된다.
+- 따라서 v8.0-S는 legacy guide-floor conflict를 숨기지 않고 `profile_protein_guard_resolved_by_general_issn_range` finding으로 남긴다.
+
+근거 링크:
+
+- ISSN position stand: protein and exercise, 2017: `https://jissn.biomedcentral.com/articles/10.1186/s12970-017-0177-8`
+- Helms, Aragon, Fitschen natural bodybuilding contest preparation review, 2014: `https://pubmed.ncbi.nlm.nih.gov/24864135/`
+
+구현한 계약:
+
+- `V8_MACRO_AUDIT_RULES.proteinGeneralExerciserMinGKg=1.4`를 추가해 ISSN general range를 1.4-2.0g/kg BW로 명시했다.
+- `buildV8ProfileMacroCandidateProteinGuardReview()`를 추가해 contest-prep-like 케이스와 general exercising range 케이스를 분리한다.
+- `buildV8ProfileMacroCandidateFatGuardReview()`를 추가해 fat guard도 같은 구조로 평가하도록 했다.
+- candidate-v2 finding은 unresolved conflict가 있으면 `profile_protein_guard_conflict_unresolved`를 유지하고, 이번 케이스처럼 외부 범위 안에서 legacy floor만 충돌하면 `profile_protein_guard_resolved_by_general_issn_range`로 기록한다.
+- `profileMacroCandidateV2Contract`의 guard 항목은 guard behavior contract present로 유지하되, unresolved count가 0이면 productionBlocker=false가 된다.
+
+직접 추출 summary:
+
+- `profileMacroCandidateV2Comparison.summary.proteinGuardConflictCount`: 0
+- `proteinGuardResolvedCount`: 4
+- `proteinLegacyGuideConflictCount`: 4
+- `fatGuardConflictCount`: 0
+- `fatGuardResolvedCount`: 5
+- `profileMacroCandidateV2Contract.summary.contractCount`: 14
+- `presentCount`: 14
+- `missingContractCount`: 0
+- `productionBlockerCount`: 0
+- `reportOnlyGuardCount`: 2
+- `resolvedProteinGuardPolicyCount`: 4
+- `productionReady`: true
+
+해석:
+
+- v8.0-S는 candidate-v2 production contract blocker를 닫는다.
+- 이것은 candidate-v2 formula approval이 아니다. `candidateFormulaApproved=false`, `productionFormulaChanged=false`, target-rate probe의 `appliedToTarget=false`는 계속 유지된다.
+- 다음 단계에서 실제 production formula 적용을 검토하려면, candidate-v2 target delta를 production `targetCal`에 연결하는 범위, UI/Today 표시, Records 기준갱신, score/Coach 문구가 실제 사용자에게 납득 가능한지 확인해야 한다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -1884,6 +1929,32 @@ probe 해석:
 - v8.0-R desktop calibration 14 suites / 127 cases / failed 0
 - 2026-06-03 v8.0-R full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-R desktop full 99 suites / 1047 cases / failed 0
+- 2026-06-03 v8.0-S protein guard candidate-v2 resolution contract 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-S scenario runner suite 1 suite / 19 cases / failed 0
+- 2026-06-03 v8.0-S profileMacroCandidateV2Comparison / Contract 직접 추출:
+  - `profileMacroCandidateV2Comparison.summary.proteinGuardConflictCount=0`
+  - `proteinGuardResolvedCount=4`
+  - `proteinLegacyGuideConflictCount=4`
+  - `fatGuardConflictCount=0`
+  - `fatGuardResolvedCount=5`
+  - `profileMacroCandidateV2Contract.summary.contractCount=14`
+  - `presentCount=14`
+  - `missingContractCount=0`
+  - `productionBlockerCount=0`
+  - `reportOnlyGuardCount=2`
+  - `settingsTodayContractMissingCount=0`
+  - `snapshotFieldMissingCount=0`
+  - `targetRateContractMissingCount=0`
+  - `scoreCoachContractMissingCount=0`
+  - `recentContextContractMissingCount=0`
+  - `backupImportContractMissingCount=0`
+  - `unresolvedProteinGuardConflictCount=0`
+  - `resolvedProteinGuardPolicyCount=4`
+  - `productionReady=true`
+- 2026-06-03 v8.0-S calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-S desktop calibration 14 suites / 127 cases / failed 0
+- 2026-06-03 v8.0-S full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-S desktop full 99 suites / 1047 cases / failed 0
 
 실행하지 않은 것:
 
@@ -1891,7 +1962,7 @@ probe 해석:
 - candidate formula production approval
 - profile-specific macro formula production implementation
 - candidate-v2 target delta production formula application
-- protein/fat guard conflict resolution or explicit production justification
+- user-facing profile formula QA after candidate-v2 contract readiness
 - 80,621,568,000개 8-2 full cross-product 전수 실행
 - 18개 human-review scenario의 사람 눈 수치 승인
 
@@ -1915,3 +1986,4 @@ v8.0-O profile macro candidate-v2 production contract review 이후에는 candid
 v8.0-P profile/session input-snapshot contract 이후에는 Settings/Today exerciseProfile/profileSession input, Today draft persistence, Records snapshot/signature, backup/import roundtrip을 production data path로 닫았다. 그러나 target-rate delta, score, Coach, recentContext 계약 5개와 unresolved protein guard conflict가 남아 productionBlockerCount=6이며, candidate-v2는 여전히 report-only다.
 v8.0-Q target-rate recentContext candidate-delta contract 이후에는 candidate-v2 target/rate delta metadata와 recent28 gate contract를 닫았다. 그러나 score/Coach 계약 3개와 unresolved protein guard conflict가 남아 productionBlockerCount=4이며, candidate-v2 target delta는 production `targetCal`에 적용되지 않는다.
 v8.0-R score Coach candidate-v2 contract 이후에는 score/Coach 계약 3개도 닫혀 `missingContractCount=0`, `scoreCoachContractMissingCount=0`이 되었다. 그러나 unresolved protein/fat guard behavior가 `productionBlockerCount=1`로 남아 있고, candidate-v2 target delta는 여전히 production `targetCal`에 적용되지 않는다.
+v8.0-S protein guard candidate-v2 resolution contract 이후에는 legacy 2.2g/kg BW diet guide floor와 ISSN general range를 분리해 `proteinGuardConflictCount=0`, `proteinGuardResolvedCount=4`, `productionBlockerCount=0`, `productionReady=true`가 되었다. 그러나 candidate-v2 target delta는 여전히 production `targetCal`에 적용되지 않고, formula approval도 아직 아니다.
