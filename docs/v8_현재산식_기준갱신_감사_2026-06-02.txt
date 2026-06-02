@@ -722,6 +722,67 @@ v8.0-D 러너 해석 주의:
 재검토 결과, v8.0-A/B/C는 저장 / 기준갱신 / UX 책임 정리라서 외부 운동생리학 근거가 필요한 산식 변경으로 보지 않는다.
 다만 1차 감사문서의 단백질 항목과 v8.0-D 업무 보정축 설명에는 내부 근거를 외부 타당성처럼 오해할 수 있는 표현이 남아 있었으므로 v8.0-D1에서 문서와 report metadata를 보강한다.
 
+## 11-2. 2026-06-03 v8.0-E 9-3 현재 탄단지 감사 1차
+
+v8.0-E에서는 산식을 바꾸지 않고 `runV8ScenarioRunner()`에 `macroAudit` report-only 레이어를 추가했다.
+
+근거 분리:
+
+- ISSN protein position stand 2017
+  - URL: https://jissn.biomedcentral.com/articles/10.1186/s12970-017-0177-8
+  - 앱 사용: protein bodyweight g/kg이 일반 운동인 범위 상단을 넘는지 검토하는 외부 review threshold.
+  - 이 근거만으로 모든 diet 사용자의 기본 단백질을 확정하지 않는다.
+- Helms / Aragon / Fitschen natural bodybuilding contest prep review 2014
+  - URL: https://pubmed.ncbi.nlm.nih.gov/24864135/
+  - 앱 사용: 2.3~3.1g/kg LBM 단백질과 15~30% kcal 지방을 contest prep 맥락 후보로 검토한다.
+  - 이 범위에 들어간다고 일반 diet 케이스가 자동 통과되는 것은 아니다.
+- 현재 `index.html` macro decomposition
+  - 근거 등급: 내부 코드 근거.
+  - 앱 사용: 현재 산식이 어떤 값을 내는지 보여준다. 외부 생리학 타당성은 증명하지 않는다.
+
+감사 규칙:
+
+- `protein_bodyweight_above_general_issn_range`: 단백질이 bodyweight 2.0g/kg을 넘으면 일반 운동인 범위 상단 초과로 검토한다.
+- `diet_default_near_2_4g_bodyweight_requires_candidate_review`: diet 기본값이 bodyweight 약 2.4g/kg에 가까우면 high-priority candidate review로 본다.
+- `protein_lbm_in_contest_prep_range_but_context_unverified`: 단백질이 2.3~3.1g/kg LBM 범위에 들어가도, 해당 케이스가 contest prep 또는 그에 준하는 맥락인지 확인되지 않았으면 검토대상으로 둔다.
+- `fat_percent_below_contest_prep_reference_floor`: 지방이 15% kcal 아래면 외부 contest-prep 하한 후보보다도 낮은 경고로 본다.
+- `fat_at_guide_floor`, `carb_below_guide_min`: 내부 guide basis의 floor/min 충돌 신호다. 외부 근거가 아니라 현재 산식의 배분 순서 문제를 보여주는 내부 근거다.
+- `exercise_profile_macro_formula_pending`: 운동 프로필은 report-only 축이고 아직 profile-specific macro formula가 없음을 표시한다.
+
+v8.0-E runner 결과:
+
+- `macroAudit` 전체 case count: 91
+- 8-2 axis category fixture: 73
+- 8-3 human-review case: 18
+- 전체 finding count:
+  - `protein_bodyweight_above_general_issn_range`: 77
+  - `diet_default_near_2_4g_bodyweight_requires_candidate_review`: 77
+  - `protein_lbm_in_contest_prep_range_but_context_unverified`: 76
+  - `fat_at_guide_floor`: 85
+  - `carb_below_guide_min`: 27
+  - `fat_percent_below_contest_prep_reference_floor`: 4
+  - `exercise_profile_macro_formula_pending`: 13
+- human-review 18건 기준 finding count:
+  - `protein_bodyweight_above_general_issn_range`: 8
+  - `diet_default_near_2_4g_bodyweight_requires_candidate_review`: 8
+  - `protein_lbm_in_contest_prep_range_but_context_unverified`: 8
+  - `fat_at_guide_floor`: 15
+  - `carb_below_guide_min`: 10
+  - `fat_percent_below_contest_prep_reference_floor`: 1
+  - `exercise_profile_macro_formula_pending`: 5
+- 필수 `required_user_rest_diet_1913`:
+  - protein: 2.4g/kg bodyweight
+  - protein: 2.83g/kg LBM
+  - fat: 21.23% kcal
+  - findings: `protein_bodyweight_above_general_issn_range`, `diet_default_near_2_4g_bodyweight_requires_candidate_review`, `protein_lbm_in_contest_prep_range_but_context_unverified`, `fat_at_guide_floor`, `carb_below_guide_min`
+
+해석 주의:
+
+- 91건 count는 사용자 prevalence가 아니다. 73건은 axis category fixture라 기본 diet 케이스가 반복된다.
+- 그럼에도 반복 신호가 크므로, 9-5/9-6 candidate 설계에서는 단백질 선택 기준을 목표 / 운동 프로필 / 체지방률 / LBM / 칼로리 제한 정도와 분리해야 한다.
+- 현재 결론은 "단백질을 낮춰라"가 아니라 "일반 diet 기본값이 bodyweight 2.4g/kg으로 고정되는 구조를 candidate review 없이 승인하지 말라"이다.
+- carb guide min 하회와 fat floor hit가 동시에 나타나는 케이스는 단백질-지방-탄수 배분 순서와 재분배 기준을 함께 설계해야 한다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -774,6 +835,18 @@ v8.0-D 러너 해석 주의:
 - v8.0-D1 desktop smoke 10 suites / 121 cases / failed 0
 - 2026-06-02 v8.0-D1 core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
 - v8.0-D1 desktop core 26 suites / 364 cases / failed 0
+- 2026-06-03 v8.0-E diff 확인: `git diff --check`
+- v8.0-E diff check passed
+- 2026-06-03 v8.0-E 9-3 macro audit 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-E scenario runner suite 1 suite / 9 cases / failed 0
+- 2026-06-03 v8.0-E macroAudit summary 직접 확인: Playwright Edge/Chrome fallback으로 `window.runV8ScenarioRunner().macroAudit` 추출
+- v8.0-E macroAudit 91 cases = axis category fixture 73 + human-review 18, required 1913 findings 5개 확인
+- 2026-06-03 v8.0-E calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-E desktop calibration 14 suites / 117 cases / failed 0
+- 2026-06-03 v8.0-E smoke 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=smoke`
+- v8.0-E desktop smoke 10 suites / 121 cases / failed 0
+- 2026-06-03 v8.0-E core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
+- v8.0-E desktop core 26 suites / 364 cases / failed 0
 
 실행하지 않은 것:
 
@@ -789,3 +862,4 @@ v8.0-B selected macro basis 정책 고정 이후에는 Today record confirmation
 v8.0-C record_detail_edit 보호 / 잔재 플래그 정리 이후에는 Today record confirmation suite를 desktop/mobile viewport에서 실행했고, desktop smoke/core 회귀도 다시 실행했다.
 v8.0-D 시나리오 러너 1차 구현 이후에는 8-2 필수축 category sweep과 8-3 human-review 분리, 유지 축 fallback 명시, 운동 프로필별 report-only session 분리를 `runV8ScenarioRunnerTests`로 확인했고, calibration/smoke/core 회귀도 다시 실행했다.
 v8.0-D1 근거 등급 재감사 이후에는 업무 보정축 active fixture가 `internal_formula_coverage_only` / `report_only_axis_coverage_case_fixture`로 남는지 `runV8ScenarioRunnerTests`에서 확인했고, calibration/smoke/core 회귀도 다시 실행했다.
+v8.0-E 9-3 현재 탄단지 감사 레이어 이후에는 `macroAudit`가 report-only / productionFormulaChanged false로 남고, 필수 1913 케이스가 단백질 context mismatch와 carb/fat 내부 충돌을 모두 표시하는지 `runV8ScenarioRunnerTests`로 확인했다.
