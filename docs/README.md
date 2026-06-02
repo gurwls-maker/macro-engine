@@ -1,8 +1,20 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AG profile routine ownership realignment note
+
+- `profileSession` is no longer treated as a separate user-facing session shortcut. It is a derived snapshot/draft/report field from the actual `exerciseProfile + routinePlan + routine` selection.
+- Pre-V8 behavior is the baseline: with advanced training off, bodybuilding/general training shows user-facing `휴식 / 운동` while the internal values are `REST / PUSH`; the exercise day intensity is auto `0.70 + weeklyTrainingDays` adjustment. With advanced training on, the original bodybuilding `PPL-UL / 2분할 / 3분할 / 4분할 / 5분할` routine plans remain selectable.
+- Non-bodybuilding profiles now use profile-owned routine plans and sessions instead of mapping through bodybuilding fallbacks: running uses `running_base` / `running_speed` sessions with cardio defaults and zero weight duration by default, strength uses strength plans/sessions, powerbuilding uses powerbuilding plans/sessions, and mixed uses mixed plans/sessions.
+- AG follow-up re-audit also corrected the V8 scenario runner itself. Running, strength, powerbuilding, and mixed human-review/targeted cases now calculate through their profile-owned routine/session values (`running_tempo`, `strength_heavy_lower`, `powerbuilding_lower`, `mixed_strength_cardio`) instead of `UPPER` / `LOWER` / `LEGS` / `PUSH` bodybuilding fallbacks.
+- Current AG runner direct check: `profileSessionCarbPolicy.summary.productionFallbackCount=0`; `running_focused.input.todayRoutine=running_tempo`; `low_reliability_user.input.todayRoutine=mixed_strength_cardio`; `targeted_mixed_carb_unresolved.candidate.targetDeltaKcal≈128.996`; `low_reliability_user.candidate.targetDeltaKcal≈130.646`; both mixed cases reach `carbsGPerKgBodyweight=6`.
+- Historical pre-AG target-delta numbers such as `25.029`, `29.446`, `43.729`, and `51.446` remain historical evidence from the old fallback-shaped runner/runtime probes. Do not use them as the current AG profile-owned scenario expectation without re-running the current runner.
+- The old v8.0-P sentence that profile/session preservation should keep production `targetCal` unchanged was an incorrect contract interpretation. Routine/session, intensity, weight duration, and cardio defaults are production workout inputs, so profile-owned sessions can change `targetCal` through the existing workout calculation path.
+- `index.html` now reports scenario runner version `8.0-AG`.
+- Verification on 2026-06-03: `runTodayQuickEditTests` = 1 suite / 27 cases / failed 0; `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1056 cases / failed 0; render audit capture/analyzer = 55 captures / failed 0. Spot-checks included Settings groups open and Today quick-open profile candidate screens on desktop/mobile.
+
 # v8.0-AF shard batch orchestration pilot note
 
-- `index.html` now reports scenario runner version `8.0-AF`.
+- At AF, `index.html` reported scenario runner version `8.0-AF`; AG is now the current reported version.
 - New batch runner: `tools/render_audit/run_v8_full_cartesian_batch.cjs`.
 - Batch runner supports `--shards=0,144` and contiguous `--start-shard` / `--shard-count` modes, runs shard manifests through `run_v8_full_cartesian_shard.cjs`, then invokes `analyze_v8_full_cartesian_shards.cjs` for the batch folder.
 - AF pilot on 2026-06-03: `--shards=0,144 --shard-size=8 --max-cases=8 --label=af_pilot` produced batch schema `v8_full_cartesian_batch_manifest_v1`, 2 shard runs, analyzer failed 0, decoded 16, calculated 8, constraint-only 8, truncated 0.
@@ -162,21 +174,21 @@
 - Remaining missing production contracts are macro score profile, Daily Coach threshold, and Daily Coach decision/copy. The extra production blocker is still `profileMacroCandidateV2Comparison.proteinGuardConflict`.
 - Direct probe check: candidate target/rate deltas are returned as metadata, `appliedToTarget=false`, `targetCalUnchangedByProfileCandidateDelta=true`, and recentContext `eligibleCanApplyAutomatically=false`.
 
-# v8.0-P profile/session input-snapshot contract note
+# v8.0-P profile/session snapshot contract note, AG-corrected
 
-- `index.html` now exposes Settings/Today `exerciseProfile` and `profileSession` inputs and preserves them through Today draft, calculation state, Records `goalSnapshot`, snapshot signature, and full backup.
+- `index.html` now exposes Settings/Today `exerciseProfile` and derives `profileSession` from the actual routine/session selection for Today draft, calculation state, Records `goalSnapshot`, snapshot signature, and full backup.
 - This closes the input/snapshot/backup data contract only. It does not approve `candidate-v8-profile-macro-v2-linked-target-v0` or change production macro formulas.
 - Direct extraction on 2026-06-03: `contractCount=14`, `presentCount=9`, `missingContractCount=5`, `productionBlockerCount=6`, `productionReady=false`.
 - Remaining missing production contracts are target-rate candidate delta, macro score profile, Daily Coach threshold, Daily Coach decision/copy, and recentContext target-delta gate.
 - The extra production blocker beyond missing contracts is still `profileMacroCandidateV2Comparison.proteinGuardConflict`.
-- Scenario runner now has 19 test cases: the added case verifies running profile/session normalization, snapshot/signature preservation, backup preservation, and unchanged production `targetCal`.
+- Later AG re-audit corrected the old "unchanged production targetCal" reading: profile-owned routine/session context can change `targetCal` through existing workout inputs, and `profileSession` must remain derived rather than a separate user-facing bypass.
 
 # v8.0-O profileMacroCandidateV2Contract note
 
 - `runV8ScenarioRunner()` now includes `profileMacroCandidateV2Contract`.
 - This layer is report-only and does not change production formulas.
 - Direct extraction on 2026-06-03: `contractCount=14`, `presentCount=3`, `missingContractCount=11`, `productionBlockerCount=12`, `productionReady=false`.
-- Missing production contracts are Settings/Today exerciseProfile input, Settings/Today profileSession input, Today draft persistence, target-rate candidate delta, Records snapshot/signature candidate fields, score, Coach thresholds/decisions, recentContext target-delta gate, and backup/import round-trip.
+- Missing production contracts are Settings/Today exerciseProfile input, Settings/Today profileSession derived field, Today draft persistence, target-rate candidate delta, Records snapshot/signature candidate fields, score, Coach thresholds/decisions, recentContext target-delta gate, and backup/import round-trip.
 - Present guards are `profileMacroCandidateV2Comparison.reportOnlyGuard` and `targetedStress.constraintOnlyTupleGuard`.
 - The extra production blocker beyond missing contracts is `profileMacroCandidateV2Comparison.proteinGuardConflict`, because the guard is present but unresolved.
 - Evidence policy: internal code-contract review only; external sports-nutrition references remain threshold background and do not approve app-wide production behavior.
