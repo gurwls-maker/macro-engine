@@ -10288,6 +10288,89 @@ Notes:
       font-weight:900;
       color:var(--deep);
     }
+    .expert-alpha-field{
+      gap:10px;
+    }
+    .expert-alpha-control-head,
+    .expert-alpha-profile-row{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .expert-alpha-control-head{
+      justify-content:flex-start;
+    }
+    .expert-alpha-control-head label{
+      margin:0;
+    }
+    .expert-alpha-profile-row{
+      margin-top:8px;
+      justify-content:space-between;
+    }
+    .expert-alpha-profile-row .range-caption{
+      margin:0;
+    }
+    .expert-alpha-profile-chip{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-height:26px;
+      padding:4px 10px;
+      border-radius:999px;
+      border:1px solid color-mix(in srgb, var(--accent-strong) 24%, var(--line) 76%);
+      background:color-mix(in srgb, var(--accent-strong) 10%, white 90%);
+      color:var(--accent-strong);
+      font-size:12px;
+      font-weight:900;
+      line-height:1;
+      white-space:nowrap;
+    }
+    .expert-alpha-profile-chip.is-default{
+      background:var(--accent-strong);
+      color:#fff;
+      border-color:var(--accent-strong);
+    }
+    .expert-alpha-reset{
+      min-height:30px;
+      padding:5px 10px;
+      border-radius:999px;
+      font-size:12px;
+    }
+    .expert-alpha-help .help-tip{
+      width:340px;
+      white-space:normal;
+    }
+    .expert-home-inbody-field{
+      margin-bottom:12px;
+      padding:12px 14px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:var(--surface-soft);
+    }
+    .expert-home-inbody-field .inline-help{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .expert-home-inbody-field .inline-check.compact{
+      min-height:30px;
+      padding:4px 0;
+      border:0;
+      background:transparent;
+      box-shadow:none;
+    }
+    .expert-home-inbody-field .inline-check.compact input[type="checkbox"]{
+      outline:none;
+    }
+    .expert-home-inbody-field .inline-check.compact input[type="checkbox"]:focus-visible{
+      box-shadow:0 0 0 3px color-mix(in srgb, var(--accent-strong) 18%, transparent);
+    }
+    .expert-home-inbody-field .help-wrap .help-tip{
+      width:320px;
+      white-space:normal;
+    }
     .expert-alpha-panel{
       margin-top:12px;
       padding:14px 16px;
@@ -15048,10 +15131,21 @@ Notes:
               <p>처음에는 기본값 유지를 권장합니다.</p>
             </div>
             <div class="settings-host">
-              <div class="field">
-                <label>설정 비율 (%)</label>
+              <div class="expert-home-inbody-field" id="expertHomeInbodyHost"></div>
+              <div class="field expert-alpha-field">
+                <div class="expert-alpha-control-head">
+                  <label for="expertLbmAlpha">설정 비율 (%)</label>
+                  <span class="help-wrap expert-alpha-help" tabindex="0" role="button" aria-label="제지방량 반영 비율 설명">
+                    <span class="help-dot">?</span>
+                    <span class="help-tip" id="expertLbmAlphaHelpTip"></span>
+                  </span>
+                </div>
                 <input id="expertLbmAlpha" type="range" min="50" max="90" step="5" value="75">
-                <div class="range-caption" id="expertLbmAlphaCaption">75%</div>
+                <div class="expert-alpha-profile-row">
+                  <div class="range-caption" id="expertLbmAlphaCaption">75%</div>
+                  <span class="expert-alpha-profile-chip is-default" id="expertLbmAlphaProfileChip">기본값</span>
+                  <button class="secondary-btn expert-alpha-reset" id="resetExpertLbmAlphaBtn" type="button">기본값 복원</button>
+                </div>
                 <div class="hint" id="expertLbmAlphaHint"></div>
               </div>
               <div class="expert-alpha-panel" id="expertAlphaPanel">
@@ -16142,6 +16236,7 @@ Notes:
     }
 
     function parseNumberOrDefault(raw, fallback){
+      if (raw === null || raw === undefined || String(raw).trim() === "") return fallback;
       const num = Number(raw);
       return Number.isFinite(num) ? num : fallback;
     }
@@ -18195,11 +18290,9 @@ Notes:
       const calculationContextTier = resolveCalculationContextTier(context);
       const hasBodyCompInput = context.bodyCompositionReliability !== "none";
       const reliabilityFactor = context.bodyCompositionReliability === "home" ? HOME_INBODY_RELIABILITY_FACTOR : 1;
-      const baseAlpha = !hasBodyCompInput
-        ? 0
-        : context.advancedTuning.alphaAdjusted
-          ? context.advancedTuning.expertLbmAlpha
-          : (context.bodyCompositionReliability === "partial" ? 0.25 : MODE_LBM_ALPHA.athlete);
+      // The visible expert slider is the source of truth; only home InBody is down-weighted.
+      const configuredAlpha = clamp(Number(context.advancedTuning.expertLbmAlpha), EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max);
+      const baseAlpha = hasBodyCompInput ? configuredAlpha : 0;
       const appliedAlpha = hasBodyCompInput ? clamp(baseAlpha * reliabilityFactor, 0, 1) : 0;
       const inputDepth = context.advancedTuning.enabled
         ? "advanced"
@@ -19263,24 +19356,91 @@ Notes:
         : "측정 조건이 매번 다르다면 체크해 보수적으로 반영할 수 있습니다.";
     }
 
+    function getExpertLbmAlphaProfile(baseAlpha){
+      const safeAlpha = clamp(Number(baseAlpha) || DEFAULT_STATE.expertLbmAlpha, EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max);
+      const percent = Math.round(safeAlpha * 100);
+      if (percent === Math.round(DEFAULT_STATE.expertLbmAlpha * 100)) {
+        return {
+          key: "default",
+          label: "기본값",
+          help: "체중과 활동량 기준을 중심으로 보되, 골격근량과 체지방률을 적당히 반영합니다."
+        };
+      }
+      if (percent <= 59) {
+        return {
+          key: "very-conservative",
+          label: "매우 보수적",
+          help: "체중과 활동량 기준을 거의 그대로 씁니다. 체성분 값이 목표 칼로리와 단백질을 크게 움직이지 않습니다."
+        };
+      }
+      if (percent <= 69) {
+        return {
+          key: "conservative",
+          label: "보수적",
+          help: "체성분 값은 조금만 반영합니다. InBody 측정 조건이 들쭉날쭉해도 계산값이 덜 흔들립니다."
+        };
+      }
+      if (percent <= 74) {
+        return {
+          key: "slightly-conservative",
+          label: "약간 보수적",
+          help: "기본값보다 체성분 영향이 작습니다. 계산값을 안정적으로 두고 싶을 때 맞습니다."
+        };
+      }
+      if (percent <= 80) {
+        return {
+          key: "slightly-active",
+          label: "약간 적극적",
+          help: "골격근량과 체지방률 변화가 목표 칼로리와 단백질 계산에 기본값보다 더 잘 반영됩니다."
+        };
+      }
+      if (percent <= 85) {
+        return {
+          key: "active",
+          label: "적극적",
+          help: "골격근량이 높거나 체지방률이 낮게 입력되면 목표 칼로리와 단백질이 더 크게 올라갈 수 있습니다."
+        };
+      }
+      return {
+        key: "very-active",
+        label: "매우 적극적",
+        help: "체성분 값을 강하게 믿고 계산합니다. 측정 조건이 일정하지 않으면 목표값이 과하게 흔들릴 수 있습니다."
+      };
+    }
+
+    function getExpertLbmAlphaHelpText(profile, baseAlpha, appliedAlpha){
+      const basePercent = Math.round(baseAlpha * 100);
+      const appliedPercent = Math.round(appliedAlpha * 100);
+      const reliabilityNote = ids.homeInbody?.checked
+        ? ` 가정용 InBody 보수 계수 때문에 실제 반영은 ${appliedPercent}%로 낮춰 적용됩니다.`
+        : (Math.abs(baseAlpha - appliedAlpha) > 1e-6 ? ` 현재 입력 조건의 실제 반영은 ${appliedPercent}%입니다.` : "");
+      return `현재: ${profile.label}. ${profile.help} 설정값은 ${basePercent}%입니다.${reliabilityNote} 잘 모르겠다면 기본값을 유지하세요.`;
+    }
+
     function updateExpertAlphaUI(){
       const input = ids.expertLbmAlpha;
       const caption = document.getElementById("expertLbmAlphaCaption");
+      const profileChip = document.getElementById("expertLbmAlphaProfileChip");
       const baseOut = document.getElementById("expertAlphaBaseOut");
       const appliedOut = document.getElementById("expertAlphaAppliedOut");
       const note = document.getElementById("expertAlphaAppliedNote");
       const hint = document.getElementById("expertLbmAlphaHint");
-      if (!input || !caption || !baseOut || !appliedOut || !note || !hint) return;
+      const helpTip = document.getElementById("expertLbmAlphaHelpTip");
+      if (!input || !caption || !baseOut || !appliedOut || !note || !hint || !profileChip || !helpTip) return;
 
       const cfg = getEffectiveModeConfig();
-      const baseAlpha = cfg.baseAlpha;
+      const settingAlpha = clamp(Number(state.expertLbmAlpha), EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max);
       const appliedAlpha = cfg.appliedAlpha;
-      caption.textContent = `${Math.round(baseAlpha * 100)}%`;
-      baseOut.textContent = `${Math.round(baseAlpha * 100)}%`;
+      const profile = getExpertLbmAlphaProfile(settingAlpha);
+      caption.textContent = `${Math.round(settingAlpha * 100)}%`;
+      profileChip.textContent = profile.label;
+      profileChip.classList.toggle("is-default", profile.key === "default");
+      baseOut.textContent = `${Math.round(settingAlpha * 100)}%`;
       appliedOut.textContent = `${Math.round(appliedAlpha * 100)}%`;
       hint.textContent = "체성분 값을 계산에 얼마나 반영할지 조정합니다.";
+      helpTip.textContent = getExpertLbmAlphaHelpText(profile, settingAlpha, appliedAlpha);
       note.textContent = ids.homeInbody.checked
-        ? `가정용 InBody 보수 적용: 설정 ${Math.round(baseAlpha * 100)}% · 실제 반영 ${Math.round(appliedAlpha * 100)}%`
+        ? `가정용 InBody 보수 적용: 설정 ${Math.round(settingAlpha * 100)}% · 실제 반영 ${Math.round(appliedAlpha * 100)}%`
         : `현재 반영률 ${Math.round(appliedAlpha * 100)}%`;
     }
 
@@ -19292,16 +19452,26 @@ Notes:
           : "측정 조건이 들쭉날쭉하면 체크해 보수적으로 반영할 수 있습니다.";
       }
       const expertHint = document.getElementById("expertLbmAlphaHint");
+      const expertHelpTip = document.getElementById("expertLbmAlphaHelpTip");
+      const expertProfileChip = document.getElementById("expertLbmAlphaProfileChip");
       const expertNote = document.getElementById("expertAlphaAppliedNote");
       const cfg = getEffectiveModeConfig();
-      const baseAlpha = cfg.baseAlpha;
+      const settingAlpha = clamp(Number(state.expertLbmAlpha), EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max);
       const appliedAlpha = cfg.appliedAlpha;
+      const profile = getExpertLbmAlphaProfile(settingAlpha);
       if (expertHint) {
         expertHint.textContent = "체성분 값을 계산에 얼마나 반영할지 조정합니다.";
       }
+      if (expertHelpTip) {
+        expertHelpTip.textContent = getExpertLbmAlphaHelpText(profile, settingAlpha, appliedAlpha);
+      }
+      if (expertProfileChip) {
+        expertProfileChip.textContent = profile.label;
+        expertProfileChip.classList.toggle("is-default", profile.key === "default");
+      }
       if (expertNote) {
         expertNote.textContent = ids.homeInbody?.checked
-          ? `가정용 InBody 보수 적용: 설정 ${Math.round(baseAlpha * 100)}% · 실제 반영 ${Math.round(appliedAlpha * 100)}%`
+          ? `가정용 InBody 보수 적용: 설정 ${Math.round(settingAlpha * 100)}% · 실제 반영 ${Math.round(appliedAlpha * 100)}%`
           : `현재 반영률 ${Math.round(appliedAlpha * 100)}%`;
       }
     }
@@ -19451,6 +19621,16 @@ Notes:
       }
     }
 
+    function moveSettingsInlineControl(hostId, inputId){
+      const host = document.getElementById(hostId);
+      const input = ids[inputId];
+      const control = input?.closest(".inline-help") || input?.closest(".field");
+      if (!host || !control) return;
+      control.classList.remove("hidden", "mode-athlete-plus", "mode-general-only", "mode-general-advanced", "mode-expert-only");
+      control.removeAttribute("aria-hidden");
+      if (control.parentElement !== host) host.appendChild(control);
+    }
+
     function ensureSliderHelpLabel(fieldId, labelText, tipId){
       const field = document.getElementById(fieldId);
       const label = field?.querySelector(":scope > label");
@@ -19510,6 +19690,7 @@ Notes:
       moveSettingsField("settingsTrainingDefaultsHost", "routinePlan", "루틴 종류");
       moveSettingsField("settingsTrainingDefaultsHost", "weeklyTrainingDays", "주간 웨이트일수");
       moveSettingsField("settingsTrainingDefaultsHost", "weightDuration", "기본 웨이트 시간 (분)");
+      moveSettingsInlineControl("expertHomeInbodyHost", "homeInbody");
       syncTodaySliderHelpLabels();
     }
 
@@ -27626,7 +27807,9 @@ Notes:
       }
       if (help) {
         help.classList.remove("hidden");
+        setMacroHelpTooltipOpen(help, helpText, false);
       }
+      bindMacroHelpTooltip("macroBasisHelp", "macroBasisHelpText");
       document.querySelectorAll("[data-macro-basis]").forEach(button => {
         button.classList.toggle("active", button.dataset.macroBasis === selectedId);
         button.setAttribute("aria-pressed", button.dataset.macroBasis === selectedId ? "true" : "false");
@@ -32800,13 +32983,22 @@ Notes:
         render();
       });
 
-      ids.homeInbody.addEventListener("change", render);
+      ids.homeInbody.addEventListener("change", () => {
+        state.homeInbody = !!ids.homeInbody.checked;
+        render();
+      });
       ids.expertLbmAlpha?.addEventListener("input", () => {
         state.expertLbmAlpha = clamp(Number(ids.expertLbmAlpha.value) / 100, EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max);
         render();
       });
       ids.expertLbmAlpha?.addEventListener("change", () => {
         state.expertLbmAlpha = clamp(Number(ids.expertLbmAlpha.value) / 100, EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max);
+        render();
+      });
+      document.getElementById("resetExpertLbmAlphaBtn")?.addEventListener("click", () => {
+        state.expertLbmAlpha = DEFAULT_STATE.expertLbmAlpha;
+        if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = String(Math.round(DEFAULT_STATE.expertLbmAlpha * 100));
+        saveState();
         render();
       });
       ids.generalAdvancedSettings.addEventListener("change", () => {
@@ -34693,6 +34885,34 @@ Notes:
           });
           assertTest(none.bodyCompReliability === "none", "missing body composition should resolve to none");
           assertTest(none.trainingEvidence === "none", "missing training inputs should resolve to none");
+          assertClose(none.appliedAlpha, 0, 0.0001, "missing body composition should not apply LBM blending");
+          const partial = resolveModeFreeRuntimeConfig({
+            bodyFat: 15,
+            skeletal: 35,
+            routine: "REST",
+            weeklyTrainingDays: 0,
+            weightDuration: 0,
+            cardioDuration: 0,
+            cardioSpeed: 0,
+            expertLbmAlpha: DEFAULT_STATE.expertLbmAlpha
+          });
+          assertTest(partial.bodyCompReliability === "partial", "manual body values should resolve to partial evidence");
+          assertClose(partial.baseAlpha, DEFAULT_STATE.expertLbmAlpha, 0.0001, "manual body values should use the visible expert alpha setting");
+          assertClose(partial.appliedAlpha, DEFAULT_STATE.expertLbmAlpha, 0.0001, "manual body values should apply the visible expert alpha setting");
+          const home = resolveModeFreeRuntimeConfig({
+            bodyFat: 15,
+            skeletal: 35,
+            routine: "REST",
+            weeklyTrainingDays: 0,
+            weightDuration: 0,
+            cardioDuration: 0,
+            cardioSpeed: 0,
+            homeInbody: true,
+            expertLbmAlpha: DEFAULT_STATE.expertLbmAlpha
+          });
+          assertTest(home.bodyCompReliability === "home", "home InBody values should resolve to home evidence");
+          assertClose(home.baseAlpha, DEFAULT_STATE.expertLbmAlpha, 0.0001, "home InBody should keep the visible expert alpha as base");
+          assertClose(home.appliedAlpha, DEFAULT_STATE.expertLbmAlpha * HOME_INBODY_RELIABILITY_FACTOR, 0.0001, "home InBody should only down-weight the visible expert alpha");
           const training = resolveModeFreeRuntimeConfig({
             bodyFat: 15,
             skeletal: 35,
@@ -34708,6 +34928,7 @@ Notes:
           assertTest(training.bodyCompReliability === "inbody", "InBody-sourced body values should resolve to inbody");
           assertTest(training.trainingEvidence === "regular" || training.trainingEvidence === "high", "training inputs should resolve to regular/high");
           assertTest(training.appliedAlpha > 0, "reliable body composition should apply LBM blending");
+          assertClose(training.appliedAlpha, DEFAULT_STATE.expertLbmAlpha, 0.0001, "InBody-sourced body values should use the visible expert alpha setting");
         }));
 
         results.push(runNamedTest("C4.8-M2-B advanced tuning and low digest carbs are independent of legacy mode", () => {
@@ -38010,6 +38231,10 @@ Notes:
           const shellWidth = Math.round(shell.getBoundingClientRect().width);
           const sectionWidth = Math.round(section.getBoundingClientRect().width);
           assertTest(Math.abs(shellWidth - sectionWidth) <= 2, "records two-column layout should use the full archive section width");
+          if (window.innerWidth <= 980) {
+            assertTest(document.querySelector(".records-archive-panel").getBoundingClientRect().width <= window.innerWidth + 1, "mobile archive column should stay within the viewport");
+            return;
+          }
           document.querySelector('[data-record-card-date="2026-05-08"]').click();
           const openArchiveWidth = Math.round(document.querySelector(".records-archive-panel").getBoundingClientRect().width);
           const detailWidth = Math.round(document.querySelector(".records-review-shell").getBoundingClientRect().width);
@@ -44124,7 +44349,40 @@ Notes:
           assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.routinePlan), "training host should keep routine input");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weeklyTrainingDays), "training host should keep weekly training input");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.weightDuration), "training host should keep weight duration input");
+          assertTest(document.getElementById("expertHomeInbodyHost")?.contains(ids.homeInbody), "expert host should keep the home InBody toggle visible with alpha settings");
+          const homeControl = ids.homeInbody.closest(".inline-help");
+          const homeRect = homeControl?.getBoundingClientRect();
+          assertTest(!!homeControl && !homeControl.classList.contains("mode-athlete-plus") && homeRect.width > 0 && homeRect.height > 0, "home InBody toggle should not stay hidden behind legacy mode classes");
+          ids.homeInbody.checked = true;
+          ids.homeInbody.dispatchEvent(new Event("change", { bubbles: true }));
+          assertTest(state.homeInbody === true, "home InBody toggle should update settings state directly");
           assertTest(!!document.getElementById("cardioPresetSettingsHost") && !!document.getElementById("saveCardioPresetBtn"), "cardio preset management should remain mounted");
+        }));
+
+        results.push(runNamedTest("C4.8-UI4 expert alpha uses default when storage is missing", () => {
+          resetState();
+          localStorage.removeItem(storageKey("expertLbmAlpha"));
+          loadState();
+          renderSettingsShell(false);
+          assertClose(state.expertLbmAlpha, DEFAULT_STATE.expertLbmAlpha, 0.0001, "missing expert alpha storage should load the 75 default");
+          assertTest(ids.expertLbmAlpha?.value === "75", "expert alpha input should render the 75 default when storage is missing");
+          assertTest((document.getElementById("expertLbmAlphaCaption")?.textContent || "").trim() === "75%", "expert alpha caption should render the 75 default when storage is missing");
+          assertTest(document.getElementById("expertLbmAlphaProfileChip")?.classList.contains("is-default"), "expert alpha profile chip should show the default profile when storage is missing");
+        }));
+
+        results.push(runNamedTest("C4.8-UI4 expert alpha shows setting value and reset affordance", () => {
+          renderSettingsShell();
+          state.expertLbmAlpha = 0.70;
+          if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = "70";
+          updateExpertAlphaUI();
+          assertTest((document.getElementById("expertLbmAlphaCaption")?.textContent || "").trim() === "70%", "expert alpha caption should show the selected setting value");
+          assertTest((document.getElementById("expertLbmAlphaProfileChip")?.textContent || "").includes("약간 보수적"), "expert alpha profile chip should classify the selected setting");
+          assertIncludesAll(document.getElementById("expertLbmAlphaHelpTip")?.textContent || "", ["현재:", "설정값은 70%"], "expert alpha help should explain the selected setting");
+          document.getElementById("resetExpertLbmAlphaBtn")?.click();
+          assertClose(state.expertLbmAlpha, DEFAULT_STATE.expertLbmAlpha, 0.0001, "expert alpha reset should restore the default setting");
+          assertTest(ids.expertLbmAlpha?.value === "75", "expert alpha slider should return to the 75 default");
+          assertTest((document.getElementById("expertLbmAlphaCaption")?.textContent || "").trim() === "75%", "expert alpha caption should return to 75%");
+          assertTest((document.getElementById("expertLbmAlphaProfileChip")?.textContent || "").includes("기본값"), "expert alpha profile chip should return to default");
         }));
 
         results.push(runNamedTest("C4.8-UI5-F Settings groups collapse without losing controls", () => {
@@ -45344,10 +45602,15 @@ Notes:
           assertTest(!!shell && !!hero && !!tabs && !!globalBar, "brand, tabs, and global action regions should remain mounted");
           assertTest(getComputedStyle(shell).display === "grid", "desktop app shell should use a real grid header instead of negative-margin chrome");
           assertTest(getComputedStyle(hero).gridColumnStart === "1", "brand region should occupy the first header column");
-          assertTest(getComputedStyle(tabs).gridColumnStart === "2", "tab navigation should occupy the center header column");
-          assertTest(getComputedStyle(globalBar).gridColumnStart === "3", "global actions should occupy the right header column");
           assertTest(!!settingsUtility && globalBar.contains(settingsUtility), "Settings should live in the right header utility area");
           assertTest(!tabs.contains(settingsUtility), "Settings should be removed from the primary tab group");
+          if (window.innerWidth > 980) {
+            assertTest(getComputedStyle(tabs).gridColumnStart === "2", "tab navigation should occupy the center header column");
+            assertTest(getComputedStyle(globalBar).gridColumnStart === "3", "global actions should occupy the right header column");
+          } else {
+            assertTest(getComputedStyle(tabs).display === "grid", "mobile primary tabs should stay mounted as a grid");
+            assertTest(getComputedStyle(globalBar).display === "grid", "mobile global actions should stay mounted as a grid");
+          }
         }));
 
         results.push(runNamedTest("v6.8 brand title returns to Today calculation", () => {
@@ -46235,9 +46498,9 @@ Notes:
 
         results.push(runNamedTest("macro target current goal acceptance ranges", () => {
           const ranges = {
-            diet: { protein: [175, 185], fat: [44, 48], carbs: [205, 215] },
-            lean_bulk: { protein: [148, 152], fat: [51, 55], carbs: [355, 370] },
-            bulk: { protein: [133, 138], fat: [74, 80], carbs: [370, 380] }
+            diet: { protein: [175, 185], fat: [44, 48], carbs: [215, 225] },
+            lean_bulk: { protein: [148, 152], fat: [51, 55], carbs: [370, 380] },
+            bulk: { protein: [133, 138], fat: [82, 86], carbs: [370, 380] }
           };
           const outputs = {};
           Object.entries(ranges).forEach(([goal, goalRanges]) => {
@@ -46259,9 +46522,9 @@ Notes:
             ["diet", 2000, [150, 165], [55, 62], [190, 225]],
             ["diet", 2500, [150, 165], [62, 70], [300, 340]],
             ["diet", 3000, [150, 165], [70, 80], [390, 445]],
-            ["lean_bulk", 2000, [135, 150], [62, 70], [190, 230]],
-            ["lean_bulk", 2500, [135, 150], [70, 82], [290, 335]],
-            ["lean_bulk", 3000, [135, 150], [80, 90], [395, 435]],
+            ["lean_bulk", 2000, [134, 150], [62, 70], [190, 230]],
+            ["lean_bulk", 2500, [134, 150], [70, 82], [290, 335]],
+            ["lean_bulk", 3000, [134, 150], [80, 90], [395, 435]],
             ["bulk", 2000, [130, 145], [68, 78], [180, 235]],
             ["bulk", 2500, [130, 145], [78, 90], [280, 325]],
             ["bulk", 3000, [130, 145], [88, 100], [385, 430]]
