@@ -1054,6 +1054,11 @@ v8 산식은 대표 케이스 몇 개만 보고 통과시키지 않는다.
 - 2026-06-03 v8.0-T에서 실제 `calculate()` Today 경로에 `profileMacroCandidateV2RuntimeProposal`과 targetRateContext candidate-v2 metadata를 연결했다. 이 단계는 runtime proposal wiring일 뿐 production `targetCal` 적용이나 candidate-v2 formula approval이 아니다. mixed high-load probe 기준 production `targetCal=3283.4951111111113`, proposed candidate target `3308.524266666667`, `targetDeltaKcal=25.029155555555462`, `appliedToTarget=false`, `canApplyAutomatically=false`다.
 - 2026-06-03 v8.0-U에서 runtime candidate-v2 target-delta가 Coach / Records 사용자 표면에 검토 대상으로 안전하게 노출되는지 `profileFormulaUserFacingQa` report-only 레이어를 추가했다. 직접 추출 기준 `coachHasProfileTargetDeltaDecision=true`, `recordDetailHasProfileTargetDelta=true`, `recordDetailHasProfileTargetRateDelta=true`, `surfaceForbiddenTermCount=0`, `targetDeltaApplied=false`, `canApplyAutomatically=false`다. 이 단계는 production formula approval이 아니며 모바일 screenshot audit이나 production visual QA를 대체하지 않는다.
 - 2026-06-03 v8.0-V에서 `tools/render_audit/analyze_render_audit.cjs`를 추가해 `capture_render_audit.cjs`가 만든 ignored screenshot manifest / PNG를 자동 검증했다. 최신 실행 기준 47 captures = desktop 33 + mobile 14, required mobile 14, `failedCount=0`, `minMobileImageHeight=1601`, `maxMobileImageHeight=4909`, `minUniqueSampleColorCount=547`, `minLuminanceStdDev=24.244`다. 이 단계는 first-pass mobile/desktop screenshot audit evidence gate이며, candidate-v2 production wiring 이후 visual QA나 formula approval은 아니다.
+- 2026-06-03 v8.0-W에서 18개 human-review candidate-v2 케이스의 report-only numerical approval gate `humanReviewNumericalApproval`을 추가했다.
+  - 직접 확인 기준 `humanReviewCaseCount=18`, `numericApprovedCount=17`, `blockedCount=1`, `productionFormulaApprovalReady=false`.
+  - blocked case는 `low_reliability_user`다. `profile_carb_floor_requires_target_rate_contract`는 v8.0-Q/R/U 계약과 user-facing QA로 numerical gate 안에서는 resolved 처리하지만, `fat_percent_below_contest_prep_reference_floor`는 외부 Helms contest-prep reference 기반 unresolved blocker로 유지한다.
+  - `required_user_rest_diet_1913`는 수치상 owner formula review 후보로 통과하지만, candidate-v2 formula approval이나 production `targetCal` application은 아니다.
+  - 검증 기준: `runV8ScenarioRunnerTests` 1 suite / 22 cases / failed 0, calibration 14 suites / 130 cases / failed 0, full 99 suites / 1050 cases / failed 0.
   - non-contest mixed/running candidate-v2 케이스의 protein 2.0g/kg BW는 ISSN 2017의 일반 운동인 범위 안에 있으므로, 기존 diet guide floor 2.2g/kg BW와의 충돌을 외부 안전선 위반으로 보지 않는다.
   - contest-prep-like 케이스는 여전히 Helms / Aragon / Fitschen 2014의 LBM protein context를 따르며, 실제 저단백 또는 fat floor 미달은 unresolved blocker로 남긴다.
   - 직접 추출 기준 `profileMacroCandidateV2Comparison.summary`: `proteinGuardConflictCount=0`, `proteinGuardResolvedCount=4`, `proteinLegacyGuideConflictCount=4`, `fatGuardConflictCount=0`, `fatGuardResolvedCount=5`.
@@ -1116,5 +1121,10 @@ v8의 산식 1차 완료는 아래를 모두 만족해야 한다.
 - v8.0-V added `tools/render_audit/analyze_render_audit.cjs` and ran the latest render audit capture/analyzer.
 - Latest evidence: 47 captures, desktop 33, mobile 14, required mobile 14, analyzer `failedCount=0`.
 - This closes first-pass mobile/desktop screenshot audit evidence only. Do not read it as candidate-v2 formula approval, production `targetCal` application, production wiring visual QA, or full V8 completion.
+
+[Codex handoff v8.0-W update]
+- v8.0-W added `humanReviewNumericalApproval` to `runV8ScenarioRunner()` for the 18 human-review candidate-v2 cases.
+- Gate result: `numericApprovedCount=17`, `blockedCount=1`, blocked case `low_reliability_user`.
+- The target-rate high finding is resolved for this numerical gate by closed app contracts, but `fat_percent_below_contest_prep_reference_floor` remains unresolved. Do not approve candidate-v2 or apply production `targetCal` until that blocker is handled and a separate formula-approval/wiring step is completed.
 
 이 첫 작업이 끝난 뒤에만 핫픽스 또는 candidate 산식 설계로 넘어간다.

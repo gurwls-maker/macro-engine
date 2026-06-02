@@ -1740,6 +1740,42 @@ v8.0-V에서는 v8.0-U가 남긴 mobile screenshot audit / production visual QA 
 - 이 단계로 first-pass mobile/desktop screenshot audit evidence gate는 닫을 수 있다.
 - 단, candidate-v2 target delta가 production `targetCal`에 실제 적용된 뒤의 production visual QA는 아직 실행할 수 없으므로 별도 open gate로 유지한다.
 
+## 11-20. 2026-06-03 v8.0-W human-review numerical approval gate 1차
+
+v8.0-W에서는 8-3의 18개 human-review candidate-v2 케이스를 별도 numerical approval gate로 분리했다. 이 단계는 report-only다. owner signoff, formula approval, production `targetCal` application, production formula wiring으로 읽으면 안 된다.
+
+추가된 출력:
+
+- `runV8ScenarioRunner().humanReviewNumericalApproval`
+- `humanReviewNumericalApproval.meta.stage=8-3_human_review_numerical_approval_v0`
+- `humanReviewNumericalApproval.meta.reportOnly=true`
+- `humanReviewNumericalApproval.meta.candidateFormulaApproved=false`
+- `humanReviewNumericalApproval.meta.productionFormulaChanged=false`
+
+직접 확인된 요약:
+
+- `humanReviewCaseCount=18`
+- `numericApprovedCount=17`
+- `blockedCount=1`
+- `productionFormulaApprovalReady=false`
+- `blockedCaseIds=["low_reliability_user"]`
+- `requiredRegressionCaseId=required_user_rest_diet_1913`
+- `requiredRegressionNumericApproved=true`
+
+막힌 케이스:
+
+- `low_reliability_user`
+- goal `diet`, exerciseProfile `mixed`, profileSession `mixed_strength_cardio_70m`
+- candidate-v2 target delta는 유지된다: `targetDeltaKcal` 약 43.729kcal, `targetRateDeltaEquivalentKgPerWeek` 약 0.0398kg/week.
+- `profile_carb_floor_requires_target_rate_contract`는 v8.0-Q/R/U의 target-rate/recentContext/score/Coach/user-facing QA 계약으로 numerical gate 안에서는 resolved 처리한다.
+- 하지만 `fat_percent_below_contest_prep_reference_floor`는 외부 Helms contest-prep reference 기반 high finding이므로 unresolved blocker로 유지한다. 앱 내부 계약이 닫혔다는 이유만으로 외부 운동생리학 근거 기반 blocker를 통과 처리하면 안 된다.
+
+해석:
+
+- v8.0-W는 "18개 중 17개 수치가 owner formula review 후보로 통과했고, 1개는 blocker로 남았다"는 상태를 코드와 테스트에 고정한 단계다.
+- `required_user_rest_diet_1913`는 수치상 통과했지만, 이것도 production formula approval이 아니라 owner formula review 후보 통과일 뿐이다.
+- candidate-v2 formula approval, production wiring, production wiring 이후 visual QA는 계속 별도 open gate다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -2080,6 +2116,13 @@ v8.0-V에서는 v8.0-U가 남긴 mobile screenshot audit / production visual QA 
 - 2026-06-03 v8.0-V manual mobile screenshot spot-check: `34_mobile_today_rich.png`, `36_mobile_records.png`, `40_mobile_settings.png`
 - 2026-06-03 v8.0-V full internal suite 재확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-V desktop full 99 suites / 1049 cases / failed 0
+- 2026-06-03 v8.0-W human-review numerical approval gate 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-W scenario runner suite 1 suite / 22 cases / failed 0
+- 2026-06-03 v8.0-W humanReviewNumericalApproval 직접 확인: `humanReviewCaseCount=18`, `numericApprovedCount=17`, `blockedCount=1`, `blockedCaseIds=["low_reliability_user"]`, `requiredRegressionNumericApproved=true`, `productionFormulaApprovalReady=false`
+- 2026-06-03 v8.0-W calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-W desktop calibration 14 suites / 130 cases / failed 0
+- 2026-06-03 v8.0-W full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-W desktop full 99 suites / 1050 cases / failed 0
 - 2026-06-03 v8.0-T runtime mixed high-load probe 직접 확인:
   - production `targetCal=3283.4951111111113`
   - proposed candidate-v2 targetCal `3308.524266666667`
@@ -2096,7 +2139,7 @@ v8.0-V에서는 v8.0-U가 남긴 mobile screenshot audit / production visual QA 
 - candidate-v2 target delta production formula application
 - user-facing profile formula QA after candidate-v2 contract readiness: v8.0-U runtime Coach/Records QA complete; v8.0-V first-pass screenshot audit complete; production wiring 이후 visual QA는 open
 - 80,621,568,000개 8-2 full cross-product 전수 실행
-- 18개 human-review scenario의 사람 눈 수치 승인
+- 18개 human-review scenario의 사람 눈 최종 승인: v8.0-W code numerical gate는 17/18 통과와 1개 blocker를 고정했지만, `low_reliability_user`의 `fat_percent_below_contest_prep_reference_floor`와 owner/manual signoff는 아직 open
 
 최초 작성 시점에는 구현 변경이 없는 감사 산출물이었으므로 전체 테스트를 생략했다.
 v8.0-A snapshotless 기준 저장 상태 분리 이후에는 관련 suite, mobile viewport suite, desktop smoke, desktop core를 실행했다.
@@ -2122,3 +2165,4 @@ v8.0-S protein guard candidate-v2 resolution contract 이후에는 legacy 2.2g/k
 v8.0-T candidate-v2 runtime target-delta proposal wiring 이후에는 실제 `calculate()` Today 경로가 `profileMacroCandidateV2RuntimeProposal`과 targetRateContext candidate-v2 metadata를 생성한다. mixed high-load probe는 production `targetCal=3283.4951111111113`, proposed candidate target `3308.524266666667`, `targetDeltaKcal=25.029155555555462`를 보존하지만 `appliedToTarget=false`, `canApplyAutomatically=false`이므로 production targetCal 적용이나 formula approval로 읽으면 안 된다.
 v8.0-U candidate-v2 runtime user-facing QA 이후에는 같은 mixed high-load runtime delta가 Coach / Records 표면에서 검토 대상으로 보존되는지 확인했다. 직접 추출 기준 `coachHasProfileTargetDeltaDecision=true`, `recordDetailHasProfileTargetDelta=true`, `recordDetailHasProfileTargetRateDelta=true`, `surfaceForbiddenTermCount=0`이지만 `targetDeltaApplied=false`, `canApplyAutomatically=false`이므로 여전히 production targetCal 적용이나 formula approval로 읽으면 안 된다.
 v8.0-V mobile screenshot audit analyzer 이후에는 `capture_render_audit.cjs` 47개 캡처와 `analyze_render_audit.cjs` PNG/manifest 검증으로 first-pass mobile/desktop screenshot audit evidence gate를 닫았다. 그러나 candidate-v2 target delta production wiring 이후의 production visual QA는 아직 실행되지 않았으므로 formula approval이나 production targetCal 적용으로 읽으면 안 된다.
+v8.0-W human-review numerical approval gate 이후에는 18개 human-review candidate-v2 케이스가 별도 report-only approval layer로 고정됐다. 17개는 numerical gate를 통과했지만 `low_reliability_user`가 `fat_percent_below_contest_prep_reference_floor`로 막혀 있으므로 candidate-v2 formula approval, production wiring, production `targetCal` 적용으로 읽으면 안 된다.
