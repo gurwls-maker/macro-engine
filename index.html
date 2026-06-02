@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-Q target-rate recentContext candidate-delta contract
+Stage: v8.0-R score Coach candidate-v2 contract
 Date: 2026-06-03
 Notes:
+- v8.0-R candidate-v2 score / Coach profile contract를 추가하되 candidate-v2 target delta와 guard conflict를 production formula로 승인하지 않음
 - v8.0-Q targetRateContext와 recentContext에 candidate-v2 target/rate delta metadata와 recent28 gate를 추가하되 targetCal / score / Coach 산식은 계속 변경하지 않음
 - v8.0-P Settings/Today 운동 프로필과 오늘 세션 입력을 추가하고 draft / state / goalSnapshot / signature / backup 경로에 보존하되 candidate-v2 산식은 계속 report-only로 유지
 - v8.0-O profileMacroCandidateV2Contract report-only layer를 추가해 candidate-v2 production 적용 전 Today/Settings input, target-rate, Records snapshot/signature, score, Coach, backup/import 계약 누락을 코드 기준 blocker로 검토
@@ -16048,6 +16049,7 @@ Notes:
 
     const PROFILE_CANDIDATE_TARGET_DELTA_CONTRACT_VERSION = "profileCandidateTargetDeltaContract.v1";
     const PROFILE_CANDIDATE_V2_MODEL_KEY = "candidate-v8-profile-macro-v2-linked-target-v0";
+    const PROFILE_CANDIDATE_V2_POLICY_KEY = "profileCandidateV2";
 
     function normalizeProfileCandidateTargetDeltaConfig(config = {}){
       const model = typeof config.profileMacroCandidateModel === "string" && config.profileMacroCandidateModel.trim()
@@ -16074,6 +16076,32 @@ Notes:
         nonZeroDelta,
         supportedModel: !model || model === PROFILE_CANDIDATE_V2_MODEL_KEY
       };
+    }
+
+    function getProfileCandidatePolicyKeyFromConfig(config = {}){
+      const delta = normalizeProfileCandidateTargetDeltaConfig(config);
+      return delta.requested && delta.supportedModel && delta.model === PROFILE_CANDIDATE_V2_MODEL_KEY
+        ? PROFILE_CANDIDATE_V2_POLICY_KEY
+        : null;
+    }
+
+    function getProfileCandidatePolicyKeyFromResult(currentResult = {}){
+      const context = currentResult?.targetRateContext || {};
+      return getProfileCandidatePolicyKeyFromConfig({
+        profileMacroCandidateModel: currentResult?.profileMacroCandidateModel ?? context.profileMacroCandidateModel,
+        profileMacroCandidateStage: currentResult?.profileMacroCandidateStage ?? context.profileMacroCandidateStage,
+        profileTargetDeltaKcal: currentResult?.profileTargetDeltaKcal ?? context.profileTargetDeltaKcal,
+        profileTargetRateDeltaEquivalentKgPerWeek: currentResult?.profileTargetRateDeltaEquivalentKgPerWeek ?? context.profileTargetRateDeltaEquivalentKgPerWeek
+      });
+    }
+
+    function getProfileCandidatePolicyKeyFromSnapshot(snapshot = {}){
+      return getProfileCandidatePolicyKeyFromConfig({
+        profileMacroCandidateModel: snapshot?.profileMacroCandidateModel,
+        profileMacroCandidateStage: snapshot?.profileMacroCandidateStage,
+        profileTargetDeltaKcal: snapshot?.profileTargetDeltaKcal,
+        profileTargetRateDeltaEquivalentKgPerWeek: snapshot?.profileTargetRateDeltaEquivalentKgPerWeek
+      });
     }
 
     function buildGoalTargetRateContext(config = {}){
@@ -24093,6 +24121,29 @@ Notes:
       }
     };
 
+    function cloneDailyCoachThresholdBucket(bucket){
+      return {
+        ...bucket,
+        low: (bucket.low || []).map(rule => ({ ...rule })),
+        high: (bucket.high || []).map(rule => ({ ...rule }))
+      };
+    }
+
+    DAILY_COACH_SIGNAL_THRESHOLD_PROFILES[PROFILE_CANDIDATE_V2_POLICY_KEY] = {
+      calorie: cloneDailyCoachThresholdBucket(DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.diet.calorie),
+      protein: cloneDailyCoachThresholdBucket(DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.diet.protein),
+      carb: cloneDailyCoachThresholdBucket(DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.diet.carb),
+      fat: cloneDailyCoachThresholdBucket(DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.diet.fat),
+      profileTargetDelta: {
+        nonZeroDeltaSeverity: 1,
+        canApplyAutomatically: false
+      },
+      profileGuardConflict: {
+        proteinSeverity: 3,
+        fatSeverity: 3
+      }
+    };
+
     function getDailyCoachThresholdProfile(goalType){
       return DAILY_COACH_SIGNAL_THRESHOLD_PROFILES[goalType] || DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.lean_bulk;
     }
@@ -24274,12 +24325,86 @@ Notes:
       };
     }
 
+    function getProfileCandidateGuardConflictContext(context = {}){
+      const guard = context.profileCandidateGuardConflict
+        || context.currentResult?.profileCandidateGuardConflict
+        || context.currentResult?.profileMacroCandidateV2GuardConflict
+        || {};
+      return {
+        proteinGuardConflict: guard.proteinGuardConflict === true || guard.protein === true || context.profileProteinGuardConflict === true,
+        fatGuardConflict: guard.fatGuardConflict === true || guard.fat === true || context.profileFatGuardConflict === true,
+        source: guard
+      };
+    }
+
+    function buildProfileCandidateV2CoachSignals(context = {}){
+      const currentResult = context.currentResult || null;
+      const policyKey = context.coachProfileKey || getProfileCandidatePolicyKeyFromResult(currentResult);
+      if (policyKey !== PROFILE_CANDIDATE_V2_POLICY_KEY) return [];
+      const delta = normalizeProfileCandidateTargetDeltaConfig({
+        profileMacroCandidateModel: currentResult?.profileMacroCandidateModel ?? currentResult?.targetRateContext?.profileMacroCandidateModel,
+        profileMacroCandidateStage: currentResult?.profileMacroCandidateStage ?? currentResult?.targetRateContext?.profileMacroCandidateStage,
+        profileTargetDeltaKcal: currentResult?.profileTargetDeltaKcal ?? currentResult?.targetRateContext?.profileTargetDeltaKcal,
+        profileTargetRateDeltaEquivalentKgPerWeek: currentResult?.profileTargetRateDeltaEquivalentKgPerWeek ?? currentResult?.targetRateContext?.profileTargetRateDeltaEquivalentKgPerWeek
+      });
+      const thresholdProfile = getDailyCoachThresholdProfile(PROFILE_CANDIDATE_V2_POLICY_KEY);
+      const signals = [];
+      if (delta.nonZeroDelta) {
+        signals.push({
+          key: "profileTargetDelta",
+          status: "high",
+          severity: thresholdProfile.profileTargetDelta?.nonZeroDeltaSeverity || 1,
+          ratio: null,
+          actual: delta.targetDeltaKcal,
+          target: null,
+          reasonCode: "profile_candidate_v2_target_delta_review",
+          profileCandidateModel: delta.model,
+          profileCandidateStage: delta.stage,
+          targetDeltaKcal: delta.targetDeltaKcal,
+          targetRateDeltaEquivalentKgPerWeek: delta.targetRateDeltaEquivalentKgPerWeek,
+          targetDeltaApplied: false,
+          canApplyAutomatically: false,
+          recentGateStatus: context.recentContext?.profileCandidateV2TargetDeltaGate?.status || null
+        });
+      }
+      const guard = getProfileCandidateGuardConflictContext(context);
+      if (guard.proteinGuardConflict || guard.fatGuardConflict) {
+        signals.push({
+          key: "profileGuardConflict",
+          status: "high",
+          severity: Math.max(
+            guard.proteinGuardConflict ? (thresholdProfile.profileGuardConflict?.proteinSeverity || 3) : 0,
+            guard.fatGuardConflict ? (thresholdProfile.profileGuardConflict?.fatSeverity || 3) : 0
+          ),
+          ratio: null,
+          actual: null,
+          target: null,
+          reasonCode: guard.proteinGuardConflict && guard.fatGuardConflict
+            ? "profile_protein_fat_guard_conflict_unresolved"
+            : (guard.proteinGuardConflict ? "profile_protein_guard_conflict_unresolved" : "profile_fat_guard_conflict_unresolved"),
+          proteinGuardConflict: guard.proteinGuardConflict,
+          fatGuardConflict: guard.fatGuardConflict,
+          source: guard.source
+        });
+      }
+      return signals;
+    }
+
     function getDailyCoachSignals(context = {}){
       const currentResult = context.currentResult || calculate();
       const balance = context.balance || getTodayMacroBalance(currentResult);
       const currentState = context.state || context.s || currentResult?.s || collectState();
       const goalType = currentState?.goal || currentResult?.s?.goal || state.goal || "lean_bulk";
-      const thresholdProfile = getDailyCoachThresholdProfile(goalType);
+      const profileCandidateSignals = buildProfileCandidateV2CoachSignals({
+        ...context,
+        currentResult,
+        balance,
+        state: currentState
+      });
+      const coachProfileKey = profileCandidateSignals.length
+        ? PROFILE_CANDIDATE_V2_POLICY_KEY
+        : (context.coachProfileKey || getProfileCandidatePolicyKeyFromResult(currentResult));
+      const thresholdProfile = getDailyCoachThresholdProfile(coachProfileKey || goalType);
       const calorieSignal = getCalorieSignal(balance?.consumed?.kcal, balance?.target?.kcal, thresholdProfile.calorie);
       const proteinSignal = getProteinSignal(balance?.consumed?.protein, balance?.target?.protein, thresholdProfile.protein);
       const carbSignal = getCarbSignal(balance?.consumed?.carbs, balance?.target?.carbs, thresholdProfile.carb);
@@ -24355,13 +24480,15 @@ Notes:
           previousOverIntakeSignal,
           otherKcalSignal,
           trainingSignal,
-          dataQualitySignal
+          dataQualitySignal,
+          ...profileCandidateSignals
         ],
         balance,
         currentResult,
         state: currentState,
         recentContext: context.recentContext || null,
-        focusKey: context.focusKey || null
+        focusKey: context.focusKey || null,
+        coachProfileKey
       };
     }
 
@@ -24375,7 +24502,9 @@ Notes:
       previousOverIntake: 7,
       training: 8,
       otherKcal: 9,
-      dataQuality: 10
+      dataQuality: 10,
+      profileGuardConflict: 11,
+      profileTargetDelta: 12
     };
 
     function getDailyCoachSignalPriority(signal){
@@ -24512,8 +24641,28 @@ Notes:
       }
     };
 
+    DAILY_COACH_DECISION_PROFILES[PROFILE_CANDIDATE_V2_POLICY_KEY] = {
+      gatePolicy: DAILY_COACH_COMMON_GATE_POLICY,
+      comboPolicy: {
+        decisionTypes: [
+          "profile_guard_conflict",
+          "profile_target_delta_review",
+          ...DAILY_COACH_COMBO_POLICY_TYPES
+        ]
+      },
+      priority: [
+        "data_quality_severe",
+        "data_quality_insufficient",
+        "profile_guard_conflict",
+        "profile_target_delta_review",
+        ...DAILY_COACH_DECISION_PROFILES.diet.priority
+      ]
+    };
+
     function getDailyCoachDecisionProfile(goalType){
-      return DAILY_COACH_DECISION_PROFILES[getDailyCoachGoalType(goalType)] || DAILY_COACH_DECISION_PROFILES.lean_bulk;
+      return DAILY_COACH_DECISION_PROFILES[goalType]
+        || DAILY_COACH_DECISION_PROFILES[getDailyCoachGoalType(goalType)]
+        || DAILY_COACH_DECISION_PROFILES.lean_bulk;
     }
 
     function getCoachSignalMap(signals){
@@ -24563,7 +24712,10 @@ Notes:
         : (Array.isArray(signals?.signals) ? signals.signals.filter(Boolean) : []);
       const signalsByKey = getCoachSignalMap(signals);
       const currentState = !Array.isArray(signals) ? (signals?.state || signals?.currentResult?.s || state) : state;
-      const goalType = getDailyCoachGoalType(currentState?.goal || (!Array.isArray(signals) ? signals?.currentResult?.s?.goal : null) || state.goal);
+      const rawGoalType = currentState?.goal || (!Array.isArray(signals) ? signals?.currentResult?.s?.goal : null) || state.goal;
+      const goalType = getDailyCoachGoalType(rawGoalType);
+      const coachProfileKey = !Array.isArray(signals) ? (signals?.coachProfileKey || getProfileCandidatePolicyKeyFromResult(signals?.currentResult)) : null;
+      const decisionProfileKey = coachProfileKey || goalType;
       const balance = !Array.isArray(signals) ? (signals?.balance || null) : null;
       const alcoholTone = signalsByKey.alcohol?.alcoholImpact?.coachTone || signalsByKey.alcohol?.alcoholImpact?.severity || "none";
       const alcoholHighPlus = isDailyCoachAlcoholHighPlusTone(alcoholTone);
@@ -24575,13 +24727,15 @@ Notes:
       const recoveryActive = signalsByKey.recovery?.status !== "ok" && Number(signalsByKey.recovery?.severity || 0) > 0;
       const previousOverActive = signalsByKey.previousOverIntake?.status !== "ok" && Number(signalsByKey.previousOverIntake?.severity || 0) > 0;
       const dataQualitySeverity = Number(signalsByKey.dataQuality?.severity || 0);
-      const gatePolicy = getDailyCoachDecisionProfile(goalType).gatePolicy || DAILY_COACH_COMMON_GATE_POLICY;
+      const gatePolicy = getDailyCoachDecisionProfile(decisionProfileKey).gatePolicy || DAILY_COACH_COMMON_GATE_POLICY;
       const dataQualityBlocksCoach = shouldBlockCoachByDataQuality(signalsByKey.dataQuality, gatePolicy);
       return {
         signalList,
         signalsByKey,
         goalType,
-        profile: getDailyCoachDecisionProfile(goalType),
+        coachProfileKey,
+        decisionProfileKey,
+        profile: getDailyCoachDecisionProfile(decisionProfileKey),
         state: currentState,
         balance,
         hasWeightTraining,
@@ -24601,7 +24755,9 @@ Notes:
         carbLow: isCoachSignalStatus(signalsByKey, "carb", "low"),
         fatHigh: isCoachSignalStatus(signalsByKey, "fat", "high"),
         fatHighSevere: isCoachSignalStatus(signalsByKey, "fat", "high", 3),
-        otherKcalHigh: isCoachSignalStatus(signalsByKey, "otherKcal", "low")
+        otherKcalHigh: isCoachSignalStatus(signalsByKey, "otherKcal", "low"),
+        profileTargetDeltaActive: isCoachSignalStatus(signalsByKey, "profileTargetDelta", "high"),
+        profileGuardConflictActive: isCoachSignalStatus(signalsByKey, "profileGuardConflict", "high")
       };
     }
 
@@ -24797,6 +24953,23 @@ Notes:
           coveredKeys: ["dataQuality"]
         });
         return { decisions, context };
+      }
+
+      if (context.profileGuardConflictActive && !coveredKeys.has("profileGuardConflict")) {
+        addDailyCoachDecision(decisions, coveredKeys, context, {
+          key: "profileGuardConflict",
+          decisionType: "profile_guard_conflict",
+          copyIntent: "profile_guard_conflict",
+          coveredKeys: ["profileGuardConflict"]
+        });
+      }
+      if (context.profileTargetDeltaActive && !coveredKeys.has("profileTargetDelta")) {
+        addDailyCoachDecision(decisions, coveredKeys, context, {
+          key: "profileTargetDelta",
+          decisionType: "profile_target_delta_review",
+          copyIntent: "profile_target_delta_review",
+          coveredKeys: ["profileTargetDelta"]
+        });
       }
 
       addDailyCoachComboDecisions(decisions, coveredKeys, context);
@@ -25164,6 +25337,16 @@ Notes:
           state: "기타칼로리 비율이 높습니다.",
           reason: "총칼로리는 반영했지만 탄수화물·단백질·지방 균형은 실제 식사와 다르게 보일 수 있습니다.",
           action: "다음 기록부터 탄수화물·단백질·지방으로 나눠 입력하세요."
+        },
+        profile_guard_conflict: {
+          state: "운동 프로필 기준과 영양소 보호선이 충돌합니다.",
+          reason: "운동 세션에 맞춘 탄수화물 기준을 맞추는 과정에서 단백질 또는 지방 보호선이 아직 정리되지 않았습니다.",
+          action: "이 결과는 자동 적용하지 말고 단백질·지방 보호선부터 다시 확인하세요."
+        },
+        profile_target_delta_review: {
+          state: "운동 프로필 때문에 목표 변화 검토가 필요합니다.",
+          reason: "운동 세션에 맞춘 탄수화물 기준을 맞추려면 목표 칼로리와 주간 변화율 해석이 함께 바뀔 수 있습니다.",
+          action: "최근 28일 흐름과 점수·코치 기준까지 맞는지 확인하기 전에는 자동 적용하지 마세요."
         }
       };
       const byGoal = {
@@ -26238,6 +26421,17 @@ Notes:
       fat: { ...MACRO_SCORE_PROFILES.lean_bulk.fat, overRatio: 0.30 }
     };
 
+    function cloneMacroScoreProfile(profile){
+      return {
+        protein: { ...profile.protein },
+        kcal: { ...profile.kcal },
+        carbs: { ...profile.carbs },
+        fat: { ...profile.fat }
+      };
+    }
+
+    MACRO_SCORE_PROFILES[PROFILE_CANDIDATE_V2_POLICY_KEY] = cloneMacroScoreProfile(MACRO_SCORE_PROFILES.diet);
+
     function getMacroScoreProfile(goalType){
       return MACRO_SCORE_PROFILES[goalType] || MACRO_SCORE_PROFILES.lean_bulk;
     }
@@ -26502,6 +26696,14 @@ Notes:
       return delta > 0 ? "지방이 목표보다 많아 오늘 점수에서 깎였습니다." : "지방이 낮게 기록됐지만, 하루 단독으로 강한 행동을 정하지 않습니다.";
     }
 
+    function getMacroScoreProfileKeyForContext(balance = {}, currentResult = {}){
+      return getProfileCandidatePolicyKeyFromSnapshot(balance.goalSnapshot)
+        || getProfileCandidatePolicyKeyFromResult(currentResult)
+        || balance.goalSnapshot?.goal
+        || currentResult?.s?.goal
+        || state.goal;
+    }
+
     function getDailyAdherenceScore(date, currentResult = calculate(), options = {}){
       const balance = getMacroBalanceForDate(date, currentResult, options);
       const manualRecord = getRecordByDate(balance.date);
@@ -26603,7 +26805,8 @@ Notes:
         };
       }
 
-      const macroScoreProfile = getMacroScoreProfile(balance.goalSnapshot?.goal || currentResult?.s?.goal || state.goal);
+      const macroScoreProfileKey = getMacroScoreProfileKeyForContext(balance, currentResult);
+      const macroScoreProfile = getMacroScoreProfile(macroScoreProfileKey);
       const alcoholImpact = analyzeAlcoholImpact(balance.consumed);
       const componentScores = {
         protein: getMacroComponentScore(balance.target.protein, balance.consumed.protein, macroScoreProfile.protein),
@@ -26658,6 +26861,7 @@ Notes:
           consumed: balance.consumed,
           remaining: balance.remaining,
           componentScores,
+          scoreProfileKey: macroScoreProfileKey,
           scoreBeforeAlcoholPenalty,
           scoreAfterAlcoholPenalty,
           alcoholImpactPenalty,
@@ -52789,8 +52993,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-Q";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-Q target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-R";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-R score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -55876,11 +56080,154 @@ Notes:
       };
     }
 
+    function buildV8ProfileMacroCandidateV2ScoreCoachProbe(){
+      const profileDeltaInput = {
+        profileMacroCandidateModel: V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
+        profileMacroCandidateStage: "9-7_profile_macro_candidate_v2_linked_target_v0",
+        profileTargetDeltaKcal: 43.72915555555528,
+        profileTargetRateDeltaEquivalentKgPerWeek: 0.03975377777777753
+      };
+      const candidateState = {
+        goal: "diet",
+        weight: 75,
+        height: 175,
+        age: 32,
+        gender: "male",
+        bodyFat: 18,
+        activityLevel: "moderate",
+        workType: "office",
+        weeklyTrainingDays: 4,
+        routine: "PUSH",
+        weightDuration: 60,
+        cardioType: "treadmill_run",
+        cardioDuration: 35,
+        cardioSpeed: 10,
+        cardioIncline: 1,
+        intensityOverride: 1.0
+      };
+      const targetRateContext = buildGoalTargetRateContext({
+        s: candidateState,
+        modeCfg: { inputDepth: "advanced", preset: "athlete" },
+        targetBurnBase: 2500,
+        bmr: 1650,
+        lbmBase: 61.5,
+        weightKcal: 320,
+        cardio: { kcal: 420 },
+        epocKcal: 40,
+        ...profileDeltaInput
+      });
+      const candidateResult = {
+        isCalculable: true,
+        s: candidateState,
+        targetCal: 2500 + profileDeltaInput.profileTargetDeltaKcal,
+        protein: 150,
+        carbs: 375,
+        fat: 70,
+        targetRateContext,
+        ...profileDeltaInput
+      };
+      const scoreProfile = getMacroScoreProfile(PROFILE_CANDIDATE_V2_POLICY_KEY);
+      const dietScoreProfile = getMacroScoreProfile("diet");
+      const scoreProfileKeyFromResult = getMacroScoreProfileKeyForContext({ goalSnapshot: null }, candidateResult);
+      const scoreProfileKeyFromSnapshot = getMacroScoreProfileKeyForContext({
+        goalSnapshot: normalizeGoalSnapshot({
+          goal: "diet",
+          targetCal: candidateResult.targetCal,
+          protein: candidateResult.protein,
+          carbs: candidateResult.carbs,
+          fat: candidateResult.fat,
+          ...profileDeltaInput
+        })
+      }, { isCalculable: true, s: { goal: "diet" } });
+      const coachThresholdProfile = getDailyCoachThresholdProfile(PROFILE_CANDIDATE_V2_POLICY_KEY);
+      const coachDecisionProfile = getDailyCoachDecisionProfile(PROFILE_CANDIDATE_V2_POLICY_KEY);
+      const balance = {
+        date: "2026-06-03",
+        todayDate: "2026-06-03",
+        target: {
+          kcal: candidateResult.targetCal,
+          protein: candidateResult.protein,
+          carbs: candidateResult.carbs,
+          fat: candidateResult.fat
+        },
+        consumed: {
+          kcal: candidateResult.targetCal,
+          totalKcal: candidateResult.targetCal,
+          scoringKcal: candidateResult.targetCal,
+          protein: candidateResult.protein,
+          carbs: candidateResult.carbs,
+          fat: candidateResult.fat,
+          alcoholKcal: 0,
+          otherKcal: 0
+        },
+        remaining: { kcal: 0, protein: 0, carbs: 0, fat: 0 },
+        exceeded: { kcal: false, protein: false, carbs: false, fat: false },
+        isGoalAvailable: true,
+        mealCount: 3,
+        hasMeals: true,
+        mealDistribution: null,
+        goalSnapshot: null
+      };
+      const recentContext = {
+        profileCandidateV2TargetDeltaGate: {
+          status: "eligible",
+          canApplyAutomatically: false
+        }
+      };
+      const signals = getDailyCoachSignals({
+        currentResult: candidateResult,
+        state: candidateState,
+        balance,
+        previousDayContext: {
+          hasPreviousRecord: false,
+          recoveryLevel: "not_recovery",
+          previousOverIntakeLevel: "none"
+        },
+        recentContext,
+        profileCandidateGuardConflict: {
+          proteinGuardConflict: true,
+          fatGuardConflict: false
+        }
+      });
+      const selected = selectDailyCoachSignals(signals);
+      const output = generateDailyCoachOutput(signals);
+      const signalKeys = signals.signals.map(signal => signal.key);
+      const firstOutput = output.items[0] || null;
+      return {
+        policyKey: PROFILE_CANDIDATE_V2_POLICY_KEY,
+        scoreProfileExists: hasV8OwnContractKey(MACRO_SCORE_PROFILES, PROFILE_CANDIDATE_V2_POLICY_KEY),
+        scoreProfileUsesDietProductPolicy: JSON.stringify(scoreProfile) === JSON.stringify(dietScoreProfile),
+        scoreProfileKeyFromResult,
+        scoreProfileKeyFromSnapshot,
+        coachThresholdProfileExists: hasV8OwnContractKey(DAILY_COACH_SIGNAL_THRESHOLD_PROFILES, PROFILE_CANDIDATE_V2_POLICY_KEY),
+        coachThresholdUsesDietMacroThresholds:
+          JSON.stringify(coachThresholdProfile.calorie) === JSON.stringify(getDailyCoachThresholdProfile("diet").calorie)
+          && JSON.stringify(coachThresholdProfile.protein) === JSON.stringify(getDailyCoachThresholdProfile("diet").protein)
+          && JSON.stringify(coachThresholdProfile.carb) === JSON.stringify(getDailyCoachThresholdProfile("diet").carb)
+          && JSON.stringify(coachThresholdProfile.fat) === JSON.stringify(getDailyCoachThresholdProfile("diet").fat),
+        coachThresholdHasTargetDeltaPolicy: coachThresholdProfile.profileTargetDelta?.canApplyAutomatically === false,
+        coachThresholdHasGuardConflictPolicy: coachThresholdProfile.profileGuardConflict?.proteinSeverity === 3,
+        coachDecisionProfileExists: hasV8OwnContractKey(DAILY_COACH_DECISION_PROFILES, PROFILE_CANDIDATE_V2_POLICY_KEY),
+        coachDecisionProfileFirstPriorities: (coachDecisionProfile.priority || []).slice(0, 4),
+        coachSignalProfileKey: signals.coachProfileKey || null,
+        coachSignalKeys: signalKeys,
+        hasProfileTargetDeltaSignal: signalKeys.includes("profileTargetDelta"),
+        hasProfileGuardConflictSignal: signalKeys.includes("profileGuardConflict"),
+        selectedDecisionTypes: selected.map(item => item.decisionType),
+        firstSelectedDecisionType: selected[0]?.decisionType || null,
+        outputFirstDecisionType: firstOutput?.decisionType || null,
+        outputFirstState: firstOutput?.state || "",
+        outputFirstAction: firstOutput?.action || "",
+        outputMentionsInternalCandidateName: /candidate|profileCandidate|v8/i.test(`${firstOutput?.state || ""} ${firstOutput?.reason || ""} ${firstOutput?.action || ""}`)
+      };
+    }
+
     function buildV8ProfileMacroCandidateV2ContractReport(profileMacroCandidateV2Comparison, targetedStress){
       const summary = profileMacroCandidateV2Comparison?.summary || {};
       const snapshotProbe = buildV8ProfileMacroCandidateV2SnapshotProbe();
       const rateProbe = buildV8ProfileMacroCandidateV2RateProbe();
       const recentGateProbe = buildV8ProfileMacroCandidateV2RecentContextGateProbe();
+      const scoreCoachProbe = buildV8ProfileMacroCandidateV2ScoreCoachProbe();
       const hasExerciseProfileInput = hasV8OwnContractKey(ids, "exerciseProfile")
         || hasV8OwnContractKey(ids, "todayExerciseProfile")
         || hasV8OwnContractKey(ids, "settingsExerciseProfile");
@@ -55909,23 +56256,32 @@ Notes:
       const hasSnapshotCandidateFields = snapshotProbe.missingNormalizedFields.length === 0;
       const hasSignatureCandidateFields = snapshotProbe.missingSignatureFields.length === 0;
       const hasProfileMacroScoreContract = [
+        PROFILE_CANDIDATE_V2_POLICY_KEY,
         "profile_macro_candidate_v2",
-        "running",
-        "mixed",
         V8_PROFILE_MACRO_CANDIDATE_V2_MODEL
-      ].some(key => hasV8OwnContractKey(MACRO_SCORE_PROFILES, key));
+      ].some(key => hasV8OwnContractKey(MACRO_SCORE_PROFILES, key))
+        && scoreCoachProbe.scoreProfileKeyFromResult === PROFILE_CANDIDATE_V2_POLICY_KEY
+        && scoreCoachProbe.scoreProfileKeyFromSnapshot === PROFILE_CANDIDATE_V2_POLICY_KEY
+        && scoreCoachProbe.scoreProfileUsesDietProductPolicy === true;
       const hasCoachThresholdContract = [
+        PROFILE_CANDIDATE_V2_POLICY_KEY,
         "profile_macro_candidate_v2",
-        "running",
-        "mixed",
         V8_PROFILE_MACRO_CANDIDATE_V2_MODEL
-      ].some(key => hasV8OwnContractKey(DAILY_COACH_SIGNAL_THRESHOLD_PROFILES, key));
+      ].some(key => hasV8OwnContractKey(DAILY_COACH_SIGNAL_THRESHOLD_PROFILES, key))
+        && scoreCoachProbe.coachSignalProfileKey === PROFILE_CANDIDATE_V2_POLICY_KEY
+        && scoreCoachProbe.coachThresholdUsesDietMacroThresholds === true
+        && scoreCoachProbe.coachThresholdHasTargetDeltaPolicy === true
+        && scoreCoachProbe.coachThresholdHasGuardConflictPolicy === true
+        && scoreCoachProbe.hasProfileTargetDeltaSignal === true
+        && scoreCoachProbe.hasProfileGuardConflictSignal === true;
       const hasCoachDecisionContract = [
+        PROFILE_CANDIDATE_V2_POLICY_KEY,
         "profile_macro_candidate_v2",
-        "running",
-        "mixed",
         V8_PROFILE_MACRO_CANDIDATE_V2_MODEL
-      ].some(key => hasV8OwnContractKey(DAILY_COACH_DECISION_PROFILES, key));
+      ].some(key => hasV8OwnContractKey(DAILY_COACH_DECISION_PROFILES, key))
+        && scoreCoachProbe.firstSelectedDecisionType === "profile_guard_conflict"
+        && scoreCoachProbe.outputFirstDecisionType === "profile_guard_conflict"
+        && scoreCoachProbe.outputMentionsInternalCandidateName === false;
       const hasBackupRoundTripContract = hasSnapshotCandidateFields && hasSignatureCandidateFields;
       const hasReportOnlyGuard = profileMacroCandidateV2Comparison?.meta?.reportOnly === true
         && profileMacroCandidateV2Comparison?.meta?.productionFormulaChanged === false
@@ -56021,7 +56377,10 @@ Notes:
             ? "Score profiles include an explicit profile/candidate-v2 contract."
             : "Macro scoring is keyed by goal profiles; there is no explicit running/mixed profile or candidate-v2 target-delta score profile.",
           requiredBeforeProduction: "Define score tolerance behavior for profile carb floors and candidate-v2 target deltas.",
-          userImpactRisk: "A day that follows the profile-specific target could still be scored by unrelated goal-only tolerances."
+          userImpactRisk: "A day that follows the profile-specific target could still be scored by unrelated goal-only tolerances.",
+          evidence: {
+            scoreCoachProbe
+          }
         }),
         makeV8ProfileMacroCandidateV2ContractItem({
           key: "DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.profileCandidateV2",
@@ -56032,7 +56391,10 @@ Notes:
             ? "Daily Coach thresholds include a profile/candidate-v2 contract."
             : "Daily Coach signal thresholds are keyed by goal; no explicit profile/candidate-v2 threshold contract exists.",
           requiredBeforeProduction: "Define Coach thresholds for profile carb floors, target deltas, and protein/fat guard conflicts.",
-          userImpactRisk: "Coach could mark a profile-appropriate carb or calorie result as wrong, or miss a true guard conflict."
+          userImpactRisk: "Coach could mark a profile-appropriate carb or calorie result as wrong, or miss a true guard conflict.",
+          evidence: {
+            scoreCoachProbe
+          }
         }),
         makeV8ProfileMacroCandidateV2ContractItem({
           key: "DAILY_COACH_DECISION_PROFILES.profileCandidateV2",
@@ -56043,7 +56405,10 @@ Notes:
             ? "Daily Coach decisions include a profile/candidate-v2 contract."
             : "Daily Coach decision priority is keyed by goal; no explicit profile/candidate-v2 decision/copy path exists.",
           requiredBeforeProduction: "Define decision priority and copy for candidate-v2 target-rate changes and unresolved guard conflicts.",
-          userImpactRisk: "Coach copy may explain the wrong reason for a running/mixed high-carb or adjusted-target day."
+          userImpactRisk: "Coach copy may explain the wrong reason for a running/mixed high-carb or adjusted-target day.",
+          evidence: {
+            scoreCoachProbe
+          }
         }),
         makeV8ProfileMacroCandidateV2ContractItem({
           key: "recentContext.profileCandidateV2TargetDeltaGate",
@@ -56123,7 +56488,7 @@ Notes:
       const snapshotFieldMissingCount = snapshotProbe.missingNormalizedFields.length + snapshotProbe.missingSignatureFields.length;
       return {
         meta: {
-          stage: "9-8_profile_macro_candidate_v2_production_contract_review_v2_target_recent_gate",
+          stage: "9-8_profile_macro_candidate_v2_production_contract_review_v3_score_coach",
           reportOnly: true,
           productionFormulaChanged: false,
           candidateFormulaApproved: false,
@@ -56131,7 +56496,7 @@ Notes:
           sourceCandidateStage: profileMacroCandidateV2Comparison?.meta?.stage || null,
           sourceCandidateModel: profileMacroCandidateV2Comparison?.meta?.model || V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
           evidencePolicy: "internal code-contract review; external sports-nutrition references remain threshold background only and do not approve app-wide production behavior",
-          nonGoal: "does_not_change_macro_formula_score_or_coach"
+          nonGoal: "does_not_change_macro_formula_or_apply_candidate_target_delta"
         },
         evidenceReferences: {
           currentFormulaReport: V8_MACRO_AUDIT_REFERENCES.currentFormulaReport,
@@ -56139,7 +56504,7 @@ Notes:
           resistanceCarbohydrateReview2016: V8_PROFILE_SESSION_CARB_REFERENCES.resistanceCarbohydrateReview2016,
           contractReview: {
             evidenceLevel: "internal_code_contract_review_not_external_exercise_physiology",
-            source: "v8.0-Q target-rate recentContext candidate-delta contract",
+            source: "v8.0-R score Coach candidate-v2 contract",
             scope: "app-wide production readiness across Settings/Today, target-rate, Records, score, Coach, recent context, and backup/import",
             appUse: "prevent report-only candidate-v2 from being misread as production-ready"
           }
@@ -56159,7 +56524,8 @@ Notes:
         probes: {
           snapshot: snapshotProbe,
           targetRate: rateProbe,
-          recentContextGate: recentGateProbe
+          recentContextGate: recentGateProbe,
+          scoreCoach: scoreCoachProbe
         },
         contracts,
         summary: {
@@ -56178,7 +56544,6 @@ Notes:
           productionReady: productionBlockers.length === 0
         },
         requiredNextActions: [
-          "Define score and Daily Coach threshold/decision/copy behavior for profile carb floors and unresolved guard conflicts.",
           "Resolve or explicitly justify protein/fat guard behavior before approving a profile-specific macro formula."
         ]
       };
@@ -57614,7 +57979,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-Q", "v8 runner version should advance to 8.0-Q");
+          assertTest(report.meta.version === "8.0-R", "v8 runner version should advance to 8.0-R");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -57742,11 +58107,11 @@ Notes:
           assertTest(findInvalidCalibrationNumber(comparison).length === 0, "profile macro candidate-v2 report should not contain NaN or Infinity");
         }));
 
-        results.push(runNamedTest("v8.0-Q target-rate recentContext candidate-delta contract narrows candidate-v2 rollout blockers", () => {
+        results.push(runNamedTest("v8.0-R score/Coach candidate-v2 contract keeps guard conflict as rollout blocker", () => {
           const report = runV8ScenarioRunner();
-          assertTest(report.meta.version === "8.0-Q", "v8 runner version should advance to v8.0-Q");
+          assertTest(report.meta.version === "8.0-R", "v8 runner version should advance to v8.0-R");
           const contract = report.profileMacroCandidateV2Contract;
-          assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v2_target_recent_gate", "candidate-v2 contract should identify 9-8 target/recent gate contract review");
+          assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v3_score_coach", "candidate-v2 contract should identify 9-8 score/Coach contract review");
           assertTest(contract.meta.reportOnly === true, "candidate-v2 contract should be report-only");
           assertTest(contract.meta.productionFormulaChanged === false, "candidate-v2 contract must not change production formula");
           assertTest(contract.meta.candidateFormulaApproved === false, "candidate-v2 contract must not approve candidate-v2");
@@ -57754,14 +58119,14 @@ Notes:
           assertIncludesAll(contract.meta.evidencePolicy, ["internal code-contract", "do not approve app-wide production"], "candidate-v2 contract should not overclaim external evidence");
           assertTest(contract.candidateV2SignalSummary.targetRateContractRequiredCount > 0, "contract should carry candidate-v2 target-rate signal count");
           assertTest(contract.candidateV2SignalSummary.proteinGuardConflictCount > 0, "contract should carry candidate-v2 protein guard conflict count");
-          assertTest(contract.summary.missingContractCount === 3, "candidate-v2 contract should narrow missing production contracts after target/recent gate closure");
-          assertTest(contract.summary.productionBlockerCount === 4, "candidate-v2 contract should keep remaining score/Coach blockers plus protein conflict");
-          assertTest(contract.summary.presentCount === 11, "candidate-v2 contract should mark input/snapshot/backup/target/recent contracts present");
+          assertTest(contract.summary.missingContractCount === 0, "candidate-v2 contract should close missing production contracts after score/Coach contract closure");
+          assertTest(contract.summary.productionBlockerCount === 1, "candidate-v2 contract should keep only the unresolved protein guard as a blocker");
+          assertTest(contract.summary.presentCount === 14, "candidate-v2 contract should mark all listed app-wide contracts present");
           assertTest(contract.summary.productionReady === false, "summary should also mark candidate-v2 as not production-ready");
           assertTest(contract.summary.settingsTodayContractMissingCount === 0, "Settings/Today profile inputs should be closed");
           assertTest(contract.summary.snapshotFieldMissingCount === 0, "snapshot/signature candidate-v2 fields should be closed");
           assertTest(contract.summary.targetRateContractMissingCount === 0, "target-rate candidate delta contract should be closed");
-          assertTest(contract.summary.scoreCoachContractMissingCount === 3, "score and Coach profile contracts should remain missing");
+          assertTest(contract.summary.scoreCoachContractMissingCount === 0, "score and Coach profile contracts should be closed");
           assertTest(contract.summary.recentContextContractMissingCount === 0, "recentContext candidate target-delta gate should be closed");
           assertTest(contract.summary.backupImportContractMissingCount === 0, "backup/import candidate-v2 roundtrip should be closed through snapshot schema");
 
@@ -57797,6 +58162,28 @@ Notes:
           assertTest(signature?.present === true && signature.productionBlocker === false, "goalSnapshot signature should be present");
           const backup = contract.contracts.find(item => item.key === "backup/export/import profileCandidateV2 roundtrip");
           assertTest(backup?.present === true && backup.productionBlocker === false, "backup/export/import roundtrip should be present after snapshot schema update");
+          const score = contract.contracts.find(item => item.key === "MACRO_SCORE_PROFILES.profileCandidateV2");
+          assertTest(score?.present === true && score.productionBlocker === false, "profile candidate score contract should be present without approving production formula");
+          const coachThreshold = contract.contracts.find(item => item.key === "DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.profileCandidateV2");
+          assertTest(coachThreshold?.present === true && coachThreshold.productionBlocker === false, "profile candidate Coach threshold contract should be present");
+          const coachDecision = contract.contracts.find(item => item.key === "DAILY_COACH_DECISION_PROFILES.profileCandidateV2");
+          assertTest(coachDecision?.present === true && coachDecision.productionBlocker === false, "profile candidate Coach decision contract should be present");
+          assertTest(contract.probes.scoreCoach.policyKey === PROFILE_CANDIDATE_V2_POLICY_KEY, "score/Coach probe should use the explicit profile candidate policy key");
+          assertTest(contract.probes.scoreCoach.scoreProfileExists === true, "score profile probe should find the candidate-v2 score contract");
+          assertTest(contract.probes.scoreCoach.scoreProfileUsesDietProductPolicy === true, "score profile should reuse an explicit diet-equivalent product policy instead of inventing tolerances");
+          assertTest(contract.probes.scoreCoach.scoreProfileKeyFromResult === PROFILE_CANDIDATE_V2_POLICY_KEY, "score profile should select candidate key from result metadata");
+          assertTest(contract.probes.scoreCoach.scoreProfileKeyFromSnapshot === PROFILE_CANDIDATE_V2_POLICY_KEY, "score profile should select candidate key from snapshot metadata");
+          assertTest(contract.probes.scoreCoach.coachThresholdProfileExists === true, "Coach threshold profile should exist");
+          assertTest(contract.probes.scoreCoach.coachThresholdUsesDietMacroThresholds === true, "Coach threshold profile should reuse diet macro thresholds");
+          assertTest(contract.probes.scoreCoach.coachThresholdHasTargetDeltaPolicy === true, "Coach threshold profile should define target-delta review policy");
+          assertTest(contract.probes.scoreCoach.coachThresholdHasGuardConflictPolicy === true, "Coach threshold profile should define guard-conflict policy");
+          assertTest(contract.probes.scoreCoach.coachDecisionProfileExists === true, "Coach decision profile should exist");
+          assertTest(contract.probes.scoreCoach.coachSignalProfileKey === PROFILE_CANDIDATE_V2_POLICY_KEY, "Coach signals should carry the candidate-v2 policy key");
+          assertTest(contract.probes.scoreCoach.hasProfileTargetDeltaSignal === true, "Coach signals should include target-delta review");
+          assertTest(contract.probes.scoreCoach.hasProfileGuardConflictSignal === true, "Coach signals should include guard-conflict review");
+          assertTest(contract.probes.scoreCoach.firstSelectedDecisionType === "profile_guard_conflict", "Coach decision priority should surface guard conflict before target delta review");
+          assertTest(contract.probes.scoreCoach.outputFirstDecisionType === "profile_guard_conflict", "Coach output should render the guard conflict decision first");
+          assertTest(contract.probes.scoreCoach.outputMentionsInternalCandidateName === false, "Coach copy must not expose internal candidate model names");
           assertTest(contract.probes.snapshot.normalizedHasExerciseProfile === true, "snapshot probe should show exerciseProfile is normalized");
           assertTest(contract.probes.snapshot.normalizedHasProfileSession === true, "snapshot probe should show profileSession is normalized");
           assertTest(contract.probes.snapshot.normalizedHasCandidateV2TargetDelta === true, "snapshot probe should show candidate-v2 target delta is normalized");

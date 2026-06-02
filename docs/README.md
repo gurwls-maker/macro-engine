@@ -1,5 +1,15 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-R score Coach candidate-v2 contract note
+
+- `index.html` now adds explicit candidate-v2 score and Daily Coach policy contracts under `profileCandidateV2`.
+- The score profile intentionally reuses an explicit diet-equivalent product policy. This is internal product policy, not new external sports-nutrition evidence, and it does not approve the candidate-v2 formula.
+- Daily Coach now carries candidate-v2 target-delta review and guard-conflict review signals. Guard conflict is prioritized before target-delta review, and the user-facing copy does not expose the internal candidate model name.
+- This closes the score/Coach missing-contract layer only. It does not apply candidate-v2 target deltas to production `targetCal`, does not approve `candidate-v8-profile-macro-v2-linked-target-v0`, and leaves protein/fat guard behavior unresolved.
+- Direct extraction on 2026-06-03: `contractCount=14`, `presentCount=14`, `missingContractCount=0`, `productionBlockerCount=1`, `targetRateContractMissingCount=0`, `scoreCoachContractMissingCount=0`, `recentContextContractMissingCount=0`, `productionReady=false`.
+- Remaining production blocker: `profileMacroCandidateV2Comparison.proteinGuardConflict`. The required next action is to resolve or explicitly justify protein/fat guard behavior before approving any profile-specific macro formula.
+- Direct probe check: `policyKey=profileCandidateV2`, `scoreProfileUsesDietProductPolicy=true`, `coachThresholdUsesDietMacroThresholds=true`, first Coach decision is `profile_guard_conflict`, and user-facing output does not mention internal candidate names.
+
 # v8.0-Q target-rate recentContext candidate-delta contract note
 
 - `index.html` now preserves candidate-v2 target/rate delta metadata through `buildGoalTargetRateContext()` and exposes a `profileCandidateDeltaContract`.
@@ -35,7 +45,7 @@
 - Direct extraction on 2026-06-03: candidate-v2 comparison covers 96 cases = axis coverage 73 + human-review 18 + targeted calculated 5.
 - `profileCarbFloorAttemptedCount=5`, `profileCarbFloorMetCount=5`, `profileCarbFloorUnresolvedCount=0`, `targetChangedCount=5`, `targetRateContractRequiredCount=5`, `proteinGuardConflictCount=4`.
 - For `targeted_mixed_carb_unresolved`, candidate-v2 opens `targetDeltaKcal=43.72915555555528`, `targetRateDeltaEquivalentKgPerWeek=0.03975377777777753`, and reaches `carbsGPerKgBodyweight=6`.
-- This is not production approval. At v8.0-N those target/rate deltas still needed recent trend, score, Coach, Records, Settings/Today, and backup/import contracts; v8.0-P closes the input/snapshot/backup part and v8.0-Q closes target-rate metadata plus the recentContext gate, but score/Coach and protein guard blockers still remain.
+- This is not production approval. At v8.0-N those target/rate deltas still needed recent trend, score, Coach, Records, Settings/Today, and backup/import contracts; v8.0-P closes the input/snapshot/backup part, v8.0-Q closes target-rate metadata plus the recentContext gate, and v8.0-R closes candidate-v2 score/Coach contracts. Protein/fat guard behavior still remains unresolved.
 
 # v8.0-M targetedStress note
 
