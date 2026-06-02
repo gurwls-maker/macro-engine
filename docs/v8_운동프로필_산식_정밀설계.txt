@@ -1059,6 +1059,12 @@ v8 산식은 대표 케이스 몇 개만 보고 통과시키지 않는다.
   - blocked case는 `low_reliability_user`다. `profile_carb_floor_requires_target_rate_contract`는 v8.0-Q/R/U 계약과 user-facing QA로 numerical gate 안에서는 resolved 처리하지만, `fat_percent_below_contest_prep_reference_floor`는 외부 Helms contest-prep reference 기반 unresolved blocker로 유지한다.
   - `required_user_rest_diet_1913`는 수치상 owner formula review 후보로 통과하지만, candidate-v2 formula approval이나 production `targetCal` application은 아니다.
   - 검증 기준: `runV8ScenarioRunnerTests` 1 suite / 22 cases / failed 0, calibration 14 suites / 130 cases / failed 0, full 99 suites / 1050 cases / failed 0.
+- 2026-06-03 v8.0-X에서 candidate-v2 linked-target feasibility가 targetDelta 이후의 candidate target 기준으로 fat guard를 다시 보도록 수정했다.
+  - 기존 v8.0-W blocker의 원인은 carb floor를 맞추려고 target을 올린 뒤에도 fat guard가 base target 기준으로는 OK, candidate target 기준으로는 14.8015%라서 `fat_percent_below_contest_prep_reference_floor`가 남는 불일치였다.
+  - v8.0-X는 report-only candidate-v2 안에서 carb floor와 15% kcal fat reference를 같은 linked-target 방정식으로 맞춘다. `low_reliability_user` 기준 `targetDeltaKcal=51.44606338171707`, `targetRateDeltaEquivalentKgPerWeek=0.046769148528833696`, `fatG=55.215686054758734`, `fatPercentKcal≈15`, `carbsGPerKgBodyweight=6`이다.
+  - 직접 확인 기준 `humanReviewNumericalApproval.summary`: `numericApprovedCount=18`, `blockedCount=0`, `productionFormulaApprovalReady=true`, `candidateFormulaApproved=false`, `productionFormulaChanged=false`.
+  - 검증 기준: `runV8ScenarioRunnerTests` 1 suite / 22 cases / failed 0, calibration 14 suites / 130 cases / failed 0, full 99 suites / 1050 cases / failed 0.
+  - 이 상태는 owner formula review 준비 상태일 뿐 production formula approval, production `targetCal` application, production wiring, production wiring 이후 visual QA가 아니다.
   - non-contest mixed/running candidate-v2 케이스의 protein 2.0g/kg BW는 ISSN 2017의 일반 운동인 범위 안에 있으므로, 기존 diet guide floor 2.2g/kg BW와의 충돌을 외부 안전선 위반으로 보지 않는다.
   - contest-prep-like 케이스는 여전히 Helms / Aragon / Fitschen 2014의 LBM protein context를 따르며, 실제 저단백 또는 fat floor 미달은 unresolved blocker로 남긴다.
   - 직접 추출 기준 `profileMacroCandidateV2Comparison.summary`: `proteinGuardConflictCount=0`, `proteinGuardResolvedCount=4`, `proteinLegacyGuideConflictCount=4`, `fatGuardConflictCount=0`, `fatGuardResolvedCount=5`.
@@ -1126,5 +1132,10 @@ v8의 산식 1차 완료는 아래를 모두 만족해야 한다.
 - v8.0-W added `humanReviewNumericalApproval` to `runV8ScenarioRunner()` for the 18 human-review candidate-v2 cases.
 - Gate result: `numericApprovedCount=17`, `blockedCount=1`, blocked case `low_reliability_user`.
 - The target-rate high finding is resolved for this numerical gate by closed app contracts, but `fat_percent_below_contest_prep_reference_floor` remains unresolved. Do not approve candidate-v2 or apply production `targetCal` until that blocker is handled and a separate formula-approval/wiring step is completed.
+
+[Codex handoff v8.0-X update]
+- v8.0-X resolves the W fat-percent blocker inside report-only candidate-v2 by solving the carb floor and 15% kcal fat reference against the same increased candidate target.
+- Direct result: `humanReviewNumericalApproval.numericApprovedCount=18`, `blockedCount=0`, `productionFormulaApprovalReady=true`, while `candidateFormulaApproved=false` and `productionFormulaChanged=false`.
+- Do not read `productionFormulaApprovalReady=true` as owner signoff, production formula approval, production targetCal application, or production visual QA completion.
 
 이 첫 작업이 끝난 뒤에만 핫픽스 또는 candidate 산식 설계로 넘어간다.

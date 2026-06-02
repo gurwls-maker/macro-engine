@@ -1,11 +1,23 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-X candidate-v2 fat floor linked-target consistency note
+
+- `candidate-v8-profile-macro-v2-linked-target-v0` remains report-only, but its linked-target feasibility check now evaluates the fat guard against the increased candidate target, not the pre-delta base target.
+- Direct extraction on 2026-06-03: `profileMacroCandidateV2Comparison.summary.fatFloorRaisedForTargetDeltaCount=4`, `fatGuardConflictCount=0`, `fatGuardResolvedCount=5`.
+- The previous W blocker `low_reliability_user` now has `targetDeltaKcal=51.44606338171707`, `targetRateDeltaEquivalentKgPerWeek=0.046769148528833696`, `carbsGPerKgBodyweight=6`, `fatGPerKgBodyweight=0.6274509778949856`, and `fatPercentKcal≈15`.
+- `humanReviewNumericalApproval` now reports `numericApprovedCount=18`, `blockedCount=0`, `productionFormulaApprovalReady=true`, while `candidateFormulaApproved=false` and `productionFormulaChanged=false`.
+- Runtime user-facing QA remains review-only: production `targetCal=3283.4951111111113`, proposed candidate target `3312.9411753385825`, `targetDeltaKcal=29.446064227471197`, `targetDeltaApplied=false`, `canApplyAutomatically=false`.
+- Scenario runner verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 22 cases / failed 0.
+- Calibration verification on 2026-06-03: 14 suites / 130 cases / failed 0.
+- Full internal verification on 2026-06-03: 99 suites / 1050 cases / failed 0.
+
 # v8.0-W human-review numerical approval gate note
 
 - `runV8ScenarioRunner()` now includes `humanReviewNumericalApproval` at `8-3_human_review_numerical_approval_v0`.
 - This is a report-only numerical gate for the 18 human-review candidate-v2 cases. It is not owner signoff, not formula approval, and not production `targetCal` application.
 - Direct gate result on 2026-06-03: `humanReviewCaseCount=18`, `numericApprovedCount=17`, `blockedCount=1`, `productionFormulaApprovalReady=false`.
 - The blocked case is `low_reliability_user`. The target-rate high finding is resolved for this numerical gate by the already-closed target-rate/recentContext/score/Coach/user-facing QA contracts, but `fat_percent_below_contest_prep_reference_floor` remains an unresolved external-reference blocker.
+- Superseding note: v8.0-X resolves this W blocker inside report-only candidate-v2 by rechecking the fat reference against the increased linked target.
 - Required regression `required_user_rest_diet_1913` is numerically approved for owner formula review only; it is not production approval.
 - Scenario runner verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 22 cases / failed 0.
 - Calibration verification on 2026-06-03: 14 suites / 130 cases / failed 0.
