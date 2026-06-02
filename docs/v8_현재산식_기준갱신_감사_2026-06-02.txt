@@ -923,7 +923,8 @@ v8.0-H에서는 산식을 바꾸지 않고 `runV8ScenarioRunner()`에 `profileSe
 근거 검토:
 
 - Academy / Dietitians of Canada / ACSM 2016 position stand는 운동 수행과 회복이 훈련/경기 시나리오별 nutrition strategy에 의해 개선될 수 있고, 식품/영양소의 양과 timing이 scenario-specific이어야 한다고 제시한다. 이 문서는 v8.0-H에서 running/mixed training-load carbohydrate review reference로만 사용한다.
-- Henselmans / Schoenfeld 2016 BJN review는 resistance-based exercise의 carbohydrate 필요량은 endurance보다 직접 확립되어 있지 않으며, strength/power/bodybuilding 맥락에는 별도 주의가 필요하다는 근거로 사용한다.
+- Escobar / VanDusseldorp / Kerksick 2016 BJN review는 resistance-based exercise의 carbohydrate 필요량은 endurance보다 직접 확립되어 있지 않으며, strength/power/bodybuilding 맥락에는 별도 주의가 필요하다는 근거로 사용한다.
+  - v8.0-H 작성 당시 Henselmans / Schoenfeld로 표기한 것은 출처 오기다. v8.0-K에서 코드와 문서를 정정했다.
 - 따라서 v8.0-H는 endurance carb range를 strength / powerbuilding / bodybuilding에 그대로 씌우지 않고, `resistance_carb_evidence_limited_do_not_overapply_endurance_range` finding을 남긴다.
 - `currentFormulaReport`는 내부 구현 근거이며, production routine fallback이 actual profile session과 다르다는 사실을 드러내는 데만 쓴다.
 
@@ -1109,6 +1110,83 @@ maintain macro 직접 추출:
 - `maintainProductionApproved=true`는 maintain production goal 계약 승인이지, profile-specific macro formula 또는 전체 v8 완료가 아니다.
 - 다음 작업에서 maintain 수치를 다시 조정하려면 external reference / product policy / score / Coach / Records / backup 영향을 다시 함께 검토한다.
 
+## 11-8. 2026-06-03 v8.0-K profile macro candidate-v1 1차
+
+v8.0-K에서는 v8.0-H가 남긴 profile-specific carbohydrate 미해결을 실제 candidate-v1 report로 연결했다.
+
+candidate-v1의 성격:
+
+- model: `candidate-v8-profile-macro-v1`
+- `reportOnly`: true
+- `productionFormulaChanged`: false
+- `candidateFormulaApproved`: false
+- `targetChanged`: false
+- `profileSpecificCarbohydratePolicyApplied`: true
+- score / Coach / recentContext / InBody gate / backup schema 변경 없음
+
+candidate-v1가 하는 일:
+
+- `candidate-v8-context-macro-v0`를 출발점으로 사용한다.
+- running / mixed 세션에서 profile/session 탄수 review floor를 targetCal 변경 없이 맞출 수 있는지 검토한다.
+- fat은 guide/external lower guard 아래로 낮추지 않는다.
+- protein은 context candidate의 보호선 아래로 더 낮추지 않는다.
+- resistance-only profile에는 탄수 floor를 강제하지 않는다.
+
+candidate-v1가 하지 않는 일:
+
+- profile-specific macro formula를 production에 적용하지 않는다.
+- target/rate를 올려서 탄수 floor를 억지로 맞추지 않는다.
+- resistance profile에 endurance 탄수 range를 그대로 씌우지 않는다.
+- Today / Settings profile-session 입력, Records snapshot, export/import, score/Coach 계약을 닫지 않는다.
+
+근거 검토:
+
+- Academy / Dietitians of Canada / ACSM 2016 position stand는 running/mixed의 training-load carbohydrate review floor 근거로만 사용한다.
+- Escobar / VanDusseldorp / Kerksick 2016 BJN review는 resistance-based exercise의 carbohydrate 필요량이 endurance만큼 직접 확정되어 있지 않다는 제한적 직접성 근거로 사용한다.
+- ISSN protein 2017과 Helms contest-prep 2014는 protein/fat 보호선과 candidate-v0 감사 맥락을 유지하기 위한 reference다.
+- `currentFormulaReport`는 내부 코드 근거다. profile candidate-v1의 결과가 생리학적으로 승인되었다는 뜻이 아니다.
+
+직접 추출 summary:
+
+- `caseCount`: 91
+- `targetChangedCount`: 0
+- `profileCarbFloorAttemptedCount`: 3
+- `profileCarbFloorMetCount`: 0
+- `profileCarbFloorUnresolvedCount`: 3
+- `carbsIncreasedFromContextCount`: 0
+- `fatReducedFromContextCount`: 0
+- `proteinReducedFromContextCount`: 0
+- `resistanceReviewOnlyCount`: 79
+- `highPriorityCaseCount`: 3
+
+대표 확인:
+
+- `running_focused`
+  - profileSession: `running_tempo_50m_support_upper`
+  - candidate-v0 carbs: 6.8294g/kg
+  - candidate-v1 carbs: 6.8294g/kg
+  - review range: 5-7g/kg
+  - 해석: 탄수 floor 자체는 이미 range 안에 있으므로 재분배를 시도하지 않는다. 하지만 production `UPPER` fallback과 actual running load 분리는 여전히 production formula 전환 전 계약으로 남는다.
+- `low_reliability_user` mixed case
+  - profileSession: `mixed_strength_cardio_70m`
+  - candidate-v0 carbs: 5.8758g/kg
+  - candidate-v1 carbs: 5.8758g/kg
+  - mixed review floor: 6g/kg
+  - finding: `profile_carb_floor_attempted`, `profile_carb_floor_unresolved_by_target_constraints`, `profile_macro_candidate_requires_production_contract`
+  - 해석: targetCal을 유지하고 protein/fat 보호선을 깨지 않으면 mixed floor를 맞출 수 없다. 이 케이스는 "탄수만 올리는 후보"로 닫을 수 없고 target/rate, protein/fat floor, Recent/Coach 계약을 함께 재설계해야 한다.
+- `strength_focused`
+  - profileSession: `strength_heavy_lower_90m`
+  - finding: `resistance_profile_carb_floor_not_applied_limited_directness`
+  - 해석: strength profile에 endurance floor를 강제하지 않는다.
+- `required_user_rest_diet_1913`
+  - rest-day case이므로 performance carbohydrate floor를 적용하지 않는다.
+
+해석:
+
+- v8.0-K는 profile-specific macro formula의 production 구현이 아니라 candidate feasibility audit이다.
+- 단백질 context 후보와 maintain production goal만으로는 mixed profile 탄수 문제가 해결되지 않는다.
+- 다음 단계는 806억 full axis를 보존한 pairwise/targeted stress runner 또는 profile formula candidate-v2 중 하나다. candidate-v2를 진행한다면 target/rate와 protein/fat guard를 같이 열어야 하며, score/Coach/Records 계약까지 검토해야 한다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -1242,13 +1320,35 @@ maintain macro 직접 추출:
   - `유지` 선택 후 chip class `chip active` 확인
   - 화면 text에서 `NaN` / `undefined` 없음 확인
   - 임시 서버 종료 확인
+- 2026-06-03 v8.0-K diff 확인: `git diff --check`
+- v8.0-K diff check passed
+- 2026-06-03 v8.0-K profile macro candidate-v1 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-K scenario runner suite 1 suite / 14 cases / failed 0
+- 2026-06-03 v8.0-K profile macro candidate-v1 직접 추출:
+  - `profileMacroCandidateComparison.summary.caseCount=91`
+  - `targetChangedCount=0`
+  - `profileCarbFloorAttemptedCount=3`
+  - `profileCarbFloorMetCount=0`
+  - `profileCarbFloorUnresolvedCount=3`
+  - `carbsIncreasedFromContextCount=0`
+  - `resistanceReviewOnlyCount=79`
+  - `highPriorityCaseCount=3`
+  - resistance carbohydrate source가 Escobar / VanDusseldorp / Kerksick 2016으로 정정된 것 확인
+- 2026-06-03 v8.0-K calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-K desktop calibration 14 suites / 122 cases / failed 0
+- 2026-06-03 v8.0-K smoke 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=smoke`
+- v8.0-K desktop smoke 10 suites / 121 cases / failed 0
+- 2026-06-03 v8.0-K core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
+- v8.0-K desktop core 26 suites / 364 cases / failed 0
+- 2026-06-03 v8.0-K full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-K desktop full 99 suites / 1042 cases / failed 0
 
 실행하지 않은 것:
 
-- 전체 internal test suite
 - mobile screenshot audit
 - candidate formula production approval
-- profile-specific macro formula implementation
+- profile-specific macro formula production implementation
+- profile-specific UI / Records snapshot / export-import contract implementation
 - 80,621,568,000개 8-2 full cross-product 전수 실행
 - 18개 human-review scenario의 사람 눈 수치 승인
 
@@ -1264,3 +1364,4 @@ v8.0-G 9-7 context macro candidate-v0 비교 이후에는 `candidateFormulaCompa
 v8.0-H 9-7 profileSession carbohydrate policy review 이후에는 `profileSessionCarbPolicy`가 report-only / productionFormulaChanged false / candidateFormulaApproved false로 남고, running 세션의 cardio-carried load와 UPPER fallback을 분리하며, resistance profile에는 endurance range를 무리하게 적용하지 않는 finding이 남는지 `runV8ScenarioRunnerTests`로 확인했다.
 v8.0-I 9-6 maintain production contract review 당시에는 `maintainGoalContract`가 report-only / productionFormulaChanged false였고, maintain production approval은 의도적으로 열지 않았다. 이 단계는 `maintain -> recomp` report fallback과 `lean_bulk` silent fallback 위험을 분리하며, `GOALS.maintain` 단독 추가를 막는지 `runV8ScenarioRunnerTests`로 확인했다.
 v8.0-J maintain production goal 1차 이후에는 `maintainGoalContract`가 report-only / productionFormulaChanged false로 남되 `productionMaintainGoalAvailable=true`, `maintainProductionApproved=true`, `missingContractCount=0`, `currentAxisFallbackGoal=null`로 바뀌는지 확인했다. 이 승인은 maintain production goal 계약에 한정되며, profile-specific macro formula 또는 전체 v8 완료를 뜻하지 않는다.
+v8.0-K profile macro candidate-v1 이후에는 `profileMacroCandidateComparison`이 report-only / productionFormulaChanged false / candidateFormulaApproved false로 남고, running/mixed 탄수 floor를 targetCal 변경 없이 맞출 수 있는지 검토했다. 직접 추출 결과 mixed floor 시도 3건은 모두 target/protein/fat 보호선 때문에 unresolved로 남았고, 이는 candidate-v2에서 target/rate와 protein/fat guard를 함께 열어야 한다는 근거다.

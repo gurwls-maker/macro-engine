@@ -17,11 +17,13 @@
    - v7.x UI 안정화 이후 다른 Codex가 처음 투입되어도 이 문서만 읽고 같은 의도로 산식/프로필 감사를 시작할 수 있어야 한다.
    - 산식 근거를 볼 때는 이 문서의 `0-4. 근거 등급 원칙`을 따른다. 내부 코드 근거나 제품 정책 근거를 외부 운동생리학 근거처럼 통과시키면 안 된다.
    - v8.0-J 이후 maintain은 production goal 1차 계약이 닫힌 상태지만, profile-specific macro formula와 전체 v8 완료로 읽으면 안 된다.
+   - v8.0-K 이후 profile macro candidate-v1은 report-only feasibility audit이며, mixed 탄수 floor unresolved를 production 승인으로 덮으면 안 된다.
 
 4. `v8_현재산식_기준갱신_감사_2026-06-02.txt`
    - v8 1단계 현재 산식 / Today-Records 기준갱신 감사 완료 리포트다.
    - 다음 Codex는 v8 산식 작업 전에 이 문서와 현재 `index.html`의 차이 여부를 먼저 확인하고, 중복 감사 대신 다음 단계 판단에 사용한다.
    - v8.0-I의 maintain missing-contract 감사는 v8.0-J 섹션으로 갱신되었으므로, 히스토리와 현재 상태를 섞어 읽지 않는다.
+   - v8.0-H의 resistance carbohydrate reference 저자 표기는 v8.0-K에서 Escobar / VanDusseldorp / Kerksick 2016으로 정정되었다.
 
 5. `앱-문구-기준.txt`
    - 화면 문구, Coach 문구, 최근 흐름 문구, InBody 문구의 표현 기준이다.
