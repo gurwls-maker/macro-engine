@@ -19,7 +19,11 @@ const REQUIRED_MOBILE_CAPTURES = Object.freeze([
   "45_mobile_records_info_edit_modal",
   "46_mobile_records_meal_add_modal",
   "47_mobile_inbody_records_link",
-  "48_mobile_settings_data_lower"
+  "48_mobile_settings_data_lower",
+  "52_mobile_today_profile_candidate_v2_applied",
+  "53_mobile_today_profile_candidate_v2_quick_open",
+  "54_mobile_records_profile_candidate_v2_detail",
+  "56_mobile_records_profile_candidate_v2_basis_open"
 ]);
 
 const REQUIRED_DESKTOP_CAPTURE_PREFIXES = Object.freeze([
@@ -29,7 +33,21 @@ const REQUIRED_DESKTOP_CAPTURE_PREFIXES = Object.freeze([
   "25_desktop_inbody",
   "29_desktop_settings",
   "32_desktop_backup",
-  "33_desktop_smart_restore"
+  "33_desktop_smart_restore",
+  "49_desktop_today_profile_candidate_v2",
+  "51_desktop_records_profile_candidate_v2",
+  "55_desktop_records_profile_candidate_v2_basis_open"
+]);
+
+const POST_WIRING_PROFILE_CANDIDATE_CAPTURES = Object.freeze([
+  "49_desktop_today_profile_candidate_v2_applied",
+  "50_desktop_today_profile_candidate_v2_quick_open",
+  "51_desktop_records_profile_candidate_v2_detail",
+  "52_mobile_today_profile_candidate_v2_applied",
+  "53_mobile_today_profile_candidate_v2_quick_open",
+  "54_mobile_records_profile_candidate_v2_detail",
+  "55_desktop_records_profile_candidate_v2_basis_open",
+  "56_mobile_records_profile_candidate_v2_basis_open"
 ]);
 
 function readUInt32(buffer, offset){
@@ -203,6 +221,7 @@ function analyzeManifest(){
       name: capture.name,
       viewport,
       capture: capture.capture,
+      runtime: capture.runtime || null,
       isMobile,
       fileSize,
       png,
@@ -219,11 +238,41 @@ function analyzeManifest(){
       failures.push(`missing-required-desktop-prefix:${prefix}`);
     }
   });
+  POST_WIRING_PROFILE_CANDIDATE_CAPTURES.forEach(name => {
+    const capture = captures.find(item => item.name === name);
+    if (!capture) {
+      failures.push(`missing-post-wiring-profile-candidate:${name}`);
+      return;
+    }
+    const runtime = capture.runtime || {};
+    const runtimeChecks = {
+      appFrameFound: runtime.appFrameFound === true,
+      calculateFound: runtime.calculateFound === true,
+      calculable: runtime.isCalculable === true,
+      exerciseProfile: runtime.exerciseProfile === "mixed",
+      profileSession: runtime.profileSession === "mixed_strength_cardio",
+      selectedMacroBasis: runtime.selectedMacroBasis === "profile_candidate_v2",
+      productionWiringApplied: runtime.productionWiringApplied === true,
+      productionTargetCalApplied: runtime.productionTargetCalApplied === true,
+      runtimeProposalActive: runtime.runtimeProposalActive === true,
+      runtimeProposalProfileCarbFloorMet: runtime.runtimeProposalProfileCarbFloorMet === true,
+      recentGateStatusApplied: runtime.recentGateStatus === "applied",
+      recentGateTargetDeltaApplied: runtime.recentGateTargetDeltaApplied === true,
+      noSecondAutoApply: runtime.recentGateCanApplyAutomatically === false
+    };
+    Object.entries(runtimeChecks).forEach(([key, value]) => {
+      if (!value) failures.push(`${name}:post-wiring-runtime:${key}`);
+    });
+  });
   const mobileCaptures = analyzedCaptures.filter(capture => capture.isMobile);
   const desktopCaptures = analyzedCaptures.filter(capture => !capture.isMobile);
-  if (captures.length < 47) failures.push(`capture-count:${captures.length}`);
+  const postWiringProfileCandidateCaptures = analyzedCaptures.filter(capture => POST_WIRING_PROFILE_CANDIDATE_CAPTURES.includes(capture.name));
+  const postWiringProfileCandidateAppliedCaptures = postWiringProfileCandidateCaptures.filter(capture => capture.runtime?.productionWiringApplied === true && capture.runtime?.productionTargetCalApplied === true);
+  if (captures.length < 55) failures.push(`capture-count:${captures.length}`);
   if (mobileCaptures.length < REQUIRED_MOBILE_CAPTURES.length) failures.push(`mobile-capture-count:${mobileCaptures.length}`);
-  if (desktopCaptures.length < 30) failures.push(`desktop-capture-count:${desktopCaptures.length}`);
+  if (desktopCaptures.length < 37) failures.push(`desktop-capture-count:${desktopCaptures.length}`);
+  if (postWiringProfileCandidateCaptures.length < POST_WIRING_PROFILE_CANDIDATE_CAPTURES.length) failures.push(`post-wiring-profile-candidate-capture-count:${postWiringProfileCandidateCaptures.length}`);
+  if (postWiringProfileCandidateAppliedCaptures.length < POST_WIRING_PROFILE_CANDIDATE_CAPTURES.length) failures.push(`post-wiring-profile-candidate-applied-count:${postWiringProfileCandidateAppliedCaptures.length}`);
 
   return {
     generatedAt: manifest.generatedAt || null,
@@ -231,6 +280,8 @@ function analyzeManifest(){
     desktopCaptureCount: desktopCaptures.length,
     mobileCaptureCount: mobileCaptures.length,
     requiredMobileCaptureCount: REQUIRED_MOBILE_CAPTURES.length,
+    postWiringProfileCandidateCaptureCount: postWiringProfileCandidateCaptures.length,
+    postWiringProfileCandidateAppliedCaptureCount: postWiringProfileCandidateAppliedCaptures.length,
     minMobileImageHeight: mobileCaptures.reduce((min, capture) => Math.min(min, capture.png?.height || 0), Infinity),
     maxMobileImageHeight: mobileCaptures.reduce((max, capture) => Math.max(max, capture.png?.height || 0), 0),
     minUniqueSampleColorCount: analyzedCaptures.reduce((min, capture) => Math.min(min, capture.png?.uniqueSampleColorCount || 0), Infinity),
@@ -250,6 +301,8 @@ if (require.main === module) {
       desktopCaptureCount: report.desktopCaptureCount,
       mobileCaptureCount: report.mobileCaptureCount,
       requiredMobileCaptureCount: report.requiredMobileCaptureCount,
+      postWiringProfileCandidateCaptureCount: report.postWiringProfileCandidateCaptureCount,
+      postWiringProfileCandidateAppliedCaptureCount: report.postWiringProfileCandidateAppliedCaptureCount,
       minMobileImageHeight: Number.isFinite(report.minMobileImageHeight) ? report.minMobileImageHeight : null,
       maxMobileImageHeight: report.maxMobileImageHeight,
       minUniqueSampleColorCount: Number.isFinite(report.minUniqueSampleColorCount) ? report.minUniqueSampleColorCount : null,

@@ -12,6 +12,9 @@ const debugDir = path.join(auditDir, "_debug");
 const profileDir = path.join(debugDir, "edge_profile");
 const prefix = "runstep_macro_v1_";
 const today = "2026-05-21";
+const currentAuditDate = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+  .toISOString()
+  .slice(0, 10);
 
 fs.mkdirSync(pageDir, { recursive: true });
 fs.mkdirSync(shotDir, { recursive: true });
@@ -139,6 +142,120 @@ const todayDraft = {
   }
 };
 
+const profileCandidateV2Settings = {
+  ...baseSettings,
+  goal: "diet",
+  weight: "88",
+  height: "175",
+  age: "40",
+  bodyFat: "28",
+  skeletal: "33",
+  activityLevel: "moderate",
+  workType: "office",
+  weeklyTrainingDays: "4",
+  weeklyTrainingDaysManual: "true",
+  exerciseProfile: "mixed",
+  profileSession: "mixed_strength_cardio",
+  routinePlan: "ppl_ul",
+  routine: "PUSH",
+  intensityOverride: "0.8",
+  weightDuration: "60",
+  cardioType: "treadmill_run",
+  cardioDuration: "70",
+  cardioSpeed: "8",
+  cardioIncline: "1"
+};
+
+const profileCandidateV2TodayDraftValues = {
+  calculationWeight: 88,
+  skeletalMuscle: 33,
+  bodyFatMass: 24.64,
+  bodyFatPercent: 28,
+  todayActivityLevel: "moderate",
+  todayWorkType: "office",
+  todayExerciseProfile: "mixed",
+  todayProfileSession: "mixed_strength_cardio",
+  todayRoutineSession: "PUSH",
+  todayIntensityOverride: 0.8,
+  todayWeightDuration: 60,
+  todayCardioType: "treadmill_run",
+  todayCardioDuration: 70,
+  todayCardioSpeed: 8,
+  todayCardioIncline: 1,
+  bodyStatusSource: "user",
+  bodyStatusEdited: true,
+  cardioSource: "user",
+  cardioEdited: true
+};
+
+const profileCandidateV2TodayDraft = {
+  [today]: profileCandidateV2TodayDraftValues,
+  [currentAuditDate]: profileCandidateV2TodayDraftValues
+};
+
+const profileCandidateV2Snapshot = snap({
+  targetCal: 3312.9411753385825,
+  protein: 176,
+  carbs: 528,
+  fat: 55.21568614873139,
+  mode: "general",
+  goal: "diet",
+  weight: 88,
+  height: "175",
+  age: "40",
+  bodyFat: 28,
+  bodyFatMass: 24.64,
+  skeletal: 33,
+  activityLevel: "moderate",
+  workType: "office",
+  weeklyTrainingDays: "4",
+  routinePlan: "ppl_ul",
+  routine: "PUSH",
+  intensityOverride: "0.8",
+  weightDuration: 60,
+  cardioType: "treadmill_run",
+  cardioDuration: 70,
+  cardioSpeed: 8,
+  cardioIncline: 1,
+  exerciseProfile: "mixed",
+  profileSession: "mixed_strength_cardio",
+  profileMacroCandidateModel: "candidate-v8-profile-macro-v2-linked-target-v0",
+  profileMacroCandidateStage: "calculate_runtime_candidate_v2_target_delta_proposal_v0",
+  profileTargetDeltaKcal: 29.446064227471197,
+  profileTargetRateDeltaEquivalentKgPerWeek: 0.02676914929770109
+});
+
+const profileCandidateV2Records = [
+  {
+    date: d(21),
+    recordMode: "detailed",
+    weight: 88,
+    note: "v8.0-AA post-wiring candidate-v2 applied visual QA fixture",
+    goalSnapshot: profileCandidateV2Snapshot,
+    snapshotSource: "saved_at_entry",
+    meals: [
+      meal("pcv2-breakfast", "Breakfast", 115, 42, 12, "Visual QA fixture", { date: d(21), time: "08:10" }),
+      meal("pcv2-lunch", "Lunch", 150, 55, 18, "Visual QA fixture", { date: d(21), time: "12:30" }),
+      meal("pcv2-dinner", "Dinner", 140, 50, 16, "Visual QA fixture", { date: d(21), time: "19:10" })
+    ]
+  },
+  {
+    date: d(20),
+    recordMode: "simple",
+    weight: 88.2,
+    adherence: "medium",
+    goalSnapshot: profileCandidateV2Snapshot,
+    snapshotSource: "saved_at_entry",
+    note: "previous-day context fixture"
+  }
+];
+
+const profileCandidateV2InbodyRecords = [
+  { date: "2026-05-03", weight: 89.4, skeletalMuscle: 32.8, bodyFat: 25.6, bodyFatPercent: 28.6 },
+  { date: "2026-05-10", weight: 88.9, skeletalMuscle: 33.0, bodyFat: 25.0, bodyFatPercent: 28.1 },
+  { date: "2026-05-17", weight: 88.4, skeletalMuscle: 33.1, bodyFat: 24.8, bodyFatPercent: 28.0 }
+];
+
 const inbodyRecords = [
   { date: "2026-04-05", weight: 76.1, skeletalMuscle: 35.8, bodyFat: 13.2, bodyFatPercent: 17.4 },
   { date: "2026-04-13", weight: 75.4, skeletalMuscle: 35.9, bodyFat: 11.6, bodyFatPercent: 15.6 },
@@ -242,6 +359,19 @@ const payloads = {
     mealTemplates: {
       items: [{ id: "tpl-shake", name: "프로틴 쉐이크", meal: meal("tpl-meal", "간식", 25, 30, 3, "쉐이크 템플릿"), isFavorite: true }]
     }
+  },
+  profileCandidateV2: {
+    settings: profileCandidateV2Settings,
+    records: profileCandidateV2Records,
+    inbodyRecords: profileCandidateV2InbodyRecords,
+    todayDrafts: profileCandidateV2TodayDraft,
+    cardioPresets: {
+      items: [{ id: "pcv2-run", name: "Candidate v2 run", cardioType: "treadmill_run", cardioDuration: 70, cardioSpeed: 8, cardioIncline: 1, isDefault: true, createdAt: "2026-05-21T00:00:00.000Z" }],
+      defaultId: "pcv2-run"
+    },
+    mealTemplates: {
+      items: [{ id: "pcv2-template", name: "Candidate v2 meal", meal: meal("pcv2-template-meal", "Template", 120, 45, 14, "Candidate v2 visual QA template"), isFavorite: true }]
+    }
   }
 };
 
@@ -260,6 +390,7 @@ const actionScripts = {
   todayUpdated: "w.document.querySelector('[data-update-today-record-basis]')?.click();",
   tabRecords: "w.document.querySelector('#tabRecords')?.click();",
   tabRecordsDetail: "w.document.querySelector('#tabRecords')?.click(); await delay(300); w.document.querySelector('[data-record-card-date=\"2026-05-21\"]')?.click(); await delay(300); w.document.getElementById('recordArchiveDetailHost')?.scrollIntoView({block:'start'});",
+  tabRecordsDetailBasisOpen: "w.document.querySelector('#tabRecords')?.click(); await delay(300); w.document.querySelector('[data-record-card-date=\"2026-05-21\"]')?.click(); await delay(300); const basis=w.document.querySelector('[data-record-detail-section=\"basis\"]'); if(basis) basis.open=true; await delay(100); basis?.scrollIntoView({block:'start'});",
   tabRecordsEdit: "w.document.querySelector('#tabRecords')?.click(); await delay(300); w.document.querySelector('[data-record-card-date=\"2026-05-21\"]')?.click(); await delay(300); w.document.querySelector('[data-edit-record-date=\"2026-05-21\"]')?.click(); await delay(300); w.document.getElementById('recordArchiveDetailHost')?.scrollIntoView({block:'start'});",
   tabRecordsInfoEditModal: "w.document.querySelector('#tabRecords')?.click(); await delay(300); w.document.querySelector('[data-open-record-edit-panel]')?.click();",
   tabRecordsMealAddModal: "w.document.querySelector('#tabRecords')?.click(); await delay(300); w.document.querySelector('[data-open-record-meal-entry]')?.click();",
@@ -328,7 +459,15 @@ const captures = [
   ["45_mobile_records_info_edit_modal", "rich", "tabRecordsInfoEditModal", 390, 900],
   ["46_mobile_records_meal_add_modal", "rich", "tabRecordsMealAddModal", 390, 900],
   ["47_mobile_inbody_records_link", "rich", "tabInbodyRecordsLink", 390, 900],
-  ["48_mobile_settings_data_lower", "rich", "tabSettingsDataLower", 390, 900]
+  ["48_mobile_settings_data_lower", "rich", "tabSettingsDataLower", 390, 900],
+  ["49_desktop_today_profile_candidate_v2_applied", "profileCandidateV2", "none", 1280, 900],
+  ["50_desktop_today_profile_candidate_v2_quick_open", "profileCandidateV2", "quickOpen", 1280, 900],
+  ["51_desktop_records_profile_candidate_v2_detail", "profileCandidateV2", "tabRecordsDetail", 1280, 900],
+  ["52_mobile_today_profile_candidate_v2_applied", "profileCandidateV2", "none", 390, 900],
+  ["53_mobile_today_profile_candidate_v2_quick_open", "profileCandidateV2", "quickOpen", 390, 900],
+  ["54_mobile_records_profile_candidate_v2_detail", "profileCandidateV2", "tabRecordsDetail", 390, 900],
+  ["55_desktop_records_profile_candidate_v2_basis_open", "profileCandidateV2", "tabRecordsDetailBasisOpen", 1280, 900],
+  ["56_mobile_records_profile_candidate_v2_basis_open", "profileCandidateV2", "tabRecordsDetailBasisOpen", 390, 900]
 ];
 
 function makePage(name, payloadName, actionName, width, height) {
@@ -422,6 +561,67 @@ async function expandMobileFrameForFullPage(page, width, height) {
   return { fullPage: true, contentHeight, captureHeight };
 }
 
+function getAppFrame(page) {
+  return page.frames().find(frame => frame.url().includes("/index.html"));
+}
+
+async function getRuntimeMeta(page) {
+  const iframe = getAppFrame(page);
+  if (!iframe) return { appFrameFound: false, calculateFound: false };
+  return iframe.evaluate(() => {
+    try {
+      const calculateFn = typeof window.calculate === "function"
+        ? window.calculate
+        : (typeof calculate === "function" ? calculate : null);
+      const buildRecentContextFn = typeof window.buildRecentContext === "function"
+        ? window.buildRecentContext
+        : (typeof buildRecentContext === "function" ? buildRecentContext : null);
+      if (typeof calculateFn !== "function") {
+        return { appFrameFound: true, calculateFound: false };
+      }
+      const result = calculateFn();
+      const wiring = result?.profileCandidateV2ProductionWiring || {};
+      const proposal = result?.profileMacroCandidateV2RuntimeProposal || {};
+      const recentContext = typeof buildRecentContextFn === "function"
+        ? buildRecentContextFn(result, { records: [] })
+        : null;
+      const gate = recentContext?.profileCandidateV2TargetDeltaGate || {};
+      return {
+        appFrameFound: true,
+        calculateFound: true,
+        isCalculable: result?.isCalculable === true,
+        exerciseProfile: result?.s?.exerciseProfile || null,
+        profileSession: result?.s?.profileSession || null,
+        goal: result?.s?.goal || null,
+        selectedMacroBasis: result?.selectedMacroBasis || null,
+        targetCal: Number.isFinite(Number(result?.targetCal)) ? Number(result.targetCal) : null,
+        protein: Number.isFinite(Number(result?.protein)) ? Number(result.protein) : null,
+        carbs: Number.isFinite(Number(result?.carbs)) ? Number(result.carbs) : null,
+        fat: Number.isFinite(Number(result?.fat)) ? Number(result.fat) : null,
+        productionWiringVersion: wiring.version || null,
+        productionWiringStage: wiring.stage || null,
+        productionWiringApplied: wiring.applied === true,
+        productionTargetCalApplied: wiring.productionTargetCalApplied === true,
+        productionWiringReasonCode: wiring.reasonCode || null,
+        productionWiringTargetDeltaKcal: Number.isFinite(Number(wiring.targetDeltaKcal)) ? Number(wiring.targetDeltaKcal) : null,
+        runtimeProposalActive: proposal.active === true,
+        runtimeProposalRequested: proposal.requested === true,
+        runtimeProposalTargetDeltaKcal: Number.isFinite(Number(proposal.targetDeltaKcal)) ? Number(proposal.targetDeltaKcal) : null,
+        runtimeProposalProfileCarbFloorMet: proposal.profileCarbFloorMet === true,
+        recentGateStatus: gate.status || null,
+        recentGateTargetDeltaApplied: gate.targetDeltaApplied === true,
+        recentGateCanApplyAutomatically: gate.canApplyAutomatically === true
+      };
+    } catch (error) {
+      return {
+        appFrameFound: true,
+        calculateFound: null,
+        runtimeMetaError: error?.message || String(error)
+      };
+    }
+  });
+}
+
 async function capture(context, baseUrl, name, payloadName, actionName, width, height) {
   const htmlPath = path.join(pageDir, `${name}.html`);
   const shotPath = path.join(shotDir, `${name}.png`);
@@ -448,9 +648,10 @@ async function capture(context, baseUrl, name, payloadName, actionName, width, h
   const captureMeta = width <= 560
     ? await expandMobileFrameForFullPage(page, width, height)
     : { fullPage: false, contentHeight: height, captureHeight: height };
+  const runtimeMeta = await getRuntimeMeta(page);
   await page.screenshot({ path: shotPath, fullPage: captureMeta.fullPage });
   await page.close();
-  return { shotPath, captureMeta };
+  return { shotPath, captureMeta, runtimeMeta };
 }
 
 async function runRenderAudit() {
@@ -487,8 +688,8 @@ async function runRenderAudit() {
     for (const item of captures) {
       const [name, payloadName, actionName, width, height] = item;
       console.log(`capture ${name}`);
-      const { shotPath, captureMeta } = await capture(context, baseUrl, name, payloadName, actionName, width, height);
-      manifest.push({ name, payloadName, actionName, viewport: { width, height }, shotPath, capture: captureMeta });
+      const { shotPath, captureMeta, runtimeMeta } = await capture(context, baseUrl, name, payloadName, actionName, width, height);
+      manifest.push({ name, payloadName, actionName, viewport: { width, height }, shotPath, capture: captureMeta, runtime: runtimeMeta });
     }
     fs.writeFileSync(path.join(auditDir, "manifest.json"), JSON.stringify({ generatedAt: new Date().toISOString(), captures: manifest }, null, 2), "utf-8");
     console.log(JSON.stringify({ count: manifest.length, shotDir }, null, 2));
@@ -520,6 +721,8 @@ module.exports = {
   captures,
   makePage,
   createServer,
+  getAppFrame,
+  getRuntimeMeta,
   chromium,
   runRenderAudit
 };

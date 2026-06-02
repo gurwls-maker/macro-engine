@@ -42,6 +42,8 @@ It verifies:
 
 - expected mobile coverage exists for Today, Records, Recent, InBody, Settings, backup/import, and edit modal surfaces
 - desktop coverage includes the main Today / Records / Recent / InBody / Settings / backup-import surfaces
+- post-wiring candidate-v2 coverage exists for Today, Today quick edit, Records detail, and Records basis-open surfaces on desktop/mobile
+- post-wiring candidate-v2 captures include runtime evidence that `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, and `recentGateStatus=applied`
 - each screenshot exists, matches viewport width, is at least viewport height, and is nonblank by sampled PNG pixel statistics
 - each mobile capture is full-page expanded and its PNG height matches the captured scroll height
 

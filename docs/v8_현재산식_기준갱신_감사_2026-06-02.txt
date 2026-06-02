@@ -1914,6 +1914,22 @@ AA 구현 중 중요한 충돌을 발견했다. production wiring을 무조건 `
 
 이 단계에서 닫힌 것은 `production_targetCal_application`이다. 아직 닫히지 않은 것은 `post_wiring_production_visual_qa`, `full_8_2_cartesian_execution`, `full_v8_completion`이다. AA는 새 외부 운동생리학 근거를 추가하지 않고, 이미 분리된 외부 근거 / 내부 제품 정책 / 내부 코드 계약을 production 경로에 연결한 구현 단계로 기록한다.
 
+## 11-25. 2026-06-03 v8.0-AB post-wiring production visual QA 1차
+
+v8.0-AB에서는 AA에서 실제 production `calculate()` 경로에 연결된 candidate-v2 target/macro가 사용자 화면에서도 깨지지 않고 보이는지 확인했다. 기존 v8.0-V screenshot audit은 rich bodybuilding fixture 중심이라 AA production target-delta 적용 케이스를 직접 보지 못했다. 따라서 이번 단계에서는 `profileCandidateV2` payload를 새로 만들고, analyzer가 단순 캡처 수가 아니라 runtime 적용 상태를 확인하도록 확장했다.
+
+구현/검증 내용:
+
+- `capture_render_audit.cjs`에 AA 직접 테스트와 같은 mixed / mixed_strength_cardio / treadmill_run 70분 high-load fixture를 추가했다.
+- Today applied, Today quick-open, Records detail, Records basis-open을 desktop/mobile에서 캡처한다.
+- `analyze_render_audit.cjs`는 55 captures = desktop 37 + mobile 18을 요구한다.
+- 8개 post-wiring profile-candidate 캡처는 manifest runtime meta에서 `exerciseProfile=mixed`, `profileSession=mixed_strength_cardio`, `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, `recentGateStatus=applied`, `recentGateTargetDeltaApplied=true`, `recentGateCanApplyAutomatically=false`를 모두 통과해야 한다.
+- `runV8ScenarioRunner()`는 version `8.0-AB`로 올라갔고, approval decision에서 `productionVisualQaCompleted=true`를 보고하며 `notApprovedYet`에서 `post_wiring_production_visual_qa`를 제거한다.
+- 직접 runtime 추출 기준 8개 캡처 모두 `targetCal=3312.9411753385825`, `protein=176`, `carbs=528`, `fat=55.21568614873139`, `targetDeltaKcal=29.446064227471197`다.
+- 수동 screenshot spot-check는 `52_mobile_today_profile_candidate_v2_applied.png`, `54_mobile_records_profile_candidate_v2_detail.png`, `55_desktop_records_profile_candidate_v2_basis_open.png`, `56_mobile_records_profile_candidate_v2_basis_open.png`를 확인했다. basis-open 화면에서 `프로필 목표 보정 29 kcal`, `주간 변화 보정 0.027 kg/주`, 운동 프로필/오늘 세션/유산소 입력이 보인다.
+
+이 단계에서 닫힌 것은 `post_wiring_production_visual_qa`다. 아직 닫히지 않은 것은 `full_8_2_cartesian_execution`, `full_v8_completion`이다. AB는 새 외부 운동생리학 근거를 추가하지 않고, AA 적용이 실제 사용자-facing 화면과 Records 당시 계산 기준 화면에 도달하는지 확인한 QA evidence 단계로 기록한다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -2292,6 +2308,16 @@ AA 구현 중 중요한 충돌을 발견했다. production wiring을 무조건 `
 - v8.0-AA desktop calibration 14 suites / 132 cases / failed 0
 - 2026-06-03 v8.0-AA full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-AA desktop full 99 suites / 1052 cases / failed 0
+- 2026-06-03 v8.0-AB post-wiring render capture 확인: `node .\tools\render_audit\capture_render_audit.cjs`
+- v8.0-AB render capture 55 captures = desktop 37 + mobile 18
+- 2026-06-03 v8.0-AB render analyzer 확인: `node .\tools\render_audit\analyze_render_audit.cjs`
+- v8.0-AB render analyzer `failedCount=0`, `postWiringProfileCandidateCaptureCount=8`, `postWiringProfileCandidateAppliedCaptureCount=8`, `minUniqueSampleColorCount=547`, `minLuminanceStdDev=22.743`
+- 2026-06-03 v8.0-AB post-wiring runtime manifest 직접 추출: 8 captures all `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, `recentGateStatus=applied`, `targetCal=3312.9411753385825`, `targetDeltaKcal=29.446064227471197`
+- 2026-06-03 v8.0-AB screenshot spot-check: `52_mobile_today_profile_candidate_v2_applied.png`, `54_mobile_records_profile_candidate_v2_detail.png`, `55_desktop_records_profile_candidate_v2_basis_open.png`, `56_mobile_records_profile_candidate_v2_basis_open.png`
+- 2026-06-03 v8.0-AB scenario runner 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-AB scenario runner suite 1 suite / 24 cases / failed 0
+- 2026-06-03 v8.0-AB full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-AB desktop full 99 suites / 1052 cases / failed 0
 - 2026-06-03 v8.0-T runtime mixed high-load probe 직접 확인:
   - production `targetCal=3283.4951111111113`
   - proposed candidate-v2 targetCal `3308.524266666667`
@@ -2302,13 +2328,13 @@ AA 구현 중 중요한 충돌을 발견했다. production wiring을 무조건 `
 
 실행하지 않은 것:
 
-- mobile screenshot audit: v8.0-V first-pass capture/analyzer evidence complete; AA production formula wiring 이후 visual QA는 별도 open gate
-- candidate formula production approval: v8.0-Z approved candidate-v2 formula selection; AA applies active runtime target-delta cases, but this is still not post-wiring visual QA or full V8 completion
-- profile-specific macro formula production implementation: AA production path is active for candidate-v2 target-delta cases; broader profile/session UI and visual QA remain open
-- candidate-v2 target delta production formula application: v8.0-AA closes active runtime production `targetCal` application; keep post-wiring visual QA open
-- user-facing profile formula QA after candidate-v2 contract readiness: v8.0-U runtime Coach/Records QA complete, v8.0-V first-pass screenshot audit complete, AA post-wiring runtime QA complete; production visual QA after wiring remains open
+- mobile screenshot audit: v8.0-V first-pass capture/analyzer evidence complete; v8.0-AB post-wiring candidate-v2 production visual QA complete
+- candidate formula production approval: v8.0-Z approved candidate-v2 formula selection, AA applies active runtime target-delta cases, and AB verifies post-wiring production visual QA; this is still not full V8 completion
+- profile-specific macro formula production implementation: AA production path is active for candidate-v2 target-delta cases and AB verifies Today/Records visual surfaces; broader full-axis execution remains open
+- candidate-v2 target delta production formula application: v8.0-AA closes active runtime production `targetCal` application; v8.0-AB closes post-wiring visual QA
+- user-facing profile formula QA after candidate-v2 contract readiness: v8.0-U runtime Coach/Records QA complete, v8.0-V first-pass screenshot audit complete, AA post-wiring runtime QA complete, AB production visual QA complete
 - 80,621,568,000개 8-2 full cross-product 전수 실행
-- 18개 human-review scenario의 explicit formula approval decision: v8.0-Z에서 candidate-v2 formula selection은 approved, v8.0-AA에서 active runtime production targetCal application은 적용됨; post-wiring visual QA와 full V8 completion은 아직 open
+- 18개 human-review scenario의 explicit formula approval decision: v8.0-Z에서 candidate-v2 formula selection은 approved, v8.0-AA에서 active runtime production targetCal application은 적용됨, v8.0-AB에서 post-wiring visual QA는 완료됨; full V8 completion은 아직 open
 
 최초 작성 시점에는 구현 변경이 없는 감사 산출물이었으므로 전체 테스트를 생략했다.
 v8.0-A snapshotless 기준 저장 상태 분리 이후에는 관련 suite, mobile viewport suite, desktop smoke, desktop core를 실행했다.
@@ -2333,9 +2359,10 @@ v8.0-R score Coach candidate-v2 contract 이후에는 score/Coach 계약 3개도
 v8.0-S protein guard candidate-v2 resolution contract 이후에는 legacy 2.2g/kg BW diet guide floor와 ISSN general range를 분리해 `proteinGuardConflictCount=0`, `proteinGuardResolvedCount=4`, `productionBlockerCount=0`, `productionReady=true`가 되었다. 그러나 candidate-v2 target delta는 여전히 production `targetCal`에 적용되지 않고, formula approval도 아직 아니다.
 v8.0-T candidate-v2 runtime target-delta proposal wiring 이후에는 실제 `calculate()` Today 경로가 `profileMacroCandidateV2RuntimeProposal`과 targetRateContext candidate-v2 metadata를 생성한다. mixed high-load probe는 production `targetCal=3283.4951111111113`, proposed candidate target `3308.524266666667`, `targetDeltaKcal=25.029155555555462`를 보존하지만 `appliedToTarget=false`, `canApplyAutomatically=false`이므로 production targetCal 적용이나 formula approval로 읽으면 안 된다.
 v8.0-U candidate-v2 runtime user-facing QA 이후에는 같은 mixed high-load runtime delta가 Coach / Records 표면에서 검토 대상으로 보존되는지 확인했다. 직접 추출 기준 `coachHasProfileTargetDeltaDecision=true`, `recordDetailHasProfileTargetDelta=true`, `recordDetailHasProfileTargetRateDelta=true`, `surfaceForbiddenTermCount=0`이지만 `targetDeltaApplied=false`, `canApplyAutomatically=false`이므로 여전히 production targetCal 적용이나 formula approval로 읽으면 안 된다.
-v8.0-V mobile screenshot audit analyzer 이후에는 `capture_render_audit.cjs` 47개 캡처와 `analyze_render_audit.cjs` PNG/manifest 검증으로 first-pass mobile/desktop screenshot audit evidence gate를 닫았다. 그러나 candidate-v2 target delta production wiring 이후의 production visual QA는 아직 실행되지 않았으므로 formula approval이나 production targetCal 적용으로 읽으면 안 된다.
+v8.0-V mobile screenshot audit analyzer 이후에는 `capture_render_audit.cjs` 47개 캡처와 `analyze_render_audit.cjs` PNG/manifest 검증으로 first-pass mobile/desktop screenshot audit evidence gate를 닫았다. 당시에는 candidate-v2 target delta production wiring 이후의 production visual QA가 아직 실행되지 않았으므로 formula approval이나 production targetCal 적용으로 읽으면 안 됐다. 이 경계는 v8.0-AB에서 별도 post-wiring visual QA로 갱신됐다.
 v8.0-W human-review numerical approval gate 이후에는 18개 human-review candidate-v2 케이스가 별도 report-only approval layer로 고정됐다. 17개는 numerical gate를 통과했지만 `low_reliability_user`가 `fat_percent_below_contest_prep_reference_floor`로 막혀 있으므로 candidate-v2 formula approval, production wiring, production `targetCal` 적용으로 읽으면 안 된다.
 v8.0-X candidate-v2 fat floor linked-target consistency 이후에는 `low_reliability_user` fat-percent blocker가 report-only candidate-v2 안에서 해소되어 18개 human-review 케이스가 code numerical gate를 통과했다. 그러나 `productionFormulaApprovalReady=true`를 formula approval로 읽으면 안 되며, owner signoff / production wiring / production wiring 이후 visual QA는 여전히 별도 open gate다.
 v8.0-Y profile formula approval preflight 이후에는 `profileFormulaApprovalPreflight`가 `9-10_profile_formula_approval_preflight_v0`로 추가됐다. 직접 추출 기준 `checkCount=5`, `readyCheckCount=5`, `blockedCount=0`, `approvalPreflightReady=true`, `readyForExplicitFormulaApprovalDecision=true`지만 `candidateFormulaApproved=false`, `productionFormulaChanged=false`, `productionWiringAllowed=false`, `productionTargetCalApplied=false`, `productionVisualQaCompleted=false`다. 준비 완료 check는 `candidate_v2_code_contracts_closed`, `human_review_numerical_gate_18_of_18`, `runtime_user_surfaces_review_only_ready`, `report_only_boundary_preserved`, `candidate_target_delta_not_applied`이며, 이 단계는 명시적 formula approval decision의 preflight일 뿐 production targetCal wiring이나 post-wiring production visual QA를 닫지 않는다.
 v8.0-Z profile formula approval decision 이후에는 `candidate-v8-profile-macro-v2-linked-target-v0`가 production wiring을 위한 승인 산식으로 선택됐다. 그러나 `productionFormulaChanged=false`, `productionTargetCalApplied=false`, `productionVisualQaCompleted=false`, `fullV8Complete=false`이므로 실제 production targetCal 적용과 post-wiring visual QA는 다음 단계다.
-v8.0-AA production candidate-v2 target wiring 이후에는 active runtime target-delta cases에서 approved candidate-v2 target/macro가 production `calculate()` 결과에 적용된다. 직접 추출 기준 `productionTargetCal=3312.9411753385825`, `targetDeltaApplied=true`, `productionTargetCalApplied=true`, `recentGateStatus=applied`, `coachHasProfileTargetDeltaAppliedDecision=true`다. scenario runner의 과거 report-only baseline은 `profileCandidateV2ProductionWiring=false`로 보호하며, sandbox 복구 누수도 수정했다. 그러나 post-wiring production visual QA, 80,621,568,000개 full Cartesian 실행, full V8 completion은 아직 open이다.
+v8.0-AA production candidate-v2 target wiring 이후에는 active runtime target-delta cases에서 approved candidate-v2 target/macro가 production `calculate()` 결과에 적용된다. 직접 추출 기준 `productionTargetCal=3312.9411753385825`, `targetDeltaApplied=true`, `productionTargetCalApplied=true`, `recentGateStatus=applied`, `coachHasProfileTargetDeltaAppliedDecision=true`다. scenario runner의 과거 report-only baseline은 `profileCandidateV2ProductionWiring=false`로 보호하며, sandbox 복구 누수도 수정했다. AA 자체는 post-wiring production visual QA, 80,621,568,000개 full Cartesian 실행, full V8 completion을 닫지 않았다.
+v8.0-AB post-wiring production visual QA 이후에는 `profileCandidateV2` payload와 55개 render audit capture로 AA 적용 케이스를 desktop/mobile Today/Records에서 검증했다. analyzer 기준 8개 post-wiring 캡처 모두 `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, `recentGateStatus=applied`를 통과했고, basis-open 화면에서 `프로필 목표 보정 29 kcal`, `주간 변화 보정 0.027 kg/주`가 확인됐다. 그러나 80,621,568,000개 full Cartesian 실행과 full V8 completion은 아직 open이다.

@@ -1,5 +1,16 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AB post-wiring production visual QA note
+
+- `tools/render_audit/capture_render_audit.cjs` now includes the actual AA-wired candidate-v2 production case as a separate `profileCandidateV2` payload instead of relying on the old rich bodybuilding fixture.
+- The post-wiring visual set covers Today applied, Today quick-open, Records detail, and Records basis-open surfaces on desktop/mobile. The basis-open capture verifies that the user can see the saved profile/session target correction context, not just the collapsed record shell.
+- `tools/render_audit/analyze_render_audit.cjs` now requires 55 captures = 37 desktop + 18 mobile and checks 8 post-wiring profile-candidate captures for runtime evidence: `exerciseProfile=mixed`, `profileSession=mixed_strength_cardio`, `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, `recentGateStatus=applied`.
+- `runV8ScenarioRunner()` now reports version `8.0-AB`; its approval decision marks `productionVisualQaCompleted=true` and removes `post_wiring_production_visual_qa` from `notApprovedYet` while keeping full Cartesian/full V8 open.
+- Latest render audit on 2026-06-03: `captureCount=55`, `postWiringProfileCandidateCaptureCount=8`, `postWiringProfileCandidateAppliedCaptureCount=8`, `failedCount=0`, `minUniqueSampleColorCount=547`, `minLuminanceStdDev=22.743`.
+- Spot-checked screenshots: `52_mobile_today_profile_candidate_v2_applied.png`, `54_mobile_records_profile_candidate_v2_detail.png`, `55_desktop_records_profile_candidate_v2_basis_open.png`, and `56_mobile_records_profile_candidate_v2_basis_open.png`.
+- Internal regression on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 24 cases / failed 0; full internal suite = 99 suites / 1052 cases / failed 0.
+- This closes `post_wiring_production_visual_qa` only. It does not claim `full_8_2_cartesian_execution`, `full_v8_completion`, or any new external exercise-physiology evidence.
+
 # v8.0-AA production candidate-v2 target wiring note
 
 - `calculate()` now applies the approved `candidate-v8-profile-macro-v2-linked-target-v0` target/macro output to production for active runtime profile target-delta cases.
