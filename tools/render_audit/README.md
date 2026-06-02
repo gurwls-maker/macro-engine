@@ -12,6 +12,7 @@ node .\tools\render_audit\run_internal_tests.cjs --mobile
 node .\tools\render_audit\capture_render_audit.cjs
 node .\tools\render_audit\analyze_render_audit.cjs
 node .\tools\render_audit\run_v8_full_cartesian_shard.cjs --start=0 --limit=8 --max-cases=8
+node .\tools\render_audit\analyze_v8_full_cartesian_shards.cjs
 ```
 
 특정 브라우저 채널을 지정해야 할 때:
@@ -60,7 +61,10 @@ Use it only for bounded shard evidence:
 ```powershell
 node .\tools\render_audit\run_v8_full_cartesian_shard.cjs --start=0 --limit=8 --max-cases=8
 node .\tools\render_audit\run_v8_full_cartesian_shard.cjs --start=1152 --limit=3 --max-cases=3
+node .\tools\render_audit\run_v8_full_cartesian_shard.cjs --shard-index=0 --shard-size=8 --max-cases=8
+node .\tools\render_audit\analyze_v8_full_cartesian_shards.cjs
 ```
 
 The JSON output is ignored under `tools/render_audit/v8_full_cartesian_shards/`.
+Shard manifests use schema `v8_full_cartesian_shard_manifest_v1` and include report/source hashes. The analyzer recalculates those hashes and verifies the non-claim flags.
 This does not execute the full `80,621,568,000` Cartesian set and must not be used to close the full V8 gate by itself.

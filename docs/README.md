@@ -1,5 +1,15 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AE shard manifest integrity and analyzer note
+
+- `runV8FullCartesianShard()` now emits report schema `v8_full_cartesian_shard_report_v1`, including decoded accounting and `calculationIssueCount`.
+- `tools/render_audit/run_v8_full_cartesian_shard.cjs` now wraps each shard report in manifest schema `v8_full_cartesian_shard_manifest_v1` with `reportSha256`, `manifestSha256`, git/source hashes, command args, and shard summary fields.
+- The CLI also supports `--shard-index` / `--shard-size` so future shard batches do not need hand-computed start/end ranges.
+- New analyzer: `tools/render_audit/analyze_v8_full_cartesian_shards.cjs` validates manifest schema, report schema, hashes, source hash presence, decoded/calculated/constraint accounting, and the non-claim flags.
+- AE evidence on 2026-06-03: shard analyzer over 2 manifests reported `failedCount=0`, decoded 11, calculated 8, constraint-only 3, truncated 0.
+- Verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1054 cases / failed 0.
+- This still does not execute all `80,621,568,000` rows and does not close `full_8_2_cartesian_execution` or `full_v8_completion`.
+
 # v8.0-AD deterministic full Cartesian shard pilot note
 
 - `index.html` now exports `runV8FullCartesianShard()` at stage `8-2_full_cartesian_shard_execution_v0`.

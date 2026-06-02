@@ -1971,6 +1971,27 @@ v8.0-AD에서는 AC의 축 index/stride 계약을 실제 bounded shard 실행으
 - 따라서 `full_8_2_cartesian_execution`과 `full_v8_completion`은 계속 open이다.
 - 다음 단계는 shard manifest schema/hash/failure summary를 더 엄격히 만들고, 여러 shard를 배치로 이어 실행하는 orchestration을 설계하는 것이다.
 
+## 11-28. 2026-06-03 v8.0-AE shard manifest integrity and analyzer 1차
+
+v8.0-AE에서는 AD의 bounded shard JSON을 검증 가능한 evidence manifest로 강화했다. 단순히 파일이 생겼다는 사실만으로는 전수 실행 증거가 될 수 없으므로, schema version, hash, source hash, decoded accounting, calculation issue count, non-claim flag를 analyzer가 다시 계산하도록 만들었다.
+
+구현/검증 내용:
+
+- `runV8FullCartesianShard()` report는 schema `v8_full_cartesian_shard_report_v1`를 포함한다.
+- report meta는 `decodedEqualsCalculatedPlusConstraintOnly`를 기록한다.
+- report summary는 `calculationIssueCount`와 최대 20개 `calculationIssues`를 기록한다.
+- `run_v8_full_cartesian_shard.cjs` output은 manifest schema `v8_full_cartesian_shard_manifest_v1` wrapper로 바뀌었다.
+- manifest에는 `reportSha256`, `manifestSha256`, source file hash, git head/branch/status, command args, shard summary가 포함된다.
+- `--shard-index` / `--shard-size` 옵션을 추가해 future batch shard 실행이 손계산 start/end에 의존하지 않게 했다.
+- 새 analyzer `analyze_v8_full_cartesian_shards.cjs`는 schema, hash, source hash, decoded accounting, zero calculation issue, `fullCartesianRun=false`, `full8_2CartesianExecutionClosed=false`, `fullV8CompletionClosed=false`를 검증한다.
+- AE manifest analyzer 결과: 2 manifests, `failedCount=0`, decoded 11, calculated 8, constraint-only 3, truncated 0.
+
+판단:
+
+- AE는 evidence 무결성 단계다. 새 운동생리학 근거도 아니고 산식 조정도 아니다.
+- AE analyzer가 통과했다는 뜻은 "bounded shard evidence가 조작/오독 방지 필드를 갖추고 검증된다"는 뜻이지, 전체 806억 row 실행 완료가 아니다.
+- `full_8_2_cartesian_execution`과 `full_v8_completion`은 계속 open이다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -2371,6 +2392,18 @@ v8.0-AD에서는 AC의 축 index/stride 계약을 실제 bounded shard 실행으
 - v8.0-AD constraint shard decoded 3 / calculated 0 / constraint-only 3 / fullCartesianRun=false
 - 2026-06-03 v8.0-AD full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-AD desktop full 99 suites / 1054 cases / failed 0
+- 2026-06-03 v8.0-AE scenario runner 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-AE scenario runner suite 1 suite / 26 cases / failed 0
+- 2026-06-03 v8.0-AE coherent shard manifest: `node .\tools\render_audit\run_v8_full_cartesian_shard.cjs --start=0 --limit=8 --max-cases=8`
+- v8.0-AE coherent manifest schema `v8_full_cartesian_shard_manifest_v1`, decoded 8 / calculated 8 / constraint-only 0 / calculation issues 0 / fullCartesianRun=false
+- 2026-06-03 v8.0-AE constraint shard manifest: `node .\tools\render_audit\run_v8_full_cartesian_shard.cjs --start=1152 --limit=3 --max-cases=3`
+- v8.0-AE constraint manifest schema `v8_full_cartesian_shard_manifest_v1`, decoded 3 / calculated 0 / constraint-only 3 / calculation issues 0 / fullCartesianRun=false
+- 2026-06-03 v8.0-AE shard-index route 확인: `node .\tools\render_audit\run_v8_full_cartesian_shard.cjs --shard-index=0 --shard-size=8 --max-cases=8`
+- v8.0-AE shard-index route decoded 8 / calculated 8 / constraint-only 0 / fullCartesianRun=false
+- 2026-06-03 v8.0-AE shard analyzer 확인: `node .\tools\render_audit\analyze_v8_full_cartesian_shards.cjs`
+- v8.0-AE shard analyzer 2 manifests / failed 0 / decoded 11 / calculated 8 / constraint-only 3 / truncated 0
+- 2026-06-03 v8.0-AE full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-AE desktop full 99 suites / 1054 cases / failed 0
 - 2026-06-03 v8.0-T runtime mixed high-load probe 직접 확인:
   - production `targetCal=3283.4951111111113`
   - proposed candidate-v2 targetCal `3308.524266666667`
@@ -2421,3 +2454,4 @@ v8.0-AA production candidate-v2 target wiring 이후에는 active runtime target
 v8.0-AB post-wiring production visual QA 이후에는 `profileCandidateV2` payload와 55개 render audit capture로 AA 적용 케이스를 desktop/mobile Today/Records에서 검증했다. analyzer 기준 8개 post-wiring 캡처 모두 `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, `recentGateStatus=applied`를 통과했고, basis-open 화면에서 `프로필 목표 보정 29 kcal`, `주간 변화 보정 0.027 kg/주`가 확인됐다. 그러나 80,621,568,000개 full Cartesian 실행과 full V8 completion은 아직 open이다.
 v8.0-AC full Cartesian execution contract 이후에는 `fullCartesianExecutionContract`가 20축 product `80,621,568,000`, deterministic axis stride/index decode, pilot tuple decode, `100,000` row shard / `806,216` planned shard / final `68,000` row boundary를 report한다. 이것은 전수 실행 계약일 뿐 full Cartesian 실행 완료가 아니며, `full_8_2_cartesian_execution`과 `full_v8_completion`은 아직 open이다.
 v8.0-AD deterministic full Cartesian shard pilot 이후에는 `runV8FullCartesianShard()`와 `run_v8_full_cartesian_shard.cjs`가 bounded shard evidence를 생성한다. coherent pilot은 8건 계산, constraint pilot은 3건 constraint-only로 분리했다. 이것도 전체 806억 row 실행이 아니므로 `full_8_2_cartesian_execution`과 `full_v8_completion`은 아직 open이다.
+v8.0-AE shard manifest integrity 이후에는 shard evidence가 `v8_full_cartesian_shard_manifest_v1` schema, report/manifest hash, source hash, decoded accounting, calculation issue count, non-claim flags를 포함하고 analyzer로 재검증된다. analyzer 기준 2 manifests / failed 0이지만, 이것도 bounded evidence integrity일 뿐 전체 806억 row 실행 완료가 아니므로 `full_8_2_cartesian_execution`과 `full_v8_completion`은 아직 open이다.
