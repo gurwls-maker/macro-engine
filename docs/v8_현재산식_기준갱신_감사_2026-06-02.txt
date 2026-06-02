@@ -8,7 +8,7 @@
 이 문서는 산식 수정 제안서가 아니다.
 v8 기준문서가 지시한 1단계, 즉 현재 index.html의 산식과 Today-Records 기준갱신 판단 흐름을 감사한 결과이다.
 최초 감사 리포트 작성 중에는 index.html 구현을 변경하지 않았다.
-이후 v8.0-A / v8.0-B 기준갱신 핫픽스 결과는 이 문서의 진행 메모와 검증 메모에 누적한다.
+이후 v8.0-A / v8.0-B / v8.0-C 기준갱신 핫픽스와 v8.0-D 시나리오 러너 결과는 이 문서의 진행 메모와 검증 메모에 누적한다.
 
 ## 처음 보는 작업자용 사용법
 
@@ -597,13 +597,19 @@ P2 후보:
    - carb_g
    - carb_min_hit
    - redistribution_reason
-3. candidate formula를 만들기 전에 현재/candidate side-by-side 시나리오 러너를 준비한다.
+3. candidate formula를 만들기 전에 현재/candidate side-by-side 시나리오 러너를 준비한다. [v8.0-D 1차 처리 완료]
+   - `runV8ScenarioRunner()`는 8-2 필수축 category sweep과 8-3의 18개 human-review 케이스를 별도 레이어로 출력한다.
+   - human-review 레이어에는 필수 `required_user_rest_diet_1913` 케이스를 포함한다.
+   - current production과 기존 report-only `candidate-no-weekly-xw`를 나란히 보여준다.
+   - `candidate-no-weekly-xw`는 비교 기준일 뿐이며, v8 승인 산식 또는 production 후보로 확정된 것이 아니다.
+   - 8-2 목표 축의 `유지`는 보존한다. 현재 앱 production `GOALS`에는 유지 키가 없으므로 유지 축 케이스는 `axisGoal=maintain`, `productionGoalFallback=recomp`로 명시한다.
 4. 사용자 타입/운동 프로필 판단은 주간 웨이트일수 단독이 아니라 체성분, SMM, FFMI, 세션 길이, 강도, 운동 프로필, cardio, 최근 기록 신뢰도까지 포함한 후보 모델로 문서화한다.
 5. Today-Records 기준갱신의 사용자 노출 정책은 v8.0-A / v8.0-B에서 1차 고정했다.
    - snapshotless detailed 상태 분리는 v8.0-A에서 처리했다.
    - selected basis 토글 정책은 v8.0-B에서 처리했다.
    - `suppressTodayRecordAutoSync` 잔재 정리와 `record_detail_edit` UX 경계 확인은 v8.0-C에서 처리했다.
-   - 다음 큰 작업은 9-4 현재/candidate side-by-side 시나리오 러너다.
+   - 9-4 현재/candidate side-by-side 시나리오 러너 1차본은 v8.0-D에서 처리했다.
+   - 다음 큰 작업은 러너 출력으로 9-3 단백질/지방/탄수 감사를 수행하고, 그 결과를 바탕으로 9-5/9-6 candidate 설계를 좁히는 것이다.
 
 ## 11. 2026-06-02 추가 보강: 감사 한계와 다음 검증 요구
 
@@ -623,20 +629,31 @@ P2 후보:
 현재 시나리오 검증의 부족한 부분:
 
 - 브라우저에서 직접 확인한 기준갱신 시나리오는 핵심 흐름 위주다.
-- 18개 human-review scenario 전체 그리드와 목표별 / 체형별 / 운동 프로필별 교차 검증은 아직 없다.
+- v8.0-D에서 8-2 필수축 category sweep과 18개 human-review scenario 1차 그리드는 생겼지만, 전체 80,621,568,000 cross-product 실행과 각 케이스 수치의 human review / candidate formula 승인 검증은 아직 없다.
 - smoke 테스트는 현재 구현의 기본 회귀 확인이지, v8 candidate 산식의 타당성 검증이 아니다.
-- 현재 문서는 여성 / 고체지방 / 저체지방 운동인 / 러닝 중심 / 스트렝스 중심 / 기록 신뢰도 낮음 / 고유산소 / REST day / InBody 부재 또는 의심 기록 같은 케이스를 수치 표로 검증하지 않았다.
+- 현재 문서는 여성 / 고체지방 / 저체지방 운동인 / 러닝 중심 / 스트렝스 중심 / 기록 신뢰도 낮음 / 고유산소 / REST day / InBody 부재 또는 의심 기록 같은 케이스를 v8.0-D 러너에 포함했지만, 아직 수치별 해석/수정 판단을 완료하지 않았다.
 
-다음 시나리오 러너는 최소한 아래 축을 교차해야 한다.
+v8.0-D 러너와 후속 시나리오 검증은 최소한 아래 축을 교차해야 한다.
 
-- 목표: diet / cut / maintain / lean_bulk / bulk
+- 목표: 유지 / diet / cut / lean_bulk / bulk
 - 성별, 키, 체중, 골격근량, 체지방률, LBM 추정 신뢰도
 - 활동량, 업무 유형, 주간 웨이트일수, 세션 길이, 세션 강도
 - 운동 프로필: 보디빌딩, 러닝 중심, 스트렝스 중심, 혼합 운동, 운동 거의 없음
-- 오늘 세션: REST / PUSH / PULL / LEGS / UPPER / LOWER / full body 후보 / 해당 프로필 전용 세션 후보
+- 오늘 세션: REST / 보디빌딩 세션 / 파워빌딩 세션 / 스트렝스 세션 / 러닝 세션 / 혼합형 세션
 - 유산소: 없음, 저강도, 중강도, 장시간, 고경사/고속, 웨이트와 병행
 - 기록 상태: 오늘 상세 기록 있음, snapshot 없음, import/legacy, 식사만 있음, 체중만 있음, InBody 최신/과거/의심
 - basis: guide / activity 선택 상태와 선택 변경 전후
+
+v8.0-D 러너 해석 주의:
+
+- 러너는 report-only다. 산식 / score formula / Coach / recentContext / InBody gate / backup schema를 바꾸지 않는다.
+- 운동 프로필은 수치표의 축으로만 포함했다. 프로필별 세션 후보, UI 입력, snapshot 저장, Today/Records 연동은 아직 설계/구현 완료가 아니다.
+- 운동 프로필별 report-only session과 current production routine fallback은 분리해서 읽어야 한다. 예를 들어 러닝 케이스의 `UPPER`는 러닝 세션이 아니라 보조 웨이트 계산 fallback이다.
+- 8-2 필수축을 모두 곱한 80,621,568,000개 조합은 v8.0-D에서 전수 실행하지 않았다. v8.0-D는 모든 필수축 카테고리를 한 번씩 계산하는 category sweep과 18개 human-review 표를 분리한 1차 러너다.
+- 80,621,568,000개 full cross-product는 단일 브라우저 내부 테스트로 돌릴 대상이 아니다. 1ms/케이스여도 약 933일이 걸리므로, 후속 검증은 full 축 정의를 보존한 상태에서 pairwise/orthogonal coverage, targeted stress, shard runner를 설계해야 한다.
+- `유지` 목표는 8-2 필수축에서 삭제하거나 리컴프로 확정하지 않는다. v8.0-D는 현재 앱에 production 유지 키가 없다는 사실만 `productionGoalFallback=recomp`로 드러낸다. 실제 maintain 추가는 목표 rate, macro, 기준갱신 snapshot, score/remaining, Coach/Recent, export/import 영향을 포함해 별도 production 변경으로 다룬다.
+- 업무 강도 보정축은 `office` 기준으로 검증하지 않는다. 현재 산식은 `workloadY = clamp(WORK_TYPE_Y[workType] + workAdj, 0, 1)`이고 `WORK_TYPE_Y.office`는 0이라서 low 보정이 clamp에 막혀 base와 겹친다. v8.0-D category sweep은 업무 보정축의 low/base/high가 앱 산식 안에서 실제로 분리되는지 보기 위해 `active` 업무 유형을 기준으로 삼는다. 이는 검증 기준 선택이지, 사용자 기본 업무 유형이나 산식을 바꾼 것이 아니다.
+- candidate 열은 `candidate-no-weekly-xw` 하나만 비교한다. 이는 "주간 웨이트일수 단독 영향 제거 시 차이"를 보기 위한 기존 후보일 뿐, 다각적 v8 운동 프로필 산식 전체가 아니다.
 
 다각적 기능 구현 기준:
 
@@ -680,15 +697,25 @@ P2 후보:
 - v8.0-C desktop smoke 10 suites / 121 cases / failed 0
 - 2026-06-02 v8.0-C core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
 - v8.0-C desktop core 26 suites / 364 cases / failed 0
+- 2026-06-02 v8.0-D 시나리오 러너 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-D scenario runner suite 1 suite / 8 cases / failed 0
+- 2026-06-02 v8.0-D calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-D desktop calibration 14 suites / 116 cases / failed 0
+- 2026-06-02 v8.0-D smoke 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=smoke`
+- v8.0-D desktop smoke 10 suites / 121 cases / failed 0
+- 2026-06-02 v8.0-D core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
+- v8.0-D desktop core 26 suites / 364 cases / failed 0
 
 실행하지 않은 것:
 
 - 전체 internal test suite
 - mobile screenshot audit
 - candidate formula 비교
-- 18개 human-review scenario 전체 그리드
+- 80,621,568,000개 8-2 full cross-product 전수 실행
+- 18개 human-review scenario의 사람 눈 수치 승인
 
 최초 작성 시점에는 구현 변경이 없는 감사 산출물이었으므로 전체 테스트를 생략했다.
 v8.0-A snapshotless 기준 저장 상태 분리 이후에는 관련 suite, mobile viewport suite, desktop smoke, desktop core를 실행했다.
 v8.0-B selected macro basis 정책 고정 이후에는 Today record confirmation suite를 desktop/mobile viewport에서 실행했고, desktop smoke/core 회귀도 다시 실행했다.
 v8.0-C record_detail_edit 보호 / 잔재 플래그 정리 이후에는 Today record confirmation suite를 desktop/mobile viewport에서 실행했고, desktop smoke/core 회귀도 다시 실행했다.
+v8.0-D 시나리오 러너 1차 구현 이후에는 8-2 필수축 category sweep과 8-3 human-review 분리, 유지 축 fallback 명시, 운동 프로필별 report-only session 분리를 `runV8ScenarioRunnerTests`로 확인했고, calibration/smoke/core 회귀도 다시 실행했다.

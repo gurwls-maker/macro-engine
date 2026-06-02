@@ -1,8 +1,12 @@
 <!--
 Version: 8.0
-Stage: v8.0-C record_detail_edit 기준 보호 및 잔재 플래그 정리
+Stage: v8.0-D v8 axis / human-review scenario runner 1차 구현
 Date: 2026-06-02
 Notes:
+- v8.0-D 8-2 필수축 category sweep과 8-3 18개 human-review 케이스를 분리해 current / candidate-no-weekly-xw side-by-side report로 출력
+- v8.0-D 유지 칼로리 / 목표 칼로리 / 탄단지 필수 분해 필드와 사람이 읽는 텍스트 리포트 생성
+- v8.0-D 운동 프로필별 report-only session과 production routine fallback을 분리하고, 8-2 전체 cross-product 실행 여부를 meta에 명시
+- v8.0-D report-only runner이며 산식 / score formula / Coach / recentContext / InBody gate / backup schema 변경 없음
 - v8.0-C record_detail_edit snapshot은 자동 Today sync가 덮지 않고, 사용자가 수동 기준갱신을 누를 때만 today_manual_confirm으로 교체
 - v8.0-C suppressTodayRecordAutoSync는 실제 분기에서 읽히지 않는 잔재 플래그라 제거
 - v8.0-C 산식 / score formula / Coach / recentContext / InBody gate / backup schema 변경 없음
@@ -52119,6 +52123,1204 @@ Notes:
       });
     }
 
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-D";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-D current/candidate axis + human-review scenario runner";
+    const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
+      { key: "gender", label: "성별", values: ["male", "female"] },
+      { key: "heightBand", label: "키", values: ["low", "average", "high"] },
+      { key: "weightBand", label: "체중", values: ["underweight", "normal", "overweight", "obese", "severe_obese"] },
+      { key: "bodyFatBand", label: "체지방률", values: ["low", "normal", "high", "very_high"] },
+      { key: "skeletalMuscleBand", label: "골격근량", values: ["low", "normal", "high"] },
+      { key: "ffmiBand", label: "FFMI 또는 근육량 지표", values: ["low", "normal", "high"] },
+      { key: "goal", label: "목표", values: ["maintain", "diet", "cut", "lean_bulk", "bulk"] },
+      { key: "activityLevel", label: "활동량", values: ["sedentary", "moderate", "active"] },
+      { key: "workType", label: "업무 유형", values: ["office", "active", "field"] },
+      { key: "workAdjustment", label: "업무 강도 보정", values: ["low", "base", "high"] },
+      { key: "weeklyTrainingDays", label: "주간 웨이트일수", values: [0, 2, 4, 6] },
+      { key: "exerciseProfile", label: "운동 프로필", values: ["bodybuilding", "powerbuilding", "strength", "running", "mixed"] },
+      { key: "performanceLevel", label: "수행 능력", values: ["none", "low", "normal", "high"] },
+      { key: "profileSession", label: "오늘 세션", values: ["rest", "bodybuilding_push", "powerbuilding_lower", "strength_heavy_lower", "running_tempo", "mixed_strength_cardio"] },
+      { key: "weightDuration", label: "웨이트 시간", values: [0, 30, 60, 90] },
+      { key: "intensity", label: "훈련 강도", values: ["low", "base", "high"] },
+      { key: "cardio", label: "유산소", values: ["none", "short", "moderate", "many"] },
+      { key: "inbodyReliability", label: "InBody 신뢰도", values: ["none", "direct_input", "home_inbody", "expert_device"] },
+      { key: "recent14", label: "최근 14일 기록", values: ["insufficient", "sufficient"] },
+      { key: "recent28", label: "최근 28일 변화", values: ["slower_than_target", "target_appropriate", "too_fast"] }
+    ]);
+
+    function getV8NominalAxisProduct(){
+      return V8_REQUIRED_AXIS_DEFINITIONS.reduce((total, axis) => total * axis.values.length, 1);
+    }
+
+    function getV8RequiredAxisCounts(){
+      return Object.fromEntries(V8_REQUIRED_AXIS_DEFINITIONS.map(axis => [axis.key, axis.values.length]));
+    }
+
+    function getV8RequiredAxisExpectedValueCount(){
+      return V8_REQUIRED_AXIS_DEFINITIONS.reduce((total, axis) => total + axis.values.length, 0);
+    }
+
+    function makeV8GoalCombo(goal){
+      return {
+        id: goal,
+        goal,
+        label: GOALS[goal]?.label || goal
+      };
+    }
+
+    function makeV8ActivityCombo(id, label, activityLevel, workType, workAdj = 0){
+      return { id, label, activityLevel, workType, workAdj };
+    }
+
+    function makeV8WeightCombo(id, label, weeklyTrainingDays, weightDuration, routine, intensityOverride, routinePlan = "ppl_ul"){
+      return {
+        id,
+        label,
+        weeklyTrainingDays,
+        weightDuration,
+        routine,
+        intensityOverride,
+        routinePlan
+      };
+    }
+
+    function makeV8CardioCombo(id, label, cardioType = "treadmill_walk", cardioDuration = 0, cardioSpeed = 0, cardioIncline = 0){
+      return { id, label, cardioType, cardioDuration, cardioSpeed, cardioIncline };
+    }
+
+    function makeV8ProfileSession(exerciseProfile, id, label, productionRoutineFallback, fallbackReason){
+      return {
+        exerciseProfile,
+        id,
+        label,
+        status: exerciseProfile === "bodybuilding" ? "production_default_profile" : "report_axis_only_pending_formula",
+        productionRoutineFallback,
+        fallbackReason: fallbackReason || (exerciseProfile === "bodybuilding"
+          ? "same_as_current_production_routine"
+          : "production_routine_fallback_pending_profile_specific_formula")
+      };
+    }
+
+    function getV8ProductionRoutineLabel(routine, routinePlan = "ppl_ul"){
+      const scheme = ROUTINE_SCHEMES[routinePlan] || ROUTINE_SCHEMES.ppl_ul;
+      return scheme?.items?.find(item => item.value === routine)?.label || routine;
+    }
+
+    function resolveV8ProfileSession(definition){
+      if (definition.profileSession) {
+        return {
+          ...definition.profileSession,
+          productionRoutineFallback: definition.profileSession.productionRoutineFallback || definition.weightCombo.routine,
+          fallbackReason: definition.profileSession.fallbackReason || "production_routine_fallback_pending_profile_specific_formula"
+        };
+      }
+      const routine = definition.weightCombo.routine;
+      if (definition.exerciseProfile === "bodybuilding") {
+        return makeV8ProfileSession(
+          "bodybuilding",
+          routine,
+          getV8ProductionRoutineLabel(routine, definition.weightCombo.routinePlan),
+          routine,
+          "same_as_current_production_routine"
+        );
+      }
+      return makeV8ProfileSession(
+        definition.exerciseProfile,
+        `${definition.exerciseProfile}_session_unmapped`,
+        "프로필 전용 세션 미지정",
+        routine,
+        "missing_profile_session_axis_mapping"
+      );
+    }
+
+    function makeV8AxisCoverageId(axisKey, axisValue){
+      return `axis_${axisKey}_${String(axisValue).replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`;
+    }
+
+    function makeV8AxisStat(id, overrides = {}){
+      const base = {
+        gender: "male",
+        age: 32,
+        height: 173,
+        weight: 75,
+        bodyFat: 18,
+        skeletal: 35,
+        label: "8-2 필수축 기준 케이스",
+        category: "axis_base"
+      };
+      const next = { ...base, ...overrides };
+      return makeCalibrationStat(
+        id,
+        next.gender,
+        next.age,
+        next.height,
+        next.weight,
+        next.bodyFat,
+        next.skeletal,
+        next.label,
+        next.category
+      );
+    }
+
+    function buildV8AxisBaseDefinition(axisKey, axisValue, sequence){
+      const id = makeV8AxisCoverageId(axisKey, axisValue);
+      return {
+        id,
+        title: `8-2 필수축: ${axisKey}=${axisValue}`,
+        axisCoverage: { axis: axisKey, value: axisValue, layer: "8-2_required_axis_category_sweep" },
+        stat: makeV8AxisStat(`V8A${String(sequence).padStart(3, "0")}`),
+        axisGoal: "diet",
+        goal: "diet",
+        mode: "athlete",
+        activityCombo: makeV8ActivityCombo("V8AX_BASE_ACTIVITY", "보통 활동 + 사무", "moderate", "office"),
+        weightCombo: makeV8WeightCombo("V8AX_BASE_WEIGHT", "주 4회 / 오늘 60분", 4, 60, "PUSH", 0.80),
+        cardioCombo: makeV8CardioCombo("V8AX_BASE_CARDIO", "유산소 없음"),
+        exerciseProfile: "bodybuilding",
+        profileSession: makeV8ProfileSession(
+          "bodybuilding",
+          "bodybuilding_push",
+          "보디빌딩 PUSH 60분",
+          "PUSH",
+          "same_as_current_production_routine"
+        ),
+        performanceLevel: "normal",
+        inbodyReliability: "direct_input",
+        recent14: "sufficient",
+        recent28: "target_appropriate"
+      };
+    }
+
+    function applyV8AxisOverride(definition, axisKey, axisValue){
+      const next = { ...definition };
+      switch (axisKey) {
+        case "gender":
+          next.stat = makeV8AxisStat(next.stat.id, { gender: axisValue });
+          break;
+        case "heightBand": {
+          const heights = { low: 160, average: 173, high: 188 };
+          next.stat = makeV8AxisStat(next.stat.id, { height: heights[axisValue] || 173, category: `height_${axisValue}` });
+          break;
+        }
+        case "weightBand": {
+          const weights = { underweight: 50, normal: 75, overweight: 88, obese: 105, severe_obese: 132 };
+          next.stat = makeV8AxisStat(next.stat.id, { weight: weights[axisValue] || 75, category: `weight_${axisValue}` });
+          break;
+        }
+        case "bodyFatBand": {
+          const bodyFat = { low: 10, normal: 18, high: 28, very_high: 42 };
+          next.stat = makeV8AxisStat(next.stat.id, { bodyFat: bodyFat[axisValue] || 18, category: `body_fat_${axisValue}` });
+          break;
+        }
+        case "skeletalMuscleBand": {
+          const skeletal = { low: 27, normal: 35, high: 45 };
+          next.stat = makeV8AxisStat(next.stat.id, { skeletal: skeletal[axisValue] || 35, category: `skeletal_${axisValue}` });
+          break;
+        }
+        case "ffmiBand": {
+          const ffmiStats = {
+            low: { height: 180, weight: 58, bodyFat: 20, skeletal: 24 },
+            normal: { height: 173, weight: 75, bodyFat: 18, skeletal: 35 },
+            high: { height: 180, weight: 95, bodyFat: 10, skeletal: 47 }
+          };
+          next.stat = makeV8AxisStat(next.stat.id, { ...(ffmiStats[axisValue] || ffmiStats.normal), category: `ffmi_${axisValue}` });
+          break;
+        }
+        case "goal":
+          next.axisGoal = axisValue;
+          next.goal = axisValue === "maintain" ? "recomp" : axisValue;
+          if (axisValue === "maintain") {
+            next.productionGoalFallback = "recomp";
+            next.productionGoalFallbackReason = "current_app_has_no_maintain_goal_key";
+          }
+          break;
+        case "activityLevel":
+          next.activityCombo = makeV8ActivityCombo(`V8AX_ACTIVITY_${axisValue}`, `활동량 ${axisValue}`, axisValue, "office");
+          break;
+        case "workType":
+          next.activityCombo = makeV8ActivityCombo(`V8AX_WORK_${axisValue}`, `업무 유형 ${axisValue}`, "moderate", axisValue);
+          break;
+        case "workAdjustment": {
+          const workAdj = { low: -0.2, base: 0, high: 0.2 };
+          next.activityCombo = makeV8ActivityCombo(`V8AX_WORKADJ_${axisValue}`, `업무 보정 ${axisValue}`, "moderate", "active", workAdj[axisValue] ?? 0);
+          break;
+        }
+        case "weeklyTrainingDays":
+          next.weightCombo = makeV8WeightCombo(
+            `V8AX_WEEKLY_${axisValue}`,
+            `주 ${axisValue}회 / 오늘 ${Number(axisValue) > 0 ? "60분" : "REST"}`,
+            Number(axisValue),
+            Number(axisValue) > 0 ? 60 : 0,
+            Number(axisValue) > 0 ? "PUSH" : "REST",
+            Number(axisValue) > 0 ? 0.80 : 0
+          );
+          next.profileSession = makeV8ProfileSession(
+            "bodybuilding",
+            Number(axisValue) > 0 ? "bodybuilding_push" : "rest",
+            Number(axisValue) > 0 ? "보디빌딩 PUSH 60분" : "REST",
+            Number(axisValue) > 0 ? "PUSH" : "REST",
+            "same_as_current_production_routine"
+          );
+          break;
+        case "exerciseProfile":
+          Object.assign(next, buildV8ProfileSpecificSession(axisValue));
+          break;
+        case "performanceLevel":
+          next.performanceLevel = axisValue;
+          if (axisValue === "none") {
+            next.weightCombo = makeV8WeightCombo("V8AX_PERF_NONE", "주 0회 / 오늘 REST", 0, 0, "REST", 0);
+            next.profileSession = makeV8ProfileSession("bodybuilding", "rest", "REST", "REST", "same_as_current_production_routine");
+          }
+          break;
+        case "profileSession":
+          Object.assign(next, buildV8ProfileSessionAxisDefinition(axisValue));
+          break;
+        case "weightDuration": {
+          const duration = Number(axisValue);
+          next.weightCombo = makeV8WeightCombo(
+            `V8AX_DURATION_${duration}`,
+            `주 4회 / 오늘 ${duration}분`,
+            duration > 0 ? 4 : 0,
+            duration,
+            duration > 0 ? "PUSH" : "REST",
+            duration > 0 ? 0.80 : 0
+          );
+          next.profileSession = makeV8ProfileSession("bodybuilding", duration > 0 ? "bodybuilding_push" : "rest", duration > 0 ? `보디빌딩 PUSH ${duration}분` : "REST", duration > 0 ? "PUSH" : "REST");
+          break;
+        }
+        case "intensity": {
+          const intensity = { low: 0.45, base: 0.75, high: 1.00 };
+          next.weightCombo = makeV8WeightCombo(`V8AX_INTENSITY_${axisValue}`, `주 4회 / 강도 ${axisValue}`, 4, 60, "PUSH", intensity[axisValue] ?? 0.75);
+          break;
+        }
+        case "cardio": {
+          const cardioMap = {
+            none: makeV8CardioCombo("V8AX_CARDIO_NONE", "유산소 없음"),
+            short: makeV8CardioCombo("V8AX_CARDIO_SHORT", "짧은 유산소 20분", "treadmill_walk", 20, 5, 0),
+            moderate: makeV8CardioCombo("V8AX_CARDIO_MOD", "보통 유산소 40분", "treadmill_walk", 40, 6, 5),
+            many: makeV8CardioCombo("V8AX_CARDIO_MANY", "많은 유산소 70분", "treadmill_run", 70, 8, 1)
+          };
+          next.cardioCombo = cardioMap[axisValue] || cardioMap.none;
+          break;
+        }
+        case "inbodyReliability":
+          next.inbodyReliability = axisValue;
+          if (axisValue === "none") next.stat = makeV8AxisStat(next.stat.id, { bodyFat: 0, skeletal: 0, category: "inbody_none" });
+          if (axisValue === "home_inbody") next.homeInbody = true;
+          if (axisValue === "expert_device") next.mode = "expert";
+          break;
+        case "recent14":
+          next.recent14 = axisValue;
+          break;
+        case "recent28":
+          next.recent28 = axisValue;
+          break;
+        default:
+          break;
+      }
+      return next;
+    }
+
+    function buildV8ProfileSpecificSession(exerciseProfile){
+      const map = {
+        bodybuilding: {
+          exerciseProfile: "bodybuilding",
+          profileSession: makeV8ProfileSession("bodybuilding", "bodybuilding_push", "보디빌딩 PUSH 60분", "PUSH", "same_as_current_production_routine"),
+          weightCombo: makeV8WeightCombo("V8AX_PROFILE_BODYBUILDING", "보디빌딩 PUSH 60분", 4, 60, "PUSH", 0.80),
+          cardioCombo: makeV8CardioCombo("V8AX_PROFILE_CARDIO_NONE", "유산소 없음")
+        },
+        powerbuilding: {
+          exerciseProfile: "powerbuilding",
+          profileSession: makeV8ProfileSession("powerbuilding", "powerbuilding_lower", "파워빌딩 하체/복합 90분", "LEGS", "LEGS fallback until powerbuilding-specific sessions are active"),
+          weightCombo: makeV8WeightCombo("V8AX_PROFILE_POWERBUILDING", "파워빌딩 하체/복합 90분", 4, 90, "LEGS", 0.95),
+          cardioCombo: makeV8CardioCombo("V8AX_PROFILE_CARDIO_NONE", "유산소 없음")
+        },
+        strength: {
+          exerciseProfile: "strength",
+          profileSession: makeV8ProfileSession("strength", "strength_heavy_lower", "스트렝스 하체 고강도 90분", "LOWER", "LOWER fallback until strength-specific lift sessions are active"),
+          weightCombo: makeV8WeightCombo("V8AX_PROFILE_STRENGTH", "스트렝스 하체 고강도 90분", 4, 90, "LOWER", 1.00),
+          cardioCombo: makeV8CardioCombo("V8AX_PROFILE_CARDIO_NONE", "유산소 없음")
+        },
+        running: {
+          exerciseProfile: "running",
+          profileSession: makeV8ProfileSession("running", "running_tempo", "템포 러닝 50분 + 보조 상체 30분", "UPPER", "UPPER fallback represents support strength only; running load is carried by cardio fields"),
+          weightCombo: makeV8WeightCombo("V8AX_PROFILE_RUNNING", "러닝 보조 상체 30분", 2, 30, "UPPER", 0.60),
+          cardioCombo: makeV8CardioCombo("V8AX_PROFILE_RUNNING_CARDIO", "템포 러닝 50분", "treadmill_run", 50, 10, 1)
+        },
+        mixed: {
+          exerciseProfile: "mixed",
+          profileSession: makeV8ProfileSession("mixed", "mixed_strength_cardio", "혼합형 기본 웨이트 + 장시간 유산소", "PUSH", "PUSH fallback represents current production weight routine; mixed profile formula is pending"),
+          weightCombo: makeV8WeightCombo("V8AX_PROFILE_MIXED", "혼합형 기본 웨이트 60분", 3, 60, "PUSH", 0.75),
+          cardioCombo: makeV8CardioCombo("V8AX_PROFILE_MIXED_CARDIO", "혼합 유산소 45분", "treadmill_walk", 45, 6, 4)
+        }
+      };
+      return map[exerciseProfile] || map.bodybuilding;
+    }
+
+    function buildV8ProfileSessionAxisDefinition(profileSession){
+      const map = {
+        rest: {
+          exerciseProfile: "bodybuilding",
+          profileSession: makeV8ProfileSession("bodybuilding", "rest", "REST", "REST", "same_as_current_production_routine"),
+          weightCombo: makeV8WeightCombo("V8AX_SESSION_REST", "오늘 REST", 0, 0, "REST", 0),
+          cardioCombo: makeV8CardioCombo("V8AX_SESSION_REST_CARDIO", "유산소 없음")
+        },
+        bodybuilding_push: buildV8ProfileSpecificSession("bodybuilding"),
+        powerbuilding_lower: buildV8ProfileSpecificSession("powerbuilding"),
+        strength_heavy_lower: buildV8ProfileSpecificSession("strength"),
+        running_tempo: buildV8ProfileSpecificSession("running"),
+        mixed_strength_cardio: buildV8ProfileSpecificSession("mixed")
+      };
+      return map[profileSession] || map.bodybuilding_push;
+    }
+
+    function buildV8RequiredAxisCoverageDefinitions(){
+      const definitions = [];
+      V8_REQUIRED_AXIS_DEFINITIONS.forEach(axis => {
+        axis.values.forEach(axisValue => {
+          const sequence = definitions.length + 1;
+          const base = buildV8AxisBaseDefinition(axis.key, axisValue, sequence);
+          definitions.push(applyV8AxisOverride(base, axis.key, axisValue));
+        });
+      });
+      return definitions;
+    }
+
+    function buildV8HumanReviewScenarioDefinitions(){
+      const rest = makeV8WeightCombo("V8W_REST", "주 0회 / 오늘 REST", 0, 0, "REST", 0);
+      const restWeekly4 = makeV8WeightCombo("V8W_REST_WEEKLY4", "주 4회 / 오늘 REST", 4, 0, "REST", 0);
+      const light = makeV8WeightCombo("V8W_LIGHT", "주 2회 / 오늘 45분", 2, 45, "UPPER", 0.65);
+      const standard = makeV8WeightCombo("V8W_STANDARD", "주 4회 / 오늘 60분", 4, 60, "PUSH", 0.80);
+      const hard = makeV8WeightCombo("V8W_HARD", "주 6회 / 오늘 90분", 6, 90, "LEGS", 0.95);
+      const strength = makeV8WeightCombo("V8W_STRENGTH", "주 4회 / 고강도 90분", 4, 90, "LOWER", 1.00);
+      const runCardio = makeV8CardioCombo("V8C_RUN", "러닝 50분 / 10km/h", "treadmill_run", 50, 10, 1);
+      const longCardio = makeV8CardioCombo("V8C_LONG", "장시간 유산소 70분 / 8km/h", "treadmill_run", 70, 8, 1);
+      const noneCardio = makeV8CardioCombo("V8C_NONE", "유산소 없음");
+      const moderateCardio = makeV8CardioCombo("V8C_MOD", "중간 유산소 35분 / 경사 5 / 6km/h", "treadmill_walk", 35, 6, 5);
+
+      return [
+        {
+          id: "lean_low_muscle_male",
+          title: "마른데 근육 적은 남성",
+          stat: makeCalibrationStat("V8H01", "male", 28, 173, 61, 14, 27, "마른데 근육 적은 남성", "low_muscle_lean"),
+          goal: "lean_bulk",
+          mode: "general",
+          activityCombo: makeV8ActivityCombo("V8A_LOW_OFFICE", "낮은 활동 + 사무", "sedentary", "office"),
+          weightCombo: light,
+          cardioCombo: noneCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "low",
+          inbodyReliability: "direct_input",
+          recent14: "insufficient",
+          recent28: "unknown"
+        },
+        {
+          id: "lean_high_muscle_male",
+          title: "마른데 근육 많은 남성",
+          stat: makeCalibrationStat("V8H02", "male", 31, 180, 82, 10, 42, "마른데 근육 많은 남성", "high_muscle_lean"),
+          goal: "recomp",
+          mode: "expert",
+          activityCombo: makeV8ActivityCombo("V8A_MOD_OFFICE", "보통 활동 + 사무", "moderate", "office"),
+          weightCombo: standard,
+          cardioCombo: noneCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "high",
+          inbodyReliability: "expert_device",
+          recent14: "sufficient",
+          recent28: "target_appropriate"
+        },
+        {
+          id: "average_male",
+          title: "일반 남성",
+          stat: makeCalibrationStat("V8H03", "male", 32, 173, 75, 18, 35, "일반 남성", "average_body"),
+          goal: "diet",
+          mode: "general",
+          activityCombo: makeV8ActivityCombo("V8A_MOD_STAND", "보통 활동 + 서서 일함", "moderate", "active"),
+          weightCombo: standard,
+          cardioCombo: moderateCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "normal",
+          inbodyReliability: "direct_input",
+          recent14: "sufficient",
+          recent28: "slower_than_target"
+        },
+        {
+          id: "overweight_active_male",
+          title: "과체중이지만 운동하는 남성",
+          stat: makeCalibrationStat("V8H04", "male", 36, 176, 92, 26, 39, "과체중이지만 운동하는 남성", "overweight_active"),
+          goal: "cut",
+          mode: "athlete",
+          activityCombo: makeV8ActivityCombo("V8A_HIGH_FIELD", "높은 활동 + 현장", "active", "field"),
+          weightCombo: hard,
+          cardioCombo: moderateCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "normal",
+          inbodyReliability: "home_inbody",
+          homeInbody: true,
+          recent14: "sufficient",
+          recent28: "slower_than_target"
+        },
+        {
+          id: "high_muscle_high_fat_male",
+          title: "근육 많고 체지방도 높은 남성",
+          stat: makeCalibrationStat("V8H05", "male", 35, 180, 105, 27, 45, "근육 많고 체지방도 높은 남성", "high_muscle_high_fat"),
+          goal: "diet",
+          mode: "expert",
+          activityCombo: makeV8ActivityCombo("V8A_MOD_FIELD", "보통 활동 + 현장", "moderate", "field"),
+          weightCombo: hard,
+          cardioCombo: moderateCardio,
+          exerciseProfile: "powerbuilding",
+          profileSession: makeV8ProfileSession(
+            "powerbuilding",
+            "powerbuilding_lower_hypertrophy",
+            "파워빌딩 하체/복합 90분",
+            "LEGS",
+            "LEGS fallback until powerbuilding-specific sessions are active"
+          ),
+          performanceLevel: "high",
+          inbodyReliability: "expert_device",
+          recent14: "sufficient",
+          recent28: "target_appropriate"
+        },
+        {
+          id: "obese_male",
+          title: "비만 남성",
+          stat: makeCalibrationStat("V8H06", "male", 38, 174, 105, 34, 38, "비만 남성", "obese"),
+          goal: "diet",
+          mode: "general",
+          activityCombo: makeV8ActivityCombo("V8A_LOW_OFFICE_2", "낮은 활동 + 사무", "sedentary", "office"),
+          weightCombo: light,
+          cardioCombo: noneCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "low",
+          inbodyReliability: "direct_input",
+          recent14: "insufficient",
+          recent28: "slower_than_target"
+        },
+        {
+          id: "severe_obese_male",
+          title: "고도비만 남성",
+          stat: makeCalibrationStat("V8H07", "male", 42, 178, 132, 42, 43, "고도비만 남성", "severe_obese"),
+          goal: "diet",
+          mode: "general",
+          activityCombo: makeV8ActivityCombo("V8A_LOW_OFFICE_3", "낮은 활동 + 사무", "sedentary", "office"),
+          weightCombo: rest,
+          cardioCombo: noneCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "none",
+          inbodyReliability: "low_reliability",
+          recent14: "insufficient",
+          recent28: "unknown"
+        },
+        {
+          id: "underweight_female",
+          title: "여성 저체중",
+          stat: makeCalibrationStat("V8H08", "female", 27, 160, 45, 20, 19, "여성 저체중", "female_underweight"),
+          goal: "lean_bulk",
+          mode: "general",
+          activityCombo: makeV8ActivityCombo("V8A_LOW_OFFICE_4", "낮은 활동 + 사무", "sedentary", "office"),
+          weightCombo: light,
+          cardioCombo: noneCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "low",
+          inbodyReliability: "direct_input",
+          recent14: "insufficient",
+          recent28: "unknown"
+        },
+        {
+          id: "average_female",
+          title: "여성 일반",
+          stat: makeCalibrationStat("V8H09", "female", 31, 163, 58, 27, 23, "여성 일반", "female_average"),
+          goal: "diet",
+          mode: "general",
+          activityCombo: makeV8ActivityCombo("V8A_MOD_OFFICE_2", "보통 활동 + 사무", "moderate", "office"),
+          weightCombo: standard,
+          cardioCombo: moderateCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "normal",
+          inbodyReliability: "direct_input",
+          recent14: "sufficient",
+          recent28: "target_appropriate"
+        },
+        {
+          id: "trained_female",
+          title: "여성 운동인",
+          stat: makeCalibrationStat("V8H10", "female", 30, 168, 64, 21, 28, "여성 운동인", "female_athlete"),
+          goal: "recomp",
+          mode: "athlete",
+          activityCombo: makeV8ActivityCombo("V8A_MOD_STAND_2", "보통 활동 + 서서 일함", "moderate", "active"),
+          weightCombo: hard,
+          cardioCombo: moderateCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "high",
+          inbodyReliability: "expert_device",
+          recent14: "sufficient",
+          recent28: "target_appropriate"
+        },
+        {
+          id: "good_bodycomp_low_frequency",
+          title: "체성분은 좋은데 주 2회 운동하는 사람",
+          stat: makeCalibrationStat("V8H11", "male", 34, 178, 78, 12, 40, "체성분은 좋은데 주 2회 운동하는 사람", "good_bodycomp_low_frequency"),
+          goal: "recomp",
+          mode: "expert",
+          activityCombo: makeV8ActivityCombo("V8A_MOD_OFFICE_3", "보통 활동 + 사무", "moderate", "office"),
+          weightCombo: light,
+          cardioCombo: noneCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "high",
+          inbodyReliability: "expert_device",
+          recent14: "sufficient",
+          recent28: "target_appropriate"
+        },
+        {
+          id: "low_bodycomp_high_frequency",
+          title: "체성분은 낮은데 주 6회 운동하는 사람",
+          stat: makeCalibrationStat("V8H12", "male", 29, 172, 76, 30, 30, "체성분은 낮은데 주 6회 운동하는 사람", "low_bodycomp_high_frequency"),
+          goal: "diet",
+          mode: "athlete",
+          activityCombo: makeV8ActivityCombo("V8A_MOD_OFFICE_4", "보통 활동 + 사무", "moderate", "office"),
+          weightCombo: hard,
+          cardioCombo: noneCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "low",
+          inbodyReliability: "direct_input",
+          recent14: "sufficient",
+          recent28: "slower_than_target"
+        },
+        {
+          id: "running_focused",
+          title: "러닝 중심 사용자",
+          stat: makeCalibrationStat("V8H13", "female", 33, 166, 57, 22, 23, "러닝 중심 사용자", "endurance_focused"),
+          goal: "recomp",
+          mode: "athlete",
+          activityCombo: makeV8ActivityCombo("V8A_HIGH_ACTIVE", "높은 활동 + 서서 일함", "active", "active"),
+          weightCombo: makeV8WeightCombo("V8W_RUN_SUPPORT", "주 2회 보조 웨이트 30분", 2, 30, "UPPER", 0.60),
+          cardioCombo: runCardio,
+          exerciseProfile: "running",
+          profileSession: makeV8ProfileSession(
+            "running",
+            "running_tempo_50m_support_upper",
+            "템포 러닝 50분 + 보조 상체 30분",
+            "UPPER",
+            "UPPER fallback represents support strength only; running load is carried by cardio fields"
+          ),
+          performanceLevel: "normal",
+          inbodyReliability: "direct_input",
+          recent14: "sufficient",
+          recent28: "too_fast"
+        },
+        {
+          id: "strength_focused",
+          title: "스트렝스 중심 사용자",
+          stat: makeCalibrationStat("V8H14", "male", 34, 182, 94, 18, 44, "스트렝스 중심 사용자", "strength_focused"),
+          goal: "lean_bulk",
+          mode: "expert",
+          activityCombo: makeV8ActivityCombo("V8A_MOD_OFFICE_5", "보통 활동 + 사무", "moderate", "office"),
+          weightCombo: strength,
+          cardioCombo: noneCardio,
+          exerciseProfile: "strength",
+          profileSession: makeV8ProfileSession(
+            "strength",
+            "strength_heavy_lower_90m",
+            "스트렝스 하체 고강도 90분",
+            "LOWER",
+            "LOWER fallback until strength-specific lift sessions are active"
+          ),
+          performanceLevel: "high",
+          inbodyReliability: "expert_device",
+          recent14: "sufficient",
+          recent28: "target_appropriate"
+        },
+        {
+          id: "required_user_rest_diet_1913",
+          title: "필수 회귀: 현재 입력 휴식일 다이어트",
+          stat: makeCalibrationStat("V8H15", "male", 32, 173, 75.2083, 15.2, 35, "필수 1913 휴식일 다이어트", "required_user_case"),
+          goal: "diet",
+          mode: "general",
+          activityCombo: makeV8ActivityCombo("V8A_REQUIRED_OFFICE", "낮은 활동 + 사무", "sedentary", "office"),
+          weightCombo: restWeekly4,
+          cardioCombo: noneCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "normal",
+          inbodyReliability: "direct_input",
+          recent14: "insufficient",
+          recent28: "unknown",
+          requiredRegression: true
+        },
+        {
+          id: "bulk_user",
+          title: "벌크업 사용자",
+          stat: makeCalibrationStat("V8H16", "male", 30, 180, 86, 14, 41, "벌크업 사용자", "bulk_user"),
+          goal: "bulk",
+          mode: "athlete",
+          activityCombo: makeV8ActivityCombo("V8A_HIGH_FIELD_2", "높은 활동 + 현장", "active", "field"),
+          weightCombo: hard,
+          cardioCombo: noneCardio,
+          exerciseProfile: "powerbuilding",
+          profileSession: makeV8ProfileSession(
+            "powerbuilding",
+            "powerbuilding_heavy_lower_90m",
+            "파워빌딩 고중량 하체 90분",
+            "LEGS",
+            "LEGS fallback until powerbuilding-specific sessions are active"
+          ),
+          performanceLevel: "high",
+          inbodyReliability: "expert_device",
+          recent14: "sufficient",
+          recent28: "slower_than_target"
+        },
+        {
+          id: "lean_bulk_user",
+          title: "린매스업 사용자",
+          stat: makeCalibrationStat("V8H17", "female", 29, 170, 68, 24, 28, "린매스업 사용자", "lean_bulk_user"),
+          goal: "lean_bulk",
+          mode: "athlete",
+          activityCombo: makeV8ActivityCombo("V8A_MOD_ACTIVE_2", "보통 활동 + 서서 일함", "moderate", "active"),
+          weightCombo: standard,
+          cardioCombo: moderateCardio,
+          exerciseProfile: "bodybuilding",
+          performanceLevel: "normal",
+          inbodyReliability: "direct_input",
+          recent14: "sufficient",
+          recent28: "target_appropriate"
+        },
+        {
+          id: "low_reliability_user",
+          title: "기록 신뢰도 낮은 사용자",
+          stat: makeCalibrationStat("V8H18", "male", 40, 175, 88, 28, 33, "기록 신뢰도 낮은 사용자", "low_reliability_data"),
+          goal: "diet",
+          mode: "general",
+          activityCombo: makeV8ActivityCombo("V8A_MOD_OFFICE_6", "보통 활동 + 사무", "moderate", "office"),
+          weightCombo: standard,
+          cardioCombo: longCardio,
+          exerciseProfile: "mixed",
+          profileSession: makeV8ProfileSession(
+            "mixed",
+            "mixed_strength_cardio_70m",
+            "혼합형 기본 웨이트 + 장시간 유산소 70분",
+            "PUSH",
+            "PUSH fallback represents current production weight routine; mixed profile formula is pending"
+          ),
+          performanceLevel: "unknown",
+          inbodyReliability: "low_reliability",
+          recent14: "insufficient",
+          recent28: "unknown"
+        }
+      ];
+    }
+
+    function buildV8ScenarioInputSummary(definition, result){
+      const heightM = Math.max(0, Number(definition.stat.height) || 0) / 100;
+      const lbm = Number(result?.lbmBase);
+      const profileSession = resolveV8ProfileSession(definition);
+      return {
+        title: definition.title,
+        gender: definition.stat.gender,
+        age: definition.stat.age,
+        height: definition.stat.height,
+        weight: definition.stat.weight,
+        bodyFat: definition.stat.bodyFat,
+        skeletal: definition.stat.skeletal,
+        lbm: Number.isFinite(lbm) ? lbm : null,
+        ffmi: Number.isFinite(lbm) && heightM > 0 ? lbm / (heightM * heightM) : null,
+        axisGoal: definition.axisGoal || definition.goal,
+        goal: definition.goal,
+        goalLabel: definition.axisGoal === "maintain"
+          ? "유지"
+          : (GOALS[definition.goal]?.label || definition.goal),
+        productionGoalFallback: definition.productionGoalFallback || null,
+        productionGoalFallbackReason: definition.productionGoalFallbackReason || null,
+        goalAxisStatus: definition.axisGoal && definition.axisGoal !== definition.goal
+          ? "axis_only_pending_production_goal_mapping"
+          : "production_goal",
+        activityLevel: definition.activityCombo.activityLevel,
+        workType: definition.activityCombo.workType,
+        workAdj: definition.activityCombo.workAdj,
+        exerciseProfile: definition.exerciseProfile,
+        exerciseProfileStatus: definition.exerciseProfile === "bodybuilding"
+          ? "production_default_profile"
+          : "report_axis_only_pending_formula",
+        profileSession: profileSession.id,
+        profileSessionLabel: profileSession.label,
+        profileSessionStatus: profileSession.status,
+        productionRoutineFallback: profileSession.productionRoutineFallback,
+        productionRoutineFallbackLabel: getV8ProductionRoutineLabel(profileSession.productionRoutineFallback, definition.weightCombo.routinePlan),
+        productionRoutineFallbackReason: profileSession.fallbackReason,
+        performanceLevel: definition.performanceLevel,
+        weeklyTrainingDays: definition.weightCombo.weeklyTrainingDays,
+        todayRoutine: definition.weightCombo.routine,
+        todayRoutineRole: definition.exerciseProfile === "bodybuilding" ? "profile_session" : "production_calculation_fallback",
+        todayWeightDuration: definition.weightCombo.weightDuration,
+        todayIntensityOverride: definition.weightCombo.intensityOverride,
+        cardioType: definition.cardioCombo.cardioType,
+        cardioDuration: definition.cardioCombo.cardioDuration,
+        cardioSpeed: definition.cardioCombo.cardioSpeed,
+        cardioIncline: definition.cardioCombo.cardioIncline,
+        inbodyReliability: definition.inbodyReliability,
+        recent14: definition.recent14,
+        recent28: definition.recent28
+      };
+    }
+
+    function buildV8MaintenanceBreakdown(result, source = result){
+      const baseActivityCoeff = ACTIVITY_COEFF[result.s.activityLevel] ?? 1.22;
+      const activityKcalEstimate = result.bmr * Math.max(0, baseActivityCoeff - 1);
+      const workKcalEstimate = result.baseDaily - result.bmr * baseActivityCoeff;
+      return {
+        bmr: result.bmr,
+        bmrModel: result.bmrModel,
+        activityCoeff: result.actCoeff,
+        rawActivityCoeff: result.rawActCoeff,
+        activityKcalEstimate,
+        workKcalEstimate,
+        baseDaily: result.baseDaily,
+        trainingBaselineKcal: result.trainingBaselineKcal,
+        weightKcal: Number.isFinite(source.weightKcal) ? source.weightKcal : result.weightKcal,
+        cardioKcal: result.cardio.kcal,
+        cardioMet: result.cardio.met,
+        epocKcal: result.epocKcal,
+        totalBurn: Number.isFinite(source.totalBurn) ? source.totalBurn : result.totalBurn
+      };
+    }
+
+    function buildV8TargetBreakdown(result, source = result){
+      const context = result.targetRateContext || {};
+      return {
+        targetBurnBase: Number.isFinite(source.targetBurnBase) ? source.targetBurnBase : result.targetBurnBase,
+        cardioTargetReflectionRate: Number.isFinite(source.cardioTargetReflectionRate) ? source.cardioTargetReflectionRate : result.cardioTargetReflectionRate,
+        reflectedCardioKcalForTarget: Number.isFinite(source.reflectedCardioKcalForTarget) ? source.reflectedCardioKcalForTarget : result.reflectedCardioKcalForTarget,
+        unreflectedCardioKcalForTarget: Number.isFinite(source.unreflectedCardioKcalForTarget) ? source.unreflectedCardioKcalForTarget : result.unreflectedCardioKcalForTarget,
+        selectedWeeklyRate: Number.isFinite(context.selectedWeeklyRate) ? context.selectedWeeklyRate : null,
+        weeklyBodyWeightDeltaKg: Number.isFinite(context.weeklyBodyWeightDeltaKg) ? context.weeklyBodyWeightDeltaKg : null,
+        rawGoalDelta: source.rawGoalDelta,
+        clampedGoalDelta: source.clampedGoalDelta,
+        targetCalBeforeFloor: source.targetCalBeforeFloor ?? context.targetCalBeforeFloor ?? null,
+        minimumTargetCal: context.minimumTargetCal ?? null,
+        energyAvailabilityFloorTarget: context.energyAvailabilityFloorTarget ?? null,
+        energyAvailabilityAfterFloor: context.energyAvailabilityAfterFloor ?? null,
+        targetCalBeforeGoalFloor: source.targetCalBeforeGoalFloor ?? result.targetCalBeforeGoalFloor,
+        goalTargetFloor: source.goalTargetFloor ?? result.goalTargetFloor,
+        goalTargetFloorApplied: !!(source.goalTargetFloorApplied ?? result.goalTargetFloorApplied),
+        goalTargetFloorDelta: source.goalTargetFloorDelta ?? result.goalTargetFloorDelta,
+        finalTargetCal: source.targetCal,
+        targetFloorUsed: !!(source.targetFloorUsed ?? result.targetFloorUsed),
+        goalClampUsed: !!(source.goalClampUsed ?? result.goalClampUsed),
+        selectionReason: context.selectedReason || context.reason || "current_policy"
+      };
+    }
+
+    function buildV8MacroDecomposition(source, result, kind){
+      const targetCal = Math.max(0, Number(source.targetCal) || 0);
+      const weight = Math.max(1, Number(result.s.weight) || 1);
+      const lbm = Math.max(1, Number(result.lbmBase) || weight);
+      const protein = Math.max(0, Number(source.protein) || 0);
+      const carbs = Math.max(0, Number(source.carbs) || 0);
+      const fat = Math.max(0, Number(source.fat) || 0);
+      const range = result.dualBasis?.rangeContext || {};
+      const selected = kind === "current" ? (result.dualBasis?.selected || null) : null;
+      const macroInfo = buildMacroAllocationInfo({
+        targetCal,
+        protein,
+        carbs,
+        fat,
+        carbCap: range.carbs?.max ? range.carbs.max * weight : undefined,
+        fatCap: range.fat?.max ? range.fat.max * weight : undefined,
+        fatHardCap: range.fat?.flexibleMax ? range.fat.flexibleMax * weight : undefined,
+        proteinCap: range.protein?.max ? range.protein.max * weight : undefined
+      });
+      const carbsKg = carbs / weight;
+      const fatKg = fat / weight;
+      const carbsBelowGuideMin = selected?.carbsBelowGuideMin === true
+        || (Number.isFinite(range.carbs?.min) && carbsKg < range.carbs.min - 1e-6);
+      const fatFloorHit = Number.isFinite(range.fat?.min)
+        ? fatKg <= range.fat.min + 1e-6
+        : false;
+      const redistributionReasons = [];
+      if (carbsBelowGuideMin) redistributionReasons.push("target_calorie_constrained_below_guide_carb_min");
+      if (fatFloorHit) redistributionReasons.push("fat_at_guide_floor");
+      if (macroInfo.macroKcalGap > MACRO_ALLOCATION_GAP_THRESHOLDS.detail) redistributionReasons.push("macro_kcal_gap_remaining");
+      if (kind !== "current") redistributionReasons.push("candidate_report_only_current_formula_family");
+      if (!redistributionReasons.length) redistributionReasons.push("within_reported_macro_ranges");
+
+      return {
+        protein_g: protein,
+        protein_kcal: protein * 4,
+        protein_percent_kcal: targetCal > 0 ? protein * 4 / targetCal * 100 : 0,
+        protein_g_per_kg_bodyweight: protein / weight,
+        protein_g_per_kg_lbm: protein / lbm,
+        protein_rule_source: kind === "current"
+          ? `dual_basis_${result.selectedMacroBasis || "guide"}_${result.s.goal}`
+          : `${source.model || "candidate"}_${source.macroCapPolicy || "production_macro"}`,
+        protein_soft_cap_hit: !!macroInfo.proteinAtPracticalLimit,
+        protein_hard_cap_hit: false,
+        fat_g: fat,
+        fat_kcal: fat * 9,
+        fat_percent_kcal: targetCal > 0 ? fat * 9 / targetCal * 100 : 0,
+        fat_g_per_kg_bodyweight: fat / weight,
+        fat_floor_hit: fatFloorHit,
+        carb_g: carbs,
+        carb_kcal: carbs * 4,
+        carb_percent_kcal: targetCal > 0 ? carbs * 4 / targetCal * 100 : 0,
+        carb_g_per_kg_bodyweight: carbsKg,
+        carb_min_hit: carbsBelowGuideMin,
+        macro_kcal_sum: protein * 4 + carbs * 4 + fat * 9,
+        macro_kcal_gap: Math.max(0, targetCal - (protein * 4 + carbs * 4 + fat * 9)),
+        redistribution_reason: redistributionReasons,
+        range_context: {
+          protein: range.protein || null,
+          carbs: range.carbs || null,
+          fat: range.fat || null
+        }
+      };
+    }
+
+    function buildV8ScenarioJudgments(definition, output){
+      const judgments = [];
+      const macro = output.macro;
+      const target = output.target;
+      const maintenance = output.maintenance;
+      if (target.finalTargetCal < maintenance.bmr) judgments.push("too_low_calorie_below_bmr");
+      if (target.energyAvailabilityAfterFloor !== null && target.energyAvailabilityAfterFloor < ENERGY_AVAILABILITY_FLOOR_KCAL_PER_LBM_KG - 1e-6) {
+        judgments.push("energy_availability_risk");
+      }
+      if (macro.protein_g_per_kg_bodyweight > 2.6) judgments.push("protein_high_bodyweight");
+      if (macro.protein_g_per_kg_bodyweight < 1.4) judgments.push("protein_low_bodyweight");
+      if (macro.fat_floor_hit) judgments.push("fat_floor_hit");
+      if (macro.carb_min_hit) judgments.push("carb_below_guide_min");
+      if (definition.exerciseProfile !== "bodybuilding") judgments.push("exercise_profile_report_axis_only");
+      if (definition.inbodyReliability === "low_reliability" || definition.recent14 === "insufficient") judgments.push("data_reliability_limited");
+      return [...new Set(judgments)];
+    }
+
+    function buildV8ScenarioOutput(kind, definition, result, source){
+      const safeSource = source || result;
+      const output = {
+        model: kind === "current" ? "current-production" : (safeSource.model || "candidate-report-only"),
+        reportOnly: kind !== "current",
+        maintenance: buildV8MaintenanceBreakdown(result, safeSource),
+        target: buildV8TargetBreakdown(result, safeSource),
+        macro: buildV8MacroDecomposition(safeSource, result, kind)
+      };
+      output.judgments = buildV8ScenarioJudgments(definition, output);
+      return output;
+    }
+
+    function buildV8ScenarioCase(definition, index){
+      const scenario = {
+        goalCombo: makeV8GoalCombo(definition.goal),
+        activityCombo: definition.activityCombo,
+        weightCombo: definition.weightCombo,
+        cardioCombo: definition.cardioCombo
+      };
+      const config = buildCalibrationCaseConfig(
+        definition.stat,
+        scenario,
+        index,
+        definition.axisCoverage ? "v8AxisCoverage" : "v8HumanReview",
+        definition.mode || "athlete"
+      );
+      applyCalibrationCaseToInputs(config);
+      uiState.selectedMacroBasis = definition.selectedMacroBasis === "activity" ? "activity" : "guide";
+      ids.homeInbody.checked = definition.homeInbody === true || definition.inbodyReliability === "home_inbody";
+      if (definition.inbodyReliability === "none") {
+        ids.bodyFat.value = "";
+        if (ids.bodyFatMass) ids.bodyFatMass.value = "";
+        ids.skeletal.value = "";
+        ids.homeInbody.checked = false;
+      }
+      const result = calculate();
+      const candidate = buildNoWeeklyXwCandidate(result);
+      const currentOutput = buildV8ScenarioOutput("current", definition, result, result);
+      const candidateOutput = candidate
+        ? buildV8ScenarioOutput("candidate", definition, result, candidate)
+        : null;
+      return {
+        id: definition.id,
+        title: definition.title,
+        layer: definition.axisCoverage ? "axisCoverage" : "humanReview",
+        axisCoverage: definition.axisCoverage || null,
+        requiredRegression: !!definition.requiredRegression,
+        input: buildV8ScenarioInputSummary(definition, result),
+        current: currentOutput,
+        candidate: candidateOutput,
+        delta: candidateOutput ? {
+          targetCal: currentOutput.target.finalTargetCal - candidateOutput.target.finalTargetCal,
+          totalBurn: currentOutput.maintenance.totalBurn - candidateOutput.maintenance.totalBurn,
+          protein: currentOutput.macro.protein_g - candidateOutput.macro.protein_g,
+          carbs: currentOutput.macro.carb_g - candidateOutput.macro.carb_g,
+          fat: currentOutput.macro.fat_g - candidateOutput.macro.fat_g
+        } : null
+      };
+    }
+
+    function buildV8ScenarioTextReport(cases){
+      const lines = [
+        "# v8 scenario runner report",
+        "",
+        "Report-only current/candidate comparison. Candidate is candidate-no-weekly-xw, not an approved production formula.",
+        "",
+        "| case | goal | profile | current kcal/P/C/F | candidate kcal/P/C/F | key judgments |",
+        "| --- | --- | --- | --- | --- | --- |"
+      ];
+      cases.forEach(item => {
+        const current = item.current;
+        const candidate = item.candidate;
+        const currentMacro = `${round(current.target.finalTargetCal)} / ${round(current.macro.protein_g, 1)} / ${round(current.macro.carb_g, 1)} / ${round(current.macro.fat_g, 1)}`;
+        const candidateMacro = candidate
+          ? `${round(candidate.target.finalTargetCal)} / ${round(candidate.macro.protein_g, 1)} / ${round(candidate.macro.carb_g, 1)} / ${round(candidate.macro.fat_g, 1)}`
+          : "n/a";
+        const judgments = [...new Set([...(current.judgments || []), ...((candidate && candidate.judgments) || [])])].join(", ") || "none";
+        lines.push(`| ${item.id} | ${item.input.goal} | ${item.input.exerciseProfile} / ${item.input.profileSession} | ${currentMacro} | ${candidateMacro} | ${judgments} |`);
+      });
+      return lines.join("\n");
+    }
+
+    function summarizeV8ScenarioCases(cases){
+      const allJudgments = cases.flatMap(item => [
+        ...(item.current?.judgments || []),
+        ...(item.candidate?.judgments || [])
+      ]);
+      return {
+        caseCount: cases.length,
+        goals: [...new Set(cases.map(item => item.input.goal))],
+        axisGoals: [...new Set(cases.map(item => item.input.axisGoal || item.input.goal))],
+        exerciseProfiles: [...new Set(cases.map(item => item.input.exerciseProfile))],
+        profileSessions: [...new Set(cases.map(item => item.input.profileSession))],
+        currentTargetCal: summarizeCalibrationValues(cases.map(item => item.current.target.finalTargetCal)),
+        currentProteinPerKgBodyweight: summarizeCalibrationValues(cases.map(item => item.current.macro.protein_g_per_kg_bodyweight)),
+        currentCarbsPerKgBodyweight: summarizeCalibrationValues(cases.map(item => item.current.macro.carb_g_per_kg_bodyweight)),
+        candidateTargetDelta: summarizeCalibrationValues(cases.map(item => item.delta?.targetCal)),
+        judgmentCounts: Object.fromEntries([...new Set(allJudgments)].sort().map(key => [
+          key,
+          allJudgments.filter(item => item === key).length
+        ]))
+      };
+    }
+
+    function summarizeV8AxisCoverageCases(cases){
+      const covered = {};
+      V8_REQUIRED_AXIS_DEFINITIONS.forEach(axis => {
+        covered[axis.key] = [];
+      });
+      cases.forEach(item => {
+        const axis = item.axisCoverage?.axis;
+        if (!axis) return;
+        const value = String(item.axisCoverage.value);
+        if (!covered[axis]) covered[axis] = [];
+        if (!covered[axis].includes(value)) covered[axis].push(value);
+      });
+      const missing = [];
+      V8_REQUIRED_AXIS_DEFINITIONS.forEach(axis => {
+        axis.values.forEach(value => {
+          if (!covered[axis.key]?.includes(String(value))) {
+            missing.push({ axis: axis.key, value });
+          }
+        });
+      });
+      return {
+        caseCount: cases.length,
+        expectedAxisCount: V8_REQUIRED_AXIS_DEFINITIONS.length,
+        expectedCategoryCount: getV8RequiredAxisExpectedValueCount(),
+        nominalFullCartesianCaseCount: getV8NominalAxisProduct(),
+        fullCartesianRun: false,
+        coverageMode: "8-2_required_axis_category_sweep",
+        coveredAxisValues: covered,
+        missingAxisValues: missing
+      };
+    }
+
+    function runV8ScenarioRunner(options = {}){
+      return withCalibrationReportSandbox(() => {
+        const axisDefinitions = buildV8RequiredAxisCoverageDefinitions();
+        const humanDefinitions = buildV8HumanReviewScenarioDefinitions();
+        const axisCases = axisDefinitions.map((definition, index) => buildV8ScenarioCase(definition, index));
+        const humanReviewCases = humanDefinitions.map((definition, index) => buildV8ScenarioCase(definition, index));
+        const requiredCase = humanReviewCases.find(item => item.requiredRegression) || null;
+        const axisCoverageSummary = summarizeV8AxisCoverageCases(axisCases);
+        const humanReviewSummary = summarizeV8ScenarioCases(humanReviewCases);
+        const report = {
+          meta: {
+            version: V8_SCENARIO_RUNNER_VERSION,
+            stage: V8_SCENARIO_RUNNER_STAGE,
+            generatedAt: new Date().toISOString(),
+            reportOnly: true,
+            coverageMode: "8-2_axis_category_sweep_plus_8-3_human_review",
+            fullCartesianRun: false,
+            fullCartesianOmittedReason: "8-2 full cross-product is 80,621,568,000 cases; this report runs every required axis category independently plus the separate 18 human-review cases.",
+            axisCounts: getV8RequiredAxisCounts(),
+            axisCategoryCount: getV8RequiredAxisExpectedValueCount(),
+            nominalFullCartesianCaseCount: getV8NominalAxisProduct(),
+            axisCoverageCaseCount: axisDefinitions.length,
+            humanReviewCaseCount: humanDefinitions.length,
+            candidateModel: "candidate-no-weekly-xw",
+            candidateStatus: "report_only_existing_candidate_not_approved_formula",
+            requiredRegressionIncluded: !!requiredCase,
+            notes: [
+              "This runner is a 9-4 scaffold: it compares current production with an existing report-only candidate before changing formulas.",
+              "8-2 required axis coverage and 8-3 human-review cases are separate report layers.",
+              "Exercise profile and recent-record axes are included as report fields first; they are not active production settings yet.",
+              "Profile-specific sessions are reported separately from the current production routine fallback.",
+              "The 8-2 full Cartesian product is not claimed as executed; axis-category coverage is executed and reported separately.",
+              "Do not treat candidate-no-weekly-xw as the final v8 formula."
+            ]
+          },
+          summary: {
+            axisCoverage: axisCoverageSummary,
+            humanReview: humanReviewSummary
+          },
+          axisCoverage: {
+            summary: axisCoverageSummary,
+            cases: options.includeAxisCases === false ? [] : axisCases
+          },
+          humanReview: {
+            summary: humanReviewSummary,
+            cases: options.includeCases === false ? [] : humanReviewCases
+          },
+          requiredRegression: requiredCase ? {
+            id: requiredCase.id,
+            currentTargetCal: requiredCase.current.target.finalTargetCal,
+            currentCarbs: requiredCase.current.macro.carb_g,
+            currentProtein: requiredCase.current.macro.protein_g,
+            currentFat: requiredCase.current.macro.fat_g,
+            currentProteinPerKgBodyweight: requiredCase.current.macro.protein_g_per_kg_bodyweight,
+            currentFatPerKgBodyweight: requiredCase.current.macro.fat_g_per_kg_bodyweight,
+            judgments: requiredCase.current.judgments
+          } : null,
+          cases: options.includeCases === false ? [] : humanReviewCases,
+          textReport: buildV8ScenarioTextReport(humanReviewCases)
+        };
+        if (options.log === true) {
+          console.log(report.textReport);
+        }
+        return report;
+      });
+    }
+
+    function runV8ScenarioRunnerTests(){
+      return withRecordTestSandbox(() => {
+        const results = [];
+        const assertV8Range = (value, min, max, message) => {
+          assertTest(
+            Number.isFinite(value) && value >= min && value <= max,
+            `${message} (got ${value}, expected ${min}-${max})`
+          );
+        };
+
+        results.push(runNamedTest("v8.0-D scenario runner separates 8-2 axis coverage from 8-3 human-review cases", () => {
+          const report = runV8ScenarioRunner();
+          assertTest(report.meta.reportOnly === true, "v8 runner should be report-only");
+          assertTest(report.meta.coverageMode === "8-2_axis_category_sweep_plus_8-3_human_review", "v8 runner should separate axis coverage from human review");
+          assertTest(report.meta.fullCartesianRun === false, "v8 runner must not claim the 80B full cross-product was executed");
+          assertTest(report.meta.nominalFullCartesianCaseCount === 80621568000, "v8 runner should report the full 8-2 cross-product size");
+          assertTest(report.meta.axisCoverageCaseCount === getV8RequiredAxisExpectedValueCount(), "v8 runner should execute one category case for each required axis value");
+          assertTest(report.axisCoverage.summary.missingAxisValues.length === 0, "v8 axis coverage should include every required 8-2 category value");
+          assertTest(report.axisCoverage.cases.length === report.meta.axisCoverageCaseCount, "v8 axis coverage cases should be separate from human review");
+          assertTest(report.meta.humanReviewCaseCount === 18, "v8 runner should define exactly 18 human-review cases");
+          assertTest(report.humanReview.cases.length === 18, "v8 runner should output the 18-case human-review table by default");
+          assertTest(report.humanReview.cases.every(item => item.current && item.candidate), "each human-review case should include current and candidate outputs");
+          ["diet", "cut", "recomp", "lean_bulk", "bulk"].forEach(goal => {
+            assertTest(report.humanReview.summary.goals.includes(goal), `${goal} should be represented in v8 human-review runner`);
+          });
+          ["bodybuilding", "powerbuilding", "strength", "running", "mixed"].forEach(profile => {
+            assertTest(report.humanReview.summary.exerciseProfiles.includes(profile), `${profile} profile axis should be represented`);
+          });
+          assertTest(findInvalidCalibrationNumber(report).length === 0, "v8 runner report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("v8.0-D axis coverage preserves maintain as an axis-only goal with explicit production fallback", () => {
+          const report = runV8ScenarioRunner();
+          const maintainCase = report.axisCoverage.cases.find(item => item.axisCoverage?.axis === "goal" && item.axisCoverage.value === "maintain");
+          assertTest(!!maintainCase, "8-2 goal axis should include 유지/maintain separately from human-review goals");
+          assertTest(maintainCase.input.axisGoal === "maintain", "maintain should remain as the scenario axis goal");
+          assertTest(maintainCase.input.goal === "recomp", "maintain axis case should use recomp only as current production fallback");
+          assertTest(maintainCase.input.goalAxisStatus === "axis_only_pending_production_goal_mapping", "maintain fallback should be explicitly marked as pending production mapping");
+          assertTest(maintainCase.input.productionGoalFallbackReason === "current_app_has_no_maintain_goal_key", "maintain fallback reason should be explicit");
+        }));
+
+        results.push(runNamedTest("v8.0-D profile sessions are not collapsed into generic production routines", () => {
+          const report = runV8ScenarioRunner();
+          const runningCase = report.humanReview.cases.find(item => item.id === "running_focused");
+          const strengthCase = report.humanReview.cases.find(item => item.id === "strength_focused");
+          assertTest(runningCase.input.profileSession.startsWith("running_"), "running profile should expose a running-specific report session");
+          assertTest(runningCase.input.todayRoutine === "UPPER", "running profile may use UPPER only as production fallback for support strength");
+          assertTest(runningCase.input.todayRoutineRole === "production_calculation_fallback", "running production routine should be marked as fallback");
+          assertIncludesAll([runningCase.input.productionRoutineFallbackReason].join(" "), ["running load", "cardio"], "running fallback reason should point to cardio-carried running load");
+          assertTest(strengthCase.input.profileSession.startsWith("strength_"), "strength profile should expose a strength-specific report session");
+          assertTest(strengthCase.input.todayRoutineRole === "production_calculation_fallback", "strength production routine should be marked as fallback");
+        }));
+
+        results.push(runNamedTest("v8.0-D work adjustment axis uses mid-workload basis to avoid clamp-collapsed categories", () => {
+          const report = runV8ScenarioRunner();
+          const workAdjCases = report.axisCoverage.cases
+            .filter(item => item.axisCoverage?.axis === "workAdjustment")
+            .sort((a, b) => String(a.axisCoverage.value).localeCompare(String(b.axisCoverage.value)));
+          assertTest(workAdjCases.length === 3, "work adjustment axis should include low/base/high cases");
+          workAdjCases.forEach(item => {
+            assertTest(item.input.workType === "active", "work adjustment axis should use an active work type basis");
+          });
+          const workloads = Object.fromEntries(workAdjCases.map(item => [item.axisCoverage.value, item.current.maintenance.workloadY]));
+          assertClose(workloads.low, 0.35, 0.0001, "low work adjustment should remain inside clamp range");
+          assertClose(workloads.base, 0.55, 0.0001, "base work adjustment should use active workload basis");
+          assertClose(workloads.high, 0.75, 0.0001, "high work adjustment should remain inside clamp range");
+        }));
+
+        results.push(runNamedTest("v8.0-D required 1913 rest-day diet regression is in the scenario table", () => {
+          const report = runV8ScenarioRunner();
+          const required = report.requiredRegression;
+          assertTest(!!required && required.id === "required_user_rest_diet_1913", "required 1913 case should be marked");
+          assertV8Range(required.currentTargetCal, 1900, 1925, "required rest-day diet target kcal should stay around the audited 1913 value");
+          assertV8Range(required.currentProtein, 180, 181, "required rest-day diet protein should reproduce the audited 180.5g value");
+          assertV8Range(required.currentFat, 45, 46, "required rest-day diet fat should reproduce the audited 45g value");
+          assertV8Range(required.currentCarbs, 195, 198, "required rest-day diet carbs should reproduce the audited 196g value");
+          assertV8Range(required.currentProteinPerKgBodyweight, 2.39, 2.41, "required rest-day diet protein should expose about 2.4g/kg bodyweight");
+        }));
+
+        results.push(runNamedTest("v8.0-D macro decomposition exposes required v8 report fields", () => {
+          const report = runV8ScenarioRunner();
+          const macro = report.cases[0].current.macro;
+          [
+            "protein_g",
+            "protein_g_per_kg_bodyweight",
+            "protein_g_per_kg_lbm",
+            "protein_rule_source",
+            "protein_soft_cap_hit",
+            "protein_hard_cap_hit",
+            "fat_g",
+            "fat_percent_kcal",
+            "fat_floor_hit",
+            "carb_g",
+            "carb_min_hit",
+            "redistribution_reason"
+          ].forEach(key => {
+            assertTest(Object.prototype.hasOwnProperty.call(macro, key), `${key} should exist in v8 macro report`);
+          });
+          assertTest(Array.isArray(macro.redistribution_reason) && macro.redistribution_reason.length > 0, "redistribution_reason should be explicit");
+        }));
+
+        results.push(runNamedTest("v8.0-D text report is human-readable and candidate is not production-approved", () => {
+          const report = runV8ScenarioRunner();
+          assertIncludesAll(report.textReport, ["v8 scenario runner report", "candidate-no-weekly-xw", "required_user_rest_diet_1913"], "v8 text report should identify current/candidate and required case");
+          assertTest(report.meta.candidateStatus.includes("not_approved_formula"), "candidate status should prevent treating report-only model as production");
+        }));
+
+        results.push(runNamedTest("v8.0-D scenario runner restores state and keeps protected app contracts", () => {
+          setMacroCalibrationInputs("lean_bulk");
+          const before = calculate();
+          const beforeRecords = JSON.stringify(recordsState.items);
+          runV8ScenarioRunner();
+          const after = calculate();
+          assertClose(after.targetCal, before.targetCal, 0.0001, "v8 runner should not change production targetCal");
+          assertClose(after.totalBurn, before.totalBurn, 0.0001, "v8 runner should not change production totalBurn");
+          assertTest(JSON.stringify(recordsState.items) === beforeRecords, "v8 runner should not mutate records");
+          assertTest(typeof window.runV8ScenarioRunner === "function", "runV8ScenarioRunner should be exported");
+          assertTest(typeof window.runV8ScenarioRunnerTests === "function", "runV8ScenarioRunnerTests should be exported");
+          assertTest(ADHERENCE_SCORING_VERSION === "v6.1_alcohol_penalty_v2", "adherence scoring version must stay unchanged");
+          assertTest(JSON.stringify(RECENT_CONTEXT_WINDOWS) === JSON.stringify([1, 3, 7, 14, 28]), "recent context windows must stay unchanged");
+        }));
+
+        return results;
+      });
+    }
+
     function runCalibrationPhysiologyReviewTests(){
       return withRecordTestSandbox(() => {
         const results = [];
@@ -60811,6 +62013,7 @@ Notes:
     window.runMacroCalibrationTests = runMacroCalibrationTests;
     window.runCalibrationScanReport = runCalibrationScanReport;
     window.runCalibrationModeCoverageReport = runCalibrationModeCoverageReport;
+    window.runV8ScenarioRunner = runV8ScenarioRunner;
     window.runCalibrationPhysiologyReview = runCalibrationPhysiologyReview;
     window.runCalibrationWeeklyBudgetReview = runCalibrationWeeklyBudgetReview;
     window.runCalibrationCardioTargetPolicyReview = runCalibrationCardioTargetPolicyReview;
@@ -60827,6 +62030,7 @@ Notes:
     window.runGoalAwareDualBasisRangeTests = runGoalAwareDualBasisRangeTests;
     window.runDualBasisProductionTests = runDualBasisProductionTests;
     window.runCalibrationScanReportTests = runCalibrationScanReportTests;
+    window.runV8ScenarioRunnerTests = runV8ScenarioRunnerTests;
     window.runCalibrationPhysiologyReviewTests = runCalibrationPhysiologyReviewTests;
     window.runCalibrationWeeklyBudgetReviewTests = runCalibrationWeeklyBudgetReviewTests;
     window.runCalibrationCardioTargetPolicyReviewTests = runCalibrationCardioTargetPolicyReviewTests;

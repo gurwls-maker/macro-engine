@@ -121,6 +121,7 @@ const testProfiles = {
   calibration: [
     "runMacroCalibrationTests",
     "runCalibrationScanReportTests",
+    "runV8ScenarioRunnerTests",
     "runCalibrationPhysiologyReviewTests",
     "runCalibrationWeeklyBudgetReviewTests",
     "runCalibrationCardioTargetPolicyReviewTests",
