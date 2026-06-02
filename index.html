@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-P profile/session input-snapshot contract
+Stage: v8.0-Q target-rate recentContext candidate-delta contract
 Date: 2026-06-03
 Notes:
+- v8.0-Q targetRateContext와 recentContext에 candidate-v2 target/rate delta metadata와 recent28 gate를 추가하되 targetCal / score / Coach 산식은 계속 변경하지 않음
 - v8.0-P Settings/Today 운동 프로필과 오늘 세션 입력을 추가하고 draft / state / goalSnapshot / signature / backup 경로에 보존하되 candidate-v2 산식은 계속 report-only로 유지
 - v8.0-O profileMacroCandidateV2Contract report-only layer를 추가해 candidate-v2 production 적용 전 Today/Settings input, target-rate, Records snapshot/signature, score, Coach, backup/import 계약 누락을 코드 기준 blocker로 검토
 - v8.0-N profile macro candidate-v2 report-only 레이어를 추가해 mixed carb unresolved의 target/rate delta와 protein/fat guard 충돌을 함께 검토
@@ -16045,6 +16046,36 @@ Notes:
       return clamp(rate, policy.minRate, policy.maxRate);
     }
 
+    const PROFILE_CANDIDATE_TARGET_DELTA_CONTRACT_VERSION = "profileCandidateTargetDeltaContract.v1";
+    const PROFILE_CANDIDATE_V2_MODEL_KEY = "candidate-v8-profile-macro-v2-linked-target-v0";
+
+    function normalizeProfileCandidateTargetDeltaConfig(config = {}){
+      const model = typeof config.profileMacroCandidateModel === "string" && config.profileMacroCandidateModel.trim()
+        ? config.profileMacroCandidateModel.trim()
+        : null;
+      const stage = typeof config.profileMacroCandidateStage === "string" && config.profileMacroCandidateStage.trim()
+        ? config.profileMacroCandidateStage.trim()
+        : null;
+      const targetDeltaKcal = Number.isFinite(Number(config.profileTargetDeltaKcal))
+        ? Number(config.profileTargetDeltaKcal)
+        : null;
+      const targetRateDeltaEquivalentKgPerWeek = Number.isFinite(Number(config.profileTargetRateDeltaEquivalentKgPerWeek))
+        ? Number(config.profileTargetRateDeltaEquivalentKgPerWeek)
+        : null;
+      const requested = !!model || stage !== null || Number.isFinite(targetDeltaKcal) || Number.isFinite(targetRateDeltaEquivalentKgPerWeek);
+      const nonZeroDelta = Math.abs(Number(targetDeltaKcal) || 0) > 1e-6
+        || Math.abs(Number(targetRateDeltaEquivalentKgPerWeek) || 0) > 1e-9;
+      return {
+        model,
+        stage,
+        targetDeltaKcal,
+        targetRateDeltaEquivalentKgPerWeek,
+        requested,
+        nonZeroDelta,
+        supportedModel: !model || model === PROFILE_CANDIDATE_V2_MODEL_KEY
+      };
+    }
+
     function buildGoalTargetRateContext(config = {}){
       const s = config.s || state;
       const modeCfg = config.modeCfg || {};
@@ -16076,6 +16107,23 @@ Notes:
       const energyAvailabilityAfterFloor = lbmForEnergyAvailability > 0
         ? (targetCal - exerciseKcalForEnergyAvailability) / lbmForEnergyAvailability
         : null;
+      const profileCandidateDelta = normalizeProfileCandidateTargetDeltaConfig(config);
+      const profileCandidateDeltaContract = {
+        version: PROFILE_CANDIDATE_TARGET_DELTA_CONTRACT_VERSION,
+        requested: profileCandidateDelta.requested,
+        active: profileCandidateDelta.requested && profileCandidateDelta.nonZeroDelta,
+        supportedModel: profileCandidateDelta.supportedModel,
+        appliedToTarget: false,
+        targetCalUnchangedByProfileCandidateDelta: true,
+        targetRateChangedByProfileCandidateDelta: false,
+        reasonCode: profileCandidateDelta.requested
+          ? "profile_candidate_delta_metadata_only_pending_recent_context_score_coach"
+          : "no_profile_candidate_delta",
+        rawTargetCalBeforeProfileCandidateDelta: rawTargetCal,
+        targetCalBeforeFloorBeforeProfileCandidateDelta: targetCalBeforeFloor,
+        targetCalAfterProfileCandidateDelta: targetCal,
+        nonGoal: "does_not_apply_candidate_delta_to_production_target"
+      };
       return {
         sourceVersion: TARGET_RATE_POLICY_VERSION,
         goal: s.goal,
@@ -16104,7 +16152,12 @@ Notes:
         energyAvailabilityFloorApplied: targetCal > targetCalBeforeFloor + 1e-6 && energyAvailabilityFloorTarget >= minimumTargetCal - 1e-6,
         energyAvailabilityLevel: Number.isFinite(energyAvailabilityAfterFloor)
           ? (energyAvailabilityAfterFloor < ENERGY_AVAILABILITY_FLOOR_KCAL_PER_LBM_KG ? "risk" : (energyAvailabilityAfterFloor < ENERGY_AVAILABILITY_CAUTION_KCAL_PER_LBM_KG ? "caution" : "ok"))
-          : "unknown"
+          : "unknown",
+        profileMacroCandidateModel: profileCandidateDelta.model,
+        profileMacroCandidateStage: profileCandidateDelta.stage,
+        profileTargetDeltaKcal: profileCandidateDelta.targetDeltaKcal,
+        profileTargetRateDeltaEquivalentKgPerWeek: profileCandidateDelta.targetRateDeltaEquivalentKgPerWeek,
+        profileCandidateDeltaContract
       };
     }
 
@@ -19603,6 +19656,10 @@ Notes:
         rawGoalDelta,
         clampedGoalDelta,
         targetRateContext,
+        profileMacroCandidateModel: targetRateContext.profileMacroCandidateModel,
+        profileMacroCandidateStage: targetRateContext.profileMacroCandidateStage,
+        profileTargetDeltaKcal: targetRateContext.profileTargetDeltaKcal,
+        profileTargetRateDeltaEquivalentKgPerWeek: targetRateContext.profileTargetRateDeltaEquivalentKgPerWeek,
         targetCalBeforeGoalFloor,
         goalTargetFloor: goalFloorResult.floor,
         goalTargetFloorApplied: goalTargetFloorContext.applied,
@@ -21718,6 +21775,107 @@ Notes:
       };
     }
 
+    const PROFILE_CANDIDATE_TARGET_DELTA_GATE_VERSION = "profileCandidateV2TargetDeltaGate.v1";
+
+    function isRecentContextLevelAtLeast(level, minimum){
+      return (RECENT_CONTEXT_CONFIDENCE_ORDER[level] ?? 0) >= (RECENT_CONTEXT_CONFIDENCE_ORDER[minimum] ?? 0);
+    }
+
+    function getProfileCandidateTargetDeltaConfigFromResult(currentResult = {}){
+      const context = currentResult?.targetRateContext || {};
+      return normalizeProfileCandidateTargetDeltaConfig({
+        profileMacroCandidateModel: currentResult?.profileMacroCandidateModel ?? context.profileMacroCandidateModel,
+        profileMacroCandidateStage: currentResult?.profileMacroCandidateStage ?? context.profileMacroCandidateStage,
+        profileTargetDeltaKcal: currentResult?.profileTargetDeltaKcal ?? context.profileTargetDeltaKcal,
+        profileTargetRateDeltaEquivalentKgPerWeek: currentResult?.profileTargetRateDeltaEquivalentKgPerWeek ?? context.profileTargetRateDeltaEquivalentKgPerWeek
+      });
+    }
+
+    function buildProfileCandidateV2TargetDeltaGate(currentResult = {}, windows = {}){
+      const delta = getProfileCandidateTargetDeltaConfigFromResult(currentResult);
+      const reviewWindow = windows[28] || null;
+      const supportWindow = windows[14] || null;
+      const base = {
+        version: PROFILE_CANDIDATE_TARGET_DELTA_GATE_VERSION,
+        sourceModel: delta.model,
+        sourceStage: delta.stage,
+        targetDeltaKcal: delta.targetDeltaKcal,
+        targetRateDeltaEquivalentKgPerWeek: delta.targetRateDeltaEquivalentKgPerWeek,
+        active: delta.requested && delta.nonZeroDelta,
+        reviewWindowDays: 28,
+        supportWindowDays: 14,
+        selectedWindowDays: reviewWindow?.windowDays || null,
+        supportWindowContextFit: supportWindow?.contextFit || null,
+        targetDeltaDirection: Number(delta.targetDeltaKcal) > 0 ? "increase" : (Number(delta.targetDeltaKcal) < 0 ? "decrease" : "none"),
+        targetDeltaApplied: false,
+        productionFormulaChanged: false,
+        nonGoal: "does_not_approve_candidate_v2_target_delta"
+      };
+      if (!base.active) {
+        return {
+          ...base,
+          status: "inactive",
+          decision: "no_candidate_delta",
+          canApplyAutomatically: false,
+          reasons: ["no_profile_candidate_delta"]
+        };
+      }
+      if (!delta.supportedModel) {
+        return {
+          ...base,
+          status: "blocked",
+          decision: "reject_candidate_delta",
+          canApplyAutomatically: false,
+          reasons: ["unsupported_candidate_model"]
+        };
+      }
+      if (!reviewWindow) {
+        return {
+          ...base,
+          status: "blocked",
+          decision: "reject_candidate_delta",
+          canApplyAutomatically: false,
+          reasons: ["missing_recent28_window"]
+        };
+      }
+      const hardBlockReasons = [];
+      const reviewReasons = [];
+      if (reviewWindow.goalChangeDetected) hardBlockReasons.push("recent28_goal_change_detected");
+      if (Number(reviewWindow.goalSnapshotCoverage || 0) < 0.70) hardBlockReasons.push("recent28_goal_snapshot_coverage_below_0_70");
+      if (Number(reviewWindow.usableDietDays || 0) < 1) hardBlockReasons.push("recent28_no_usable_diet_days");
+      if (Number(reviewWindow.weightDays || 0) < 7) hardBlockReasons.push("recent28_insufficient_weight_trend");
+      ["recordConfidence", "windowFit", "contextFit"].forEach(key => {
+        const level = reviewWindow[key] || "blocked";
+        if (!isRecentContextLevelAtLeast(level, "medium")) hardBlockReasons.push(`recent28_${key}_below_medium`);
+        else if (!isRecentContextLevelAtLeast(level, "high")) reviewReasons.push(`recent28_${key}_medium`);
+      });
+      if (hardBlockReasons.length) {
+        return {
+          ...base,
+          status: "blocked",
+          decision: "reject_candidate_delta",
+          canApplyAutomatically: false,
+          reasons: hardBlockReasons
+        };
+      }
+      if (reviewReasons.length) {
+        return {
+          ...base,
+          status: "needs_review",
+          decision: "dampen_or_manual_review",
+          canApplyAutomatically: false,
+          reasons: reviewReasons
+        };
+      }
+      return {
+        ...base,
+        status: "eligible",
+        decision: "eligible_for_candidate_delta_review",
+        canApplyAutomatically: false,
+        reasons: ["recent28_context_ready_but_formula_still_report_only"]
+      };
+    }
+
     function buildRecentContext(currentResult = calculate(), options = {}){
       const asOfDate = normalizeDateString(options.asOfDate) || getTodayDateString();
       const sourceRecords = Array.isArray(options.records) ? normalizeRecordsCollection(options.records) : getSortedRecords();
@@ -21736,14 +21894,17 @@ Notes:
         const bRank = (RECENT_CONTEXT_CONFIDENCE_ORDER[b.contextFit] ?? 0) + (RECENT_CONTEXT_CONFIDENCE_ORDER[b.windowFit] ?? 0) + (RECENT_CONTEXT_CONFIDENCE_ORDER[b.recordConfidence] ?? 0);
         return bRank - aRank || b.windowDays - a.windowDays;
       });
+      const profileCandidateV2TargetDeltaGate = buildProfileCandidateV2TargetDeltaGate(currentResult, windows);
       return {
         asOfDate,
         windows,
+        profileCandidateV2TargetDeltaGate,
         summary: {
           recordConfidence: windows[7]?.recordConfidence || "blocked",
           shortestUsableWindow: usableWindows.length ? Math.min(...usableWindows.map(window => window.windowDays)) : null,
           strongestUsableWindow: rankedWindows.length ? rankedWindows[0].windowDays : null,
           goalChangeDetected: RECENT_CONTEXT_WINDOWS.some(days => windows[days].goalChangeDetected),
+          profileCandidateV2TargetDeltaGateStatus: profileCandidateV2TargetDeltaGate.status,
           generatedAt: new Date().toISOString()
         }
       };
@@ -52628,8 +52789,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-P";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-P profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-Q";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-Q target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -55576,9 +55737,142 @@ Notes:
         outputHasCandidateV2Model: hasV8OwnContractKey(context, "profileMacroCandidateModel"),
         outputHasProfileTargetDeltaKcal: hasV8OwnContractKey(context, "profileTargetDeltaKcal"),
         outputHasProfileTargetRateDeltaEquivalentKgPerWeek: hasV8OwnContractKey(context, "profileTargetRateDeltaEquivalentKgPerWeek"),
+        outputProfileMacroCandidateModel: context?.profileMacroCandidateModel ?? null,
+        outputProfileTargetDeltaKcal: context?.profileTargetDeltaKcal ?? null,
+        outputProfileTargetRateDeltaEquivalentKgPerWeek: context?.profileTargetRateDeltaEquivalentKgPerWeek ?? null,
+        profileCandidateDeltaContract: context?.profileCandidateDeltaContract || null,
         selectedWeeklyRate: context?.selectedWeeklyRate ?? null,
         weeklyBodyWeightDeltaKg: context?.weeklyBodyWeightDeltaKg ?? null,
         targetCal: context?.targetCal ?? null
+      };
+    }
+
+    function buildV8ProfileCandidateV2GateFixtureRecords(config = {}){
+      const asOfDate = normalizeDateString(config.asOfDate) || "2026-06-03";
+      const days = Number.isFinite(Number(config.days)) ? Math.max(1, Math.round(Number(config.days))) : 28;
+      const snapshotCoverage = Number.isFinite(Number(config.snapshotCoverage)) ? clamp(Number(config.snapshotCoverage), 0, 1) : 1;
+      const goalChangeStartIndex = Number.isFinite(Number(config.goalChangeStartIndex)) ? Math.round(Number(config.goalChangeStartIndex)) : null;
+      const snapshotDays = Math.round(days * snapshotCoverage);
+      return Array.from({ length: days }, (_, index) => {
+        const date = shiftDateString(asOfDate, -(days - 1 - index));
+        const goal = goalChangeStartIndex !== null && index >= goalChangeStartIndex ? "maintain" : "diet";
+        const includeSnapshot = index < snapshotDays;
+        const goalSnapshot = includeSnapshot ? normalizeGoalSnapshot({
+          targetCal: 2500,
+          protein: 150,
+          carbs: 320,
+          fat: 70,
+          mode: "athlete",
+          goal,
+          weight: 75,
+          height: 175,
+          age: 32,
+          gender: "male",
+          bodyFat: 18,
+          skeletal: 34,
+          activityLevel: "moderate",
+          workType: "office",
+          weeklyTrainingDays: 4,
+          exerciseProfile: "mixed",
+          profileSession: "mixed_strength_cardio",
+          routinePlan: "ppl_ul",
+          routine: "PUSH",
+          intensityOverride: 1.0,
+          weightDuration: 60,
+          cardioType: "treadmill_run",
+          cardioDuration: 40,
+          cardioSpeed: 10,
+          cardioIncline: 1,
+          profileMacroCandidateModel: V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
+          profileMacroCandidateStage: "9-7_profile_macro_candidate_v2_linked_target_v0",
+          profileTargetDeltaKcal: 43.72915555555528,
+          profileTargetRateDeltaEquivalentKgPerWeek: 0.03975377777777753
+        }) : null;
+        return {
+          date,
+          recordMode: "detailed",
+          weight: 75 + index * 0.01,
+          goalSnapshot,
+          meals: [
+            { mealLabel: "아침", carbs: 130, protein: 65, fat: 28 },
+            { mealLabel: "저녁", carbs: 170, protein: 75, fat: 34 }
+          ]
+        };
+      });
+    }
+
+    function buildV8ProfileMacroCandidateV2RecentContextGateProbe(){
+      const profileDeltaInput = {
+        profileMacroCandidateModel: V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
+        profileMacroCandidateStage: "9-7_profile_macro_candidate_v2_linked_target_v0",
+        profileTargetDeltaKcal: 43.72915555555528,
+        profileTargetRateDeltaEquivalentKgPerWeek: 0.03975377777777753
+      };
+      const targetRateContext = buildGoalTargetRateContext({
+        s: {
+          goal: "diet",
+          weight: 75,
+          gender: "male",
+          bodyFat: 18,
+          weeklyTrainingDays: 4
+        },
+        modeCfg: { inputDepth: "advanced", preset: "athlete" },
+        targetBurnBase: 2500,
+        bmr: 1650,
+        lbmBase: 61.5,
+        weightKcal: 320,
+        cardio: { kcal: 420 },
+        epocKcal: 40,
+        ...profileDeltaInput
+      });
+      const candidateResult = {
+        isCalculable: true,
+        s: { goal: "diet" },
+        targetRateContext,
+        ...profileDeltaInput
+      };
+      const asOfDate = "2026-06-03";
+      const eligibleContext = buildRecentContext(candidateResult, {
+        asOfDate,
+        records: buildV8ProfileCandidateV2GateFixtureRecords({ asOfDate, snapshotCoverage: 1 })
+      });
+      const blockedCoverageContext = buildRecentContext(candidateResult, {
+        asOfDate,
+        records: buildV8ProfileCandidateV2GateFixtureRecords({ asOfDate, snapshotCoverage: 0.5 })
+      });
+      const blockedGoalChangeContext = buildRecentContext(candidateResult, {
+        asOfDate,
+        records: buildV8ProfileCandidateV2GateFixtureRecords({ asOfDate, snapshotCoverage: 1, goalChangeStartIndex: 20 })
+      });
+      const inactiveContext = buildRecentContext({ isCalculable: true, s: { goal: "diet" }, targetRateContext: buildGoalTargetRateContext({
+        s: { goal: "diet", weight: 75, gender: "male", bodyFat: 18, weeklyTrainingDays: 4 },
+        modeCfg: { inputDepth: "advanced", preset: "athlete" },
+        targetBurnBase: 2500,
+        bmr: 1650,
+        lbmBase: 61.5,
+        weightKcal: 320,
+        cardio: { kcal: 420 },
+        epocKcal: 40
+      }) }, {
+        asOfDate,
+        records: buildV8ProfileCandidateV2GateFixtureRecords({ asOfDate, snapshotCoverage: 1 })
+      });
+      const eligibleGate = eligibleContext.profileCandidateV2TargetDeltaGate;
+      const blockedCoverageGate = blockedCoverageContext.profileCandidateV2TargetDeltaGate;
+      const blockedGoalChangeGate = blockedGoalChangeContext.profileCandidateV2TargetDeltaGate;
+      const inactiveGate = inactiveContext.profileCandidateV2TargetDeltaGate;
+      return {
+        hasGateFunction: typeof buildProfileCandidateV2TargetDeltaGate === "function",
+        eligibleStatus: eligibleGate?.status || null,
+        eligibleDecision: eligibleGate?.decision || null,
+        eligibleCanApplyAutomatically: eligibleGate?.canApplyAutomatically ?? null,
+        eligibleWindow: eligibleGate?.selectedWindowDays || null,
+        blockedCoverageStatus: blockedCoverageGate?.status || null,
+        blockedCoverageReasons: blockedCoverageGate?.reasons || [],
+        blockedGoalChangeStatus: blockedGoalChangeGate?.status || null,
+        blockedGoalChangeReasons: blockedGoalChangeGate?.reasons || [],
+        inactiveStatus: inactiveGate?.status || null,
+        inactiveReasons: inactiveGate?.reasons || []
       };
     }
 
@@ -55586,6 +55880,7 @@ Notes:
       const summary = profileMacroCandidateV2Comparison?.summary || {};
       const snapshotProbe = buildV8ProfileMacroCandidateV2SnapshotProbe();
       const rateProbe = buildV8ProfileMacroCandidateV2RateProbe();
+      const recentGateProbe = buildV8ProfileMacroCandidateV2RecentContextGateProbe();
       const hasExerciseProfileInput = hasV8OwnContractKey(ids, "exerciseProfile")
         || hasV8OwnContractKey(ids, "todayExerciseProfile")
         || hasV8OwnContractKey(ids, "settingsExerciseProfile");
@@ -55596,7 +55891,21 @@ Notes:
         && TODAY_CALCULATION_DRAFT_FIELDS.includes("todayProfileSession");
       const hasTargetRateCandidateDeltaContract = rateProbe.outputHasCandidateV2Model
         && rateProbe.outputHasProfileTargetDeltaKcal
-        && rateProbe.outputHasProfileTargetRateDeltaEquivalentKgPerWeek;
+        && rateProbe.outputHasProfileTargetRateDeltaEquivalentKgPerWeek
+        && rateProbe.outputProfileMacroCandidateModel === rateProbe.input.profileMacroCandidateModel
+        && Math.abs(rateProbe.outputProfileTargetDeltaKcal - rateProbe.input.profileTargetDeltaKcal) < 1e-9
+        && Math.abs(rateProbe.outputProfileTargetRateDeltaEquivalentKgPerWeek - rateProbe.input.profileTargetRateDeltaEquivalentKgPerWeek) < 1e-12
+        && rateProbe.profileCandidateDeltaContract?.appliedToTarget === false
+        && rateProbe.profileCandidateDeltaContract?.targetCalUnchangedByProfileCandidateDelta === true;
+      const hasRecentContextTargetDeltaGateContract = recentGateProbe.hasGateFunction === true
+        && recentGateProbe.eligibleStatus === "eligible"
+        && recentGateProbe.eligibleCanApplyAutomatically === false
+        && recentGateProbe.eligibleWindow === 28
+        && recentGateProbe.blockedCoverageStatus === "blocked"
+        && recentGateProbe.blockedCoverageReasons.includes("recent28_goal_snapshot_coverage_below_0_70")
+        && recentGateProbe.blockedGoalChangeStatus === "blocked"
+        && recentGateProbe.blockedGoalChangeReasons.includes("recent28_goal_change_detected")
+        && recentGateProbe.inactiveStatus === "inactive";
       const hasSnapshotCandidateFields = snapshotProbe.missingNormalizedFields.length === 0;
       const hasSignatureCandidateFields = snapshotProbe.missingSignatureFields.length === 0;
       const hasProfileMacroScoreContract = [
@@ -55739,11 +56048,16 @@ Notes:
         makeV8ProfileMacroCandidateV2ContractItem({
           key: "recentContext.profileCandidateV2TargetDeltaGate",
           area: "recent_context",
-          present: false,
-          currentFallback: "recent_windows_goal_snapshot_without_candidate_delta",
-          currentBehavior: "RECENT_CONTEXT_WINDOWS exist, but there is no candidate-v2 target-delta gate that ties recent28 trend to the linked target/rate delta.",
+          present: hasRecentContextTargetDeltaGateContract,
+          currentFallback: hasRecentContextTargetDeltaGateContract ? "recent28_candidate_delta_gate_present" : "recent_windows_goal_snapshot_without_candidate_delta",
+          currentBehavior: hasRecentContextTargetDeltaGateContract
+            ? "recentContext exposes a candidate-v2 target-delta gate with eligible, blocked, and inactive outcomes."
+            : "RECENT_CONTEXT_WINDOWS exist, but there is no candidate-v2 target-delta gate that ties recent28 trend to the linked target/rate delta.",
           requiredBeforeProduction: "Define whether recent14/recent28 can accept, dampen, or reject candidate-v2 target deltas.",
-          userImpactRisk: "A target delta made for a hard training session could conflict with recent weight trend feedback without explanation."
+          userImpactRisk: "A target delta made for a hard training session could conflict with recent weight trend feedback without explanation.",
+          evidence: {
+            recentGateProbe
+          }
         }),
         makeV8ProfileMacroCandidateV2ContractItem({
           key: "backup/export/import profileCandidateV2 roundtrip",
@@ -55809,7 +56123,7 @@ Notes:
       const snapshotFieldMissingCount = snapshotProbe.missingNormalizedFields.length + snapshotProbe.missingSignatureFields.length;
       return {
         meta: {
-          stage: "9-8_profile_macro_candidate_v2_production_contract_review_v1_input_snapshot",
+          stage: "9-8_profile_macro_candidate_v2_production_contract_review_v2_target_recent_gate",
           reportOnly: true,
           productionFormulaChanged: false,
           candidateFormulaApproved: false,
@@ -55817,7 +56131,7 @@ Notes:
           sourceCandidateStage: profileMacroCandidateV2Comparison?.meta?.stage || null,
           sourceCandidateModel: profileMacroCandidateV2Comparison?.meta?.model || V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
           evidencePolicy: "internal code-contract review; external sports-nutrition references remain threshold background only and do not approve app-wide production behavior",
-          nonGoal: "does_not_change_macro_formula_score_coach_or_recent_context"
+          nonGoal: "does_not_change_macro_formula_score_or_coach"
         },
         evidenceReferences: {
           currentFormulaReport: V8_MACRO_AUDIT_REFERENCES.currentFormulaReport,
@@ -55825,7 +56139,7 @@ Notes:
           resistanceCarbohydrateReview2016: V8_PROFILE_SESSION_CARB_REFERENCES.resistanceCarbohydrateReview2016,
           contractReview: {
             evidenceLevel: "internal_code_contract_review_not_external_exercise_physiology",
-            source: "v8.0-P profile/session input-snapshot contract",
+            source: "v8.0-Q target-rate recentContext candidate-delta contract",
             scope: "app-wide production readiness across Settings/Today, target-rate, Records, score, Coach, recent context, and backup/import",
             appUse: "prevent report-only candidate-v2 from being misread as production-ready"
           }
@@ -55844,7 +56158,8 @@ Notes:
         },
         probes: {
           snapshot: snapshotProbe,
-          targetRate: rateProbe
+          targetRate: rateProbe,
+          recentContextGate: recentGateProbe
         },
         contracts,
         summary: {
@@ -55863,7 +56178,6 @@ Notes:
           productionReady: productionBlockers.length === 0
         },
         requiredNextActions: [
-          "Define candidate-v2 target-rate/recent28 contract before any target delta can affect production.",
           "Define score and Daily Coach threshold/decision/copy behavior for profile carb floors and unresolved guard conflicts.",
           "Resolve or explicitly justify protein/fat guard behavior before approving a profile-specific macro formula."
         ]
@@ -56918,7 +57232,7 @@ Notes:
               "9-7 profile macro candidate-v1 is report-only; it checks whether running/mixed carb floors can be met without targetCal changes and keeps resistance profiles review-only.",
               "8-2 targetedStress is a human-review queue from pairwise/profile residual signals; calculated cases and constraint-only exclusions are separated.",
               "9-7 profile macro candidate-v2 is report-only; it tests linked target/rate deltas and reports protein/fat guard conflicts without approving production.",
-              "9-8 profile macro candidate-v2 production contract review is report-only; Settings/Today input and Records snapshot contracts are closed, while target-rate, score, Coach, recent context, and guard conflicts still block production.",
+              "9-8 profile macro candidate-v2 production contract review is report-only; Settings/Today, Records snapshot, target-rate metadata, and recentContext gate contracts are closed, while score, Coach, and guard conflicts still block production.",
               "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, candidate-v8-profile-macro-v1, or candidate-v8-profile-macro-v2-linked-target-v0 as the final v8 formula."
             ]
           },
@@ -56978,7 +57292,9 @@ Notes:
               settingsTodayContractMissingCount: profileMacroCandidateV2Contract.summary.settingsTodayContractMissingCount,
               snapshotFieldMissingCount: profileMacroCandidateV2Contract.summary.snapshotFieldMissingCount,
               targetRateContractMissingCount: profileMacroCandidateV2Contract.summary.targetRateContractMissingCount,
-              scoreCoachContractMissingCount: profileMacroCandidateV2Contract.summary.scoreCoachContractMissingCount
+              scoreCoachContractMissingCount: profileMacroCandidateV2Contract.summary.scoreCoachContractMissingCount,
+              recentContextContractMissingCount: profileMacroCandidateV2Contract.summary.recentContextContractMissingCount,
+              backupImportContractMissingCount: profileMacroCandidateV2Contract.summary.backupImportContractMissingCount
             },
             pairwiseStress: {
               stage: pairwiseStress.meta.stage,
@@ -57298,7 +57614,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-P", "v8 runner version should advance to 8.0-P");
+          assertTest(report.meta.version === "8.0-Q", "v8 runner version should advance to 8.0-Q");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -57426,11 +57742,11 @@ Notes:
           assertTest(findInvalidCalibrationNumber(comparison).length === 0, "profile macro candidate-v2 report should not contain NaN or Infinity");
         }));
 
-        results.push(runNamedTest("v8.0-P profile/session input-snapshot contract narrows candidate-v2 rollout blockers", () => {
+        results.push(runNamedTest("v8.0-Q target-rate recentContext candidate-delta contract narrows candidate-v2 rollout blockers", () => {
           const report = runV8ScenarioRunner();
-          assertTest(report.meta.version === "8.0-P", "v8 runner version should advance to v8.0-P");
+          assertTest(report.meta.version === "8.0-Q", "v8 runner version should advance to v8.0-Q");
           const contract = report.profileMacroCandidateV2Contract;
-          assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v1_input_snapshot", "candidate-v2 contract should identify 9-8 input-snapshot contract review");
+          assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v2_target_recent_gate", "candidate-v2 contract should identify 9-8 target/recent gate contract review");
           assertTest(contract.meta.reportOnly === true, "candidate-v2 contract should be report-only");
           assertTest(contract.meta.productionFormulaChanged === false, "candidate-v2 contract must not change production formula");
           assertTest(contract.meta.candidateFormulaApproved === false, "candidate-v2 contract must not approve candidate-v2");
@@ -57438,26 +57754,29 @@ Notes:
           assertIncludesAll(contract.meta.evidencePolicy, ["internal code-contract", "do not approve app-wide production"], "candidate-v2 contract should not overclaim external evidence");
           assertTest(contract.candidateV2SignalSummary.targetRateContractRequiredCount > 0, "contract should carry candidate-v2 target-rate signal count");
           assertTest(contract.candidateV2SignalSummary.proteinGuardConflictCount > 0, "contract should carry candidate-v2 protein guard conflict count");
-          assertTest(contract.summary.missingContractCount === 5, "candidate-v2 contract should narrow missing production contracts after input/snapshot closure");
-          assertTest(contract.summary.productionBlockerCount === 6, "candidate-v2 contract should keep remaining rollout blockers plus protein conflict");
-          assertTest(contract.summary.presentCount === 9, "candidate-v2 contract should mark input/snapshot/backup contracts present");
+          assertTest(contract.summary.missingContractCount === 3, "candidate-v2 contract should narrow missing production contracts after target/recent gate closure");
+          assertTest(contract.summary.productionBlockerCount === 4, "candidate-v2 contract should keep remaining score/Coach blockers plus protein conflict");
+          assertTest(contract.summary.presentCount === 11, "candidate-v2 contract should mark input/snapshot/backup/target/recent contracts present");
           assertTest(contract.summary.productionReady === false, "summary should also mark candidate-v2 as not production-ready");
           assertTest(contract.summary.settingsTodayContractMissingCount === 0, "Settings/Today profile inputs should be closed");
           assertTest(contract.summary.snapshotFieldMissingCount === 0, "snapshot/signature candidate-v2 fields should be closed");
-          assertTest(contract.summary.targetRateContractMissingCount === 1, "target-rate candidate delta contract should be missing");
+          assertTest(contract.summary.targetRateContractMissingCount === 0, "target-rate candidate delta contract should be closed");
           assertTest(contract.summary.scoreCoachContractMissingCount === 3, "score and Coach profile contracts should remain missing");
+          assertTest(contract.summary.recentContextContractMissingCount === 0, "recentContext candidate target-delta gate should be closed");
           assertTest(contract.summary.backupImportContractMissingCount === 0, "backup/import candidate-v2 roundtrip should be closed through snapshot schema");
 
           const keys = contract.contracts.map(item => item.key).join(" ");
           assertIncludesAll(keys, [
             "Settings/Today exerciseProfile input",
             "Settings/Today profileSession input",
+            "Today calculation draft profile/session persistence",
             "buildGoalTargetRateContext.profileCandidateDelta",
             "normalizeGoalSnapshot.profileCandidateFields",
             "getGoalSnapshotSignature.profileCandidateFields",
             "MACRO_SCORE_PROFILES.profileCandidateV2",
             "DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.profileCandidateV2",
             "DAILY_COACH_DECISION_PROFILES.profileCandidateV2",
+            "recentContext.profileCandidateV2TargetDeltaGate",
             "backup/export/import profileCandidateV2 roundtrip",
             "profileMacroCandidateV2Comparison.reportOnlyGuard",
             "targetedStress.constraintOnlyTupleGuard"
@@ -57470,7 +57789,7 @@ Notes:
           const draft = contract.contracts.find(item => item.key === "Today calculation draft profile/session persistence");
           assertTest(draft?.present === true && draft.productionBlocker === false, "Today draft profile/session persistence should be present");
           const rate = contract.contracts.find(item => item.key === "buildGoalTargetRateContext.profileCandidateDelta");
-          assertTest(rate?.present === false && rate.productionBlocker === true, "target-rate candidate delta should be a missing production blocker");
+          assertTest(rate?.present === true && rate.productionBlocker === false, "target-rate candidate delta metadata should be present without applying production target delta");
           assertTest(rate.evidence.targetRateContractRequiredCount === report.profileMacroCandidateV2Comparison.summary.targetRateContractRequiredCount, "target-rate contract should reference candidate-v2 signal count");
           const snapshot = contract.contracts.find(item => item.key === "normalizeGoalSnapshot.profileCandidateFields");
           assertTest(snapshot?.present === true && snapshot.productionBlocker === false, "goalSnapshot profile candidate fields should be present");
@@ -57484,8 +57803,25 @@ Notes:
           assertTest(contract.probes.snapshot.normalizedHasCandidateV2TargetRateDelta === true, "snapshot probe should show candidate-v2 target-rate delta is normalized");
           assertTest(contract.probes.snapshot.signatureHasProfileSession === true, "signature probe should show profileSession is part of equivalence");
           assertTest(contract.probes.snapshot.signatureHasCandidateV2TargetDelta === true, "signature probe should show candidate-v2 target delta is part of equivalence");
-          assertTest(contract.probes.targetRate.outputHasProfileTargetDeltaKcal === false, "target-rate probe should show candidate target delta is not returned");
-          assertTest(contract.probes.targetRate.outputHasProfileTargetRateDeltaEquivalentKgPerWeek === false, "target-rate probe should show candidate weekly-rate delta is not returned");
+          assertTest(contract.probes.targetRate.outputHasCandidateV2Model === true, "target-rate probe should preserve candidate-v2 model metadata");
+          assertTest(contract.probes.targetRate.outputHasProfileTargetDeltaKcal === true, "target-rate probe should return candidate target delta metadata");
+          assertTest(contract.probes.targetRate.outputHasProfileTargetRateDeltaEquivalentKgPerWeek === true, "target-rate probe should return candidate weekly-rate delta metadata");
+          assertTest(contract.probes.targetRate.outputProfileMacroCandidateModel === V8_PROFILE_MACRO_CANDIDATE_V2_MODEL, "target-rate probe should preserve candidate-v2 model key");
+          assertClose(contract.probes.targetRate.outputProfileTargetDeltaKcal, contract.probes.targetRate.input.profileTargetDeltaKcal, 0.000000001, "target-rate probe should preserve target delta value");
+          assertClose(contract.probes.targetRate.outputProfileTargetRateDeltaEquivalentKgPerWeek, contract.probes.targetRate.input.profileTargetRateDeltaEquivalentKgPerWeek, 0.000000000001, "target-rate probe should preserve weekly-rate delta value");
+          assertTest(contract.probes.targetRate.profileCandidateDeltaContract?.appliedToTarget === false, "target-rate contract should not apply candidate delta to production targetCal");
+          assertTest(contract.probes.targetRate.profileCandidateDeltaContract?.targetCalUnchangedByProfileCandidateDelta === true, "target-rate contract should state production targetCal is unchanged");
+
+          const recentGate = contract.contracts.find(item => item.key === "recentContext.profileCandidateV2TargetDeltaGate");
+          assertTest(recentGate?.present === true && recentGate.productionBlocker === false, "recentContext target-delta gate should be present without approving formula application");
+          assertTest(contract.probes.recentContextGate.eligibleStatus === "eligible", "recentContext gate should expose an eligible high-confidence recent28 case");
+          assertTest(contract.probes.recentContextGate.eligibleCanApplyAutomatically === false, "recentContext gate must not auto-apply candidate-v2 target delta");
+          assertTest(contract.probes.recentContextGate.eligibleWindow === 28, "recentContext gate should use recent28 as the review window");
+          assertTest(contract.probes.recentContextGate.blockedCoverageStatus === "blocked", "recentContext gate should block low snapshot coverage");
+          assertIncludesAll(contract.probes.recentContextGate.blockedCoverageReasons.join(" "), ["recent28_goal_snapshot_coverage_below_0_70"], "recentContext gate should name low snapshot coverage as a block reason");
+          assertTest(contract.probes.recentContextGate.blockedGoalChangeStatus === "blocked", "recentContext gate should block recent goal changes");
+          assertIncludesAll(contract.probes.recentContextGate.blockedGoalChangeReasons.join(" "), ["recent28_goal_change_detected"], "recentContext gate should name recent goal change as a block reason");
+          assertTest(contract.probes.recentContextGate.inactiveStatus === "inactive", "recentContext gate should stay inactive when no candidate delta exists");
 
           const reportGuard = contract.contracts.find(item => item.key === "profileMacroCandidateV2Comparison.reportOnlyGuard");
           assertTest(reportGuard?.present === true && reportGuard.productionBlocker === false, "candidate-v2 report-only guard should be present and not itself a blocker");

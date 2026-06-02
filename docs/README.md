@@ -1,5 +1,14 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-Q target-rate recentContext candidate-delta contract note
+
+- `index.html` now preserves candidate-v2 target/rate delta metadata through `buildGoalTargetRateContext()` and exposes a `profileCandidateDeltaContract`.
+- `recentContext` now includes `profileCandidateV2TargetDeltaGate` with eligible, blocked, and inactive outcomes. The gate uses recent28 as the review window and blocks low goal-snapshot coverage or recent goal changes.
+- This closes the target-rate metadata and recentContext gate contracts only. It does not apply candidate-v2 target deltas to production `targetCal`, does not approve `candidate-v8-profile-macro-v2-linked-target-v0`, and does not change score or Daily Coach behavior.
+- Direct extraction on 2026-06-03: `contractCount=14`, `presentCount=11`, `missingContractCount=3`, `productionBlockerCount=4`, `targetRateContractMissingCount=0`, `recentContextContractMissingCount=0`, `productionReady=false`.
+- Remaining missing production contracts are macro score profile, Daily Coach threshold, and Daily Coach decision/copy. The extra production blocker is still `profileMacroCandidateV2Comparison.proteinGuardConflict`.
+- Direct probe check: candidate target/rate deltas are returned as metadata, `appliedToTarget=false`, `targetCalUnchangedByProfileCandidateDelta=true`, and recentContext `eligibleCanApplyAutomatically=false`.
+
 # v8.0-P profile/session input-snapshot contract note
 
 - `index.html` now exposes Settings/Today `exerciseProfile` and `profileSession` inputs and preserves them through Today draft, calculation state, Records `goalSnapshot`, snapshot signature, and full backup.
@@ -26,7 +35,7 @@
 - Direct extraction on 2026-06-03: candidate-v2 comparison covers 96 cases = axis coverage 73 + human-review 18 + targeted calculated 5.
 - `profileCarbFloorAttemptedCount=5`, `profileCarbFloorMetCount=5`, `profileCarbFloorUnresolvedCount=0`, `targetChangedCount=5`, `targetRateContractRequiredCount=5`, `proteinGuardConflictCount=4`.
 - For `targeted_mixed_carb_unresolved`, candidate-v2 opens `targetDeltaKcal=43.72915555555528`, `targetRateDeltaEquivalentKgPerWeek=0.03975377777777753`, and reaches `carbsGPerKgBodyweight=6`.
-- This is not production approval. At v8.0-N those target/rate deltas still needed recent trend, score, Coach, Records, Settings/Today, and backup/import contracts; v8.0-P closes only the input/snapshot/backup part.
+- This is not production approval. At v8.0-N those target/rate deltas still needed recent trend, score, Coach, Records, Settings/Today, and backup/import contracts; v8.0-P closes the input/snapshot/backup part and v8.0-Q closes target-rate metadata plus the recentContext gate, but score/Coach and protein guard blockers still remain.
 
 # v8.0-M targetedStress note
 
