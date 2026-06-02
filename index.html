@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-M targeted stress review 1차 구현
+Stage: v8.0-N profile macro candidate-v2 1차 구현
 Date: 2026-06-03
 Notes:
+- v8.0-N profile macro candidate-v2 report-only 레이어를 추가해 mixed carb unresolved의 target/rate delta와 protein/fat guard 충돌을 함께 검토
 - v8.0-M targetedStress report-only 레이어를 추가해 pairwise/profile residual signal을 5개 calculated review case와 3개 constraint-only excluded tuple로 분리
 - v8.0-L 8-2 필수축 full cross-product를 실행했다고 주장하지 않고, 제약 기반 pairwise stress report-only 레이어를 추가해 806억 축을 더 강하게 검증
 - v8.0-L pairwise 제약은 profile/session, rest/duration, running/mixed cardio coherence를 명시하고 제외 pair를 별도 집계해 18개 human-review와 혼동하지 않게 함
@@ -52379,8 +52380,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-M";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-M targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-N";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-N profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -54040,6 +54041,7 @@ Notes:
 
     const V8_CONTEXT_MACRO_CANDIDATE_MODEL = "candidate-v8-context-macro-v0";
     const V8_PROFILE_MACRO_CANDIDATE_MODEL = "candidate-v8-profile-macro-v1";
+    const V8_PROFILE_MACRO_CANDIDATE_V2_MODEL = "candidate-v8-profile-macro-v2-linked-target-v0";
 
     function getV8ContextMacroCandidateProteinCapKg(input){
       const goal = input?.axisGoal || input?.goal;
@@ -54841,6 +54843,369 @@ Notes:
         humanReviewSummary: summarizeV8ProfileMacroCandidateComparisons(humanCases),
         requiredRegression,
         profileStressRegression,
+        cases: comparisons
+      };
+    }
+
+    function makeV8ProfileMacroCandidateV2Finding(id, severity, evidenceKeys, note, details = {}){
+      return {
+        id,
+        severity,
+        evidenceKeys,
+        note,
+        details
+      };
+    }
+
+    function buildV8ProfileMacroCandidateV2Output(item, profilePolicyCase){
+      const input = item?.input || {};
+      const contextCandidate = buildV8ContextMacroCandidateOutput(item);
+      const v1Candidate = buildV8ProfileMacroCandidateOutput(item, profilePolicyCase);
+      const policy = profilePolicyCase?.policy || getV8ProfileSessionCarbPolicy(input);
+      const range = policy.externalCarbReviewRangeGPerKg || null;
+      const targetCalBase = Math.max(0, Number(contextCandidate?.target?.finalTargetCal) || 0);
+      const weight = Math.max(1, Number(input.weight) || 1);
+      const lbm = Math.max(1, Number(input.lbm) || weight);
+      const base = contextCandidate.macro || {};
+      const protein = Math.max(0, Number(base.protein_g) || 0);
+      const fat = Math.max(0, Number(base.fat_g) || 0);
+      const baseCarbs = Math.max(0, Number(base.carb_g) || 0);
+      const baseCarbsKg = baseCarbs / weight;
+      const minimums = getV8ProfileMacroCandidateMinimums(input, contextCandidate);
+      const shouldApplyProfileCarbFloor = isV8ProfileCarbFloorCandidatePolicy(policy, input);
+      const profileCarbFloorAttempted = shouldApplyProfileCarbFloor
+        && range
+        && Number.isFinite(baseCarbsKg)
+        && baseCarbsKg < range.min - 1e-6;
+      const requiredCarbFloorG = profileCarbFloorAttempted ? range.min * weight : null;
+      const requiredTargetCalForCarbFloor = profileCarbFloorAttempted
+        ? protein * 4 + fat * 9 + requiredCarbFloorG * 4
+        : targetCalBase;
+      const targetDeltaKcal = Math.max(0, requiredTargetCalForCarbFloor - targetCalBase);
+      const targetCal = targetCalBase + targetDeltaKcal;
+      const carbs = Math.max(0, (targetCal - protein * 4 - fat * 9) / 4);
+      const carbsKg = carbs / weight;
+      const fatKg = fat / weight;
+      const profileCarbFloorMet = !profileCarbFloorAttempted
+        || (range && Number.isFinite(carbsKg) && carbsKg >= range.min - 1e-6);
+      const targetRateDeltaEquivalentKgPerWeek = targetDeltaKcal * 7 / TARGET_RATE_KCAL_PER_KG;
+      const macroInfo = buildMacroAllocationInfo({
+        targetCal,
+        protein,
+        carbs,
+        fat,
+        carbCap: base.range_context?.carbs?.max ? base.range_context.carbs.max * weight : undefined,
+        fatCap: base.range_context?.fat?.max ? base.range_context.fat.max * weight : undefined,
+        fatHardCap: base.range_context?.fat?.flexibleMax ? base.range_context.fat.flexibleMax * weight : undefined,
+        proteinCap: base.range_context?.protein?.max ? base.range_context.protein.max * weight : undefined
+      });
+      const findings = [];
+      const reasons = [
+        "candidate_profile_macro_v2_report_only",
+        "source_candidate_v8_context_macro_v0",
+        "profile_target_rate_delta_explicit"
+      ];
+
+      if (profileCarbFloorAttempted) {
+        findings.push(makeV8ProfileMacroCandidateV2Finding(
+          "profile_carb_floor_attempted_v2",
+          "review",
+          policy.evidenceKeys,
+          "candidate-v2 repeats the running/mixed carbohydrate floor check while allowing an explicit target/rate delta.",
+          { requiredCarbFloorGPerKg: range.min, baseCarbsGPerKgBodyweight: baseCarbsKg }
+        ));
+        reasons.push("profile_session_carb_floor_attempted");
+      }
+      if (targetDeltaKcal > 1e-6) {
+        findings.push(makeV8ProfileMacroCandidateV2Finding(
+          "profile_carb_floor_requires_target_rate_contract",
+          input.goal === "diet" || input.goal === "cut" ? "high" : "review",
+          ["currentFormulaReport", ...policy.evidenceKeys],
+          "Meeting the profile/session carbohydrate floor requires a target-calorie increase, so v8 must explicitly review the linked goal-rate and recent-trend contracts.",
+          {
+            targetDeltaKcal,
+            targetRateDeltaEquivalentKgPerWeek,
+            goal: input.goal,
+            recent28: input.recent28
+          }
+        ));
+        reasons.push("target_calorie_delta_required_for_profile_carb_floor");
+      } else {
+        reasons.push("target_calorie_delta_not_required");
+      }
+      if (profileCarbFloorAttempted && profileCarbFloorMet && targetDeltaKcal > 1e-6) {
+        findings.push(makeV8ProfileMacroCandidateV2Finding(
+          "profile_carb_floor_met_by_target_delta_report_only",
+          "review",
+          policy.evidenceKeys,
+          "candidate-v2 can meet the profile/session carbohydrate floor by opening target calories, but this is only a linked-target feasibility check.",
+          { candidateCarbsGPerKgBodyweight: carbsKg, reviewFloor: range.min, targetDeltaKcal }
+        ));
+        reasons.push("profile_session_carb_floor_met_by_target_delta");
+      }
+      if (profileCarbFloorAttempted && profileCarbFloorMet && targetDeltaKcal <= 1e-6) {
+        findings.push(makeV8ProfileMacroCandidateV2Finding(
+          "profile_carb_floor_met_without_target_delta_report_only",
+          "review",
+          policy.evidenceKeys,
+          "candidate-v2 does not need a target delta for this case because the floor is already feasible under the context candidate.",
+          { candidateCarbsGPerKgBodyweight: carbsKg, reviewFloor: range.min }
+        ));
+      }
+      if (profileCarbFloorAttempted && !profileCarbFloorMet) {
+        findings.push(makeV8ProfileMacroCandidateV2Finding(
+          "profile_carb_floor_unresolved_after_v2",
+          "high",
+          policy.evidenceKeys,
+          "candidate-v2 still cannot meet the profile/session carbohydrate floor; this case needs a broader target/protein/fat redesign.",
+          { candidateCarbsGPerKgBodyweight: carbsKg, reviewFloor: range.min }
+        ));
+        reasons.push("profile_session_carb_floor_unresolved_after_v2");
+      }
+      if (profileCarbFloorAttempted && protein < minimums.proteinMinG - 1e-6) {
+        findings.push(makeV8ProfileMacroCandidateV2Finding(
+          "profile_protein_guard_conflict_unresolved",
+          "high",
+          ["issnProtein2017", "currentFormulaReport"],
+          "candidate-v2 preserves the context-candidate protein value; it does not resolve the remaining conflict with the current guide/profile protein guard.",
+          {
+            proteinG: protein,
+            proteinGPerKgBodyweight: protein / weight,
+            guardProteinMinG: minimums.proteinMinG,
+            guardProteinMinKg: minimums.proteinMinKg
+          }
+        ));
+        reasons.push("profile_protein_guard_conflict_unresolved");
+      }
+      if (profileCarbFloorAttempted && fat < minimums.fatMinG - 1e-6) {
+        findings.push(makeV8ProfileMacroCandidateV2Finding(
+          "profile_fat_guard_conflict_unresolved",
+          "high",
+          ["helmsContestPrep2014", "currentFormulaReport"],
+          "candidate-v2 preserves the context-candidate fat value; it does not resolve the remaining conflict with the fat guard.",
+          {
+            fatG: fat,
+            fatGPerKgBodyweight: fatKg,
+            guardFatMinG: minimums.fatMinG,
+            guardFatMinKg: minimums.fatMinKg
+          }
+        ));
+        reasons.push("profile_fat_guard_conflict_unresolved");
+      }
+      if (input.exerciseProfile !== "bodybuilding") {
+        findings.push(makeV8ProfileMacroCandidateV2Finding(
+          "profile_macro_candidate_v2_requires_production_contract",
+          "review",
+          ["currentFormulaReport"],
+          "candidate-v2 still needs Today/Settings profile inputs, Records snapshots, score, Coach, and export/import contracts before production.",
+          { exerciseProfile: input.exerciseProfile, profileSession: input.profileSession }
+        ));
+      }
+
+      return {
+        model: V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
+        reportOnly: true,
+        productionFormulaChanged: false,
+        candidateFormulaApproved: false,
+        sourceCandidateModel: contextCandidate.model,
+        sourceProfileMacroCandidateModel: v1Candidate.model,
+        target: {
+          ...contextCandidate.target,
+          finalTargetCal: targetCal,
+          baseTargetCal: targetCalBase,
+          targetDeltaKcal,
+          targetRateDeltaEquivalentKgPerWeek,
+          selectionReason: targetDeltaKcal > 1e-6
+            ? "v8_profile_macro_candidate_v2_target_delta_for_profile_carb_floor"
+            : "v8_profile_macro_candidate_v2_target_unchanged"
+        },
+        macro: {
+          protein_g: protein,
+          protein_kcal: protein * 4,
+          protein_percent_kcal: targetCal > 0 ? protein * 4 / targetCal * 100 : 0,
+          protein_g_per_kg_bodyweight: protein / weight,
+          protein_g_per_kg_lbm: protein / lbm,
+          protein_rule_source: `${V8_PROFILE_MACRO_CANDIDATE_V2_MODEL}_context_protein_preserved_with_guard_conflict_reporting`,
+          protein_soft_cap_hit: protein < (Number(item?.current?.macro?.protein_g) || 0) - 1e-6,
+          protein_hard_cap_hit: false,
+          fat_g: fat,
+          fat_kcal: fat * 9,
+          fat_percent_kcal: targetCal > 0 ? fat * 9 / targetCal * 100 : 0,
+          fat_g_per_kg_bodyweight: fatKg,
+          fat_floor_hit: fat <= minimums.fatMinG + 1e-6,
+          carb_g: carbs,
+          carb_kcal: carbs * 4,
+          carb_percent_kcal: targetCal > 0 ? carbs * 4 / targetCal * 100 : 0,
+          carb_g_per_kg_bodyweight: carbsKg,
+          carb_min_hit: range ? carbsKg < range.min - 1e-6 : false,
+          macro_kcal_sum: protein * 4 + carbs * 4 + fat * 9,
+          macro_kcal_gap: Math.max(0, targetCal - (protein * 4 + carbs * 4 + fat * 9)),
+          redistribution_reason: reasons,
+          range_context: base.range_context
+        },
+        profilePolicy: {
+          profile: input.exerciseProfile,
+          profileSession: input.profileSession,
+          profileLoadClass: policy.profileLoadClass,
+          directness: policy.directness,
+          evidenceKeys: policy.evidenceKeys,
+          reviewRangeGPerKg: range,
+          profileCarbFloorAttempted,
+          profileCarbFloorMet,
+          requiredCarbFloorG,
+          requiredCarbFloorGPerKg: profileCarbFloorAttempted && range ? range.min : null,
+          baseCarbsGPerKgBodyweight: baseCarbsKg,
+          candidateCarbsGPerKgBodyweight: carbsKg,
+          targetDeltaKcal,
+          targetRateDeltaEquivalentKgPerWeek,
+          proteinGuardConflict: protein < minimums.proteinMinG - 1e-6,
+          fatGuardConflict: fat < minimums.fatMinG - 1e-6,
+          minimums,
+          nonClaim: "does_not_approve_profile_macro_formula_target_rate_contract_or_production_ui_schema"
+        },
+        findings
+      };
+    }
+
+    function buildV8ProfileMacroCandidateV2ComparisonCase(item, currentAudit, profilePolicyCase){
+      const safeCurrentAudit = currentAudit || buildV8MacroAuditCase(item, "current");
+      const contextComparison = buildV8ContextMacroCandidateComparisonCase(item, safeCurrentAudit);
+      const safeProfilePolicyCase = profilePolicyCase || buildV8ProfileSessionCarbPolicyCase(item, contextComparison);
+      const v1Comparison = buildV8ProfileMacroCandidateComparisonCase(item, safeCurrentAudit, safeProfilePolicyCase);
+      const candidate = buildV8ProfileMacroCandidateV2Output(item, safeProfilePolicyCase);
+      const candidateAudit = buildV8MacroAuditCase(
+        {
+          ...item,
+          profileMacroCandidateV2: candidate
+        },
+        "profileMacroCandidateV2"
+      );
+      return {
+        caseId: item.id,
+        title: item.title,
+        layer: item.layer,
+        requiredRegression: !!item.requiredRegression,
+        input: item.input,
+        current: v1Comparison.current,
+        contextCandidate: v1Comparison.contextCandidate,
+        profileMacroCandidateV1: v1Comparison.candidate,
+        candidate: {
+          model: candidate.model,
+          targetCal: candidate.target.finalTargetCal,
+          baseTargetCal: candidate.target.baseTargetCal,
+          targetDeltaKcal: candidate.target.targetDeltaKcal,
+          targetRateDeltaEquivalentKgPerWeek: candidate.target.targetRateDeltaEquivalentKgPerWeek,
+          proteinG: candidate.macro.protein_g,
+          carbsG: candidate.macro.carb_g,
+          fatG: candidate.macro.fat_g,
+          proteinGPerKgBodyweight: candidate.macro.protein_g_per_kg_bodyweight,
+          carbsGPerKgBodyweight: candidate.macro.carb_g_per_kg_bodyweight,
+          fatGPerKgBodyweight: candidate.macro.fat_g_per_kg_bodyweight,
+          redistributionReason: candidate.macro.redistribution_reason,
+          profilePolicy: candidate.profilePolicy
+        },
+        deltaFromCurrent: {
+          targetCal: candidate.target.finalTargetCal - item.current.target.finalTargetCal,
+          proteinG: candidate.macro.protein_g - item.current.macro.protein_g,
+          carbsG: candidate.macro.carb_g - item.current.macro.carb_g,
+          fatG: candidate.macro.fat_g - item.current.macro.fat_g
+        },
+        deltaFromContextCandidate: {
+          targetCal: candidate.target.finalTargetCal - contextComparison.candidate.targetCal,
+          proteinG: candidate.macro.protein_g - contextComparison.candidate.proteinG,
+          carbsG: candidate.macro.carb_g - contextComparison.candidate.carbsG,
+          fatG: candidate.macro.fat_g - contextComparison.candidate.fatG
+        },
+        deltaFromProfileMacroCandidateV1: {
+          targetCal: candidate.target.finalTargetCal - v1Comparison.candidate.targetCal,
+          proteinG: candidate.macro.protein_g - v1Comparison.candidate.proteinG,
+          carbsG: candidate.macro.carb_g - v1Comparison.candidate.carbsG,
+          fatG: candidate.macro.fat_g - v1Comparison.candidate.fatG
+        },
+        currentAudit: safeCurrentAudit,
+        candidateAudit,
+        profilePolicyCase: safeProfilePolicyCase,
+        profileMacroCandidateV1FindingIds: v1Comparison.findingIds,
+        findingIds: candidate.findings.map(finding => finding.id),
+        findings: candidate.findings
+      };
+    }
+
+    function summarizeV8ProfileMacroCandidateV2Comparisons(comparisons){
+      const allFindingIds = comparisons.flatMap(item => item.findingIds);
+      const counts = Object.fromEntries([...new Set(allFindingIds)].sort().map(id => [
+        id,
+        allFindingIds.filter(item => item === id).length
+      ]));
+      return {
+        caseCount: comparisons.length,
+        targetChangedCount: comparisons.filter(item => Math.abs(item.deltaFromContextCandidate.targetCal) > 1e-6).length,
+        profileCarbFloorAttemptedCount: comparisons.filter(item => item.candidate.profilePolicy.profileCarbFloorAttempted).length,
+        profileCarbFloorMetCount: comparisons.filter(item => item.candidate.profilePolicy.profileCarbFloorAttempted && item.candidate.profilePolicy.profileCarbFloorMet).length,
+        profileCarbFloorUnresolvedCount: comparisons.filter(item => item.candidate.profilePolicy.profileCarbFloorAttempted && !item.candidate.profilePolicy.profileCarbFloorMet).length,
+        targetRateContractRequiredCount: comparisons.filter(item => item.findingIds.includes("profile_carb_floor_requires_target_rate_contract")).length,
+        proteinGuardConflictCount: comparisons.filter(item => item.findingIds.includes("profile_protein_guard_conflict_unresolved")).length,
+        fatGuardConflictCount: comparisons.filter(item => item.findingIds.includes("profile_fat_guard_conflict_unresolved")).length,
+        nonBodybuildingContractCount: comparisons.filter(item => item.findingIds.includes("profile_macro_candidate_v2_requires_production_contract")).length,
+        highPriorityCaseCount: comparisons.filter(item => item.findings.some(finding => finding.severity === "high") || item.candidateAudit.findings.some(finding => finding.severity === "high")).length,
+        findingCounts: counts,
+        targetDeltaKcal: summarizeCalibrationValues(comparisons.map(item => item.candidate.targetDeltaKcal)),
+        targetRateDeltaEquivalentKgPerWeek: summarizeCalibrationValues(comparisons.map(item => item.candidate.targetRateDeltaEquivalentKgPerWeek)),
+        deltaCarbsFromContextG: summarizeCalibrationValues(comparisons.map(item => item.deltaFromContextCandidate.carbsG)),
+        deltaFatFromContextG: summarizeCalibrationValues(comparisons.map(item => item.deltaFromContextCandidate.fatG)),
+        deltaProteinFromContextG: summarizeCalibrationValues(comparisons.map(item => item.deltaFromContextCandidate.proteinG))
+      };
+    }
+
+    function buildV8ProfileMacroCandidateV2Comparison(cases, macroAudit, profileSessionCarbPolicy, targetedStress){
+      const currentAuditById = Object.fromEntries((macroAudit?.cases || []).map(item => [item.caseId, item]));
+      const profilePolicyById = Object.fromEntries((profileSessionCarbPolicy?.cases || []).map(item => [item.caseId, item]));
+      const comparisons = cases.map(item => buildV8ProfileMacroCandidateV2ComparisonCase(item, currentAuditById[item.id], profilePolicyById[item.id]));
+      const axisCases = comparisons.filter(item => item.layer === "axisCoverage");
+      const humanCases = comparisons.filter(item => item.layer === "humanReview");
+      const targetedCases = comparisons.filter(item => item.layer === "targetedStress");
+      const mixedUnresolvedTargetedCase = comparisons.find(item => item.caseId === "targeted_mixed_carb_unresolved") || null;
+      return {
+        meta: {
+          stage: "9-7_profile_macro_candidate_v2_linked_target_v0",
+          reportOnly: true,
+          productionFormulaChanged: false,
+          candidateFormulaApproved: false,
+          model: V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
+          sourceContextCandidateModel: V8_CONTEXT_MACRO_CANDIDATE_MODEL,
+          sourceProfileMacroCandidateModel: V8_PROFILE_MACRO_CANDIDATE_MODEL,
+          sourceTargetedStressStage: targetedStress?.meta?.stage || null,
+          targetPolicyChanged: false,
+          targetChangedInsideReportOnlyCandidate: true,
+          profileSpecificCarbohydratePolicyApplied: true,
+          scoreCoachRecentContextChanged: false,
+          evidencePolicy: "profile carb floors remain review thresholds; target/rate deltas are internal product-policy candidates that require score, Coach, Records, and UI contracts before production",
+          nonGoal: "does_not_change_production_calculate_score_coach_recent_context_inbody_or_schema"
+        },
+        evidenceReferences: {
+          acsmNutritionAthleticPerformance2016: V8_CANDIDATE_DESIGN_REFERENCES.acsmNutritionAthleticPerformance2016,
+          resistanceCarbohydrateReview2016: V8_PROFILE_SESSION_CARB_REFERENCES.resistanceCarbohydrateReview2016,
+          issnProtein2017: V8_MACRO_AUDIT_REFERENCES.issnProtein2017,
+          helmsContestPrep2014: V8_MACRO_AUDIT_REFERENCES.helmsContestPrep2014,
+          currentFormulaReport: V8_MACRO_AUDIT_REFERENCES.currentFormulaReport
+        },
+        policy: {
+          target: "allow explicit report-only target/rate deltas only when needed to test a running/mixed profile-session carbohydrate floor",
+          protein: "preserve candidate-v8-context-macro-v0 protein and report any unresolved conflict with current guide/profile protein guards",
+          fat: "preserve candidate-v8-context-macro-v0 fat and report any unresolved conflict with fat guards",
+          carbs: "allocate any report-only target delta to carbohydrate for the profile/session floor feasibility check",
+          unresolved: [
+            "candidate-v2 is not a production formula",
+            "target/rate deltas require recent-trend, score, Coach, Records, Settings/Today, and backup/import contracts",
+            "protein/fat guard conflicts are reported, not silently resolved",
+            "constraint-only targeted tuples remain excluded and are not calculated as user sessions"
+          ]
+        },
+        summary: summarizeV8ProfileMacroCandidateV2Comparisons(comparisons),
+        axisCoverageSummary: summarizeV8ProfileMacroCandidateV2Comparisons(axisCases),
+        humanReviewSummary: summarizeV8ProfileMacroCandidateV2Comparisons(humanCases),
+        targetedStressSummary: summarizeV8ProfileMacroCandidateV2Comparisons(targetedCases),
+        mixedUnresolvedTargetedCase,
         cases: comparisons
       };
     }
@@ -55840,6 +56205,12 @@ Notes:
           index + axisCases.length + humanReviewCases.length + pairwiseStressCases.length
         ));
         const targetedStress = buildV8TargetedStressReport(targetedStressDefinitions, targetedStressCases, pairwiseStress, profileMacroCandidateComparison);
+        const profileMacroCandidateV2Comparison = buildV8ProfileMacroCandidateV2Comparison(
+          [...axisCases, ...humanReviewCases, ...targetedStressCases],
+          macroAudit,
+          profileSessionCarbPolicy,
+          targetedStress
+        );
         const report = {
           meta: {
             version: V8_SCENARIO_RUNNER_VERSION,
@@ -55864,6 +56235,8 @@ Notes:
             contextMacroCandidateStatus: "report_only_not_approved_formula",
             profileMacroCandidateModel: V8_PROFILE_MACRO_CANDIDATE_MODEL,
             profileMacroCandidateStatus: "report_only_not_approved_formula",
+            profileMacroCandidateV2Model: V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
+            profileMacroCandidateV2Status: "report_only_not_approved_formula",
             requiredRegressionIncluded: !!requiredCase,
             notes: [
               "This runner is a 9-4 scaffold: it compares current production with an existing report-only candidate before changing formulas.",
@@ -55879,7 +56252,8 @@ Notes:
               "9-7 profileSession carbohydrate policy review is report-only; it separates running/resistance/mixed session needs from production routine fallback.",
               "9-7 profile macro candidate-v1 is report-only; it checks whether running/mixed carb floors can be met without targetCal changes and keeps resistance profiles review-only.",
               "8-2 targetedStress is a human-review queue from pairwise/profile residual signals; calculated cases and constraint-only exclusions are separated.",
-              "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, or candidate-v8-profile-macro-v1 as the final v8 formula."
+              "9-7 profile macro candidate-v2 is report-only; it tests linked target/rate deltas and reports protein/fat guard conflicts without approving production.",
+              "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, candidate-v8-profile-macro-v1, or candidate-v8-profile-macro-v2-linked-target-v0 as the final v8 formula."
             ]
           },
           summary: {
@@ -55920,6 +56294,16 @@ Notes:
               profileCarbFloorMetCount: profileMacroCandidateComparison.summary.profileCarbFloorMetCount,
               profileCarbFloorUnresolvedCount: profileMacroCandidateComparison.summary.profileCarbFloorUnresolvedCount
             },
+            profileMacroCandidateV2Comparison: {
+              stage: profileMacroCandidateV2Comparison.meta.stage,
+              model: profileMacroCandidateV2Comparison.meta.model,
+              targetChangedCount: profileMacroCandidateV2Comparison.summary.targetChangedCount,
+              profileCarbFloorAttemptedCount: profileMacroCandidateV2Comparison.summary.profileCarbFloorAttemptedCount,
+              profileCarbFloorMetCount: profileMacroCandidateV2Comparison.summary.profileCarbFloorMetCount,
+              profileCarbFloorUnresolvedCount: profileMacroCandidateV2Comparison.summary.profileCarbFloorUnresolvedCount,
+              targetRateContractRequiredCount: profileMacroCandidateV2Comparison.summary.targetRateContractRequiredCount,
+              proteinGuardConflictCount: profileMacroCandidateV2Comparison.summary.proteinGuardConflictCount
+            },
             pairwiseStress: {
               stage: pairwiseStress.meta.stage,
               generatedTupleCount: pairwiseStress.summary.generatedTupleCount,
@@ -55943,6 +56327,7 @@ Notes:
           candidateFormulaComparison,
           profileSessionCarbPolicy,
           profileMacroCandidateComparison,
+          profileMacroCandidateV2Comparison,
           pairwiseStress,
           targetedStress,
           axisCoverage: {
@@ -56236,7 +56621,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-M", "v8 runner version should advance to 8.0-M");
+          assertTest(report.meta.version === "8.0-N", "v8 runner version should advance to 8.0-N");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -56331,6 +56716,37 @@ Notes:
           const mismatchConstraint = targeted.constraintOnlyCases.find(item => item.caseId === "constraint_profile_session_mismatch");
           assertIncludesAll(mismatchConstraint.actualViolations.join(" "), ["exercise_profile_session_mismatch"], "profile/session mismatch should remain constraint-only");
           assertTest(findInvalidCalibrationNumber(targeted).length === 0, "targeted stress report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("v8.0-N profile macro candidate-v2 opens target-rate delta without approving production", () => {
+          const report = runV8ScenarioRunner();
+          const comparison = report.profileMacroCandidateV2Comparison;
+          assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v2_linked_target_v0", "profile macro candidate-v2 should identify linked-target stage");
+          assertTest(comparison.meta.reportOnly === true, "candidate-v2 should be report-only");
+          assertTest(comparison.meta.productionFormulaChanged === false, "candidate-v2 must not change production formula");
+          assertTest(comparison.meta.candidateFormulaApproved === false, "candidate-v2 must not approve a formula");
+          assertTest(comparison.meta.targetChangedInsideReportOnlyCandidate === true, "candidate-v2 should state that target changes are candidate-only");
+          assertTest(comparison.summary.profileCarbFloorAttemptedCount > 0, "candidate-v2 should attempt profile carb floor cases");
+          assertTest(comparison.summary.targetRateContractRequiredCount > 0, "candidate-v2 should expose target-rate contract requirements");
+          assertTest(comparison.summary.profileCarbFloorUnresolvedCount === 0, "candidate-v2 should resolve attempted carb floors at the feasibility layer");
+          assertTest(comparison.summary.proteinGuardConflictCount > 0, "candidate-v2 should not hide protein guard conflicts");
+          assertTest(comparison.targetedStressSummary.caseCount === report.meta.targetedStressCalculatedCaseCount, "candidate-v2 targeted summary should cover calculated targeted cases");
+          assertTest(comparison.evidenceReferences.currentFormulaReport.evidenceLevel === "internal_formula_coverage_only", "candidate-v2 current formula evidence should remain internal-only");
+
+          const mixed = comparison.mixedUnresolvedTargetedCase;
+          assertTest(mixed?.caseId === "targeted_mixed_carb_unresolved", "candidate-v2 should keep the targeted mixed unresolved case");
+          assertTest(mixed.candidate.model === V8_PROFILE_MACRO_CANDIDATE_V2_MODEL, "mixed candidate should use candidate-v2 model");
+          assertV8Range(mixed.candidate.targetDeltaKcal, 40, 50, "mixed candidate-v2 target delta should match the carb-floor shortfall");
+          assertV8Range(mixed.candidate.targetRateDeltaEquivalentKgPerWeek, 0.03, 0.05, "mixed candidate-v2 should expose weekly-rate delta equivalent");
+          assertTest(mixed.candidate.carbsGPerKgBodyweight >= 6 - 1e-6, "mixed candidate-v2 should meet the mixed carb review floor");
+          assertIncludesAll(mixed.findingIds.join(" "), [
+            "profile_carb_floor_requires_target_rate_contract",
+            "profile_carb_floor_met_by_target_delta_report_only",
+            "profile_protein_guard_conflict_unresolved",
+            "profile_macro_candidate_v2_requires_production_contract"
+          ], "mixed candidate-v2 should expose target/rate and guard-contract findings");
+          assertTest(mixed.deltaFromProfileMacroCandidateV1.targetCal > 0, "candidate-v2 should open target calories compared with candidate-v1");
+          assertTest(findInvalidCalibrationNumber(comparison).length === 0, "profile macro candidate-v2 report should not contain NaN or Infinity");
         }));
 
         results.push(runNamedTest("v8.0-D text report is human-readable and candidate is not production-approved", () => {

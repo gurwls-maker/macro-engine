@@ -1,5 +1,14 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-N profileMacroCandidateV2 note
+
+- `runV8ScenarioRunner()` now includes `profileMacroCandidateV2Comparison`.
+- This layer is report-only and does not change production formulas.
+- Direct extraction on 2026-06-03: candidate-v2 comparison covers 96 cases = axis coverage 73 + human-review 18 + targeted calculated 5.
+- `profileCarbFloorAttemptedCount=5`, `profileCarbFloorMetCount=5`, `profileCarbFloorUnresolvedCount=0`, `targetChangedCount=5`, `targetRateContractRequiredCount=5`, `proteinGuardConflictCount=4`.
+- For `targeted_mixed_carb_unresolved`, candidate-v2 opens `targetDeltaKcal=43.72915555555528`, `targetRateDeltaEquivalentKgPerWeek=0.03975377777777753`, and reaches `carbsGPerKgBodyweight=6`.
+- This is not production approval. Target/rate deltas still need recent trend, score, Coach, Records, Settings/Today, and backup/import contracts.
+
 # v8.0-M targetedStress note
 
 - `runV8ScenarioRunner()` now includes `targetedStress`.

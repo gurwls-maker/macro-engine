@@ -1185,7 +1185,7 @@ candidate-v1가 하지 않는 일:
 
 - v8.0-K는 profile-specific macro formula의 production 구현이 아니라 candidate feasibility audit이다.
 - 단백질 context 후보와 maintain production goal만으로는 mixed profile 탄수 문제가 해결되지 않는다.
-- v8.0-M 이후 다음 단계는 targetedStress에서 계산/제약으로 분리한 residual signal을 바탕으로 profile formula candidate-v2를 설계하거나, 필요하면 shard/orthogonal coverage를 추가하는 것이다. candidate-v2를 진행한다면 target/rate와 protein/fat guard를 같이 열어야 하며, score/Coach/Records 계약까지 검토해야 한다.
+- v8.0-N 이후 다음 단계는 candidate-v2가 남긴 target/rate contract, protein guard conflict, score/Coach/Records 계약을 바탕으로 production 적용 가능성을 더 좁히거나, 필요하면 shard/orthogonal coverage를 추가하는 것이다. candidate-v2는 report-only feasibility audit이므로 아직 production formula가 아니다.
 
 ## 11-9. 2026-06-03 v8.0-L 8-2 pairwise / targeted stress 1차
 
@@ -1298,6 +1298,63 @@ constraint-only 케이스:
 - 3개 constraint-only case는 앱이 계산해도 되는 유저 세션이 아니라, incoherent tuple을 계산하지 않도록 남기는 감사 기록이다.
 - 외부 운동생리학 근거는 carbohydrate/protein/fat review threshold로만 쓰며, `currentFormulaReport`는 내부 구현 근거다.
 - v8.0-M은 candidate-v8-profile-macro-v1을 production formula로 승인하지 않는다.
+
+## 11-11. 2026-06-03 v8.0-N profile macro candidate-v2 1차
+
+v8.0-N에서는 v8.0-M의 `targeted_mixed_carb_unresolved`를 candidate-v2 report-only 레이어로 연결했다. 핵심은 "탄수만 올리면 해결"이 아니라, target/rate delta와 protein/fat guard conflict를 같이 기록하는 것이다.
+
+profileMacroCandidateV2Comparison의 성격:
+
+- stage: `9-7_profile_macro_candidate_v2_linked_target_v0`
+- model: `candidate-v8-profile-macro-v2-linked-target-v0`
+- `reportOnly`: true
+- `productionFormulaChanged`: false
+- `candidateFormulaApproved`: false
+- source: `candidate-v8-context-macro-v0`, `candidate-v8-profile-macro-v1`, `8-2_targeted_stress_review_v0`
+
+직접 추출 summary:
+
+- `caseCount`: 96
+- `targetChangedCount`: 5
+- `profileCarbFloorAttemptedCount`: 5
+- `profileCarbFloorMetCount`: 5
+- `profileCarbFloorUnresolvedCount`: 0
+- `targetRateContractRequiredCount`: 5
+- `proteinGuardConflictCount`: 4
+- `fatGuardConflictCount`: 0
+- `nonBodybuildingContractCount`: 16
+- `highPriorityCaseCount`: 4
+
+targeted calculated 5건 summary:
+
+- `targetChangedCount`: 2
+- `profileCarbFloorAttemptedCount`: 2
+- `profileCarbFloorMetCount`: 2
+- `profileCarbFloorUnresolvedCount`: 0
+- `targetRateContractRequiredCount`: 2
+- `proteinGuardConflictCount`: 1
+- `nonBodybuildingContractCount`: 3
+- `highPriorityCaseCount`: 1
+
+`targeted_mixed_carb_unresolved` 직접 값:
+
+- `targetDeltaKcal`: 43.72915555555528
+- `targetRateDeltaEquivalentKgPerWeek`: 0.03975377777777753
+- `carbsGPerKgBodyweight`: 6
+- finding:
+  - `profile_carb_floor_attempted_v2`
+  - `profile_carb_floor_requires_target_rate_contract`
+  - `profile_carb_floor_met_by_target_delta_report_only`
+  - `profile_protein_guard_conflict_unresolved`
+  - `profile_macro_candidate_v2_requires_production_contract`
+
+해석:
+
+- candidate-v2는 mixed carb floor feasibility를 target delta로 맞출 수 있음을 보여준다.
+- 그러나 이 target delta는 diet/cut/recent28/score/Coach/Records 계약을 바꾸는 문제이므로 production 적용이 아니다.
+- protein guard conflict는 모든 케이스에 무차별 적용하지 않고, profile carb floor를 실제 시도한 케이스에 한정했다. 이는 v2 목적보다 넓은 high finding을 만들지 않기 위한 수정이다.
+- `profileCarbFloorUnresolvedCount=0`은 feasibility layer의 unresolved가 0이라는 뜻이지, profile-specific macro formula 전체가 끝났다는 뜻이 아니다.
+- score, Coach, Settings/Today profile input, Records snapshot, export/import 계약은 아직 production 적용 전 필수 검토로 남는다.
 
 ## 12. 검증 메모
 
@@ -1485,6 +1542,22 @@ constraint-only 케이스:
 - v8.0-M desktop calibration 14 suites / 124 cases / failed 0
 - 2026-06-03 v8.0-M full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-M desktop full 99 suites / 1044 cases / failed 0
+- 2026-06-03 v8.0-N profile macro candidate-v2 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-N scenario runner suite 1 suite / 17 cases / failed 0
+- 2026-06-03 v8.0-N profile macro candidate-v2 직접 추출:
+  - `profileMacroCandidateV2Comparison.summary.caseCount=96`
+  - `targetChangedCount=5`
+  - `profileCarbFloorAttemptedCount=5`
+  - `profileCarbFloorMetCount=5`
+  - `profileCarbFloorUnresolvedCount=0`
+  - `targetRateContractRequiredCount=5`
+  - `proteinGuardConflictCount=4`
+  - `targeted_mixed_carb_unresolved.targetDeltaKcal=43.72915555555528`
+  - `targeted_mixed_carb_unresolved.targetRateDeltaEquivalentKgPerWeek=0.03975377777777753`
+- 2026-06-03 v8.0-N calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-N desktop calibration 14 suites / 125 cases / failed 0
+- 2026-06-03 v8.0-N full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-N desktop full 99 suites / 1045 cases / failed 0
 
 실행하지 않은 것:
 
@@ -1510,3 +1583,4 @@ v8.0-J maintain production goal 1차 이후에는 `maintainGoalContract`가 repo
 v8.0-K profile macro candidate-v1 이후에는 `profileMacroCandidateComparison`이 report-only / productionFormulaChanged false / candidateFormulaApproved false로 남고, running/mixed 탄수 floor를 targetCal 변경 없이 맞출 수 있는지 검토했다. 직접 추출 결과 mixed floor 시도 3건은 모두 target/protein/fat 보호선 때문에 unresolved로 남았고, 이는 candidate-v2에서 target/rate와 protein/fat guard를 함께 열어야 한다는 근거다.
 v8.0-L pairwise stress 이후에는 8-2 full Cartesian을 실행했다고 주장하지 않으면서, 제약상 가능한 pair 2,472개를 50개 계산 케이스로 모두 덮는지 확인했다. 직접 제어 가능한 tuple mismatch는 0이며, FFMI 파생축과 rest-day inactive intensity는 별도 mismatch로 분리했다.
 v8.0-M targeted stress 이후에는 pairwise/profile macro residual signal을 계산 가능한 5개 targeted case와 계산하면 안 되는 3개 constraint-only case로 분리했다. mixed focus는 2건이지만 실제 unresolved finding은 1건이며, maintain mixed는 report-only carb-floor-met으로 남겨 과장하지 않았다. 이 단계도 full Cartesian, 18개 human-review 대체, candidate production approval이 아니다.
+v8.0-N profile macro candidate-v2 이후에는 mixed carb floor를 target delta로 맞출 수 있는지 report-only로 계산했다. targeted mixed case는 +43.729kcal, 주간 rate equivalent +0.0398kg/week로 6g/kg에 도달하지만, protein guard conflict와 production contract pending이 남으므로 production formula가 아니다.
