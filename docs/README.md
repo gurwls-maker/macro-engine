@@ -1,5 +1,15 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-Z profile formula approval decision note
+
+- `runV8ScenarioRunner()` now includes `profileFormulaApprovalDecision` at `9-11_profile_formula_approval_decision_v0`.
+- Candidate-v2 is approved only for the next production wiring step: `candidateFormulaApproved=true`, `approvedCandidateModel=candidate-v8-profile-macro-v2-linked-target-v0`, `productionWiringAllowed=true`.
+- This is not production application and not full V8 completion. Direct extraction on 2026-06-03: `productionFormulaChanged=false`, `productionTargetCalApplied=false`, `productionVisualQaCompleted=false`, `fullV8Complete=false`.
+- Still-open scopes are `production_targetCal_application`, `post_wiring_production_visual_qa`, `full_8_2_cartesian_execution`, and `full_v8_completion`.
+- Scenario runner verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 24 cases / failed 0.
+- Calibration verification on 2026-06-03: 14 suites / 132 cases / failed 0.
+- Full internal verification on 2026-06-03: 99 suites / 1052 cases / failed 0.
+
 # v8.0-Y profile formula approval preflight note
 
 - `runV8ScenarioRunner()` now includes `profileFormulaApprovalPreflight` at `9-10_profile_formula_approval_preflight_v0`.
