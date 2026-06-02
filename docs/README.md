@@ -1,5 +1,16 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-Y profile formula approval preflight note
+
+- `runV8ScenarioRunner()` now includes `profileFormulaApprovalPreflight` at `9-10_profile_formula_approval_preflight_v0`.
+- This is a report-only approval preflight. It does not approve `candidate-v8-profile-macro-v2-linked-target-v0`, does not change production formulas, does not apply production `targetCal`, and does not close post-wiring visual QA.
+- Direct extraction on 2026-06-03: `checkCount=5`, `readyCheckCount=5`, `blockedCount=0`, `approvalPreflightReady=true`, `readyForExplicitFormulaApprovalDecision=true`.
+- Boundary values remain explicit: `candidateFormulaApproved=false`, `productionFormulaChanged=false`, `productionWiringAllowed=false`, `productionTargetCalApplied=false`, `productionVisualQaCompleted=false`.
+- The five ready checks are `candidate_v2_code_contracts_closed`, `human_review_numerical_gate_18_of_18`, `runtime_user_surfaces_review_only_ready`, `report_only_boundary_preserved`, and `candidate_target_delta_not_applied`.
+- Scenario runner verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 23 cases / failed 0.
+- Calibration verification on 2026-06-03: 14 suites / 131 cases / failed 0.
+- Full internal verification on 2026-06-03: 99 suites / 1051 cases / failed 0.
+
 # v8.0-X candidate-v2 fat floor linked-target consistency note
 
 - `candidate-v8-profile-macro-v2-linked-target-v0` remains report-only, but its linked-target feasibility check now evaluates the fat guard against the increased candidate target, not the pre-delta base target.

@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-X candidate-v2 fat floor linked-target consistency
+Stage: v8.0-Y profile formula approval preflight
 Date: 2026-06-03
 Notes:
+- v8.0-Y adds a report-only profile formula approval preflight so the closed candidate-v2 contracts and 18/18 numerical gate are visible without claiming formula approval, production wiring, or visual QA completion
 - v8.0-X updates the report-only candidate-v2 linked-target feasibility check so a target increase for mixed/running carb floors also rechecks the 15% kcal fat reference on the increased candidate target
 - v8.0-W added a report-only numerical approval gate for the 18 human-review candidate-v2 cases and initially exposed low_reliability_user as the fat-percent external-reference blocker
 - v8.0-V adds render-audit manifest/screenshot analyzer tooling and documents the latest mobile screenshot audit without approving formula or applying targetCal
@@ -53202,8 +53203,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-X";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-X candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-Y";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-Y profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -57371,6 +57372,180 @@ Notes:
       };
     }
 
+    const V8_PROFILE_FORMULA_APPROVAL_PREFLIGHT_STAGE = "9-10_profile_formula_approval_preflight_v0";
+
+    function buildV8ProfileFormulaApprovalPreflightCheck({ key, label, ready, evidence, blockerWhenMissing }){
+      return {
+        key,
+        label,
+        ready: ready === true,
+        status: ready === true ? "ready_for_explicit_formula_approval_decision" : "blocked_before_formula_approval_decision",
+        blockerWhenMissing: blockerWhenMissing !== false,
+        evidence: evidence || {}
+      };
+    }
+
+    function buildV8ProfileFormulaApprovalPreflightReport(profileMacroCandidateV2Comparison, profileMacroCandidateV2Contract, profileFormulaUserFacingQa, humanReviewNumericalApproval){
+      const contractSummary = profileMacroCandidateV2Contract?.summary || {};
+      const qaSummary = profileFormulaUserFacingQa?.summary || {};
+      const approvalSummary = humanReviewNumericalApproval?.summary || {};
+      const comparisonSummary = profileMacroCandidateV2Comparison?.summary || {};
+      const comparisonMeta = profileMacroCandidateV2Comparison?.meta || {};
+      const contractMeta = profileMacroCandidateV2Contract?.meta || {};
+      const qaMeta = profileFormulaUserFacingQa?.meta || {};
+      const approvalMeta = humanReviewNumericalApproval?.meta || {};
+      const contractReady = contractMeta.productionReady === true
+        && contractSummary.missingContractCount === 0
+        && contractSummary.productionBlockerCount === 0
+        && contractSummary.targetRateContractMissingCount === 0
+        && contractSummary.recentContextContractMissingCount === 0
+        && contractSummary.scoreCoachContractMissingCount === 0
+        && contractSummary.settingsTodayContractMissingCount === 0
+        && contractSummary.snapshotFieldMissingCount === 0
+        && contractSummary.backupImportContractMissingCount === 0
+        && contractSummary.unresolvedProteinGuardConflictCount === 0;
+      const humanReviewReady = approvalSummary.humanReviewCaseCount === 18
+        && approvalSummary.numericApprovedCount === 18
+        && approvalSummary.blockedCount === 0
+        && approvalSummary.productionFormulaApprovalReady === true
+        && approvalMeta.approvalStatus === "ready_for_owner_formula_approval_not_approved";
+      const userSurfaceReady = qaSummary.runtimeProposalActive === true
+        && qaSummary.targetCalUnchanged === true
+        && qaSummary.targetDeltaApplied === false
+        && qaSummary.canApplyAutomatically === false
+        && qaSummary.coachHasProfileTargetDeltaDecision === true
+        && qaSummary.recordDetailHasProfileTargetDelta === true
+        && qaSummary.surfaceForbiddenTermCount === 0;
+      const reportOnlyBoundaryPreserved = comparisonMeta.reportOnly === true
+        && comparisonMeta.productionFormulaChanged === false
+        && comparisonMeta.candidateFormulaApproved === false
+        && contractMeta.productionFormulaChanged === false
+        && contractMeta.candidateFormulaApproved === false
+        && qaMeta.productionFormulaChanged === false
+        && qaMeta.candidateFormulaApproved === false
+        && approvalMeta.productionFormulaChanged === false
+        && approvalMeta.candidateFormulaApproved === false;
+      const candidateDeltaStillUnapplied = qaSummary.targetDeltaApplied === false
+        && qaSummary.canApplyAutomatically === false
+        && qaMeta.targetDeltaApplied === false
+        && qaMeta.canApplyAutomatically === false;
+      const checks = [
+        buildV8ProfileFormulaApprovalPreflightCheck({
+          key: "candidate_v2_code_contracts_closed",
+          label: "Candidate-v2 app-wide code contracts are closed",
+          ready: contractReady,
+          evidence: {
+            productionReady: contractMeta.productionReady === true,
+            missingContractCount: contractSummary.missingContractCount ?? null,
+            productionBlockerCount: contractSummary.productionBlockerCount ?? null,
+            settingsTodayContractMissingCount: contractSummary.settingsTodayContractMissingCount ?? null,
+            snapshotFieldMissingCount: contractSummary.snapshotFieldMissingCount ?? null,
+            targetRateContractMissingCount: contractSummary.targetRateContractMissingCount ?? null,
+            scoreCoachContractMissingCount: contractSummary.scoreCoachContractMissingCount ?? null,
+            recentContextContractMissingCount: contractSummary.recentContextContractMissingCount ?? null,
+            backupImportContractMissingCount: contractSummary.backupImportContractMissingCount ?? null,
+            unresolvedProteinGuardConflictCount: contractSummary.unresolvedProteinGuardConflictCount ?? null
+          }
+        }),
+        buildV8ProfileFormulaApprovalPreflightCheck({
+          key: "human_review_numerical_gate_18_of_18",
+          label: "Human-review numerical gate is 18 of 18 with no blockers",
+          ready: humanReviewReady,
+          evidence: {
+            humanReviewCaseCount: approvalSummary.humanReviewCaseCount ?? null,
+            numericApprovedCount: approvalSummary.numericApprovedCount ?? null,
+            blockedCount: approvalSummary.blockedCount ?? null,
+            blockedCaseIds: approvalSummary.blockedCaseIds || [],
+            productionFormulaApprovalReady: approvalSummary.productionFormulaApprovalReady === true,
+            approvalStatus: approvalMeta.approvalStatus || null
+          }
+        }),
+        buildV8ProfileFormulaApprovalPreflightCheck({
+          key: "runtime_user_surfaces_review_only_ready",
+          label: "Runtime user-facing surfaces expose review copy without internal leakage",
+          ready: userSurfaceReady,
+          evidence: {
+            runtimeProposalActive: qaSummary.runtimeProposalActive === true,
+            targetCalUnchanged: qaSummary.targetCalUnchanged === true,
+            targetDeltaApplied: qaSummary.targetDeltaApplied === true,
+            canApplyAutomatically: qaSummary.canApplyAutomatically === true,
+            coachHasProfileTargetDeltaDecision: qaSummary.coachHasProfileTargetDeltaDecision === true,
+            recordDetailHasProfileTargetDelta: qaSummary.recordDetailHasProfileTargetDelta === true,
+            surfaceForbiddenTermCount: qaSummary.surfaceForbiddenTermCount ?? null
+          }
+        }),
+        buildV8ProfileFormulaApprovalPreflightCheck({
+          key: "report_only_boundary_preserved",
+          label: "Report-only boundary is preserved across comparison, contract, QA, and numerical approval",
+          ready: reportOnlyBoundaryPreserved,
+          evidence: {
+            comparisonReportOnly: comparisonMeta.reportOnly === true,
+            comparisonProductionFormulaChanged: comparisonMeta.productionFormulaChanged === true,
+            comparisonCandidateFormulaApproved: comparisonMeta.candidateFormulaApproved === true,
+            contractProductionFormulaChanged: contractMeta.productionFormulaChanged === true,
+            qaProductionFormulaChanged: qaMeta.productionFormulaChanged === true,
+            approvalProductionFormulaChanged: approvalMeta.productionFormulaChanged === true
+          }
+        }),
+        buildV8ProfileFormulaApprovalPreflightCheck({
+          key: "candidate_target_delta_not_applied",
+          label: "Candidate-v2 target delta remains unapplied before production wiring",
+          ready: candidateDeltaStillUnapplied,
+          evidence: {
+            targetChangedCount: comparisonSummary.targetChangedCount || 0,
+            targetDeltaApplied: qaSummary.targetDeltaApplied === true,
+            canApplyAutomatically: qaSummary.canApplyAutomatically === true,
+            productionTargetCal: qaSummary.productionTargetCal ?? null,
+            proposedCandidateTargetCal: qaSummary.proposedCandidateTargetCal ?? null,
+            targetDeltaKcal: qaSummary.targetDeltaKcal ?? null
+          }
+        })
+      ];
+      const blockedChecks = checks.filter(item => !item.ready && item.blockerWhenMissing !== false);
+      const approvalPreflightReady = blockedChecks.length === 0;
+      return {
+        meta: {
+          version: V8_SCENARIO_RUNNER_VERSION,
+          stage: V8_PROFILE_FORMULA_APPROVAL_PREFLIGHT_STAGE,
+          reportOnly: true,
+          approvalPreflight: true,
+          approvalStatus: approvalPreflightReady
+            ? "ready_for_explicit_formula_approval_decision_not_approved"
+            : "blocked_before_explicit_formula_approval_decision",
+          productionFormulaChanged: false,
+          candidateFormulaApproved: false,
+          productionWiringAllowed: false,
+          productionTargetCalApplied: false,
+          productionVisualQaCompleted: false,
+          evidencePolicy: "closed internal code contracts plus 18-case numerical gate; this preflight does not convert app-internal evidence into external exercise-physiology evidence",
+          nonClaim: "does_not_claim_owner_signoff_formula_approval_production_targetCal_application_or_visual_qa_completion"
+        },
+        summary: {
+          checkCount: checks.length,
+          readyCheckCount: checks.filter(item => item.ready).length,
+          blockedCount: blockedChecks.length,
+          blockedKeys: blockedChecks.map(item => item.key),
+          approvalPreflightReady,
+          readyForExplicitFormulaApprovalDecision: approvalPreflightReady,
+          candidateFormulaApproved: false,
+          productionFormulaChanged: false,
+          productionWiringAllowed: false,
+          productionTargetCalApplied: false,
+          productionVisualQaCompleted: false,
+          explicitFormulaApprovalDecisionRequired: true,
+          productionWiringRequiredAfterApproval: true,
+          productionVisualQaRequiredAfterWiring: true
+        },
+        checks,
+        blockedChecks,
+        nextRequiredActions: [
+          "Make an explicit formula-approval decision before changing production targetCal behavior.",
+          "After approval, wire candidate-v2 targetCal application as a separate production change with target-rate, score, Coach, Records, and backup/import continuity checks.",
+          "Run post-wiring production visual QA; v8.0-U/V evidence is pre-wiring QA and does not close that gate."
+        ]
+      };
+    }
+
     const V8_PAIRWISE_PROFILE_SESSION_ALLOWED_PROFILES = Object.freeze({
       rest: ["bodybuilding", "powerbuilding", "strength", "running", "mixed"],
       bodybuilding_push: ["bodybuilding"],
@@ -58382,6 +58557,12 @@ Notes:
           profileMacroCandidateV2Contract,
           profileFormulaUserFacingQa
         );
+        const profileFormulaApprovalPreflight = buildV8ProfileFormulaApprovalPreflightReport(
+          profileMacroCandidateV2Comparison,
+          profileMacroCandidateV2Contract,
+          profileFormulaUserFacingQa,
+          humanReviewNumericalApproval
+        );
         const report = {
           meta: {
             version: V8_SCENARIO_RUNNER_VERSION,
@@ -58411,6 +58592,7 @@ Notes:
             profileMacroCandidateV2ContractStatus: "report_only_production_contract_review",
             profileFormulaUserFacingQaStatus: "report_only_runtime_user_facing_qa_not_formula_approval",
             humanReviewNumericalApprovalStatus: "report_only_18_of_18_numeric_gate_ready_not_formula_approval",
+            profileFormulaApprovalPreflightStatus: "report_only_ready_for_explicit_formula_approval_decision_not_approved",
             requiredRegressionIncluded: !!requiredCase,
             notes: [
               "This runner is a 9-4 scaffold: it compares current production with an existing report-only candidate before changing formulas.",
@@ -58430,6 +58612,7 @@ Notes:
               "9-8 profile macro candidate-v2 production contract review is report-only; Settings/Today, Records snapshot, target-rate metadata, recentContext gate, score, Coach, and protein guard resolution contracts are closed, but formula approval and production targetCal wiring are still separate.",
               "9-9 profile formula user-facing QA is report-only; runtime candidate-v2 target deltas must appear as user review copy without leaking internal candidate identifiers.",
               "8-3 human-review numerical approval gate is report-only; v8.0-X resolves the low_reliability_user fat-percent blocker inside the candidate-v2 linked-target feasibility layer, so 18 of 18 human-review cases pass the numeric gate without approving the formula.",
+              "9-10 profile formula approval preflight is report-only; it confirms code/numerical/surface evidence is ready for an explicit approval decision while keeping candidateFormulaApproved=false and productionWiringAllowed=false.",
               "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, candidate-v8-profile-macro-v1, or candidate-v8-profile-macro-v2-linked-target-v0 as the final v8 formula."
             ]
           },
@@ -58514,6 +58697,17 @@ Notes:
               requiredRegressionStatus: humanReviewNumericalApproval.summary.requiredRegressionStatus,
               productionFormulaApprovalReady: humanReviewNumericalApproval.summary.productionFormulaApprovalReady
             },
+            profileFormulaApprovalPreflight: {
+              stage: profileFormulaApprovalPreflight.meta.stage,
+              approvalStatus: profileFormulaApprovalPreflight.meta.approvalStatus,
+              approvalPreflightReady: profileFormulaApprovalPreflight.summary.approvalPreflightReady,
+              readyForExplicitFormulaApprovalDecision: profileFormulaApprovalPreflight.summary.readyForExplicitFormulaApprovalDecision,
+              blockedCount: profileFormulaApprovalPreflight.summary.blockedCount,
+              candidateFormulaApproved: profileFormulaApprovalPreflight.summary.candidateFormulaApproved,
+              productionFormulaChanged: profileFormulaApprovalPreflight.summary.productionFormulaChanged,
+              productionWiringAllowed: profileFormulaApprovalPreflight.summary.productionWiringAllowed,
+              productionVisualQaRequiredAfterWiring: profileFormulaApprovalPreflight.summary.productionVisualQaRequiredAfterWiring
+            },
             pairwiseStress: {
               stage: pairwiseStress.meta.stage,
               generatedTupleCount: pairwiseStress.summary.generatedTupleCount,
@@ -58541,6 +58735,7 @@ Notes:
           profileMacroCandidateV2Contract,
           profileFormulaUserFacingQa,
           humanReviewNumericalApproval,
+          profileFormulaApprovalPreflight,
           pairwiseStress,
           targetedStress,
           axisCoverage: {
@@ -58834,7 +59029,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-X", "v8 runner version should advance to 8.0-X");
+          assertTest(report.meta.version === "8.0-Y", "v8 runner version should advance to 8.0-Y");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -58973,7 +59168,7 @@ Notes:
 
         results.push(runNamedTest("v8.0-S protein guard resolution closes candidate-v2 production contract blockers", () => {
           const report = runV8ScenarioRunner();
-          assertTest(report.meta.version === "8.0-X", "v8 runner version should advance to v8.0-X");
+          assertTest(report.meta.version === "8.0-Y", "v8 runner version should advance to v8.0-Y");
           const contract = report.profileMacroCandidateV2Contract;
           assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v4_guard_resolution", "candidate-v2 contract should identify 9-8 guard resolution contract review");
           assertTest(contract.meta.reportOnly === true, "candidate-v2 contract should be report-only");
@@ -59248,7 +59443,7 @@ Notes:
           const report = runV8ScenarioRunner();
           const approval = report.humanReviewNumericalApproval;
           const comparison = report.profileMacroCandidateV2Comparison;
-          assertTest(report.meta.version === "8.0-X", "v8 runner should expose the X stage");
+          assertTest(report.meta.version === "8.0-Y", "v8 runner should expose the Y stage while preserving the X numerical fix");
           assertTest(approval?.meta?.stage === V8_HUMAN_REVIEW_NUMERICAL_APPROVAL_STAGE, "human-review numerical approval should identify the 8-3 stage");
           assertTest(approval.meta.reportOnly === true, "human-review numerical approval should be report-only");
           assertTest(approval.meta.productionFormulaChanged === false, "human-review numerical approval must not change production formulas");
@@ -59284,6 +59479,49 @@ Notes:
           assertV8Range(required.carbsGPerKgBodyweight, 3, 3.02, "required regression carbs should remain near 3.01g/kg BW");
           assertClose(required.fatGPerKgBodyweight, 0.6, 0.000001, "required regression fat should stay at 0.6g/kg BW");
           assertTest(findInvalidCalibrationNumber(approval).length === 0, "human-review numerical approval report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("v8.0-Y profile formula approval preflight is ready but not approved or wired", () => {
+          const report = runV8ScenarioRunner();
+          const preflight = report.profileFormulaApprovalPreflight;
+          assertTest(report.meta.version === "8.0-Y", "v8 runner should expose the Y preflight stage");
+          assertTest(report.meta.profileFormulaApprovalPreflightStatus === "report_only_ready_for_explicit_formula_approval_decision_not_approved", "top-level meta should identify report-only preflight status");
+          assertTest(preflight?.meta?.stage === V8_PROFILE_FORMULA_APPROVAL_PREFLIGHT_STAGE, "approval preflight should identify the 9-10 stage");
+          assertTest(preflight.meta.reportOnly === true, "approval preflight should be report-only");
+          assertTest(preflight.meta.approvalPreflight === true, "approval preflight should mark its role explicitly");
+          assertTest(preflight.meta.approvalStatus === "ready_for_explicit_formula_approval_decision_not_approved", "approval preflight should be ready for a decision without approving the formula");
+          assertTest(preflight.meta.productionFormulaChanged === false, "approval preflight must not change production formula");
+          assertTest(preflight.meta.candidateFormulaApproved === false, "approval preflight must not approve candidate-v2");
+          assertTest(preflight.meta.productionWiringAllowed === false, "approval preflight must not allow production wiring by itself");
+          assertTest(preflight.meta.productionTargetCalApplied === false, "approval preflight must not apply candidate targetCal");
+          assertTest(preflight.meta.productionVisualQaCompleted === false, "approval preflight must not claim post-wiring visual QA");
+          assertTest(preflight.summary.checkCount === 5, "approval preflight should keep the five explicit checks visible");
+          assertTest(preflight.summary.readyCheckCount === 5, "approval preflight should have all checks ready after v8.0-X");
+          assertTest(preflight.summary.blockedCount === 0, "approval preflight should have no code/numerical/surface blockers");
+          assertTest(preflight.summary.approvalPreflightReady === true, "approval preflight should be ready for an explicit formula approval decision");
+          assertTest(preflight.summary.readyForExplicitFormulaApprovalDecision === true, "summary should expose readiness for the explicit decision");
+          assertTest(preflight.summary.candidateFormulaApproved === false, "summary must not approve candidate-v2");
+          assertTest(preflight.summary.productionFormulaChanged === false, "summary must not claim production formula changes");
+          assertTest(preflight.summary.productionWiringAllowed === false, "summary must keep production wiring closed");
+          assertTest(preflight.summary.productionVisualQaRequiredAfterWiring === true, "summary should require visual QA after production wiring");
+          assertTest(report.summary.profileFormulaApprovalPreflight.approvalPreflightReady === true, "top-level summary should expose preflight readiness");
+          assertTest(report.summary.profileFormulaApprovalPreflight.candidateFormulaApproved === false, "top-level summary should preserve no-approval boundary");
+          assertTest(report.summary.profileFormulaApprovalPreflight.productionWiringAllowed === false, "top-level summary should preserve no-wiring boundary");
+          assertIncludesAll(preflight.checks.map(item => item.key).join(" "), [
+            "candidate_v2_code_contracts_closed",
+            "human_review_numerical_gate_18_of_18",
+            "runtime_user_surfaces_review_only_ready",
+            "report_only_boundary_preserved",
+            "candidate_target_delta_not_applied"
+          ], "approval preflight should list every required readiness boundary");
+          assertTest(preflight.checks.every(item => item.ready === true), "all preflight checks should be ready");
+          assertTest(preflight.blockedChecks.length === 0, "blocked preflight check list should be empty");
+          assertIncludesAll(preflight.nextRequiredActions.join(" "), [
+            "explicit formula-approval decision",
+            "production change",
+            "post-wiring production visual QA"
+          ], "preflight next actions should keep approval, production wiring, and visual QA separate");
+          assertTest(findInvalidCalibrationNumber(preflight).length === 0, "approval preflight report should not contain NaN or Infinity");
         }));
 
         results.push(runNamedTest("v8.0-D text report is human-readable and candidate is not production-approved", () => {

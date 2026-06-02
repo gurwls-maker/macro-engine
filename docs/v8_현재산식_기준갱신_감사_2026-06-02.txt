@@ -1834,6 +1834,40 @@ runtime user-facing QA 재확인:
 - `productionFormulaApprovalReady=true`는 "owner formula review에 올릴 수 있는 수치 상태"라는 뜻이지, owner signoff / formula approval / production wiring / production visual QA 완료가 아니다.
 - candidate-v2 target delta를 production `targetCal`에 적용하려면 별도 승인, production wiring, production wiring 이후 visual QA가 필요하다.
 
+## 11-22. 2026-06-03 v8.0-Y profile formula approval preflight 1차
+
+v8.0-Y에서는 `productionFormulaApprovalReady=true`가 formula approval이나 production targetCal wiring으로 오독되지 않도록 `profileFormulaApprovalPreflight`를 추가했다. 이 레이어는 이미 닫힌 candidate-v2 code contract, 18개 human-review numerical gate, runtime user-facing QA, report-only boundary, target-delta 미적용 경계를 하나로 묶는 report-only preflight다.
+
+직접 추출:
+
+- `profileFormulaApprovalPreflight.meta.stage=9-10_profile_formula_approval_preflight_v0`
+- `profileFormulaApprovalPreflight.meta.approvalStatus=ready_for_explicit_formula_approval_decision_not_approved`
+- `profileFormulaApprovalPreflight.summary.checkCount=5`
+- `profileFormulaApprovalPreflight.summary.readyCheckCount=5`
+- `profileFormulaApprovalPreflight.summary.blockedCount=0`
+- `profileFormulaApprovalPreflight.summary.approvalPreflightReady=true`
+- `profileFormulaApprovalPreflight.summary.readyForExplicitFormulaApprovalDecision=true`
+- `profileFormulaApprovalPreflight.summary.candidateFormulaApproved=false`
+- `profileFormulaApprovalPreflight.summary.productionFormulaChanged=false`
+- `profileFormulaApprovalPreflight.summary.productionWiringAllowed=false`
+- `profileFormulaApprovalPreflight.summary.productionTargetCalApplied=false`
+- `profileFormulaApprovalPreflight.summary.productionVisualQaCompleted=false`
+
+준비 완료 check:
+
+- `candidate_v2_code_contracts_closed`
+- `human_review_numerical_gate_18_of_18`
+- `runtime_user_surfaces_review_only_ready`
+- `report_only_boundary_preserved`
+- `candidate_target_delta_not_applied`
+
+해석:
+
+- v8.0-Y는 명시적 formula approval decision을 위한 preflight지 decision 자체가 아니다.
+- candidate-v2 산식은 아직 production-approved 상태가 아니다.
+- production targetCal wiring과 post-wiring production visual QA는 별도 gate로 남는다.
+- 내부 앱 계약 closure는 외부 운동생리학 근거가 아니라 앱 전체 구현 근거로만 취급한다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -2189,6 +2223,13 @@ runtime user-facing QA 재확인:
 - v8.0-X desktop calibration 14 suites / 130 cases / failed 0
 - 2026-06-03 v8.0-X full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-X desktop full 99 suites / 1050 cases / failed 0
+- 2026-06-03 v8.0-Y profile formula approval preflight 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-Y scenario runner suite 1 suite / 23 cases / failed 0
+- 2026-06-03 v8.0-Y profileFormulaApprovalPreflight 직접 확인: `checkCount=5`, `readyCheckCount=5`, `blockedCount=0`, `approvalPreflightReady=true`, `readyForExplicitFormulaApprovalDecision=true`, `candidateFormulaApproved=false`, `productionFormulaChanged=false`, `productionWiringAllowed=false`, `productionTargetCalApplied=false`, `productionVisualQaCompleted=false`
+- 2026-06-03 v8.0-Y calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-Y desktop calibration 14 suites / 131 cases / failed 0
+- 2026-06-03 v8.0-Y full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-Y desktop full 99 suites / 1051 cases / failed 0
 - 2026-06-03 v8.0-T runtime mixed high-load probe 직접 확인:
   - production `targetCal=3283.4951111111113`
   - proposed candidate-v2 targetCal `3308.524266666667`
@@ -2205,7 +2246,7 @@ runtime user-facing QA 재확인:
 - candidate-v2 target delta production formula application
 - user-facing profile formula QA after candidate-v2 contract readiness: v8.0-U runtime Coach/Records QA complete; v8.0-V first-pass screenshot audit complete; production wiring 이후 visual QA는 open
 - 80,621,568,000개 8-2 full cross-product 전수 실행
-- 18개 human-review scenario의 owner/manual 최종 승인: v8.0-X code numerical gate는 18/18 통과했지만 owner signoff는 아직 open
+- 18개 human-review scenario의 explicit formula approval decision: v8.0-Y preflight는 5/5 ready지만 formula approval, production wiring, post-wiring visual QA는 아직 open
 
 최초 작성 시점에는 구현 변경이 없는 감사 산출물이었으므로 전체 테스트를 생략했다.
 v8.0-A snapshotless 기준 저장 상태 분리 이후에는 관련 suite, mobile viewport suite, desktop smoke, desktop core를 실행했다.
@@ -2233,3 +2274,4 @@ v8.0-U candidate-v2 runtime user-facing QA 이후에는 같은 mixed high-load r
 v8.0-V mobile screenshot audit analyzer 이후에는 `capture_render_audit.cjs` 47개 캡처와 `analyze_render_audit.cjs` PNG/manifest 검증으로 first-pass mobile/desktop screenshot audit evidence gate를 닫았다. 그러나 candidate-v2 target delta production wiring 이후의 production visual QA는 아직 실행되지 않았으므로 formula approval이나 production targetCal 적용으로 읽으면 안 된다.
 v8.0-W human-review numerical approval gate 이후에는 18개 human-review candidate-v2 케이스가 별도 report-only approval layer로 고정됐다. 17개는 numerical gate를 통과했지만 `low_reliability_user`가 `fat_percent_below_contest_prep_reference_floor`로 막혀 있으므로 candidate-v2 formula approval, production wiring, production `targetCal` 적용으로 읽으면 안 된다.
 v8.0-X candidate-v2 fat floor linked-target consistency 이후에는 `low_reliability_user` fat-percent blocker가 report-only candidate-v2 안에서 해소되어 18개 human-review 케이스가 code numerical gate를 통과했다. 그러나 `productionFormulaApprovalReady=true`를 formula approval로 읽으면 안 되며, owner signoff / production wiring / production wiring 이후 visual QA는 여전히 별도 open gate다.
+v8.0-Y profile formula approval preflight 이후에는 `profileFormulaApprovalPreflight`가 `9-10_profile_formula_approval_preflight_v0`로 추가됐다. 직접 추출 기준 `checkCount=5`, `readyCheckCount=5`, `blockedCount=0`, `approvalPreflightReady=true`, `readyForExplicitFormulaApprovalDecision=true`지만 `candidateFormulaApproved=false`, `productionFormulaChanged=false`, `productionWiringAllowed=false`, `productionTargetCalApplied=false`, `productionVisualQaCompleted=false`다. 준비 완료 check는 `candidate_v2_code_contracts_closed`, `human_review_numerical_gate_18_of_18`, `runtime_user_surfaces_review_only_ready`, `report_only_boundary_preserved`, `candidate_target_delta_not_applied`이며, 이 단계는 명시적 formula approval decision의 preflight일 뿐 production targetCal wiring이나 post-wiring production visual QA를 닫지 않는다.
