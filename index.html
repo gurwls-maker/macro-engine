@@ -1,8 +1,11 @@
 <!--
 Version: 8.0
-Stage: v8.0-F 9-5/9-6 candidate 설계 레이어 1차 구현
+Stage: v8.0-G 9-7 context macro candidate 비교 1차 구현
 Date: 2026-06-03
 Notes:
+- v8.0-G 9-7 candidate-v8-context-macro-v0 report-only 비교를 추가해 targetCal / score / Coach / recentContext / InBody gate / backup schema 변경 없이 current vs context macro candidate를 비교
+- v8.0-G 필수 1913 케이스에서 ISSN general protein cap review를 계약으로 적용해 diet 2.4g/kg high-priority 신호를 report-only로 비교하고, 아직 남는 신호는 remaining findings로 보존
+- v8.0-G candidate-v0는 승인 산식이 아니며 profile-specific carbohydrate / maintain / production contract는 아직 보류
 - v8.0-F 9-3 macroAudit 결과를 9-5/9-6 candidateDesign report-only 레이어로 연결해 입력 후보 / 운동 프로필 보류 조건 / 목표 rate / 탄단지 정책축을 정리
 - v8.0-F candidateDesign은 승인 산식이 아니며 maintain 목표 키, protein context gate, fat/carb joint redistribution, profile-specific macro formula를 다음 설계 결정으로 명시
 - v8.0-F 산식 / score formula / Coach / recentContext / InBody gate / backup schema 변경 없음
@@ -52131,8 +52134,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-F";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-F candidate design + current macro audit + current/candidate axis + human-review scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-G";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-G context macro candidate comparison + candidate design + current macro audit + current/candidate axis + human-review scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -53454,6 +53457,244 @@ Notes:
       };
     }
 
+    const V8_CONTEXT_MACRO_CANDIDATE_MODEL = "candidate-v8-context-macro-v0";
+
+    function getV8ContextMacroCandidateProteinCapKg(input){
+      const goal = input?.axisGoal || input?.goal;
+      if (goal === "bulk") return 1.8;
+      return V8_MACRO_AUDIT_RULES.proteinGeneralExerciserUpperGKg;
+    }
+
+    function isV8ContestPrepLikeInput(input){
+      const goal = input?.axisGoal || input?.goal;
+      const bodyFat = Number(input?.bodyFat);
+      return goal === "cut"
+        && input?.exerciseProfile === "bodybuilding"
+        && input?.performanceLevel === "high"
+        && Number.isFinite(bodyFat)
+        && bodyFat <= 15;
+    }
+
+    function buildV8ContextMacroCandidateOutput(item){
+      const input = item?.input || {};
+      const current = item?.current || {};
+      const currentMacro = current.macro || {};
+      const targetCal = Math.max(0, Number(current.target?.finalTargetCal) || 0);
+      const weight = Math.max(1, Number(input.weight) || 1);
+      const lbm = Math.max(1, Number(input.lbm) || weight);
+      const currentProtein = Math.max(0, Number(currentMacro.protein_g) || 0);
+      const currentFat = Math.max(0, Number(currentMacro.fat_g) || 0);
+      const range = currentMacro.range_context || {};
+      const contestPrepLike = isV8ContestPrepLikeInput(input);
+      const bodyweightCapKg = getV8ContextMacroCandidateProteinCapKg(input);
+      const bodyweightProteinCap = bodyweightCapKg * weight;
+      const contestPrepLbmCap = V8_MACRO_AUDIT_RULES.contestPrepProteinLbmMaxGKg * lbm;
+      const proteinCap = contestPrepLike
+        ? Math.min(bodyweightProteinCap, contestPrepLbmCap)
+        : bodyweightProteinCap;
+      const protein = Math.max(0, Math.min(currentProtein, proteinCap));
+      const minFatByExternalPct = targetCal * V8_MACRO_AUDIT_RULES.fatContestPrepLowerPctKcal / 100 / 9;
+      const residualFatCapacity = Math.max(0, (targetCal - protein * 4) / 9);
+      const fat = Math.max(0, Math.min(Math.max(currentFat, minFatByExternalPct), residualFatCapacity));
+      const carbs = Math.max(0, (targetCal - protein * 4 - fat * 9) / 4);
+      const macroInfo = buildMacroAllocationInfo({
+        targetCal,
+        protein,
+        carbs,
+        fat,
+        carbCap: range.carbs?.max ? range.carbs.max * weight : undefined,
+        fatCap: range.fat?.max ? range.fat.max * weight : undefined,
+        fatHardCap: range.fat?.flexibleMax ? range.fat.flexibleMax * weight : undefined,
+        proteinCap: range.protein?.max ? range.protein.max * weight : undefined
+      });
+      const carbsKg = carbs / weight;
+      const fatKg = fat / weight;
+      const carbsBelowGuideMin = Number.isFinite(range.carbs?.min) && carbsKg < range.carbs.min - 1e-6;
+      const fatFloorHit = Number.isFinite(range.fat?.min) && fatKg <= range.fat.min + 1e-6;
+      const reasons = ["candidate_context_macro_v0_report_only", "target_calorie_unchanged"];
+      if (protein < currentProtein - 1e-6) reasons.push("protein_context_capped_to_general_issn_review_range");
+      if (carbs > (Number(currentMacro.carb_g) || 0) + 1e-6) reasons.push("residual_kcal_reallocated_to_carbs");
+      if (fat > currentFat + 1e-6) reasons.push("fat_raised_to_external_review_floor");
+      if (carbsBelowGuideMin) reasons.push("target_calorie_constrained_below_guide_carb_min");
+      if (fatFloorHit) reasons.push("fat_at_guide_floor");
+      if (macroInfo.macroKcalGap > MACRO_ALLOCATION_GAP_THRESHOLDS.detail) reasons.push("macro_kcal_gap_remaining");
+
+      return {
+        model: V8_CONTEXT_MACRO_CANDIDATE_MODEL,
+        reportOnly: true,
+        productionFormulaChanged: false,
+        candidateFormulaApproved: false,
+        target: {
+          ...current.target,
+          finalTargetCal: targetCal,
+          selectionReason: "v8_context_macro_candidate_target_unchanged"
+        },
+        macro: {
+          protein_g: protein,
+          protein_kcal: protein * 4,
+          protein_percent_kcal: targetCal > 0 ? protein * 4 / targetCal * 100 : 0,
+          protein_g_per_kg_bodyweight: protein / weight,
+          protein_g_per_kg_lbm: protein / lbm,
+          protein_rule_source: contestPrepLike
+            ? `${V8_CONTEXT_MACRO_CANDIDATE_MODEL}_contest_prep_context_cap`
+            : `${V8_CONTEXT_MACRO_CANDIDATE_MODEL}_general_issn_bodyweight_cap`,
+          protein_soft_cap_hit: protein < currentProtein - 1e-6,
+          protein_hard_cap_hit: false,
+          fat_g: fat,
+          fat_kcal: fat * 9,
+          fat_percent_kcal: targetCal > 0 ? fat * 9 / targetCal * 100 : 0,
+          fat_g_per_kg_bodyweight: fat / weight,
+          fat_floor_hit: fatFloorHit,
+          carb_g: carbs,
+          carb_kcal: carbs * 4,
+          carb_percent_kcal: targetCal > 0 ? carbs * 4 / targetCal * 100 : 0,
+          carb_g_per_kg_bodyweight: carbsKg,
+          carb_min_hit: carbsBelowGuideMin,
+          macro_kcal_sum: protein * 4 + carbs * 4 + fat * 9,
+          macro_kcal_gap: Math.max(0, targetCal - (protein * 4 + carbs * 4 + fat * 9)),
+          redistribution_reason: reasons,
+          range_context: {
+            protein: range.protein || null,
+            carbs: range.carbs || null,
+            fat: range.fat || null
+          }
+        },
+        policy: {
+          model: V8_CONTEXT_MACRO_CANDIDATE_MODEL,
+          evidenceLevel: "external_sports_nutrition_reference_plus_internal_formula_comparison",
+          targetChanged: false,
+          profileSpecificCarbohydratePolicyApplied: false,
+          maintainGoalMappingApplied: false,
+          proteinCapKg: bodyweightCapKg,
+          contestPrepLike,
+          nonClaim: "does_not_approve_production_formula_or_profile_specific_macro_policy"
+        }
+      };
+    }
+
+    function buildV8ContextMacroCandidateComparisonCase(item, currentAudit){
+      const candidate = buildV8ContextMacroCandidateOutput(item);
+      const candidateAudit = buildV8MacroAuditCase(
+        {
+          ...item,
+          contextMacroCandidate: candidate
+        },
+        "contextMacroCandidate"
+      );
+      const currentIds = currentAudit?.findingIds || [];
+      const candidateIds = candidateAudit.findingIds || [];
+      const resolvedFindingIds = currentIds.filter(id => !candidateIds.includes(id));
+      const newFindingIds = candidateIds.filter(id => !currentIds.includes(id));
+      const remainingFindingIds = candidateIds.filter(id => currentIds.includes(id));
+      return {
+        caseId: item.id,
+        title: item.title,
+        layer: item.layer,
+        requiredRegression: !!item.requiredRegression,
+        input: item.input,
+        current: {
+          targetCal: item.current.target.finalTargetCal,
+          proteinG: item.current.macro.protein_g,
+          carbsG: item.current.macro.carb_g,
+          fatG: item.current.macro.fat_g,
+          proteinGPerKgBodyweight: item.current.macro.protein_g_per_kg_bodyweight,
+          proteinGPerKgLbm: item.current.macro.protein_g_per_kg_lbm,
+          fatPercentKcal: item.current.macro.fat_percent_kcal
+        },
+        candidate: {
+          model: candidate.model,
+          targetCal: candidate.target.finalTargetCal,
+          proteinG: candidate.macro.protein_g,
+          carbsG: candidate.macro.carb_g,
+          fatG: candidate.macro.fat_g,
+          proteinGPerKgBodyweight: candidate.macro.protein_g_per_kg_bodyweight,
+          proteinGPerKgLbm: candidate.macro.protein_g_per_kg_lbm,
+          fatPercentKcal: candidate.macro.fat_percent_kcal,
+          redistributionReason: candidate.macro.redistribution_reason,
+          policy: candidate.policy
+        },
+        delta: {
+          targetCal: candidate.target.finalTargetCal - item.current.target.finalTargetCal,
+          proteinG: candidate.macro.protein_g - item.current.macro.protein_g,
+          carbsG: candidate.macro.carb_g - item.current.macro.carb_g,
+          fatG: candidate.macro.fat_g - item.current.macro.fat_g
+        },
+        currentAudit,
+        candidateAudit,
+        resolvedFindingIds,
+        remainingFindingIds,
+        newFindingIds
+      };
+    }
+
+    function summarizeV8ContextMacroCandidateComparisons(comparisons){
+      const resolvedIds = comparisons.flatMap(item => item.resolvedFindingIds);
+      const remainingIds = comparisons.flatMap(item => item.remainingFindingIds);
+      const newIds = comparisons.flatMap(item => item.newFindingIds);
+      const countIds = ids => Object.fromEntries([...new Set(ids)].sort().map(id => [
+        id,
+        ids.filter(item => item === id).length
+      ]));
+      return {
+        caseCount: comparisons.length,
+        targetChangedCount: comparisons.filter(item => Math.abs(item.delta.targetCal) > 1e-6).length,
+        proteinReducedCount: comparisons.filter(item => item.delta.proteinG < -1e-6).length,
+        carbsIncreasedCount: comparisons.filter(item => item.delta.carbsG > 1e-6).length,
+        resolvedFindingCounts: countIds(resolvedIds),
+        remainingFindingCounts: countIds(remainingIds),
+        newFindingCounts: countIds(newIds),
+        candidateHighPriorityCaseCount: comparisons.filter(item => item.candidateAudit.findings.some(finding => finding.severity === "high")).length,
+        deltaProteinG: summarizeCalibrationValues(comparisons.map(item => item.delta.proteinG)),
+        deltaCarbsG: summarizeCalibrationValues(comparisons.map(item => item.delta.carbsG)),
+        deltaFatG: summarizeCalibrationValues(comparisons.map(item => item.delta.fatG))
+      };
+    }
+
+    function buildV8ContextMacroCandidateComparison(cases, macroAudit){
+      const currentAuditById = Object.fromEntries((macroAudit?.cases || []).map(item => [item.caseId, item]));
+      const comparisons = cases.map(item => buildV8ContextMacroCandidateComparisonCase(item, currentAuditById[item.id]));
+      const axisCases = comparisons.filter(item => item.layer === "axisCoverage");
+      const humanCases = comparisons.filter(item => item.layer === "humanReview");
+      const requiredRegression = comparisons.find(item => item.requiredRegression) || null;
+      return {
+        meta: {
+          stage: "9-7_context_macro_candidate_v0",
+          reportOnly: true,
+          productionFormulaChanged: false,
+          candidateFormulaApproved: false,
+          model: V8_CONTEXT_MACRO_CANDIDATE_MODEL,
+          sourceMacroAuditStage: macroAudit?.meta?.stage || null,
+          targetPolicyChanged: false,
+          targetChanged: false,
+          profileSpecificCarbohydratePolicyApplied: false,
+          maintainGoalMappingApplied: false,
+          evidencePolicy: "external references are candidate review thresholds; internal formula evidence only compares current implementation behavior",
+          nonGoal: "does_not_change_production_calculate_score_coach_recent_context_inbody_or_schema"
+        },
+        evidenceReferences: {
+          issnProtein2017: V8_MACRO_AUDIT_REFERENCES.issnProtein2017,
+          helmsContestPrep2014: V8_MACRO_AUDIT_REFERENCES.helmsContestPrep2014,
+          acsmNutritionAthleticPerformance2016: V8_CANDIDATE_DESIGN_REFERENCES.acsmNutritionAthleticPerformance2016,
+          currentFormulaReport: V8_MACRO_AUDIT_REFERENCES.currentFormulaReport
+        },
+        policy: {
+          protein: "cap non-contest-prep candidate protein at the ISSN general exercising-individual review upper range without increasing current protein",
+          fat: "preserve current fat unless it falls below the external contest-prep lower-percent review floor",
+          carbs: "allocate remaining unchanged target calories to carbohydrate after protein and fat",
+          unresolved: [
+            "profile-specific carbohydrate policy is not applied in candidate-v0",
+            "maintain goal mapping is not implemented in candidate-v0",
+            "candidate-v0 does not approve production formula changes"
+          ]
+        },
+        summary: summarizeV8ContextMacroCandidateComparisons(comparisons),
+        axisCoverageSummary: summarizeV8ContextMacroCandidateComparisons(axisCases),
+        humanReviewSummary: summarizeV8ContextMacroCandidateComparisons(humanCases),
+        requiredRegression,
+        cases: comparisons
+      };
+    }
+
     function buildV8ScenarioOutput(kind, definition, result, source){
       const safeSource = source || result;
       const output = {
@@ -53602,6 +53843,7 @@ Notes:
         const humanReviewSummary = summarizeV8ScenarioCases(humanReviewCases);
         const macroAudit = buildV8MacroAuditReport(axisCases, humanReviewCases, requiredCase);
         const candidateDesign = buildV8CandidateDesignReport(macroAudit, axisCoverageSummary);
+        const candidateFormulaComparison = buildV8ContextMacroCandidateComparison([...axisCases, ...humanReviewCases], macroAudit);
         const report = {
           meta: {
             version: V8_SCENARIO_RUNNER_VERSION,
@@ -53618,6 +53860,8 @@ Notes:
             humanReviewCaseCount: humanDefinitions.length,
             candidateModel: "candidate-no-weekly-xw",
             candidateStatus: "report_only_existing_candidate_not_approved_formula",
+            contextMacroCandidateModel: V8_CONTEXT_MACRO_CANDIDATE_MODEL,
+            contextMacroCandidateStatus: "report_only_not_approved_formula",
             requiredRegressionIncluded: !!requiredCase,
             notes: [
               "This runner is a 9-4 scaffold: it compares current production with an existing report-only candidate before changing formulas.",
@@ -53627,7 +53871,8 @@ Notes:
               "The 8-2 full Cartesian product is not claimed as executed; axis-category coverage is executed and reported separately.",
               "9-3 macro audit is report-only and classifies current macro risks before formula changes.",
               "9-5/9-6 candidateDesign is a report-only scaffold; it does not approve or apply a new formula.",
-              "Do not treat candidate-no-weekly-xw as the final v8 formula."
+              "9-7 context macro candidate-v0 is report-only; it keeps target calories unchanged and compares macro redistribution only.",
+              "Do not treat candidate-no-weekly-xw or candidate-v8-context-macro-v0 as the final v8 formula."
             ]
           },
           summary: {
@@ -53638,10 +53883,18 @@ Notes:
               stage: candidateDesign.meta.stage,
               requiredNextDecisionCount: candidateDesign.requiredNextDecisions.length,
               unresolvedProductionContractCount: candidateDesign.unresolvedProductionContracts.length
+            },
+            candidateFormulaComparison: {
+              stage: candidateFormulaComparison.meta.stage,
+              model: candidateFormulaComparison.meta.model,
+              targetChangedCount: candidateFormulaComparison.summary.targetChangedCount,
+              proteinReducedCount: candidateFormulaComparison.summary.proteinReducedCount,
+              candidateHighPriorityCaseCount: candidateFormulaComparison.summary.candidateHighPriorityCaseCount
             }
           },
           macroAudit,
           candidateDesign,
+          candidateFormulaComparison,
           axisCoverage: {
             summary: axisCoverageSummary,
             cases: options.includeAxisCases === false ? [] : axisCases
@@ -53824,6 +54077,37 @@ Notes:
           const runningProfile = design.profileDesign.find(item => item.profile === "running");
           assertTest(runningProfile.status === "pending_profile_specific_formula", "running profile should remain pending profile-specific formula");
           assertIncludesAll(design.unresolvedProductionContracts.join(" "), ["GOALS", "goalSnapshot", "export/import"], "candidate design should list unresolved production contracts");
+        }));
+
+        results.push(runNamedTest("v8.0-G 9-7 context macro candidate compares required 1913 without approving production", () => {
+          const report = runV8ScenarioRunner();
+          const comparison = report.candidateFormulaComparison;
+          assertTest(comparison?.meta?.stage === "9-7_context_macro_candidate_v0", "candidate formula comparison should identify 9-7 stage");
+          assertTest(comparison.meta.reportOnly === true, "candidate formula comparison should be report-only");
+          assertTest(comparison.meta.productionFormulaChanged === false, "candidate formula comparison must not change production formula");
+          assertTest(comparison.meta.candidateFormulaApproved === false, "candidate formula comparison must not approve a formula");
+          assertTest(comparison.meta.targetChanged === false && comparison.summary.targetChangedCount === 0, "candidate-v0 should not change target calories");
+          assertTest(comparison.meta.profileSpecificCarbohydratePolicyApplied === false, "candidate-v0 should not claim profile-specific carbohydrate policy");
+          assertTest(comparison.meta.maintainGoalMappingApplied === false, "candidate-v0 should not claim maintain goal mapping");
+          assertTest(comparison.evidenceReferences.issnProtein2017.evidenceLevel === "external_sports_nutrition_reference", "ISSN protein should remain external evidence");
+          assertTest(comparison.evidenceReferences.currentFormulaReport.evidenceLevel === "internal_formula_coverage_only", "current formula evidence should remain internal only");
+          const required = comparison.requiredRegression;
+          assertTest(required?.caseId === "required_user_rest_diet_1913", "required 1913 comparison should exist");
+          assertClose(required.delta.targetCal, 0, 0.0001, "required 1913 candidate should keep targetCal unchanged");
+          assertTest(required.candidate.model === V8_CONTEXT_MACRO_CANDIDATE_MODEL, "required candidate model should be context macro candidate-v0");
+          assertTest(required.candidate.proteinG < required.current.proteinG, "required 1913 candidate should reduce protein from current diet default");
+          assertTest(required.candidate.carbsG > required.current.carbsG, "required 1913 candidate should reallocate residual kcal to carbs");
+          assertV8Range(required.candidate.proteinGPerKgBodyweight, 1.99, 2.01, "required 1913 candidate protein should sit at the ISSN general review cap");
+          assertExcludesAll(required.candidateAudit.findingIds, [
+            "protein_bodyweight_above_general_issn_range",
+            "diet_default_near_2_4g_bodyweight_requires_candidate_review"
+          ], "candidate-v0 should resolve the high-priority general protein findings for required 1913");
+          assertIncludesAll(required.resolvedFindingIds, [
+            "protein_bodyweight_above_general_issn_range",
+            "diet_default_near_2_4g_bodyweight_requires_candidate_review"
+          ], "required 1913 resolved findings should identify the protein-context change");
+          assertTest(required.remainingFindingIds.length > 0, "candidate-v0 should keep unresolved findings instead of overclaiming final approval");
+          assertIncludesAll(required.candidate.redistributionReason.join(" "), ["target_calorie_unchanged", "residual_kcal_reallocated_to_carbs"], "candidate-v0 redistribution reason should explain the macro-only comparison");
         }));
 
         results.push(runNamedTest("v8.0-D text report is human-readable and candidate is not production-approved", () => {
