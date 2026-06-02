@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-Z profile formula approval decision
+Stage: v8.0-AA production candidate-v2 target wiring
 Date: 2026-06-03
 Notes:
+- v8.0-AA wires the approved candidate-v2 target/macro output into the production calculate() result for active profile target-delta cases while keeping post-wiring visual QA and full V8 completion open
 - v8.0-Z approves candidate-v2 only for the next production wiring step while keeping production formulas, production targetCal application, and post-wiring visual QA separate
 - v8.0-Y adds a report-only profile formula approval preflight so the closed candidate-v2 contracts and 18/18 numerical gate are visible without claiming formula approval, production wiring, or visual QA completion
 - v8.0-X updates the report-only candidate-v2 linked-target feasibility check so a target increase for mixed/running carb floors also rechecks the 15% kcal fat reference on the increased candidate target
@@ -19244,6 +19245,9 @@ Notes:
 
     const PROFILE_CANDIDATE_V2_RUNTIME_PROPOSAL_VERSION = "profileCandidateV2RuntimeProposal.v1";
     const PROFILE_CANDIDATE_V2_RUNTIME_PROPOSAL_STAGE = "calculate_runtime_candidate_v2_target_delta_proposal_v0";
+    const PROFILE_CANDIDATE_V2_PRODUCTION_WIRING_VERSION = "profileCandidateV2ProductionWiring.v1";
+    const PROFILE_CANDIDATE_V2_PRODUCTION_WIRING_STAGE = "calculate_profile_candidate_v2_production_target_wiring_v0";
+    const PROFILE_CANDIDATE_V2_FORMULA_APPROVED_FOR_PRODUCTION = true;
 
     function buildProfileCandidateV2RuntimeAuditItem(context = {}){
       const s = context.s || {};
@@ -19326,7 +19330,7 @@ Notes:
         model: PROFILE_CANDIDATE_V2_MODEL_KEY,
         requested: false,
         active: false,
-        formulaApproved: false,
+        formulaApproved: PROFILE_CANDIDATE_V2_FORMULA_APPROVED_FOR_PRODUCTION,
         productionFormulaChanged: false,
         appliedToTarget: false,
         targetCalUnchanged: true,
@@ -19396,9 +19400,108 @@ Notes:
       }
     }
 
-    function applyProfileCandidateV2RuntimeProposalToTargetRateContext(targetRateContext, proposal){
+    function getProfileCandidateV2ProductionMacroFromProposal(proposal){
+      const macro = proposal?.candidateMacro || {};
+      const targetCal = Number(proposal?.proposedTargetCal);
+      const protein = Number(macro.protein_g);
+      const carbs = Number(macro.carb_g);
+      const fat = Number(macro.fat_g);
+      const valid = [targetCal, protein, carbs, fat].every(Number.isFinite)
+        && targetCal > 0
+        && protein >= 0
+        && carbs >= 0
+        && fat >= 0;
+      return {
+        valid,
+        targetCal,
+        protein,
+        carbs,
+        fat
+      };
+    }
+
+    function buildProfileCandidateV2ProductionWiring(context = {}){
+      const proposal = context.proposal || {};
+      const selected = context.selected || {};
+      const rangeContext = context.rangeContext || {};
+      const s = context.s || {};
+      const enabled = context.enabled !== false;
+      const guard = proposal.profileCandidateGuardConflict || {};
+      const candidate = getProfileCandidateV2ProductionMacroFromProposal(proposal);
+      const weight = Math.max(1, Number(s.weight) || 1);
+      const requested = proposal.requested === true && proposal.active === true;
+      const guardClear = guard.proteinGuardConflict !== true && guard.fatGuardConflict !== true;
+      const canApply = enabled
+        && PROFILE_CANDIDATE_V2_FORMULA_APPROVED_FOR_PRODUCTION
+        && requested
+        && proposal.profileCarbFloorMet === true
+        && guardClear
+        && candidate.valid
+        && Number(proposal.targetDeltaKcal) > 1e-6;
+      const targetCal = canApply ? candidate.targetCal : Math.max(0, Number(selected.targetCal) || 0);
+      const protein = canApply ? candidate.protein : Math.max(0, Number(selected.protein) || 0);
+      const carbs = canApply ? candidate.carbs : Math.max(0, Number(selected.carbs) || 0);
+      const fat = canApply ? candidate.fat : Math.max(0, Number(selected.fat) || 0);
+      const macroAllocationInfo = buildMacroAllocationInfo({
+        targetCal,
+        protein,
+        carbs,
+        fat,
+        carbCap: rangeContext?.carbs?.max ? rangeContext.carbs.max * weight : undefined,
+        fatHardCap: rangeContext?.fat?.flexibleMax ? rangeContext.fat.flexibleMax * weight : undefined,
+        fatCap: rangeContext?.fat?.max ? rangeContext.fat.max * weight : undefined,
+        fatPracticalCeilingG: rangeContext?.fat?.flexibleMax ? rangeContext.fat.flexibleMax * weight : undefined,
+        proteinCap: rangeContext?.protein?.max ? rangeContext.protein.max * weight : undefined
+      });
+      return {
+        version: PROFILE_CANDIDATE_V2_PRODUCTION_WIRING_VERSION,
+        stage: PROFILE_CANDIDATE_V2_PRODUCTION_WIRING_STAGE,
+        model: PROFILE_CANDIDATE_V2_MODEL_KEY,
+        formulaApproved: PROFILE_CANDIDATE_V2_FORMULA_APPROVED_FOR_PRODUCTION,
+        enabled,
+        requested,
+        active: requested,
+        applied: canApply,
+        productionFormulaChanged: canApply,
+        productionTargetCalApplied: canApply,
+        targetCalUnchanged: !canApply,
+        baseTargetCal: proposal.baseTargetCal ?? selected.targetCal ?? null,
+        targetCal,
+        protein,
+        carbs,
+        fat,
+        pctProtein: targetCal > 0 ? round(protein * 4 / targetCal * 100) : 0,
+        pctCarb: targetCal > 0 ? round(carbs * 4 / targetCal * 100) : 0,
+        pctFat: targetCal > 0 ? round(fat * 9 / targetCal * 100) : 0,
+        targetDeltaKcal: canApply ? proposal.targetDeltaKcal : null,
+        targetRateDeltaEquivalentKgPerWeek: canApply ? proposal.targetRateDeltaEquivalentKgPerWeek : null,
+        selectedBasisBeforeProfileCandidate: {
+          targetCal: selected.targetCal ?? null,
+          protein: selected.protein ?? null,
+          carbs: selected.carbs ?? null,
+          fat: selected.fat ?? null,
+          selectedMacroBasis: selected.selectedMacroBasis || null
+        },
+        macroAllocationInfo,
+        reasonCode: canApply
+          ? "profile_candidate_v2_target_delta_applied_to_production"
+          : (!enabled ? "profile_candidate_v2_production_wiring_disabled_for_report_only_baseline" : (requested ? "profile_candidate_v2_production_wiring_blocked" : "profile_candidate_v2_no_runtime_target_delta")),
+        blockedReasons: canApply ? [] : [
+          ...(!enabled ? ["production_wiring_disabled_for_report_only_baseline"] : []),
+          ...(!PROFILE_CANDIDATE_V2_FORMULA_APPROVED_FOR_PRODUCTION ? ["formula_not_approved"] : []),
+          ...(!requested ? ["no_active_runtime_target_delta"] : []),
+          ...(proposal.profileCarbFloorMet !== true && requested ? ["profile_carb_floor_not_met"] : []),
+          ...(!guardClear ? ["profile_guard_conflict"] : []),
+          ...(!candidate.valid && requested ? ["candidate_macro_invalid"] : [])
+        ],
+        nonClaim: "does_not_claim_post_wiring_visual_qa_or_full_v8_completion"
+      };
+    }
+
+    function applyProfileCandidateV2RuntimeProposalToTargetRateContext(targetRateContext, proposal, productionWiring = null){
       if (!targetRateContext || !proposal) return targetRateContext;
       const requested = proposal.requested === true && proposal.active === true;
+      const applied = productionWiring?.applied === true;
       const targetDeltaKcal = requested && Number.isFinite(Number(proposal.targetDeltaKcal))
         ? Number(proposal.targetDeltaKcal)
         : null;
@@ -19409,22 +19512,30 @@ Notes:
       targetRateContext.profileMacroCandidateStage = requested ? PROFILE_CANDIDATE_V2_RUNTIME_PROPOSAL_STAGE : null;
       targetRateContext.profileTargetDeltaKcal = targetDeltaKcal;
       targetRateContext.profileTargetRateDeltaEquivalentKgPerWeek = targetRateDeltaEquivalentKgPerWeek;
+      const targetCalBeforeProfileCandidateDelta = targetRateContext.targetCal;
+      if (applied && Number.isFinite(Number(productionWiring.targetCal))) {
+        targetRateContext.targetCal = Number(productionWiring.targetCal);
+      }
       targetRateContext.profileCandidateDeltaContract = {
         ...(targetRateContext.profileCandidateDeltaContract || {}),
         version: PROFILE_CANDIDATE_TARGET_DELTA_CONTRACT_VERSION,
         requested,
         active: requested && Math.abs(targetDeltaKcal || 0) > 1e-6,
         supportedModel: true,
-        appliedToTarget: false,
-        targetCalUnchangedByProfileCandidateDelta: true,
-        targetRateChangedByProfileCandidateDelta: false,
+        appliedToTarget: applied,
+        targetCalUnchangedByProfileCandidateDelta: !applied,
+        targetRateChangedByProfileCandidateDelta: applied,
         reasonCode: requested
-          ? "profile_candidate_v2_runtime_proposal_metadata_only_pending_formula_approval"
+          ? (applied ? "profile_candidate_v2_production_target_applied" : "profile_candidate_v2_runtime_proposal_metadata_only_pending_formula_approval")
           : "no_profile_candidate_delta",
         sourceStage: requested ? PROFILE_CANDIDATE_V2_RUNTIME_PROPOSAL_STAGE : null,
         proposedTargetCalWithProfileCandidateDelta: requested ? proposal.proposedTargetCal : null,
+        productionWiringStage: applied ? productionWiring.stage : null,
+        targetCalBeforeProfileCandidateDelta,
         targetCalAfterProfileCandidateDelta: targetRateContext.targetCal,
-        nonGoal: "does_not_apply_candidate_delta_to_production_target"
+        nonGoal: applied
+          ? "does_not_claim_post_wiring_visual_qa_or_full_v8_completion"
+          : "does_not_apply_candidate_delta_to_production_target"
       };
       return targetRateContext;
     }
@@ -19759,14 +19870,15 @@ Notes:
         fat
       }, legacyA58));
       const selectedBasis = dualBasis.selected || dualBasis.guide;
-      const selectedTargetCal = Math.max(0, selectedBasis.targetCal || 0);
-      const selectedProtein = Math.max(0, selectedBasis.protein || 0);
-      const selectedCarbs = Math.max(0, selectedBasis.carbs || 0);
-      const selectedFat = Math.max(0, selectedBasis.fat || 0);
-      const pctProtein = selectedTargetCal > 0 ? round(selectedProtein * 4 / selectedTargetCal * 100) : 0;
-      const pctCarb = selectedTargetCal > 0 ? round(selectedCarbs * 4 / selectedTargetCal * 100) : 0;
-      const pctFat = selectedTargetCal > 0 ? round(selectedFat * 9 / selectedTargetCal * 100) : 0;
-      const macroAllocationInfo = buildMacroAllocationInfo({
+      let selectedTargetCal = Math.max(0, selectedBasis.targetCal || 0);
+      let selectedProtein = Math.max(0, selectedBasis.protein || 0);
+      let selectedCarbs = Math.max(0, selectedBasis.carbs || 0);
+      let selectedFat = Math.max(0, selectedBasis.fat || 0);
+      let selectedMacroBasis = dualBasis.selectedBasis;
+      let pctProtein = selectedTargetCal > 0 ? round(selectedProtein * 4 / selectedTargetCal * 100) : 0;
+      let pctCarb = selectedTargetCal > 0 ? round(selectedCarbs * 4 / selectedTargetCal * 100) : 0;
+      let pctFat = selectedTargetCal > 0 ? round(selectedFat * 9 / selectedTargetCal * 100) : 0;
+      let macroAllocationInfo = buildMacroAllocationInfo({
         targetCal: selectedTargetCal,
         protein: selectedProtein,
         carbs: selectedCarbs,
@@ -19788,7 +19900,41 @@ Notes:
         rangeContext: dualBasis.rangeContext,
         selectedMacroBasis: dualBasis.selectedBasis
       });
-      applyProfileCandidateV2RuntimeProposalToTargetRateContext(targetRateContext, profileMacroCandidateV2RuntimeProposal);
+      const profileCandidateV2ProductionWiring = buildProfileCandidateV2ProductionWiring({
+        enabled: options.profileCandidateV2ProductionWiring !== false,
+        s,
+        proposal: profileMacroCandidateV2RuntimeProposal,
+        selected: {
+          targetCal: selectedTargetCal,
+          protein: selectedProtein,
+          carbs: selectedCarbs,
+          fat: selectedFat,
+          selectedMacroBasis
+        },
+        rangeContext: dualBasis.rangeContext
+      });
+      if (profileCandidateV2ProductionWiring.applied) {
+        selectedTargetCal = profileCandidateV2ProductionWiring.targetCal;
+        selectedProtein = profileCandidateV2ProductionWiring.protein;
+        selectedCarbs = profileCandidateV2ProductionWiring.carbs;
+        selectedFat = profileCandidateV2ProductionWiring.fat;
+        selectedMacroBasis = "profile_candidate_v2";
+        pctProtein = profileCandidateV2ProductionWiring.pctProtein;
+        pctCarb = profileCandidateV2ProductionWiring.pctCarb;
+        pctFat = profileCandidateV2ProductionWiring.pctFat;
+        macroAllocationInfo = profileCandidateV2ProductionWiring.macroAllocationInfo;
+      }
+      if (profileMacroCandidateV2RuntimeProposal) {
+        profileMacroCandidateV2RuntimeProposal.formulaApproved = PROFILE_CANDIDATE_V2_FORMULA_APPROVED_FOR_PRODUCTION;
+        profileMacroCandidateV2RuntimeProposal.productionFormulaChanged = profileCandidateV2ProductionWiring.applied === true;
+        profileMacroCandidateV2RuntimeProposal.appliedToTarget = profileCandidateV2ProductionWiring.applied === true;
+        profileMacroCandidateV2RuntimeProposal.targetCalUnchanged = profileCandidateV2ProductionWiring.applied !== true;
+        profileMacroCandidateV2RuntimeProposal.productionWiringStage = profileCandidateV2ProductionWiring.applied ? profileCandidateV2ProductionWiring.stage : null;
+        profileMacroCandidateV2RuntimeProposal.nonClaim = profileCandidateV2ProductionWiring.applied
+          ? "does_not_claim_post_wiring_visual_qa_or_full_v8_completion"
+          : "does_not_apply_profile_candidate_v2_target_delta";
+      }
+      applyProfileCandidateV2RuntimeProposalToTargetRateContext(targetRateContext, profileMacroCandidateV2RuntimeProposal, profileCandidateV2ProductionWiring);
       const profileCandidateGuardConflict = profileMacroCandidateV2RuntimeProposal?.profileCandidateGuardConflict || null;
 
       const infoNotes = [];
@@ -19897,6 +20043,7 @@ Notes:
         profileTargetDeltaKcal: targetRateContext.profileTargetDeltaKcal,
         profileTargetRateDeltaEquivalentKgPerWeek: targetRateContext.profileTargetRateDeltaEquivalentKgPerWeek,
         profileMacroCandidateV2RuntimeProposal,
+        profileCandidateV2ProductionWiring,
         profileCandidateGuardConflict,
         profileMacroCandidateV2GuardConflict: profileCandidateGuardConflict,
         targetCalBeforeGoalFloor,
@@ -19907,7 +20054,7 @@ Notes:
         targetCal: selectedTargetCal,
         legacyA58,
         dualBasis,
-        selectedMacroBasis: dualBasis.selectedBasis,
+        selectedMacroBasis,
         goalClampUsed,
         targetFloorUsed,
         appliedGoalFactor,
@@ -22032,6 +22179,8 @@ Notes:
 
     function buildProfileCandidateV2TargetDeltaGate(currentResult = {}, windows = {}){
       const delta = getProfileCandidateTargetDeltaConfigFromResult(currentResult);
+      const deltaContract = currentResult?.targetRateContext?.profileCandidateDeltaContract || {};
+      const targetDeltaApplied = deltaContract.appliedToTarget === true;
       const reviewWindow = windows[28] || null;
       const supportWindow = windows[14] || null;
       const base = {
@@ -22046,9 +22195,11 @@ Notes:
         selectedWindowDays: reviewWindow?.windowDays || null,
         supportWindowContextFit: supportWindow?.contextFit || null,
         targetDeltaDirection: Number(delta.targetDeltaKcal) > 0 ? "increase" : (Number(delta.targetDeltaKcal) < 0 ? "decrease" : "none"),
-        targetDeltaApplied: false,
-        productionFormulaChanged: false,
-        nonGoal: "does_not_approve_candidate_v2_target_delta"
+        targetDeltaApplied,
+        productionFormulaChanged: targetDeltaApplied,
+        nonGoal: targetDeltaApplied
+          ? "does_not_claim_post_wiring_visual_qa_or_full_v8_completion"
+          : "does_not_approve_candidate_v2_target_delta"
       };
       if (!base.active) {
         return {
@@ -22066,6 +22217,15 @@ Notes:
           decision: "reject_candidate_delta",
           canApplyAutomatically: false,
           reasons: ["unsupported_candidate_model"]
+        };
+      }
+      if (targetDeltaApplied) {
+        return {
+          ...base,
+          status: "applied",
+          decision: "candidate_delta_applied_to_production_formula",
+          canApplyAutomatically: false,
+          reasons: ["profile_candidate_v2_formula_approved_and_wired"]
         };
       }
       if (!reviewWindow) {
@@ -24558,6 +24718,8 @@ Notes:
         profileTargetDeltaKcal: currentResult?.profileTargetDeltaKcal ?? currentResult?.targetRateContext?.profileTargetDeltaKcal,
         profileTargetRateDeltaEquivalentKgPerWeek: currentResult?.profileTargetRateDeltaEquivalentKgPerWeek ?? currentResult?.targetRateContext?.profileTargetRateDeltaEquivalentKgPerWeek
       });
+      const deltaContract = currentResult?.targetRateContext?.profileCandidateDeltaContract || {};
+      const targetDeltaApplied = deltaContract.appliedToTarget === true;
       const thresholdProfile = getDailyCoachThresholdProfile(PROFILE_CANDIDATE_V2_POLICY_KEY);
       const signals = [];
       if (delta.nonZeroDelta) {
@@ -24568,14 +24730,16 @@ Notes:
           ratio: null,
           actual: delta.targetDeltaKcal,
           target: null,
-          reasonCode: "profile_candidate_v2_target_delta_review",
           profileCandidateModel: delta.model,
           profileCandidateStage: delta.stage,
           targetDeltaKcal: delta.targetDeltaKcal,
           targetRateDeltaEquivalentKgPerWeek: delta.targetRateDeltaEquivalentKgPerWeek,
-          targetDeltaApplied: false,
+          targetDeltaApplied,
           canApplyAutomatically: false,
-          recentGateStatus: context.recentContext?.profileCandidateV2TargetDeltaGate?.status || null
+          recentGateStatus: context.recentContext?.profileCandidateV2TargetDeltaGate?.status || null,
+          reasonCode: targetDeltaApplied
+            ? "profile_candidate_v2_target_delta_applied"
+            : "profile_candidate_v2_target_delta_review"
         });
       }
       const guard = getProfileCandidateGuardConflictContext(context);
@@ -24857,6 +25021,7 @@ Notes:
       comboPolicy: {
         decisionTypes: [
           "profile_guard_conflict",
+          "profile_target_delta_applied",
           "profile_target_delta_review",
           ...DAILY_COACH_COMBO_POLICY_TYPES
         ]
@@ -24865,6 +25030,7 @@ Notes:
         "data_quality_severe",
         "data_quality_insufficient",
         "profile_guard_conflict",
+        "profile_target_delta_applied",
         "profile_target_delta_review",
         ...DAILY_COACH_DECISION_PROFILES.diet.priority
       ]
@@ -25175,10 +25341,11 @@ Notes:
         });
       }
       if (context.profileTargetDeltaActive && !coveredKeys.has("profileTargetDelta")) {
+        const targetDeltaApplied = context.signalsByKey.profileTargetDelta?.targetDeltaApplied === true;
         addDailyCoachDecision(decisions, coveredKeys, context, {
           key: "profileTargetDelta",
-          decisionType: "profile_target_delta_review",
-          copyIntent: "profile_target_delta_review",
+          decisionType: targetDeltaApplied ? "profile_target_delta_applied" : "profile_target_delta_review",
+          copyIntent: targetDeltaApplied ? "profile_target_delta_applied" : "profile_target_delta_review",
           coveredKeys: ["profileTargetDelta"]
         });
       }
@@ -25553,6 +25720,11 @@ Notes:
           state: "운동 프로필 기준과 영양소 보호선이 충돌합니다.",
           reason: "운동 세션에 맞춘 탄수화물 기준을 맞추는 과정에서 단백질 또는 지방 보호선이 아직 정리되지 않았습니다.",
           action: "이 결과는 자동 적용하지 말고 단백질·지방 보호선부터 다시 확인하세요."
+        },
+        profile_target_delta_applied: {
+          state: "운동 프로필 기준 목표가 반영되었습니다.",
+          reason: "오늘 운동 세션의 탄수화물 기준을 맞추기 위해 목표 칼로리와 주간 변화 해석이 함께 조정됐습니다.",
+          action: "오늘은 이 목표를 기준으로 식사를 맞추고, 최근 기록 흐름이 흔들리면 다음 계산에서 다시 확인하세요."
         },
         profile_target_delta_review: {
           state: "운동 프로필 때문에 목표 변화 검토가 필요합니다.",
@@ -30455,6 +30627,8 @@ Notes:
         weeklyTrainingDays: ids.weeklyTrainingDays.value,
         generalAdvancedSettings: ids.generalAdvancedSettings.checked,
         generalLowDigestCarbs: ids.generalLowDigestCarbs.checked,
+        exerciseProfile: ids.exerciseProfile?.value,
+        profileSession: ids.profileSession?.value,
         routinePlan: ids.routinePlan.value,
         intensityOverride: ids.intensityOverride.value,
         weightDuration: ids.weightDuration.value,
@@ -30519,6 +30693,10 @@ Notes:
         ids.weeklyTrainingDays.value = valueSnapshot.weeklyTrainingDays;
         ids.generalAdvancedSettings.checked = valueSnapshot.generalAdvancedSettings;
         ids.generalLowDigestCarbs.checked = valueSnapshot.generalLowDigestCarbs;
+        state.exerciseProfile = normalizeExerciseProfile(state.exerciseProfile);
+        if (ids.exerciseProfile) ids.exerciseProfile.value = state.exerciseProfile;
+        state.profileSession = normalizeProfileSessionForProfile(state.profileSession, state.exerciseProfile, valueSnapshot.profileSession || state.profileSession);
+        if (ids.profileSession) state.profileSession = syncProfileSessionSelect(ids.profileSession, state.exerciseProfile, state.profileSession);
         ids.routinePlan.value = valueSnapshot.routinePlan;
         ids.intensityOverride.value = valueSnapshot.intensityOverride;
         ids.weightDuration.value = valueSnapshot.weightDuration;
@@ -35007,6 +35185,8 @@ Notes:
         weeklyTrainingDaysManual: state.weeklyTrainingDaysManual,
         generalAdvancedSettings: ids.generalAdvancedSettings.checked,
         generalLowDigestCarbs: ids.generalLowDigestCarbs.checked,
+        exerciseProfile: ids.exerciseProfile?.value,
+        profileSession: ids.profileSession?.value,
         routinePlan: ids.routinePlan.value,
         intensityOverride: ids.intensityOverride.value,
         weightDuration: ids.weightDuration.value,
@@ -35086,6 +35266,10 @@ Notes:
         state.weeklyTrainingDaysManual = snapshot.weeklyTrainingDaysManual;
         ids.generalAdvancedSettings.checked = snapshot.generalAdvancedSettings;
         ids.generalLowDigestCarbs.checked = snapshot.generalLowDigestCarbs;
+        state.exerciseProfile = normalizeExerciseProfile(state.exerciseProfile);
+        if (ids.exerciseProfile) ids.exerciseProfile.value = state.exerciseProfile;
+        state.profileSession = normalizeProfileSessionForProfile(state.profileSession, state.exerciseProfile, snapshot.profileSession || state.profileSession);
+        if (ids.profileSession) state.profileSession = syncProfileSessionSelect(ids.profileSession, state.exerciseProfile, state.profileSession);
         ids.routinePlan.value = snapshot.routinePlan;
         ids.intensityOverride.value = snapshot.intensityOverride;
         ids.weightDuration.value = snapshot.weightDuration;
@@ -48538,6 +48722,10 @@ Notes:
         state.weeklyTrainingDaysManual = snapshot.weeklyTrainingDaysManual;
         ids.generalAdvancedSettings.checked = snapshot.generalAdvancedSettings;
         ids.generalLowDigestCarbs.checked = snapshot.generalLowDigestCarbs;
+        state.exerciseProfile = normalizeExerciseProfile(state.exerciseProfile);
+        if (ids.exerciseProfile) ids.exerciseProfile.value = state.exerciseProfile;
+        state.profileSession = normalizeProfileSessionForProfile(state.profileSession, state.exerciseProfile, snapshot.profileSession || state.profileSession);
+        if (ids.profileSession) state.profileSession = syncProfileSessionSelect(ids.profileSession, state.exerciseProfile, state.profileSession);
         ids.routinePlan.value = snapshot.routinePlan;
         ids.intensityOverride.value = snapshot.intensityOverride;
         ids.weightDuration.value = snapshot.weightDuration;
@@ -53204,8 +53392,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-Z";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-Z profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-AA";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -56761,6 +56949,7 @@ Notes:
       const fixture = buildV8RuntimeCandidateV2UserFacingFixture();
       const result = fixture.result || {};
       const proposal = fixture.proposal || {};
+      const productionWiring = result.profileCandidateV2ProductionWiring || {};
       const gate = fixture.recentContext?.profileCandidateV2TargetDeltaGate || null;
       const coachItems = Array.isArray(fixture.coachOutput?.items) ? fixture.coachOutput.items : [];
       const coachDecisionTypes = coachItems.map(item => item.decisionType).filter(Boolean);
@@ -56777,15 +56966,16 @@ Notes:
       return {
         meta: {
           version: V8_SCENARIO_RUNNER_VERSION,
-          stage: "9-9_profile_formula_user_facing_qa_v0",
+          stage: "9-12_profile_formula_post_wiring_runtime_qa_v0",
           reportOnly: true,
           userFacingQa: true,
-          productionFormulaChanged: false,
-          candidateFormulaApproved: false,
-          targetDeltaApplied: false,
+          productionFormulaChanged: proposal.productionFormulaChanged === true,
+          candidateFormulaApproved: proposal.formulaApproved === true,
+          targetDeltaApplied: proposal.appliedToTarget === true,
           canApplyAutomatically: false,
-          evidenceLevel: "internal_runtime_surface_qa_only",
-          nonClaim: "does_not_approve_or_apply_profile_candidate_v2_target_delta"
+          productionTargetCalApplied: proposal.appliedToTarget === true,
+          evidenceLevel: "post_wiring_internal_runtime_surface_qa_only",
+          nonClaim: "does_not_claim_post_wiring_visual_qa_or_full_v8_completion"
         },
         summary: {
           runtimeProposalActive: proposal.active === true,
@@ -56795,19 +56985,25 @@ Notes:
           targetRateDeltaEquivalentKgPerWeek: proposal.targetRateDeltaEquivalentKgPerWeek ?? null,
           targetCalUnchanged: proposal.targetCalUnchanged === true && Math.abs((result.targetCal || 0) - (proposal.baseTargetCal || 0)) < 0.0001,
           targetDeltaApplied: proposal.appliedToTarget === true,
+          productionTargetCalApplied: productionWiring.applied === true,
+          productionFormulaChanged: proposal.productionFormulaChanged === true,
+          candidateFormulaApproved: proposal.formulaApproved === true,
           canApplyAutomatically: gate?.canApplyAutomatically === true,
           recentGateStatus: gate?.status || null,
           coachPolicyKey: fixture.signals?.coachProfileKey || null,
           coachHasProfileTargetDeltaSignal: !!targetDeltaSignal,
-          coachHasProfileTargetDeltaDecision: coachDecisionTypes.includes("profile_target_delta_review"),
+          coachHasProfileTargetDeltaDecision: coachDecisionTypes.includes("profile_target_delta_review")
+            || coachDecisionTypes.includes("profile_target_delta_applied"),
+          coachHasProfileTargetDeltaAppliedDecision: coachDecisionTypes.includes("profile_target_delta_applied"),
           coachMentionsInternalCandidateName: /candidate|profileCandidate|profileMacroCandidate|v8/i.test(fixture.coachText),
           coachForbiddenTermCount: coachForbiddenHits.length,
           recordDetailHasProfileTargetDelta,
           recordDetailHasProfileTargetRateDelta,
           recordDetailForbiddenTermCount: recordForbiddenHits.length,
           surfaceForbiddenTermCount: coachForbiddenHits.length + recordForbiddenHits.length,
-          formulaApprovalBlocked: true,
-          productionWiringBlocked: true
+          formulaApprovalBlocked: false,
+          productionWiringBlocked: false,
+          productionVisualQaCompleted: false
         },
         surfaces: {
           coach: {
@@ -56834,6 +57030,7 @@ Notes:
           proposedTargetCal: proposal.proposedTargetCal ?? null,
           targetDeltaKcal: proposal.targetDeltaKcal ?? null,
           targetRateDeltaEquivalentKgPerWeek: proposal.targetRateDeltaEquivalentKgPerWeek ?? null,
+          productionWiringStage: productionWiring.stage || null,
           profileCarbFloorAttempted: proposal.profileCarbFloorAttempted === true,
           profileCarbFloorMet: proposal.profileCarbFloorMet === true,
           proteinGuardConflict: proposal.profileCandidateGuardConflict?.proteinGuardConflict === true,
@@ -57218,13 +57415,14 @@ Notes:
     function getV8HumanReviewSurfaceQaClosed(context){
       const qaSummary = context?.profileFormulaUserFacingQa?.summary || {};
       return qaSummary.runtimeProposalActive === true
-        && qaSummary.targetCalUnchanged === true
-        && qaSummary.targetDeltaApplied === false
-        && qaSummary.canApplyAutomatically === false
         && qaSummary.coachHasProfileTargetDeltaDecision === true
         && qaSummary.recordDetailHasProfileTargetDelta === true
         && qaSummary.recordDetailHasProfileTargetRateDelta === true
-        && qaSummary.surfaceForbiddenTermCount === 0;
+        && qaSummary.surfaceForbiddenTermCount === 0
+        && (
+          (qaSummary.targetCalUnchanged === true && qaSummary.targetDeltaApplied === false)
+          || (qaSummary.productionTargetCalApplied === true && qaSummary.targetDeltaApplied === true)
+        );
     }
 
     function resolveV8HumanReviewHighFinding(finding, comparison, context){
@@ -57411,25 +57609,47 @@ Notes:
         && approvalSummary.productionFormulaApprovalReady === true
         && approvalMeta.approvalStatus === "ready_for_owner_formula_approval_not_approved";
       const userSurfaceReady = qaSummary.runtimeProposalActive === true
-        && qaSummary.targetCalUnchanged === true
-        && qaSummary.targetDeltaApplied === false
-        && qaSummary.canApplyAutomatically === false
         && qaSummary.coachHasProfileTargetDeltaDecision === true
         && qaSummary.recordDetailHasProfileTargetDelta === true
-        && qaSummary.surfaceForbiddenTermCount === 0;
+        && qaSummary.surfaceForbiddenTermCount === 0
+        && (
+          (qaSummary.targetCalUnchanged === true && qaSummary.targetDeltaApplied === false)
+          || (qaSummary.productionTargetCalApplied === true && qaSummary.targetDeltaApplied === true)
+        );
+      const qaBoundaryPreserved = qaMeta.reportOnly === true
+        && (
+          (
+            qaMeta.productionFormulaChanged === false
+            && qaMeta.candidateFormulaApproved === false
+            && qaMeta.targetDeltaApplied === false
+          )
+          || (
+            qaMeta.productionFormulaChanged === true
+            && qaMeta.candidateFormulaApproved === true
+            && qaMeta.targetDeltaApplied === true
+            && qaMeta.productionTargetCalApplied === true
+            && qaMeta.nonClaim === "does_not_claim_post_wiring_visual_qa_or_full_v8_completion"
+          )
+        );
       const reportOnlyBoundaryPreserved = comparisonMeta.reportOnly === true
         && comparisonMeta.productionFormulaChanged === false
         && comparisonMeta.candidateFormulaApproved === false
         && contractMeta.productionFormulaChanged === false
         && contractMeta.candidateFormulaApproved === false
-        && qaMeta.productionFormulaChanged === false
-        && qaMeta.candidateFormulaApproved === false
+        && qaBoundaryPreserved
         && approvalMeta.productionFormulaChanged === false
         && approvalMeta.candidateFormulaApproved === false;
-      const candidateDeltaStillUnapplied = qaSummary.targetDeltaApplied === false
+      const candidateDeltaBoundaryKnown = (
+        qaSummary.targetDeltaApplied === false
         && qaSummary.canApplyAutomatically === false
         && qaMeta.targetDeltaApplied === false
-        && qaMeta.canApplyAutomatically === false;
+        && qaMeta.canApplyAutomatically === false
+      ) || (
+        qaSummary.productionTargetCalApplied === true
+        && qaSummary.targetDeltaApplied === true
+        && qaMeta.targetDeltaApplied === true
+        && qaMeta.productionTargetCalApplied === true
+      );
       const checks = [
         buildV8ProfileFormulaApprovalPreflightCheck({
           key: "candidate_v2_code_contracts_closed",
@@ -57477,21 +57697,25 @@ Notes:
         }),
         buildV8ProfileFormulaApprovalPreflightCheck({
           key: "report_only_boundary_preserved",
-          label: "Report-only boundary is preserved across comparison, contract, QA, and numerical approval",
+          label: "Report-only and post-wiring QA boundaries are preserved across comparison, contract, QA, and numerical approval",
           ready: reportOnlyBoundaryPreserved,
           evidence: {
             comparisonReportOnly: comparisonMeta.reportOnly === true,
-            comparisonProductionFormulaChanged: comparisonMeta.productionFormulaChanged === true,
-            comparisonCandidateFormulaApproved: comparisonMeta.candidateFormulaApproved === true,
-            contractProductionFormulaChanged: contractMeta.productionFormulaChanged === true,
+            comparisonProductionFormulaChanged: comparisonMeta.productionFormulaChanged === false,
+            comparisonCandidateFormulaApproved: comparisonMeta.candidateFormulaApproved === false,
+            contractProductionFormulaChanged: contractMeta.productionFormulaChanged === false,
+            qaBoundaryPreserved,
             qaProductionFormulaChanged: qaMeta.productionFormulaChanged === true,
-            approvalProductionFormulaChanged: approvalMeta.productionFormulaChanged === true
+            qaCandidateFormulaApproved: qaMeta.candidateFormulaApproved === true,
+            qaProductionTargetCalApplied: qaMeta.productionTargetCalApplied === true,
+            approvalProductionFormulaChanged: approvalMeta.productionFormulaChanged === false,
+            approvalCandidateFormulaApproved: approvalMeta.candidateFormulaApproved === false
           }
         }),
         buildV8ProfileFormulaApprovalPreflightCheck({
-          key: "candidate_target_delta_not_applied",
-          label: "Candidate-v2 target delta remains unapplied before production wiring",
-          ready: candidateDeltaStillUnapplied,
+          key: "candidate_target_delta_application_boundary_known",
+          label: "Candidate-v2 target delta application boundary is explicit",
+          ready: candidateDeltaBoundaryKnown,
           evidence: {
             targetChangedCount: comparisonSummary.targetChangedCount || 0,
             targetDeltaApplied: qaSummary.targetDeltaApplied === true,
@@ -57542,19 +57766,23 @@ Notes:
         nextRequiredActions: [
           "Make an explicit formula-approval decision before changing production targetCal behavior.",
           "After approval, wire candidate-v2 targetCal application as a separate production change with target-rate, score, Coach, Records, and backup/import continuity checks.",
-          "Run post-wiring production visual QA; v8.0-U/V evidence is pre-wiring QA and does not close that gate."
+          "Run post-wiring production visual QA; v8.0-U/V evidence is pre-wiring QA and does not close that gate.",
+          "After v8.0-AA, formula approval and active runtime production targetCal application are complete; post-wiring production visual QA and full V8 completion remain open."
         ]
       };
     }
 
     const V8_PROFILE_FORMULA_APPROVAL_DECISION_STAGE = "9-11_profile_formula_approval_decision_v0";
 
-    function buildV8ProfileFormulaApprovalDecisionReport(profileMacroCandidateV2Comparison, profileFormulaApprovalPreflight){
+    function buildV8ProfileFormulaApprovalDecisionReport(profileMacroCandidateV2Comparison, profileFormulaApprovalPreflight, profileFormulaUserFacingQa){
       const preflightSummary = profileFormulaApprovalPreflight?.summary || {};
+      const qaSummary = profileFormulaUserFacingQa?.summary || {};
       const preflightReady = preflightSummary.approvalPreflightReady === true
         && preflightSummary.readyForExplicitFormulaApprovalDecision === true
         && preflightSummary.blockedCount === 0;
       const candidateFormulaApproved = preflightReady;
+      const productionTargetCalApplied = qaSummary.productionTargetCalApplied === true;
+      const productionFormulaChanged = productionTargetCalApplied;
       const approvedCandidateModel = candidateFormulaApproved
         ? (profileMacroCandidateV2Comparison?.meta?.model || V8_PROFILE_MACRO_CANDIDATE_V2_MODEL)
         : null;
@@ -57589,42 +57817,48 @@ Notes:
           reportOnly: true,
           formulaApprovalDecision: true,
           approvalStatus: candidateFormulaApproved
-            ? "approved_for_production_wiring_not_applied"
+            ? (productionTargetCalApplied ? "approved_and_applied_pending_post_wiring_visual_qa" : "approved_for_production_wiring_not_applied")
             : "blocked_before_formula_approval",
           candidateFormulaApproved,
           approvedCandidateModel,
-          productionFormulaChanged: false,
+          productionFormulaChanged,
           productionWiringAllowed: candidateFormulaApproved,
-          productionTargetCalApplied: false,
+          productionTargetCalApplied,
           productionVisualQaCompleted: false,
-          approvalScope: "candidate_v2_formula_design_for_next_production_wiring_step_only",
-          evidencePolicy: "delegated implementation decision based on closed internal code contracts, 18-case numerical gate, and user-facing pre-wiring QA; this is not a new external physiology claim",
-          nonClaim: "does_not_apply_candidate_targetCal_or_claim_post_wiring_visual_qa_or_full_v8_completion"
+          approvalScope: productionTargetCalApplied
+            ? "candidate_v2_formula_design_and_active_runtime_production_target_application_pending_visual_qa"
+            : "candidate_v2_formula_design_for_next_production_wiring_step_only",
+          evidencePolicy: "delegated implementation decision based on closed internal code contracts, 18-case numerical gate, and runtime user-facing QA; this is not a new external physiology claim",
+          nonClaim: productionTargetCalApplied
+            ? "does_not_claim_post_wiring_visual_qa_or_full_v8_completion"
+            : "does_not_apply_candidate_targetCal_or_claim_post_wiring_visual_qa_or_full_v8_completion"
         },
         summary: {
           decisionStatus: candidateFormulaApproved
-            ? "approved_for_production_wiring_not_applied"
+            ? (productionTargetCalApplied ? "approved_and_applied_pending_post_wiring_visual_qa" : "approved_for_production_wiring_not_applied")
             : "blocked_before_formula_approval",
           candidateFormulaApproved,
           approvedCandidateModel,
-          productionFormulaChanged: false,
+          productionFormulaChanged,
           productionWiringAllowed: candidateFormulaApproved,
-          productionTargetCalApplied: false,
+          productionTargetCalApplied,
           productionVisualQaCompleted: false,
           approvalPreflightReady: preflightReady,
           preflightBlockedCount: preflightSummary.blockedCount ?? null,
-          productionWiringRequired: candidateFormulaApproved,
+          productionWiringRequired: candidateFormulaApproved && !productionTargetCalApplied,
           productionVisualQaRequiredAfterWiring: true,
           fullV8Complete: false
         },
         decisionBasis,
         productionWiringRequirements: [
-          "Apply candidate-v2 targetCal only in a separate production wiring step.",
+          productionTargetCalApplied
+            ? "The separate production wiring step is now applied for active runtime candidate-v2 targetCal cases."
+            : "Apply candidate-v2 targetCal only in a separate production wiring step.",
           "Preserve target-rate context, Records snapshot/signature, score, Coach, recentContext, and backup/import candidate-v2 metadata through production wiring.",
           "Run production visual QA after wiring because pre-wiring QA does not prove final surfaces."
         ],
         notApprovedYet: [
-          "production_targetCal_application",
+          ...(productionTargetCalApplied ? [] : ["production_targetCal_application"]),
           "post_wiring_production_visual_qa",
           "full_8_2_cartesian_execution",
           "full_v8_completion"
@@ -58500,7 +58734,7 @@ Notes:
         ids.skeletal.value = "";
         ids.homeInbody.checked = false;
       }
-      const result = calculate();
+      const result = calculate({ profileCandidateV2ProductionWiring: false });
       const candidate = buildNoWeeklyXwCandidate(result);
       const currentOutput = buildV8ScenarioOutput("current", definition, result, result);
       const candidateOutput = candidate
@@ -58651,7 +58885,8 @@ Notes:
         );
         const profileFormulaApprovalDecision = buildV8ProfileFormulaApprovalDecisionReport(
           profileMacroCandidateV2Comparison,
-          profileFormulaApprovalPreflight
+          profileFormulaApprovalPreflight,
+          profileFormulaUserFacingQa
         );
         const report = {
           meta: {
@@ -58678,18 +58913,18 @@ Notes:
             profileMacroCandidateModel: V8_PROFILE_MACRO_CANDIDATE_MODEL,
             profileMacroCandidateStatus: "report_only_not_approved_formula",
             profileMacroCandidateV2Model: V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
-            profileMacroCandidateV2Status: "approved_for_production_wiring_not_applied",
+            profileMacroCandidateV2Status: "approved_and_applied_pending_post_wiring_visual_qa",
             profileMacroCandidateV2ContractStatus: "report_only_production_contract_review",
-            profileFormulaUserFacingQaStatus: "report_only_runtime_user_facing_qa_not_formula_approval",
+            profileFormulaUserFacingQaStatus: "post_wiring_runtime_user_facing_qa_not_visual_qa",
             humanReviewNumericalApprovalStatus: "report_only_18_of_18_numeric_gate_ready_not_formula_approval",
             profileFormulaApprovalPreflightStatus: "report_only_ready_for_explicit_formula_approval_decision_not_approved",
-            profileFormulaApprovalDecisionStatus: "approved_for_production_wiring_not_applied",
+            profileFormulaApprovalDecisionStatus: "approved_and_applied_pending_post_wiring_visual_qa",
             requiredRegressionIncluded: !!requiredCase,
             notes: [
-              "This runner is a 9-4 scaffold: it compares current production with an existing report-only candidate before changing formulas.",
+              "This runner preserves the 9-4 report-only audit baseline while reporting the later AA production candidate-v2 wiring status separately.",
               "8-2 required axis coverage and 8-3 human-review cases are separate report layers.",
               "8-2 pairwiseStress is a constrained pairwise covering array; it does not claim the 80B full Cartesian product.",
-              "Exercise profile/session inputs are production data contracts now, but profile-specific macro formulas remain report-only.",
+              "Exercise profile/session inputs are production data contracts now; candidate-v2 is production-applied for active runtime target-delta cases while broader profile visual QA remains open.",
               "Profile-specific sessions are reported separately from the current production routine fallback.",
               "The 8-2 full Cartesian product is not claimed as executed; axis-category coverage is executed and reported separately.",
               "9-3 macro audit is report-only and classifies current macro risks before formula changes.",
@@ -58700,12 +58935,12 @@ Notes:
               "9-7 profile macro candidate-v1 is report-only; it checks whether running/mixed carb floors can be met without targetCal changes and keeps resistance profiles review-only.",
               "8-2 targetedStress is a human-review queue from pairwise/profile residual signals; calculated cases and constraint-only exclusions are separated.",
               "9-7 profile macro candidate-v2 is report-only; it tests linked target/rate deltas and separates legacy protein guide-floor conflicts from external protein guard conflicts.",
-              "9-8 profile macro candidate-v2 production contract review is report-only; Settings/Today, Records snapshot, target-rate metadata, recentContext gate, score, Coach, and protein guard resolution contracts are closed, but formula approval and production targetCal wiring are still separate.",
-              "9-9 profile formula user-facing QA is report-only; runtime candidate-v2 target deltas must appear as user review copy without leaking internal candidate identifiers.",
+              "9-8 profile macro candidate-v2 production contract review is report-only; Settings/Today, Records snapshot, target-rate metadata, recentContext gate, score, Coach, and protein guard resolution contracts are closed, and 9-11/AA record the later formula approval plus active runtime production targetCal wiring.",
+              "9-12 profile formula post-wiring runtime QA is report-only; runtime candidate-v2 target deltas must appear as applied user copy without leaking internal candidate identifiers.",
               "8-3 human-review numerical approval gate is report-only; v8.0-X resolves the low_reliability_user fat-percent blocker inside the candidate-v2 linked-target feasibility layer, so 18 of 18 human-review cases pass the numeric gate without approving the formula.",
-              "9-10 profile formula approval preflight is report-only; it confirms code/numerical/surface evidence is ready for an explicit approval decision while keeping candidateFormulaApproved=false and productionWiringAllowed=false.",
-              "9-11 profile formula approval decision approves candidate-v8-profile-macro-v2-linked-target-v0 only for the next production wiring step; production targetCal application and post-wiring visual QA remain separate.",
-              "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, or candidate-v8-profile-macro-v1 as the final v8 formula; candidate-v8-profile-macro-v2-linked-target-v0 is approved for wiring but is not yet applied or visually QA-complete."
+              "9-10 profile formula approval preflight is report-only; it confirms code/numerical/surface evidence is ready for an explicit approval decision while keeping the preflight boundary separate from production application.",
+              "9-11 profile formula approval decision approves candidate-v8-profile-macro-v2-linked-target-v0 and v8.0-AA applies active runtime target-delta cases to production targetCal.",
+              "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, or candidate-v8-profile-macro-v1 as the final v8 formula; candidate-v8-profile-macro-v2-linked-target-v0 is production-applied for active target-delta cases but is not visually QA-complete or full-V8 complete."
             ]
           },
           summary: {
@@ -58775,8 +59010,11 @@ Notes:
               runtimeProposalActive: profileFormulaUserFacingQa.summary.runtimeProposalActive,
               targetCalUnchanged: profileFormulaUserFacingQa.summary.targetCalUnchanged,
               targetDeltaApplied: profileFormulaUserFacingQa.summary.targetDeltaApplied,
+              productionTargetCalApplied: profileFormulaUserFacingQa.summary.productionTargetCalApplied,
+              candidateFormulaApproved: profileFormulaUserFacingQa.summary.candidateFormulaApproved,
               canApplyAutomatically: profileFormulaUserFacingQa.summary.canApplyAutomatically,
               coachHasProfileTargetDeltaDecision: profileFormulaUserFacingQa.summary.coachHasProfileTargetDeltaDecision,
+              coachHasProfileTargetDeltaAppliedDecision: profileFormulaUserFacingQa.summary.coachHasProfileTargetDeltaAppliedDecision,
               surfaceForbiddenTermCount: profileFormulaUserFacingQa.summary.surfaceForbiddenTermCount,
               recordDetailHasProfileTargetDelta: profileFormulaUserFacingQa.summary.recordDetailHasProfileTargetDelta
             },
@@ -59133,7 +59371,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-Z", "v8 runner version should advance to 8.0-Z");
+          assertTest(report.meta.version === "8.0-AA", "v8 runner version should advance to 8.0-AA");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -59272,7 +59510,7 @@ Notes:
 
         results.push(runNamedTest("v8.0-S protein guard resolution closes candidate-v2 production contract blockers", () => {
           const report = runV8ScenarioRunner();
-          assertTest(report.meta.version === "8.0-Z", "v8 runner version should advance to v8.0-Z");
+          assertTest(report.meta.version === "8.0-AA", "v8 runner version should advance to v8.0-AA");
           const contract = report.profileMacroCandidateV2Contract;
           assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v4_guard_resolution", "candidate-v2 contract should identify 9-8 guard resolution contract review");
           assertTest(contract.meta.reportOnly === true, "candidate-v2 contract should be report-only");
@@ -59448,7 +59686,7 @@ Notes:
           }
         }));
 
-        results.push(runNamedTest("v8.0-T runtime candidate-v2 target delta is preserved without applying targetCal", () => {
+        results.push(runNamedTest("v8.0-AA runtime candidate-v2 target delta applies to production targetCal", () => {
           const originalState = { ...state };
           const originalDrafts = JSON.stringify(todayCalculationDrafts || {});
           try {
@@ -59481,23 +59719,37 @@ Notes:
 
             const result = calculate();
             const proposal = result.profileMacroCandidateV2RuntimeProposal;
+            const wiring = result.profileCandidateV2ProductionWiring;
             assertTest(result.s.exerciseProfile === "mixed", "calculate state should carry mixed exerciseProfile");
             assertTest(result.s.profileSession === "mixed_strength_cardio", "calculate state should carry mixed profileSession");
             assertTest(proposal?.stage === PROFILE_CANDIDATE_V2_RUNTIME_PROPOSAL_STAGE, "runtime proposal should expose the v8.0-T proposal stage");
+            assertTest(wiring?.stage === PROFILE_CANDIDATE_V2_PRODUCTION_WIRING_STAGE, "runtime wiring should expose the v8.0-AA production wiring stage");
             assertTest(proposal.active === true, "mixed high-load runtime proposal should be active");
+            assertTest(proposal.formulaApproved === true, "runtime proposal should know candidate-v2 is formula-approved");
             assertTest(proposal.targetDeltaKcal > 0, "runtime proposal should compute a positive candidate-v2 target delta");
             assertTest(proposal.profileCarbFloorAttempted === true && proposal.profileCarbFloorMet === true, "runtime proposal should attempt and meet the mixed carb floor inside candidate metadata");
             assertTest(proposal.profilePolicy?.fatGuardReview?.fatPercentKcal >= V8_MACRO_AUDIT_RULES.fatContestPrepLowerPctKcal - 1e-6, "runtime proposal should evaluate fat guard against the increased candidate target");
-            assertClose(result.targetCal, proposal.baseTargetCal, 0.0001, "runtime proposal should not change production targetCal");
-            assertTest(proposal.proposedTargetCal > result.targetCal, "runtime proposal should keep proposed targetCal separate from production targetCal");
+            assertTest(wiring.applied === true, "runtime wiring should apply the approved candidate-v2 target delta");
+            assertTest(proposal.appliedToTarget === true, "runtime proposal should mark candidate delta as applied");
+            assertTest(proposal.targetCalUnchanged === false, "runtime proposal should mark targetCal as changed");
+            assertClose(result.targetCal, proposal.proposedTargetCal, 0.0001, "runtime proposal should change production targetCal to the candidate target");
+            assertClose(result.targetCal, wiring.targetCal, 0.0001, "runtime wiring target should match production targetCal");
+            assertClose(result.protein, proposal.candidateMacro.protein_g, 0.0001, "production protein should use candidate-v2 macro");
+            assertClose(result.carbs, proposal.candidateMacro.carb_g, 0.0001, "production carbs should use candidate-v2 macro");
+            assertClose(result.fat, proposal.candidateMacro.fat_g, 0.0001, "production fat should use candidate-v2 macro");
+            assertTest(result.selectedMacroBasis === "profile_candidate_v2", "selected macro basis should identify profile candidate-v2 production wiring");
             assertTest(result.targetRateContext.profileMacroCandidateModel === PROFILE_CANDIDATE_V2_MODEL_KEY, "target-rate context should preserve runtime candidate-v2 model metadata");
             assertClose(result.targetRateContext.profileTargetDeltaKcal, proposal.targetDeltaKcal, 0.000000001, "target-rate context should preserve runtime target delta");
-            assertTest(result.targetRateContext.profileCandidateDeltaContract?.appliedToTarget === false, "runtime proposal contract must not apply candidate delta");
-            assertTest(result.targetRateContext.profileCandidateDeltaContract?.targetCalUnchangedByProfileCandidateDelta === true, "runtime proposal contract should state targetCal remains unchanged");
+            assertClose(result.targetRateContext.targetCal, result.targetCal, 0.0001, "target-rate context targetCal should match production targetCal after wiring");
+            assertTest(result.targetRateContext.profileCandidateDeltaContract?.appliedToTarget === true, "runtime proposal contract must apply candidate delta after AA wiring");
+            assertTest(result.targetRateContext.profileCandidateDeltaContract?.targetCalUnchangedByProfileCandidateDelta === false, "runtime proposal contract should state targetCal changed");
             const recentContext = buildRecentContext(result, { records: [] });
             assertTest(recentContext.profileCandidateV2TargetDeltaGate.active === true, "recentContext gate should see the runtime candidate delta");
-            assertTest(recentContext.profileCandidateV2TargetDeltaGate.canApplyAutomatically === false, "recentContext gate must still block automatic application");
+            assertTest(recentContext.profileCandidateV2TargetDeltaGate.status === "applied", "recentContext gate should report the production-applied candidate delta");
+            assertTest(recentContext.profileCandidateV2TargetDeltaGate.targetDeltaApplied === true, "recentContext gate should mark target delta as applied");
+            assertTest(recentContext.profileCandidateV2TargetDeltaGate.canApplyAutomatically === false, "recentContext gate should not present a second automatic application");
             const snapshot = buildGoalSnapshotFromCurrentState(result, "saved_at_entry");
+            assertClose(snapshot.targetCal, result.targetCal, 0.0001, "goalSnapshot should save the production-applied targetCal");
             assertClose(snapshot.profileTargetDeltaKcal, proposal.targetDeltaKcal, 0.000000001, "goalSnapshot should preserve runtime candidate-v2 target delta");
           } finally {
             Object.assign(state, originalState);
@@ -59511,22 +59763,27 @@ Notes:
           }
         }));
 
-        results.push(runNamedTest("v8.0-U runtime candidate-v2 user-facing QA stays review-only", () => {
+        results.push(runNamedTest("v8.0-AA runtime candidate-v2 user-facing QA shows applied production target", () => {
           const report = runV8ScenarioRunner();
           const qa = report.profileFormulaUserFacingQa;
-          assertTest(qa?.meta?.stage === "9-9_profile_formula_user_facing_qa_v0", "user-facing QA should identify the 9-9 stage");
+          assertTest(qa?.meta?.stage === "9-12_profile_formula_post_wiring_runtime_qa_v0", "user-facing QA should identify the post-wiring stage");
           assertTest(qa.meta.reportOnly === true, "user-facing QA should be report-only");
-          assertTest(qa.meta.productionFormulaChanged === false, "user-facing QA must not change production formula");
-          assertTest(qa.meta.candidateFormulaApproved === false, "user-facing QA must not approve candidate-v2");
-          assertTest(qa.meta.targetDeltaApplied === false, "user-facing QA must keep candidate delta unapplied");
+          assertTest(qa.meta.productionFormulaChanged === true, "user-facing QA should see production formula wiring");
+          assertTest(qa.meta.candidateFormulaApproved === true, "user-facing QA should see candidate-v2 approval");
+          assertTest(qa.meta.targetDeltaApplied === true, "user-facing QA should see candidate delta applied");
+          assertTest(qa.meta.productionTargetCalApplied === true, "user-facing QA should see production targetCal applied");
           assertTest(qa.summary.runtimeProposalActive === true, "user-facing QA should exercise an active runtime proposal");
           assertTest(qa.summary.targetDeltaKcal > 0, "user-facing QA should preserve a positive target delta");
-          assertTest(qa.summary.targetCalUnchanged === true, "user-facing QA should keep production targetCal unchanged");
-          assertTest(qa.summary.targetDeltaApplied === false, "summary should show target delta is not applied");
-          assertTest(qa.summary.canApplyAutomatically === false, "recent gate should not allow automatic application");
+          assertTest(qa.summary.targetCalUnchanged === false, "user-facing QA should show production targetCal changed");
+          assertTest(qa.summary.targetDeltaApplied === true, "summary should show target delta is applied");
+          assertTest(qa.summary.productionTargetCalApplied === true, "summary should show production targetCal is applied");
+          assertTest(qa.summary.candidateFormulaApproved === true, "summary should show candidate-v2 formula approval");
+          assertTest(qa.summary.canApplyAutomatically === false, "recent gate should not offer a second automatic application");
+          assertTest(qa.summary.recentGateStatus === "applied", "recent gate should report applied status");
           assertTest(qa.summary.coachPolicyKey === PROFILE_CANDIDATE_V2_POLICY_KEY, "Coach should use the candidate-v2 policy key internally");
           assertTest(qa.summary.coachHasProfileTargetDeltaSignal === true, "Coach should receive a profile target-delta signal");
-          assertTest(qa.summary.coachHasProfileTargetDeltaDecision === true, "Coach output should include the profile target-delta review decision");
+          assertTest(qa.summary.coachHasProfileTargetDeltaDecision === true, "Coach output should include the profile target-delta decision");
+          assertTest(qa.summary.coachHasProfileTargetDeltaAppliedDecision === true, "Coach output should show the profile target-delta applied decision");
           assertTest(qa.summary.coachMentionsInternalCandidateName === false, "Coach copy should not expose internal candidate identifiers");
           assertTest(qa.summary.coachForbiddenTermCount === 0, "Coach copy should hide internal report/schema terms");
           assertTest(qa.summary.recordDetailHasProfileTargetDelta === true, "Records detail should show the profile target delta value");
@@ -59534,8 +59791,8 @@ Notes:
           assertTest(qa.summary.recordDetailForbiddenTermCount === 0, "Records detail should hide internal report/schema terms");
           assertTest(qa.summary.surfaceForbiddenTermCount === 0, "all user-facing surfaces should hide internal terms");
           assertTest(qa.surfaces.coach.targetDeltaSignalCanApplyAutomatically === false, "Coach signal should not allow automatic target-delta application");
-          assertTest(qa.surfaces.coach.targetDeltaSignalApplied === false, "Coach signal should mark target delta as unapplied");
-          assertIncludesAll(qa.surfaces.coach.outputDecisionTypes.join(" "), ["profile_target_delta_review"], "Coach output should carry the target-delta review decision");
+          assertTest(qa.surfaces.coach.targetDeltaSignalApplied === true, "Coach signal should mark target delta as applied");
+          assertIncludesAll(qa.surfaces.coach.outputDecisionTypes.join(" "), ["profile_target_delta_applied"], "Coach output should carry the target-delta applied decision");
           assertTest(qa.surfaces.records.snapshotHasProfileTargetDelta === true, "goalSnapshot should include the candidate-v2 target delta field");
           assertTest(qa.surfaces.records.snapshotHasProfileTargetRateDelta === true, "goalSnapshot should include the candidate-v2 weekly-rate delta field");
           assertTest(qa.runtime.profileCarbFloorAttempted === true && qa.runtime.profileCarbFloorMet === true, "runtime QA should cover a mixed profile carb-floor case");
@@ -59547,7 +59804,7 @@ Notes:
           const report = runV8ScenarioRunner();
           const approval = report.humanReviewNumericalApproval;
           const comparison = report.profileMacroCandidateV2Comparison;
-          assertTest(report.meta.version === "8.0-Z", "v8 runner should expose the Z stage while preserving the X numerical fix");
+          assertTest(report.meta.version === "8.0-AA", "v8 runner should expose the AA stage while preserving the X numerical fix");
           assertTest(approval?.meta?.stage === V8_HUMAN_REVIEW_NUMERICAL_APPROVAL_STAGE, "human-review numerical approval should identify the 8-3 stage");
           assertTest(approval.meta.reportOnly === true, "human-review numerical approval should be report-only");
           assertTest(approval.meta.productionFormulaChanged === false, "human-review numerical approval must not change production formulas");
@@ -59588,7 +59845,7 @@ Notes:
         results.push(runNamedTest("v8.0-Y profile formula approval preflight is ready but not approved or wired", () => {
           const report = runV8ScenarioRunner();
           const preflight = report.profileFormulaApprovalPreflight;
-          assertTest(report.meta.version === "8.0-Z", "v8 runner should expose the Z stage while preserving the Y preflight");
+          assertTest(report.meta.version === "8.0-AA", "v8 runner should expose the AA stage while preserving the Y preflight");
           assertTest(report.meta.profileFormulaApprovalPreflightStatus === "report_only_ready_for_explicit_formula_approval_decision_not_approved", "top-level meta should identify report-only preflight status");
           assertTest(preflight?.meta?.stage === V8_PROFILE_FORMULA_APPROVAL_PREFLIGHT_STAGE, "approval preflight should identify the 9-10 stage");
           assertTest(preflight.meta.reportOnly === true, "approval preflight should be report-only");
@@ -59597,7 +59854,7 @@ Notes:
           assertTest(preflight.meta.productionFormulaChanged === false, "approval preflight must not change production formula");
           assertTest(preflight.meta.candidateFormulaApproved === false, "approval preflight must not approve candidate-v2");
           assertTest(preflight.meta.productionWiringAllowed === false, "approval preflight must not allow production wiring by itself");
-          assertTest(preflight.meta.productionTargetCalApplied === false, "approval preflight must not apply candidate targetCal");
+          assertTest(preflight.meta.productionTargetCalApplied === false, "approval preflight itself must not apply candidate targetCal");
           assertTest(preflight.meta.productionVisualQaCompleted === false, "approval preflight must not claim post-wiring visual QA");
           assertTest(preflight.summary.checkCount === 5, "approval preflight should keep the five explicit checks visible");
           assertTest(preflight.summary.readyCheckCount === 5, "approval preflight should have all checks ready after v8.0-X");
@@ -59616,7 +59873,7 @@ Notes:
             "human_review_numerical_gate_18_of_18",
             "runtime_user_surfaces_review_only_ready",
             "report_only_boundary_preserved",
-            "candidate_target_delta_not_applied"
+            "candidate_target_delta_application_boundary_known"
           ], "approval preflight should list every required readiness boundary");
           assertTest(preflight.checks.every(item => item.ready === true), "all preflight checks should be ready");
           assertTest(preflight.blockedChecks.length === 0, "blocked preflight check list should be empty");
@@ -59628,32 +59885,32 @@ Notes:
           assertTest(findInvalidCalibrationNumber(preflight).length === 0, "approval preflight report should not contain NaN or Infinity");
         }));
 
-        results.push(runNamedTest("v8.0-Z profile formula approval decision approves wiring but not production application", () => {
+        results.push(runNamedTest("v8.0-AA profile formula approval decision is applied but still awaits visual QA", () => {
           const report = runV8ScenarioRunner();
           const decision = report.profileFormulaApprovalDecision;
-          assertTest(report.meta.version === "8.0-Z", "v8 runner should expose the Z approval decision stage");
-          assertTest(report.meta.profileMacroCandidateV2Status === "approved_for_production_wiring_not_applied", "candidate-v2 status should be approved only for the wiring step");
-          assertTest(report.meta.profileFormulaApprovalDecisionStatus === "approved_for_production_wiring_not_applied", "top-level meta should expose the approval decision status");
+          assertTest(report.meta.version === "8.0-AA", "v8 runner should expose the AA production wiring stage");
+          assertTest(report.meta.profileMacroCandidateV2Status === "approved_and_applied_pending_post_wiring_visual_qa", "candidate-v2 status should be applied but still visual-QA pending");
+          assertTest(report.meta.profileFormulaApprovalDecisionStatus === "approved_and_applied_pending_post_wiring_visual_qa", "top-level meta should expose the applied approval decision status");
           assertTest(decision?.meta?.stage === V8_PROFILE_FORMULA_APPROVAL_DECISION_STAGE, "approval decision should identify the 9-11 stage");
           assertTest(decision.meta.reportOnly === true, "approval decision report must not mutate production directly");
           assertTest(decision.meta.formulaApprovalDecision === true, "approval decision should identify itself explicitly");
-          assertTest(decision.meta.approvalStatus === "approved_for_production_wiring_not_applied", "approval decision should approve candidate-v2 for wiring only");
+          assertTest(decision.meta.approvalStatus === "approved_and_applied_pending_post_wiring_visual_qa", "approval decision should reflect AA production application");
           assertTest(decision.meta.candidateFormulaApproved === true, "approval decision should approve candidate-v2 formula selection");
           assertTest(decision.meta.approvedCandidateModel === V8_PROFILE_MACRO_CANDIDATE_V2_MODEL, "approval decision should select candidate-v2 as the approved model");
-          assertTest(decision.meta.productionFormulaChanged === false, "approval decision must not change production formula");
+          assertTest(decision.meta.productionFormulaChanged === true, "approval decision should see production formula wiring after AA");
           assertTest(decision.meta.productionWiringAllowed === true, "approval decision should allow the next production wiring step");
-          assertTest(decision.meta.productionTargetCalApplied === false, "approval decision must not apply production targetCal");
+          assertTest(decision.meta.productionTargetCalApplied === true, "approval decision should see production targetCal applied after AA");
           assertTest(decision.meta.productionVisualQaCompleted === false, "approval decision must not claim post-wiring visual QA");
-          assertTest(decision.summary.decisionStatus === "approved_for_production_wiring_not_applied", "summary should carry the decision status");
+          assertTest(decision.summary.decisionStatus === "approved_and_applied_pending_post_wiring_visual_qa", "summary should carry the AA decision status");
           assertTest(decision.summary.candidateFormulaApproved === true, "summary should carry formula approval");
-          assertTest(decision.summary.productionFormulaChanged === false, "summary should keep production formula unchanged");
+          assertTest(decision.summary.productionFormulaChanged === true, "summary should show production formula changed");
           assertTest(decision.summary.productionWiringAllowed === true, "summary should allow production wiring as the next step");
-          assertTest(decision.summary.productionTargetCalApplied === false, "summary should keep targetCal unapplied");
+          assertTest(decision.summary.productionTargetCalApplied === true, "summary should show targetCal applied");
           assertTest(decision.summary.productionVisualQaCompleted === false, "summary should keep visual QA open");
           assertTest(decision.summary.fullV8Complete === false, "approval decision must not claim full V8 completion");
           assertTest(report.summary.profileFormulaApprovalDecision.candidateFormulaApproved === true, "top-level summary should expose candidate-v2 approval");
-          assertTest(report.summary.profileFormulaApprovalDecision.productionFormulaChanged === false, "top-level summary should keep production formula unchanged");
-          assertTest(report.summary.profileFormulaApprovalDecision.productionTargetCalApplied === false, "top-level summary should keep targetCal unapplied");
+          assertTest(report.summary.profileFormulaApprovalDecision.productionFormulaChanged === true, "top-level summary should show production formula wiring");
+          assertTest(report.summary.profileFormulaApprovalDecision.productionTargetCalApplied === true, "top-level summary should show targetCal applied");
           assertIncludesAll(decision.decisionBasis.map(item => item.key).join(" "), [
             "approval_preflight",
             "candidate_v2_model"
@@ -59665,10 +59922,10 @@ Notes:
             "production visual QA"
           ], "approval decision should keep wiring requirements explicit");
           assertIncludesAll(decision.notApprovedYet.join(" "), [
-            "production_targetCal_application",
             "post_wiring_production_visual_qa",
             "full_v8_completion"
           ], "approval decision should list remaining non-approved scopes");
+          assertTest(!decision.notApprovedYet.includes("production_targetCal_application"), "production targetCal application should no longer be listed as unapproved after AA");
           assertTest(findInvalidCalibrationNumber(decision).length === 0, "approval decision report should not contain NaN or Infinity");
         }));
 

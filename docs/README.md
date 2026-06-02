@@ -1,5 +1,17 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AA production candidate-v2 target wiring note
+
+- `calculate()` now applies the approved `candidate-v8-profile-macro-v2-linked-target-v0` target/macro output to production for active runtime profile target-delta cases.
+- Direct extraction on 2026-06-03: mixed high-load runtime QA reports `productionTargetCal=3312.9411753385825`, `proposedCandidateTargetCal=3312.9411753385825`, `targetDeltaKcal=29.446064227471197`, `targetDeltaApplied=true`, `productionTargetCalApplied=true`, `recentGateStatus=applied`, and `coachHasProfileTargetDeltaAppliedDecision=true`.
+- The historical scenario/audit baseline is kept separate: `runV8ScenarioRunner()` calls the scenario baseline with `profileCandidateV2ProductionWiring=false`, so v8.0-D~X report-only candidate comparisons are not reinterpreted through the AA production result.
+- During AA verification, a sandbox restore leak was found: V8 runtime QA could leave `exerciseProfile/profileSession` DOM values as `mixed / mixed_strength_cardio` for later suites. `withRecordTestSandbox()` and `withCalibrationReportSandbox()` now restore those inputs explicitly.
+- This is production target application for active runtime target-delta cases only. It does not claim post-wiring production visual QA, full 8-2 Cartesian execution, or full V8 completion, and it does not introduce new external exercise-physiology evidence beyond the already documented candidate-v2 evidence boundary.
+- Still-open scopes are `post_wiring_production_visual_qa`, `full_8_2_cartesian_execution`, and `full_v8_completion`.
+- Scenario runner verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 24 cases / failed 0.
+- Calibration verification on 2026-06-03: 14 suites / 132 cases / failed 0.
+- Full internal verification on 2026-06-03: 99 suites / 1052 cases / failed 0.
+
 # v8.0-Z profile formula approval decision note
 
 - `runV8ScenarioRunner()` now includes `profileFormulaApprovalDecision` at `9-11_profile_formula_approval_decision_v0`.
