@@ -1,5 +1,14 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-P profile/session input-snapshot contract note
+
+- `index.html` now exposes Settings/Today `exerciseProfile` and `profileSession` inputs and preserves them through Today draft, calculation state, Records `goalSnapshot`, snapshot signature, and full backup.
+- This closes the input/snapshot/backup data contract only. It does not approve `candidate-v8-profile-macro-v2-linked-target-v0` or change production macro formulas.
+- Direct extraction on 2026-06-03: `contractCount=14`, `presentCount=9`, `missingContractCount=5`, `productionBlockerCount=6`, `productionReady=false`.
+- Remaining missing production contracts are target-rate candidate delta, macro score profile, Daily Coach threshold, Daily Coach decision/copy, and recentContext target-delta gate.
+- The extra production blocker beyond missing contracts is still `profileMacroCandidateV2Comparison.proteinGuardConflict`.
+- Scenario runner now has 19 test cases: the added case verifies running profile/session normalization, snapshot/signature preservation, backup preservation, and unchanged production `targetCal`.
+
 # v8.0-O profileMacroCandidateV2Contract note
 
 - `runV8ScenarioRunner()` now includes `profileMacroCandidateV2Contract`.
@@ -17,7 +26,7 @@
 - Direct extraction on 2026-06-03: candidate-v2 comparison covers 96 cases = axis coverage 73 + human-review 18 + targeted calculated 5.
 - `profileCarbFloorAttemptedCount=5`, `profileCarbFloorMetCount=5`, `profileCarbFloorUnresolvedCount=0`, `targetChangedCount=5`, `targetRateContractRequiredCount=5`, `proteinGuardConflictCount=4`.
 - For `targeted_mixed_carb_unresolved`, candidate-v2 opens `targetDeltaKcal=43.72915555555528`, `targetRateDeltaEquivalentKgPerWeek=0.03975377777777753`, and reaches `carbsGPerKgBodyweight=6`.
-- This is not production approval. Target/rate deltas still need recent trend, score, Coach, Records, Settings/Today, and backup/import contracts.
+- This is not production approval. At v8.0-N those target/rate deltas still needed recent trend, score, Coach, Records, Settings/Today, and backup/import contracts; v8.0-P closes only the input/snapshot/backup part.
 
 # v8.0-M targetedStress note
 
