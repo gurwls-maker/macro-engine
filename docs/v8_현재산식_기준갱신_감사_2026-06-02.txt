@@ -475,6 +475,14 @@ v8 기준문서는 "저장된 오늘 Records 계산 snapshot과 현재 Today 계
 snapshot이 없는 detailed 기록은 비교할 저장 기준이 없으므로, "갱신 필요"보다 "당시 계산 기준 없음/기준 저장 필요"로 분리하는 편이 문서 의도에 더 가깝다.
 다만 현재 일반 상세 저장 흐름은 대부분 snapshot을 생성하므로 실제 노출은 legacy/import/snapshotless edge에 가까울 수 있다.
 
+2026-06-02 v8.0-A 반영:
+
+- `getTodayRecordConfirmationState()`에서 snapshot 없는 detailed 오늘 기록을 `status = "basis-missing"`으로 분리했다.
+- 사용자 화면 문구는 "갱신 필요"가 아니라 "계산 기준 저장 필요" / "현재 기준 저장"으로 표시한다.
+- 수동 저장 액션은 기존 `applyCurrentTodayBasisToTodayRecord()`를 사용하되, 식사 / 공복 체중 / 메모를 유지하고 현재 Today 기준의 `goalSnapshot`과 자동 점수 기준만 저장한다.
+- `runTodayRecordConfirmationTests`에 snapshotless 상태가 stale mismatch처럼 보이지 않는지, 저장 후 current가 되는지 확인하는 v8.0-A 회귀 테스트를 추가했다.
+- desktop / mobile viewport에서 같은 suite를 통과했다.
+
 2. guide/activity basis 토글
 
 브라우저 확인 결과:
@@ -527,9 +535,10 @@ P1 후보:
    - 위치: `getDualBasisProteinRange()`, `calculateGuideBasisMacrosWithinTarget()`
    - 근손실 방지 의도는 유효하지만, 저칼로리 floor 지배 상황에서 탄수화물을 guide minimum 아래로 밀 수 있다.
 
-3. snapshot 없는 detailed 오늘 기록이 "갱신 필요"로 보인다.
+3. snapshot 없는 detailed 오늘 기록이 "갱신 필요"로 보인다. [v8.0-A 처리 완료]
    - 위치: `getTodayRecordConfirmationState()`
-   - 문서상 "저장된 snapshot과 현재 기준 비교"가 전제이므로 상태명을 분리할 필요가 있다.
+   - `basis-missing` 상태와 "계산 기준 저장 필요" 문구로 분리했다.
+   - desktop / mobile viewport 기준 `runTodayRecordConfirmationTests`는 통과했다.
 
 P2 후보:
 
@@ -572,7 +581,8 @@ P2 후보:
    - redistribution_reason
 3. candidate formula를 만들기 전에 현재/candidate side-by-side 시나리오 러너를 준비한다.
 4. 사용자 타입/운동 프로필 판단은 주간 웨이트일수 단독이 아니라 체성분, SMM, FFMI, 세션 길이, 강도, 운동 프로필, cardio, 최근 기록 신뢰도까지 포함한 후보 모델로 문서화한다.
-5. Today-Records 기준갱신은 snapshotless detailed와 selected basis 토글 정책을 먼저 결정한다.
+5. Today-Records 기준갱신은 selected basis 토글 정책을 먼저 결정한다.
+   - snapshotless detailed 상태 분리는 v8.0-A에서 처리했다.
 
 ## 11. 2026-06-02 추가 보강: 감사 한계와 다음 검증 요구
 
@@ -586,6 +596,7 @@ P2 후보:
 - 주간 웨이트일수는 현재 target rate band의 입력이지만, v8 사용자 운동 수준 판단의 충분조건이 아니다.
 - guide/activity basis 토글은 단순 표시 토글이 아니라 target macro / remaining / score 기준과 연결된다. 따라서 저장 snapshot과 기준갱신 정책을 먼저 정해야 한다.
 - snapshot 없는 detailed 기록이 "갱신 필요"로 보이는 현상은 CSS로 숨길 문제가 아니라 상태 분류와 사용자 행동 경로를 정해야 하는 문제다.
+  - 2026-06-02 v8.0-A에서 이 항목은 `basis-missing` / "계산 기준 저장 필요"로 1차 처리했다.
 
 현재 시나리오 검증의 부족한 부분:
 
@@ -623,6 +634,14 @@ P2 후보:
 - Today-Records 기준갱신 시나리오 직접 확인
 - 2026-06-02 보강 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=smoke`
 - desktop smoke 10 suites / 121 cases / failed 0
+- 2026-06-02 v8.0-A 핫픽스 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runTodayRecordConfirmationTests`
+- v8.0-A Today record confirmation suite 1 suite / 9 cases / failed 0
+- 2026-06-02 v8.0-A mobile 확인: `node .\tools\render_audit\run_internal_tests.cjs --mobile --suite=runTodayRecordConfirmationTests`
+- v8.0-A mobile Today record confirmation suite 1 suite / 9 cases / failed 0
+- 2026-06-02 v8.0-A smoke 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=smoke`
+- v8.0-A desktop smoke 10 suites / 121 cases / failed 0
+- 2026-06-02 v8.0-A core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
+- v8.0-A desktop core 26 suites / 364 cases / failed 0
 
 실행하지 않은 것:
 
@@ -631,4 +650,5 @@ P2 후보:
 - candidate formula 비교
 - 18개 human-review scenario 전체 그리드
 
-이번 문서는 구현 변경이 없는 감사 산출물이므로 전체 테스트는 생략했다.
+최초 작성 시점에는 구현 변경이 없는 감사 산출물이었으므로 전체 테스트를 생략했다.
+v8.0-A snapshotless 기준 저장 상태 분리 이후에는 관련 suite, mobile viewport suite, desktop smoke, desktop core를 실행했다.
