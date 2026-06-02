@@ -1,0 +1,566 @@
+# v8 현재 산식 및 Today-Records 기준갱신 감사 리포트
+
+작성일: 2026-06-02
+대상 브랜치: codex/v8-formula-audit
+대상 구현: index.html
+기준 문서: docs/v8_운동프로필_산식_정밀설계.txt 9-1
+
+이 문서는 산식 수정 제안서가 아니다.
+v8 기준문서가 지시한 1단계, 즉 현재 index.html의 산식과 Today-Records 기준갱신 판단 흐름을 감사한 결과이다.
+이 문서 작성 중 index.html 구현은 변경하지 않았다.
+
+## 0. 감사 결론
+
+현재 계산은 다음 순서로 진행된다.
+
+1. Today 계산값과 Settings 기본값을 합쳐 입력 상태를 만든다.
+2. 입력 근거에 따라 내부 런타임 설정을 만든다.
+3. BMR, 일상 활동, 업무 보정, 주간 웨이트 보정, 오늘 웨이트, 유산소, EPOC를 합쳐 총소비량을 만든다.
+4. 목표별 주간 체중 변화율 정책과 안전선을 적용해 목표 칼로리를 만든다.
+5. 1차 탄단지를 계산한다.
+6. guide/activity dual basis를 다시 만들고, 선택된 basis의 탄단지를 최종 화면/저장 기준으로 사용한다.
+
+중요한 점은 최종 탄단지가 1차 `calculateMacroTargets()` 결과가 아니라는 것이다.
+최종 화면값과 goalSnapshot 저장값은 `buildDualBasisProduction()` 이후 선택된 basis 값이다.
+
+1913kcal / 탄수 196.3g / 단백질 180.5g / 지방 45.1g 케이스는 현재 구현에서 재현된다.
+직접 원인은 다음 두 가지다.
+
+1. 목표 칼로리는 감량 deficit 결과가 아니라 energy availability floor에 의해 올라간 값이다.
+2. 단백질과 지방은 guide basis의 diet 규칙인 단백질 2.4g/kg, 지방 0.6g/kg에서 나온다.
+
+이 값은 "단백질이 남은 칼로리를 먹었다"가 아니다.
+현재 guide basis는 단백질을 goal range의 mid 값으로 먼저 잡고, 지방을 min 값으로 잡은 뒤, 남은 칼로리를 탄수화물에 배정한다.
+
+## 1. 입력값 수집 경로
+
+확인 위치:
+
+- `collectState()` - index.html:18980
+- `getEffectiveTodayCalculationValues()` - index.html:17594
+- `resolveModeFreeRuntimeConfig()` - index.html:18489
+- `calculate()` - index.html:19121
+
+`collectState()`는 계산 입력을 직접 DOM/상태에서 모으지 않고 먼저 Today 계산값을 만든다.
+`getEffectiveTodayCalculationValues()`는 Settings 기본값, Today draft, 최신 InBody 자동 기본값, cardio preset 기본값을 합친다.
+
+Today 소유 입력:
+
+- 계산용 체중
+- 체지방률
+- 체지방량
+- 골격근량
+- 오늘 활동량
+- 오늘 업무 유형
+- 오늘 루틴/세션
+- 오늘 훈련 강도 보정
+- 오늘 웨이트 시간
+- 오늘 유산소 종류/시간/속도/경사
+
+Settings 소유 입력:
+
+- 키
+- 나이
+- 성별
+- 목표
+- 업무 보정
+- homeInbody 여부
+- expertLbmAlpha
+- 주간 웨이트일수
+- generalAdvancedSettings
+- generalLowDigestCarbs
+- routinePlan
+
+Records는 현재 계산 입력 자체를 직접 만들지 않는다.
+Records의 `goalSnapshot`은 저장 당시 기준을 보관하고, Records 점수/상세 보기/Today 기준갱신 비교에서 사용된다.
+
+내부 런타임 설정은 사용자에게 노출되는 예전 모드가 아니라 입력 근거 기반으로 만들어진다.
+체성분 입력이 있으면 `bodyCompReliability`가 `partial`, `home`, `inbody` 중 하나가 되고, `appliedAlpha`가 적용된다.
+체성분 입력이 있으면 BMR은 Katch-McArdle, 없으면 Mifflin-St Jeor가 된다.
+
+주의점:
+
+- 현재 `resolveTrainingEvidence()`는 주간 웨이트일수, 오늘 웨이트 시간, 강도 보정, 유산소 시간/속도를 함께 본다.
+- 그러나 목표 rate용 `getTargetRateTrainingBand()`는 주간 웨이트일수 중심으로 beginner/intermediate/advanced를 정한다.
+- v8 기준의 "주간 웨이트일수 단독 판단 금지"와 충돌 가능성이 가장 큰 지점이다.
+
+## 2. 유지 칼로리 분해
+
+확인 위치:
+
+- `calcBMR()` - index.html:18592
+- `calcCardio()` - index.html:18620
+- `calcWeightTrainingKcal()` - index.html:18632
+- `getWeeklyTrainingBaselineKcal()` - index.html:18639
+- `calculate()` - index.html:19121
+
+현재 총소비량은 다음 합이다.
+
+```
+totalBurn =
+  baseDaily
+  + trainingBaselineKcal
+  + weightKcal
+  + cardio.kcal
+  + epocKcal
+```
+
+BMR:
+
+- 체성분 입력이 있고 `appliedAlpha > 0`이면 Katch-McArdle:
+  - `370 + 21.6 * lbmEffective`
+- 체성분 입력이 없으면 Mifflin-St Jeor:
+  - 남성: `10 * weight + 6.25 * height - 5 * age + 5`
+  - 여성: `10 * weight + 6.25 * height - 5 * age - 161`
+
+일상/업무:
+
+```
+workloadY = clamp(WORK_TYPE_Y[workType] + workAdj, 0, 1)
+rawActCoeff = ACTIVITY_COEFF[activityLevel] + workloadY * 0.06
+actCoeff = clamp(rawActCoeff, 1.08, 1.62)
+baseDaily = bmr * actCoeff
+```
+
+주간 웨이트 보정:
+
+```
+frequencyRatio = clamp(weeklyTrainingDays / 7, 0, 1)
+recoveryFactor = clamp(0.012 + frequencyRatio * 0.053, 0.015, 0.05)
+trainingBaselineKcal = bmr * recoveryFactor * multiplier
+```
+
+오늘 웨이트가 있는 날은 multiplier가 0.40이다.
+휴식일은 multiplier가 1이다.
+즉 휴식일에도 주간 웨이트일수가 있으면 회복/유지 수요로 `trainingBaselineKcal`이 붙는다.
+
+오늘 웨이트:
+
+```
+met = 2.5 + xw * 2.5
+weightKcal = met * weight * durationHours
+```
+
+유산소:
+
+- 트레드밀 워킹/러닝, 실외 러닝별 VO2 기반 MET 계산
+- `cardio.kcal = met * weight * durationHours`
+- EPOC는 MET 기준 0, 4%, 7%, 10% 중 하나
+
+## 3. 목표 칼로리 분해
+
+확인 위치:
+
+- `GOAL_RATE_POLICIES` - index.html:15875
+- `getTargetRateTrainingBand()` - index.html:15916
+- `selectGoalWeeklyRate()` - index.html:15940
+- `buildGoalTargetRateContext()` - index.html:15969
+- `calculate()` - index.html:19121
+
+현재 목표 칼로리는 단순 `totalBurn * factor`가 아니다.
+실제 적용 경로는 다음과 같다.
+
+1. cardio reflection으로 목표 계산용 소비 기준을 만든다.
+
+```
+targetBurnBase = totalBurn - cardioKcal + cardioKcal * CARDIO_TARGET_REFLECTION_RATE[goal]
+```
+
+2. 목표별 주간 체중 변화율을 선택한다.
+
+```
+selectedWeeklyRate = selectGoalWeeklyRate(goal, s, modeCfg)
+weeklyBodyWeightDeltaKg = weight * selectedWeeklyRate
+rawGoalDelta = weeklyBodyWeightDeltaKg * 7700 / 7
+clampedGoalDelta = clamp(rawGoalDelta, policy.deltaMin, policy.deltaMax)
+targetCalBeforeFloor = targetBurnBase + clampedGoalDelta
+```
+
+3. 안전선을 적용한다.
+
+```
+energyAvailabilityFloorTarget =
+  30 * actualLbm + exerciseKcal
+
+minimumTargetCal =
+  max(BMR if diet/cut, energyAvailabilityFloorTarget)
+
+targetCal =
+  max(targetCalBeforeFloor, minimumTargetCal)
+```
+
+여기서 `actualLbm`은 adjusted LBM이 아니라 실제 체중/체지방률 또는 체지방량 기반 LBM이다.
+이 부분은 v8 기준문서의 "안전선은 adjusted LBM이 아니라 actual LBM"과 맞는다.
+
+위험 지점:
+
+- `getTargetRateTrainingBand()`는 주간 웨이트일수 3/5 기준으로 intermediate/advanced를 나눈다.
+- 몸 상태, 수행, 운동 프로필, 최근 기록 신뢰도 없이 목표 rate 보정에 trainingBand가 들어간다.
+- 이 지점은 v8의 사용자 타입/운동 수준 판단 기준과 충돌 가능성이 높다.
+
+## 4. 탄단지 분해
+
+확인 위치:
+
+- `calculateMacroTargets()` - index.html:18838
+- `applyPlausibilityLayer()` - index.html:18763
+- `getDualBasisProteinRange()` - index.html:54080
+- `getDualBasisFatRange()` - index.html:54088
+- `calculateGuideBasisMacrosWithinTarget()` - index.html:54355
+- `buildDualBasisProduction()` - index.html:54519
+
+1차 탄단지:
+
+```
+proteinBasisWeight = getProteinBasisWeight(...)
+proteinRaw = GOALS[goal].proteinKg * proteinBasisWeight
+defaultProteinCap = targetCal * 0.35 / 4
+protein = min(proteinRaw, defaultProteinCap)
+fat = fatTargetPreferredG
+carbs = (targetCal - protein * 4 - fat * 9) / 4
+```
+
+그 뒤 plausibility layer가 단백질/탄수/지방 상한을 적용한다.
+
+하지만 최종 화면값은 여기서 끝나지 않는다.
+`calculate()`는 1차 결과를 `legacyA58`에 넣고, 다시 dual basis를 만든다.
+그리고 `dualBasis.selected`의 target/protein/carbs/fat을 최종 `targetCal`, `protein`, `carbs`, `fat`으로 반환한다.
+
+guide basis의 diet 범위:
+
+```
+protein: 2.2 ~ 2.6 g/kg, mid 2.4 g/kg
+fat: floor/min 0.6 g/kg, mid 0.8 g/kg, max 1.0 g/kg
+carbs: low_moderate load 기준 3 ~ 5 g/kg
+```
+
+guide basis within target 계산:
+
+1. 단백질을 `protein.mid * weight`로 잡는다.
+2. 지방을 `fat.min * weight`로 잡는다.
+3. 남은 칼로리를 탄수화물로 채운다.
+4. 목표 안에 들어가지 않으면 지방, 단백질 순서로 낮춘다.
+5. 탄수화물이 range max를 넘으면 지방 flexible range로 이동한다.
+
+현재 1913 케이스에서는 단백질과 지방만 먼저 고정되고 탄수화물이 잔여값이 된다.
+그 결과 탄수화물은 guide minimum 3g/kg보다 낮은 `2.61g/kg`가 된다.
+코드는 이를 `carbsBelowGuideMin: true`로 표시한다.
+
+주의점:
+
+- 최종 반환의 `proteinBasisWeight`는 실제 1차 protein basis가 아니라 bodyweight로 다시 기록된다.
+- v8 기준문서가 요구한 `protein_g_per_kg_bodyweight`, `protein_g_per_kg_lbm`, `protein_rule_source`, cap/floor hit 같은 리포트 필드는 현재 한 번에 구조화되어 있지 않다.
+- 다음 단계에서 시나리오 러너를 만들 때 이 필드는 별도 리포트 객체로 명시해야 한다.
+
+## 5. 실제 케이스: 1913 / 196.3 / 180.5 / 45.1
+
+브라우저에서 현재 index.html을 로드해 실제 `calculate()` 결과로 재현했다.
+
+재현 입력:
+
+```
+goal: diet
+selectedMacroBasis: guide
+weight: 75.2083 kg
+bodyFat: 15.2 %
+skeletal: 35 kg
+gender: male
+height: 173 cm
+age: 32
+activityLevel: sedentary
+workType: office
+weeklyTrainingDays: 4
+routine: REST
+weightDuration: 0
+cardioDuration: 0
+cardioSpeed: 0
+cardioIncline: 0
+```
+
+유지 칼로리:
+
+```
+lbmBase = 63.7766 kg
+lbmEffective = 66.4249 kg
+bmr = 1804.7785 kcal
+baseDaily = 2057.4474 kcal
+trainingBaselineKcal = 76.3146 kcal
+weightKcal = 0
+cardioKcal = 0
+epocKcal = 0
+totalBurn = 2133.7158 kcal
+```
+
+목표 칼로리:
+
+```
+selectedWeeklyRate = -0.005
+rawGoalDelta = -413.6457 kcal
+clampedGoalDelta = -413.6457 kcal
+targetCalBeforeFloor = 1720.0701 kcal
+actualLbm = 63.7766 kg
+energyAvailabilityFloorTarget = 63.7766 * 30 = 1913.2992 kcal
+minimumTargetCal = 1913.2992 kcal
+targetCal = 1913.2992 kcal
+display targetCal = 1913 kcal
+```
+
+탄단지:
+
+```
+protein = 75.2083 * 2.4 = 180.4999 g -> 180.5 g
+fat = 75.2083 * 0.6 = 45.1250 g -> 45.1 g
+carbs = (1913.2992 - 180.4999 * 4 - 45.1250 * 9) / 4
+      = 196.2937 g -> 196.3 g
+```
+
+따라서 이 케이스의 단백질 180.5g은 다음 의미다.
+
+- 원래 의도: diet 상태에서 근손실 방지를 위해 높은 단백질 범위의 중간값을 사용한다.
+- 유효한 부분: 단백질을 남은 칼로리 처리로 두지 않고 목표/체중 기준으로 먼저 정한다.
+- 과한 부분 후보: 모든 diet 사용자에게 bodyweight 2.4g/kg이 기본 중간값으로 적용된다.
+- 부작용: energy availability floor로 목표 칼로리가 낮게 고정될 때 탄수화물이 guide minimum 아래로 내려간다.
+- 수정 판단은 아직 금지: 현재 단계에서는 "높아 보이니 낮춘다"가 아니라, 보존할 의도와 줄여야 할 부작용을 분리해 후보안을 설계해야 한다.
+
+비교: 1차 legacyA58 탄단지
+
+같은 케이스에서 dual basis 적용 전 1차 macroPlan은 다음과 같다.
+
+```
+protein = 150.9275 g
+carbs = 207.8161 g
+fat = 53.1472 g
+proteinBasisWeight = 68.6034 kg
+proteinKgApplied = 2.2 g/kg
+```
+
+즉 180.5g은 1차 diet protein rule의 직접 결과가 아니라, final guide basis에서 다시 올라간 값이다.
+
+## 6. 주간 웨이트일수 영향 확인
+
+같은 1913 케이스에서 주간 웨이트일수를 0 / 2 / 4 / 6으로 바꿔 확인했다.
+
+결과:
+
+- 주 0일: targetCal 1913.0735, totalBurn 2057.4011, trainingBand beginner
+- 주 2일: targetCal 1913.0735, totalBurn 2106.3869, trainingBand beginner
+- 주 4일: targetCal 1913.0735, totalBurn 2133.7158, trainingBand intermediate
+- 주 6일: targetCal 1913.0735, totalBurn 2147.6380, trainingBand advanced
+
+이 케이스에서는 targetCal이 주간 웨이트일수에 따라 바뀌지 않는다.
+이유는 `targetCalBeforeFloor`가 모두 energy availability floor보다 낮아서 최종 targetCal이 floor에 고정되기 때문이다.
+
+그러나 totalBurn, trainingBaselineKcal, trainingBand는 바뀐다.
+다른 체성분/활동/운동 케이스에서는 floor가 지배하지 않으면 주간 웨이트일수의 영향이 targetCal에 드러날 수 있다.
+따라서 문서의 1844 / 1907 / 2025류 케이스는 별도 시나리오 그리드에서 계속 확인해야 한다.
+
+## 7. Today-Records 기준갱신 판단 흐름
+
+확인 위치:
+
+- `normalizeGoalSnapshot()` - index.html:20861
+- `buildGoalSnapshotFromCurrentState()` - index.html:23018
+- `getGoalSnapshotSignature()` - index.html:23055
+- `areGoalSnapshotsEquivalent()` - index.html:23099
+- `getTodayRecordConfirmationState()` - index.html:26280
+- `applyCurrentTodayBasisToTodayRecord()` - index.html:26395
+- `persistAutoAdherenceForDate()` - index.html:26207
+
+Records의 계산 기준은 `goalSnapshot`에 저장된다.
+Today 기준갱신 패널은 오늘 Records가 detailed record일 때, 저장된 `goalSnapshot`과 현재 Today 기준에서 새로 만든 snapshot의 signature를 비교한다.
+
+signature 비교 키:
+
+```
+targetCal, protein, carbs, fat,
+mode, goal, weight, height, age, gender,
+bodyFat, bodyFatMass, skeletal,
+activityLevel, workType, weeklyTrainingDays,
+routinePlan, routine, intensityOverride, weightDuration,
+cardioType, cardioDuration, cardioSpeed, cardioIncline,
+workAdj, homeInbody, expertLbmAlpha,
+generalAdvancedSettings, generalLowDigestCarbs
+```
+
+`snapshotSource`는 signature에 들어가지 않는다.
+숫자는 4자리 반올림 후 비교된다.
+
+상태 판단:
+
+- 오늘 기록 없음: missing
+- 오늘 기록이 detailed가 아님: current
+- 현재 계산 불가: stale, action none
+- detailed이고 snapshot이 현재 기준과 같음: current
+- detailed이고 snapshot이 현재 기준과 다름: stale, action update
+
+수동 갱신 버튼은 다음만 갱신한다.
+
+- `goalSnapshot`
+- `snapshotSource`
+- auto adherence score 관련 값
+
+식사, 공복 체중, 메모는 유지한다.
+
+## 8. 기준갱신 시나리오 확인 결과
+
+브라우저에서 현재 앱을 로드해 직접 상태를 눌렀다.
+
+기준 케이스:
+
+```
+오늘 detailed 기록 있음
+goalSnapshot 있음
+식사 2개 있음
+공복 체중 있음
+Today 기준과 snapshot 일치
+```
+
+결과:
+
+- base current: current, 패널 숨김
+- meal add only: current, 패널 숨김, snapshot 유지
+- record note only: current, 패널 숨김, snapshot 유지
+- Today 계산용 체중 변경: stale
+- Today 계산용 체중 원복: current, 패널 숨김
+- legacy snapshot에서 REST/cardio 0 필드 누락: normalize 후 current
+
+문서 기준과 맞는 부분:
+
+- 식사만 추가해도 기존 snapshot은 유지된다.
+- 메모만 바꿔도 기준갱신은 뜨지 않는다.
+- Today 값을 바꿨다가 저장 당시 값으로 되돌리면 기준갱신이 사라진다.
+- REST 0, cardio 0 계열은 normalize 후 같은 값으로 취급된다.
+- 수동 갱신은 식사/공복 체중/메모를 유지한다.
+
+검토 필요한 부분:
+
+1. snapshot 없는 detailed 오늘 기록
+
+브라우저 확인 결과:
+
+```
+status = stale
+mismatchKeys = ["unavailable"]
+패널 표시 = true
+```
+
+v8 기준문서는 "저장된 오늘 Records 계산 snapshot과 현재 Today 계산 기준이 의미 있게 다를 때" 표시하라고 한다.
+snapshot이 없는 detailed 기록은 비교할 저장 기준이 없으므로, "갱신 필요"보다 "당시 계산 기준 없음/기준 저장 필요"로 분리하는 편이 문서 의도에 더 가깝다.
+다만 현재 일반 상세 저장 흐름은 대부분 snapshot을 생성하므로 실제 노출은 legacy/import/snapshotless edge에 가까울 수 있다.
+
+2. guide/activity basis 토글
+
+브라우저 확인 결과:
+
+```
+guide -> activity:
+status = stale
+mismatchKeys = ["carbs", "fat"]
+
+activity -> guide 복귀:
+status = current
+```
+
+targetCal은 바뀌지 않지만 selected basis의 탄수/지방이 달라지므로 goalSnapshot과 현재 Today macro basis가 달라진다.
+현재 구현은 이를 기준갱신 대상으로 본다.
+
+판단 보류:
+
+- A5.11/C4.8에서는 guide/activity basis가 Today target/macro/remaining/score 기준에 영향을 준다.
+- 동시에 selectedMacroBasis는 UI/session 상태이며 export/storage에 저장하지 않는다고 되어 있다.
+- 따라서 "basis 토글이 저장된 오늘 기록의 계산 기준 갱신을 띄우는 게 맞는지"는 v8에서 명확히 결정해야 한다.
+
+3. `suppressTodayRecordAutoSync`
+
+검색 결과 이 플래그는 몇몇 render 호출 주변에서 true/false로 바뀌지만, 실제 auto sync 실행 여부를 막는 조건으로는 쓰이지 않는다.
+현재 기준갱신 흐름은 자동 저장보다 표시/수동 갱신 중심이라 즉시 버그로 단정하지 않는다.
+하지만 이름과 역할이 어긋나 있을 가능성이 있으므로 기준갱신 핫픽스 단계에서 확인해야 한다.
+
+4. `record_detail_edit` source
+
+`syncTodayRecordGoalSnapshot()`은 `snapshotSource === "record_detail_edit"`이면 자동 sync를 막는다.
+그러나 `getTodayRecordConfirmationState()`는 해당 source여도 현재 기준과 다르면 stale 패널을 보여준다.
+이건 "사용자가 Records에서 당시 기준을 직접 편집한 기록"과 "Today 기준으로 다시 덮어쓸 수 있는 기록"의 UX 경계가 더 필요할 수 있다.
+
+## 9. 위험 지점 목록
+
+P0 후보:
+
+- 아직 확정 P0는 없다.
+- diet targetCal > totalBurn 문제는 재현 케이스에서 확인되지 않았다.
+- 1913 케이스는 targetCal 1913.3, totalBurn 2133.7로 diet targetCal <= totalBurn을 만족한다.
+
+P1 후보:
+
+1. 운동 수준 판단이 주간 웨이트일수 중심이다.
+   - 위치: `getTargetRateTrainingBand()`
+   - v8 기준의 "주간 웨이트일수 단독 기준 금지"와 직접 충돌 가능성이 있다.
+
+2. final guide basis가 diet 단백질을 bodyweight 2.4g/kg으로 기본 적용한다.
+   - 위치: `getDualBasisProteinRange()`, `calculateGuideBasisMacrosWithinTarget()`
+   - 근손실 방지 의도는 유효하지만, 저칼로리 floor 지배 상황에서 탄수화물을 guide minimum 아래로 밀 수 있다.
+
+3. snapshot 없는 detailed 오늘 기록이 "갱신 필요"로 보인다.
+   - 위치: `getTodayRecordConfirmationState()`
+   - 문서상 "저장된 snapshot과 현재 기준 비교"가 전제이므로 상태명을 분리할 필요가 있다.
+
+P2 후보:
+
+1. final result의 protein basis report가 부정확하게 읽힐 수 있다.
+   - `calculate()` 최종 반환에서 `proteinBasisWeight`가 bodyweight로 덮인다.
+   - v8 리포트 필드에는 bodyweight 기준과 LBM 기준을 모두 명확히 분리해야 한다.
+
+2. selected macro basis 토글이 기준갱신을 띄우는 정책이 불명확하다.
+   - targetCal은 그대로지만 macro 기준은 바뀐다.
+   - "UI-only basis"와 "저장 점수 기준 macro" 사이의 정책 결정을 문서화해야 한다.
+
+3. `suppressTodayRecordAutoSync`가 실제 조건 분기에 쓰이지 않는다.
+   - 죽은 플래그인지, 빠진 조건인지 확인 필요.
+
+## 10. 다음 작업 기준
+
+현재 단계에서 하면 안 되는 것:
+
+- 단백질 180.5g을 바로 낮추기
+- guide/activity basis를 바로 제거하기
+- score, Coach, Recent Flow, InBody gate, backup schema를 함께 건드리기
+- 주간 웨이트일수 보정을 임의로 삭제하기
+- snapshotless stale 표시를 CSS로 숨기기
+
+다음 단계에서 해야 하는 것:
+
+1. 현재 감사 결과를 기준으로 산식 리포트 객체를 설계한다.
+2. 필수 필드를 포함한다.
+   - protein_g
+   - protein_g_per_kg_bodyweight
+   - protein_g_per_kg_lbm
+   - protein_rule_source
+   - protein_soft_cap_hit
+   - protein_hard_cap_hit
+   - fat_g
+   - fat_percent_kcal
+   - fat_floor_hit
+   - carb_g
+   - carb_min_hit
+   - redistribution_reason
+3. candidate formula를 만들기 전에 현재/candidate side-by-side 시나리오 러너를 준비한다.
+4. 사용자 타입/운동 프로필 판단은 주간 웨이트일수 단독이 아니라 체성분, SMM, FFMI, 세션 길이, 강도, 운동 프로필, cardio, 최근 기록 신뢰도까지 포함한 후보 모델로 문서화한다.
+5. Today-Records 기준갱신은 snapshotless detailed와 selected basis 토글 정책을 먼저 결정한다.
+
+## 11. 검증 메모
+
+실행한 확인:
+
+- index.html 코드 경로 직접 감사
+- Playwright 기반 브라우저 로드 후 실제 `calculate()` 결과 확인
+- 1913/196.3/180.5/45.1 케이스 재현
+- Today-Records 기준갱신 시나리오 직접 확인
+
+실행하지 않은 것:
+
+- 전체 internal test suite
+- mobile screenshot audit
+- candidate formula 비교
+- 18개 human-review scenario 전체 그리드
+
+이번 문서는 구현 변경이 없는 감사 산출물이므로 전체 테스트는 생략했다.
