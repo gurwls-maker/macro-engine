@@ -7,7 +7,8 @@
 
 이 문서는 산식 수정 제안서가 아니다.
 v8 기준문서가 지시한 1단계, 즉 현재 index.html의 산식과 Today-Records 기준갱신 판단 흐름을 감사한 결과이다.
-이 문서 작성 중 index.html 구현은 변경하지 않았다.
+최초 감사 리포트 작성 중에는 index.html 구현을 변경하지 않았다.
+이후 v8.0-A / v8.0-B 기준갱신 핫픽스 결과는 이 문서의 진행 메모와 검증 메모에 누적한다.
 
 ## 처음 보는 작업자용 사용법
 
@@ -499,11 +500,14 @@ status = current
 targetCal은 바뀌지 않지만 selected basis의 탄수/지방이 달라지므로 goalSnapshot과 현재 Today macro basis가 달라진다.
 현재 구현은 이를 기준갱신 대상으로 본다.
 
-판단 보류:
+2026-06-02 v8.0-B 반영:
 
-- A5.11/C4.8에서는 guide/activity basis가 Today target/macro/remaining/score 기준에 영향을 준다.
-- 동시에 selectedMacroBasis는 UI/session 상태이며 export/storage에 저장하지 않는다고 되어 있다.
-- 따라서 "basis 토글이 저장된 오늘 기록의 계산 기준 갱신을 띄우는 게 맞는지"는 v8에서 명확히 결정해야 한다.
+- guide/activity basis 선택은 Today target macro / remaining / score 기준에 영향을 주므로, 선택 basis가 탄수/단백질/지방 출력값을 바꾸는 경우 Today-Records 기준갱신 대상으로 유지한다.
+- `selectedMacroBasis` 문자열 자체는 UI/session 상태로 남긴다. records/export/localStorage schema에는 저장하지 않는다.
+- Records의 `goalSnapshot`에는 선택 basis의 결과값인 `targetCal`, `protein`, `carbs`, `fat`만 저장한다.
+- 사용자가 "오늘 기준으로 기록 갱신"을 누르면 현재 선택 basis의 탄단지 산출값이 snapshot에 저장되고, 식사 / 공복 체중 / 메모는 유지된다.
+- guide/activity 산출 탄단지가 우연히 같으면 저장된 계산 기준이 달라지지 않은 것이므로 stale을 띄울 이유가 없다.
+- `runTodayRecordConfirmationTests`에 선택 basis 변경이 stale을 띄우되 UI-only 상태를 저장하지 않고, 수동 갱신 후 저장 basis로 돌아오면 current가 되는 v8.0-B 회귀 테스트를 추가했다.
 
 3. `suppressTodayRecordAutoSync`
 
@@ -546,9 +550,9 @@ P2 후보:
    - `calculate()` 최종 반환에서 `proteinBasisWeight`가 bodyweight로 덮인다.
    - v8 리포트 필드에는 bodyweight 기준과 LBM 기준을 모두 명확히 분리해야 한다.
 
-2. selected macro basis 토글이 기준갱신을 띄우는 정책이 불명확하다.
-   - targetCal은 그대로지만 macro 기준은 바뀐다.
-   - "UI-only basis"와 "저장 점수 기준 macro" 사이의 정책 결정을 문서화해야 한다.
+2. selected macro basis 토글이 기준갱신을 띄우는 정책이 불명확하다. [v8.0-B 처리 완료]
+   - 선택 basis가 macro 기준을 바꾸면 기준갱신 대상으로 본다.
+   - `selectedMacroBasis` 문자열은 UI-only 상태로 유지하고, 저장 snapshot에는 선택 basis의 산출 macro 값만 보관한다.
 
 3. `suppressTodayRecordAutoSync`가 실제 조건 분기에 쓰이지 않는다.
    - 죽은 플래그인지, 빠진 조건인지 확인 필요.
@@ -581,8 +585,10 @@ P2 후보:
    - redistribution_reason
 3. candidate formula를 만들기 전에 현재/candidate side-by-side 시나리오 러너를 준비한다.
 4. 사용자 타입/운동 프로필 판단은 주간 웨이트일수 단독이 아니라 체성분, SMM, FFMI, 세션 길이, 강도, 운동 프로필, cardio, 최근 기록 신뢰도까지 포함한 후보 모델로 문서화한다.
-5. Today-Records 기준갱신은 selected basis 토글 정책을 먼저 결정한다.
+5. Today-Records 기준갱신의 사용자 노출 정책은 v8.0-A / v8.0-B에서 1차 고정했다.
    - snapshotless detailed 상태 분리는 v8.0-A에서 처리했다.
+   - selected basis 토글 정책은 v8.0-B에서 처리했다.
+   - 남은 9-2 점검은 `suppressTodayRecordAutoSync` 이름/역할 불일치와 `record_detail_edit` UX 경계 확인이다.
 
 ## 11. 2026-06-02 추가 보강: 감사 한계와 다음 검증 요구
 
@@ -594,7 +600,8 @@ P2 후보:
 - 1913 / 196.3 / 180.5 / 45.1 케이스는 원인 재현 케이스이지 대표 검증 전체가 아니다.
 - 단백질 180.5g은 "남은 칼로리를 단백질이 가져간 결과"가 아니라 guide basis의 bodyweight 2.4g/kg 규칙에서 나온 값이다.
 - 주간 웨이트일수는 현재 target rate band의 입력이지만, v8 사용자 운동 수준 판단의 충분조건이 아니다.
-- guide/activity basis 토글은 단순 표시 토글이 아니라 target macro / remaining / score 기준과 연결된다. 따라서 저장 snapshot과 기준갱신 정책을 먼저 정해야 한다.
+- guide/activity basis 토글은 단순 표시 토글이 아니라 target macro / remaining / score 기준과 연결된다.
+  - 2026-06-02 v8.0-B에서 이 항목은 "macro 출력값이 달라지면 기준갱신 대상, `selectedMacroBasis` 문자열은 UI-only"로 정책을 고정했다.
 - snapshot 없는 detailed 기록이 "갱신 필요"로 보이는 현상은 CSS로 숨길 문제가 아니라 상태 분류와 사용자 행동 경로를 정해야 하는 문제다.
   - 2026-06-02 v8.0-A에서 이 항목은 `basis-missing` / "계산 기준 저장 필요"로 1차 처리했다.
 
@@ -642,6 +649,14 @@ P2 후보:
 - v8.0-A desktop smoke 10 suites / 121 cases / failed 0
 - 2026-06-02 v8.0-A core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
 - v8.0-A desktop core 26 suites / 364 cases / failed 0
+- 2026-06-02 v8.0-B selected basis 정책 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runTodayRecordConfirmationTests`
+- v8.0-B Today record confirmation suite 1 suite / 10 cases / failed 0
+- 2026-06-02 v8.0-B mobile 확인: `node .\tools\render_audit\run_internal_tests.cjs --mobile --suite=runTodayRecordConfirmationTests`
+- v8.0-B mobile Today record confirmation suite 1 suite / 10 cases / failed 0
+- 2026-06-02 v8.0-B smoke 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=smoke`
+- v8.0-B desktop smoke 10 suites / 121 cases / failed 0
+- 2026-06-02 v8.0-B core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
+- v8.0-B desktop core 26 suites / 364 cases / failed 0
 
 실행하지 않은 것:
 
@@ -652,3 +667,4 @@ P2 후보:
 
 최초 작성 시점에는 구현 변경이 없는 감사 산출물이었으므로 전체 테스트를 생략했다.
 v8.0-A snapshotless 기준 저장 상태 분리 이후에는 관련 suite, mobile viewport suite, desktop smoke, desktop core를 실행했다.
+v8.0-B selected macro basis 정책 고정 이후에는 Today record confirmation suite를 desktop/mobile viewport에서 실행했고, desktop smoke/core 회귀도 다시 실행했다.
