@@ -1,5 +1,15 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-U candidate-v2 runtime user-facing QA note
+
+- `runV8ScenarioRunner()` now includes `profileFormulaUserFacingQa` at `9-9_profile_formula_user_facing_qa_v0`.
+- This is runtime user-facing QA only. It does not approve `candidate-v8-profile-macro-v2-linked-target-v0`, does not change production formulas, and does not apply candidate-v2 target deltas to production `targetCal`.
+- Direct extraction on 2026-06-03: runtime mixed high-load QA keeps production `targetCal=3283.4951111111113`, proposed candidate target `3308.524266666667`, `targetDeltaKcal=25.029155555555462`, weekly-rate equivalent `0.022753777777777692kg/week`.
+- Direct extraction on 2026-06-03: `coachHasProfileTargetDeltaDecision=true`, `recordDetailHasProfileTargetDelta=true`, `recordDetailHasProfileTargetRateDelta=true`, `surfaceForbiddenTermCount=0`, `targetDeltaApplied=false`, `canApplyAutomatically=false`.
+- Scenario runner verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 21 cases / failed 0.
+- Calibration verification on 2026-06-03: 14 suites / 129 cases / failed 0.
+- Full internal verification on 2026-06-03: 99 suites / 1049 cases / failed 0.
+
 # v8.0-T candidate-v2 runtime target-delta proposal wiring note
 
 - `index.html` now builds `profileMacroCandidateV2RuntimeProposal` from the actual `calculate()` Today profile/session path.
