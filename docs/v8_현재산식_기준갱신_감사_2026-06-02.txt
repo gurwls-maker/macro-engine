@@ -1930,6 +1930,26 @@ v8.0-AB에서는 AA에서 실제 production `calculate()` 경로에 연결된 ca
 
 이 단계에서 닫힌 것은 `post_wiring_production_visual_qa`다. 아직 닫히지 않은 것은 `full_8_2_cartesian_execution`, `full_v8_completion`이다. AB는 새 외부 운동생리학 근거를 추가하지 않고, AA 적용이 실제 사용자-facing 화면과 Records 당시 계산 기준 화면에 도달하는지 확인한 QA evidence 단계로 기록한다.
 
+## 11-26. 2026-06-03 v8.0-AC full Cartesian execution contract 1차
+
+v8.0-AC에서는 사용자가 지적한 8-2 필수축 전체 곱 `80,621,568,000`개를 18개 human-review 케이스나 50개 pairwise 케이스로 대체했다고 읽히지 않도록, `runV8ScenarioRunner()`에 전수 실행 계약 레이어를 추가했다. 이 단계는 실제 806억 조합 계산 완료가 아니라, 앞으로 전수 shard를 실행할 때 모든 agent가 같은 축 순서와 같은 인덱스 해석을 쓰게 만드는 감사/실행 계약이다.
+
+구현/검증 내용:
+
+- `runV8ScenarioRunner()` version은 `8.0-AC`로 올라갔다.
+- 새 report 객체 `fullCartesianExecutionContract`는 stage `8-2_full_cartesian_execution_contract_v0`를 사용한다.
+- 20개 필수축의 count를 다시 곱해 `axisProductCheck=80,621,568,000`이 `nominalFullCartesianCaseCount`와 일치하는지 고정한다.
+- 축 stride table과 `decodeV8FullCartesianTupleIndex()`를 추가해 row index 하나가 어떤 축 값 조합인지 결정적으로 복원된다.
+- pilot tuple은 index `0`, `1`, middle, `80,621,567,998`, `80,621,567,999`를 decode한다.
+- default shard size는 `100,000`이고, planned shard count는 `806,216`, 마지막 shard는 `68,000`건이다.
+- `fullCartesianRun=false`, `full8_2CartesianExecutionClosed=false`, `fullV8CompletionClosed=false`를 유지한다.
+
+판단:
+
+- AC는 감각적 산식 조정이나 새 운동생리학 근거가 아니다. 순수하게 축 곱/인덱스/샤드 경계를 고정하는 실행 계약이다.
+- AC는 `full_8_2_cartesian_execution`을 닫지 않는다. 다음 단계에서 실제 shard executor와 per-shard manifest evidence가 생겨야 전수 실행 여부를 논할 수 있다.
+- 18개 human-review, pairwise/targeted stress, full Cartesian execution gate는 계속 별도 레이어다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -2318,6 +2338,10 @@ v8.0-AB에서는 AA에서 실제 production `calculate()` 경로에 연결된 ca
 - v8.0-AB scenario runner suite 1 suite / 24 cases / failed 0
 - 2026-06-03 v8.0-AB full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-AB desktop full 99 suites / 1052 cases / failed 0
+- 2026-06-03 v8.0-AC scenario runner 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-AC scenario runner suite 1 suite / 25 cases / failed 0
+- 2026-06-03 v8.0-AC full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-AC desktop full 99 suites / 1053 cases / failed 0
 - 2026-06-03 v8.0-T runtime mixed high-load probe 직접 확인:
   - production `targetCal=3283.4951111111113`
   - proposed candidate-v2 targetCal `3308.524266666667`
@@ -2366,3 +2390,4 @@ v8.0-Y profile formula approval preflight 이후에는 `profileFormulaApprovalPr
 v8.0-Z profile formula approval decision 이후에는 `candidate-v8-profile-macro-v2-linked-target-v0`가 production wiring을 위한 승인 산식으로 선택됐다. 그러나 `productionFormulaChanged=false`, `productionTargetCalApplied=false`, `productionVisualQaCompleted=false`, `fullV8Complete=false`이므로 실제 production targetCal 적용과 post-wiring visual QA는 다음 단계다.
 v8.0-AA production candidate-v2 target wiring 이후에는 active runtime target-delta cases에서 approved candidate-v2 target/macro가 production `calculate()` 결과에 적용된다. 직접 추출 기준 `productionTargetCal=3312.9411753385825`, `targetDeltaApplied=true`, `productionTargetCalApplied=true`, `recentGateStatus=applied`, `coachHasProfileTargetDeltaAppliedDecision=true`다. scenario runner의 과거 report-only baseline은 `profileCandidateV2ProductionWiring=false`로 보호하며, sandbox 복구 누수도 수정했다. AA 자체는 post-wiring production visual QA, 80,621,568,000개 full Cartesian 실행, full V8 completion을 닫지 않았다.
 v8.0-AB post-wiring production visual QA 이후에는 `profileCandidateV2` payload와 55개 render audit capture로 AA 적용 케이스를 desktop/mobile Today/Records에서 검증했다. analyzer 기준 8개 post-wiring 캡처 모두 `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, `recentGateStatus=applied`를 통과했고, basis-open 화면에서 `프로필 목표 보정 29 kcal`, `주간 변화 보정 0.027 kg/주`가 확인됐다. 그러나 80,621,568,000개 full Cartesian 실행과 full V8 completion은 아직 open이다.
+v8.0-AC full Cartesian execution contract 이후에는 `fullCartesianExecutionContract`가 20축 product `80,621,568,000`, deterministic axis stride/index decode, pilot tuple decode, `100,000` row shard / `806,216` planned shard / final `68,000` row boundary를 report한다. 이것은 전수 실행 계약일 뿐 full Cartesian 실행 완료가 아니며, `full_8_2_cartesian_execution`과 `full_v8_completion`은 아직 open이다.

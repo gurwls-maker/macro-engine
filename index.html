@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-AB post-wiring production visual QA
+Stage: v8.0-AC full Cartesian execution contract
 Date: 2026-06-03
 Notes:
+- v8.0-AC adds a deterministic 8-2 full Cartesian index/shard contract so the 80,621,568,000 required-axis product is traceable without pretending it has been executed
 - v8.0-AB extends render audit to capture the wired candidate-v2 production case on Today and Records, and analyzer now requires runtime evidence that selectedMacroBasis=profile_candidate_v2 and productionTargetCalApplied=true
 - v8.0-AA wires the approved candidate-v2 target/macro output into the production calculate() result for active profile target-delta cases while keeping post-wiring visual QA and full V8 completion open
 - v8.0-Z approves candidate-v2 only for the next production wiring step while keeping production formulas, production targetCal application, and post-wiring visual QA separate
@@ -53393,8 +53394,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-AB";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-AB post-wiring production visual QA + v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-AC";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-AC full Cartesian execution contract + v8.0-AB post-wiring production visual QA + v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session input-snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -57943,6 +57944,130 @@ Notes:
       return getV8PairwiseConstraintViolations(tuple).length === 0;
     }
 
+    const V8_FULL_CARTESIAN_DEFAULT_SHARD_SIZE = 100000;
+
+    function getV8FullCartesianAxisStrides(){
+      let stride = 1;
+      return V8_REQUIRED_AXIS_DEFINITIONS
+        .slice()
+        .reverse()
+        .map((axis, reverseIndex) => {
+          const index = V8_REQUIRED_AXIS_DEFINITIONS.length - 1 - reverseIndex;
+          const row = {
+            index,
+            key: axis.key,
+            valueCount: axis.values.length,
+            stride,
+            cycleLength: stride * axis.values.length
+          };
+          stride *= axis.values.length;
+          return row;
+        })
+        .reverse();
+    }
+
+    function decodeV8FullCartesianTupleIndex(index){
+      const numericIndex = Number(index);
+      const total = getV8NominalAxisProduct();
+      if (!Number.isInteger(numericIndex) || numericIndex < 0 || numericIndex >= total) {
+        throw new Error(`v8 full Cartesian index out of range: ${index}`);
+      }
+      const axisStrides = getV8FullCartesianAxisStrides();
+      const tuple = {};
+      const coordinates = axisStrides.map(axisStride => {
+        const axis = V8_REQUIRED_AXIS_DEFINITIONS[axisStride.index];
+        const valueIndex = Math.floor(numericIndex / axisStride.stride) % axisStride.valueCount;
+        const value = axis.values[valueIndex];
+        tuple[axis.key] = value;
+        return {
+          axis: axis.key,
+          valueIndex,
+          value
+        };
+      });
+      const constraintViolations = getV8PairwiseConstraintViolations(tuple);
+      return {
+        index: numericIndex,
+        indexLabel: String(numericIndex),
+        tuple,
+        coordinates,
+        pairwiseCoherent: constraintViolations.length === 0,
+        constraintViolations
+      };
+    }
+
+    function buildV8FullCartesianExecutionContract(pairwiseBuild, options = {}){
+      const total = getV8NominalAxisProduct();
+      const requestedShardSize = Number(options.shardSize);
+      const shardSize = Number.isInteger(requestedShardSize) && requestedShardSize > 0
+        ? requestedShardSize
+        : V8_FULL_CARTESIAN_DEFAULT_SHARD_SIZE;
+      const plannedShardCount = Math.ceil(total / shardSize);
+      const axisCounts = getV8RequiredAxisCounts();
+      const axisProductCheck = Object.values(axisCounts).reduce((acc, count) => acc * count, 1);
+      const pilotIndexes = [...new Set([
+        0,
+        1,
+        Math.floor((total - 1) / 2),
+        total - 2,
+        total - 1
+      ])];
+      const pilotTuples = pilotIndexes.map(item => decodeV8FullCartesianTupleIndex(item));
+      const pairwiseCoherentCount = pilotTuples.filter(item => item.pairwiseCoherent).length;
+      const constraintViolationCount = pilotTuples.reduce((sum, item) => sum + item.constraintViolations.length, 0);
+      const lastShardStart = (plannedShardCount - 1) * shardSize;
+      return {
+        meta: {
+          stage: "8-2_full_cartesian_execution_contract_v0",
+          version: V8_SCENARIO_RUNNER_VERSION,
+          reportOnly: true,
+          fullCartesianRun: false,
+          productionFormulaChanged: false,
+          candidateFormulaApproved: false,
+          shardContractReady: true,
+          executionStatus: "not_executed_contract_only",
+          coverageMode: "deterministic_axis_index_and_shard_contract_without_full_execution",
+          nonGoal: "does_not_execute_or_claim_80621568000_case_full_cartesian_or_replace_pairwise_or_18_human_review"
+        },
+        summary: {
+          axisCount: V8_REQUIRED_AXIS_DEFINITIONS.length,
+          axisCategoryCount: getV8RequiredAxisExpectedValueCount(),
+          nominalFullCartesianCaseCount: total,
+          axisProductCheck,
+          axisProductMatchesNominal: axisProductCheck === total,
+          defaultShardSize: shardSize,
+          plannedShardCount,
+          firstShard: {
+            shardIndex: 0,
+            startIndex: 0,
+            endExclusive: Math.min(shardSize, total),
+            caseCount: Math.min(shardSize, total)
+          },
+          lastShard: {
+            shardIndex: plannedShardCount - 1,
+            startIndex: lastShardStart,
+            endExclusive: total,
+            caseCount: total - lastShardStart
+          },
+          pilotTupleCount: pilotTuples.length,
+          pilotPairwiseCoherentCount: pairwiseCoherentCount,
+          pilotPairwiseConstraintViolationCount: constraintViolationCount,
+          pairwiseIncludedPairRequirementCount: pairwiseBuild?.includedPairRequirements?.length ?? null,
+          pairwiseExcludedPairRequirementCount: pairwiseBuild?.excludedPairRequirements?.length ?? null,
+          full8_2CartesianExecutionClosed: false,
+          fullV8CompletionClosed: false
+        },
+        axisCounts,
+        axisStrides: getV8FullCartesianAxisStrides(),
+        pilotTuples,
+        requiredNextSteps: [
+          "Implement a deterministic shard executor that accepts startIndex/endExclusive and decodes every row through this contract.",
+          "Persist per-shard manifest evidence with index range, case count, failure count, and hash/signature before any full_8_2_cartesian_execution closure claim.",
+          "Keep the 18 human-review cases and pairwise/targeted stress layers separate from the full Cartesian execution gate."
+        ]
+      };
+    }
+
     function getV8PairwiseAxes(){
       return V8_REQUIRED_AXIS_DEFINITIONS.map((axis, index) => ({ ...axis, index }));
     }
@@ -58867,6 +58992,7 @@ Notes:
         const humanReviewCases = humanDefinitions.map((definition, index) => buildV8ScenarioCase(definition, index));
         const pairwiseStressCases = pairwiseDefinitions.map((definition, index) => buildV8ScenarioCase(definition, index + axisCases.length + humanReviewCases.length));
         const pairwiseStress = buildV8PairwiseStressReport(pairwiseBuild.tuples, pairwiseStressCases, pairwiseBuild);
+        const fullCartesianExecutionContract = buildV8FullCartesianExecutionContract(pairwiseBuild);
         const requiredCase = humanReviewCases.find(item => item.requiredRegression) || null;
         const axisCoverageSummary = summarizeV8AxisCoverageCases(axisCases);
         const humanReviewSummary = summarizeV8ScenarioCases(humanReviewCases);
@@ -58916,12 +59042,17 @@ Notes:
             stage: V8_SCENARIO_RUNNER_STAGE,
             generatedAt: new Date().toISOString(),
             reportOnly: true,
-            coverageMode: "8-2_axis_category_sweep_plus_8-3_human_review",
+            coverageMode: "8-2_axis_category_sweep_plus_full_cartesian_execution_contract_plus_8-3_human_review",
             fullCartesianRun: false,
-            fullCartesianOmittedReason: "8-2 full cross-product is 80,621,568,000 cases; this report runs every required axis category independently plus the separate 18 human-review cases.",
+            fullCartesianOmittedReason: "8-2 full cross-product is 80,621,568,000 cases; this report runs every required axis category independently, pairwise/targeted stress layers, and a deterministic full-product index/shard contract, but it does not execute all combinations.",
             axisCounts: getV8RequiredAxisCounts(),
             axisCategoryCount: getV8RequiredAxisExpectedValueCount(),
             nominalFullCartesianCaseCount: getV8NominalAxisProduct(),
+            fullCartesianContractStage: fullCartesianExecutionContract.meta.stage,
+            fullCartesianShardContractReady: fullCartesianExecutionContract.meta.shardContractReady,
+            fullCartesianPlannedShardSize: fullCartesianExecutionContract.summary.defaultShardSize,
+            fullCartesianPlannedShardCount: fullCartesianExecutionContract.summary.plannedShardCount,
+            fullCartesianPilotTupleCount: fullCartesianExecutionContract.summary.pilotTupleCount,
             axisCoverageCaseCount: axisDefinitions.length,
             humanReviewCaseCount: humanDefinitions.length,
             pairwiseStressCaseCount: pairwiseDefinitions.length,
@@ -58946,9 +59077,10 @@ Notes:
               "This runner preserves the 9-4 report-only audit baseline while reporting the later AA production candidate-v2 wiring status separately.",
               "8-2 required axis coverage and 8-3 human-review cases are separate report layers.",
               "8-2 pairwiseStress is a constrained pairwise covering array; it does not claim the 80B full Cartesian product.",
+              "8-2 fullCartesianExecutionContract defines stable row indexes, axis strides, pilot tuple decoding, and shard boundaries; it is contract-only and does not close the 80B execution gate.",
               "Exercise profile/session inputs are production data contracts now; candidate-v2 is production-applied for active runtime target-delta cases and AB verifies the post-wiring Today/Records visual surfaces.",
               "Profile-specific sessions are reported separately from the current production routine fallback.",
-              "The 8-2 full Cartesian product is not claimed as executed; axis-category coverage is executed and reported separately.",
+              "The 8-2 full Cartesian product is not claimed as executed; axis-category coverage, pairwise/targeted stress, and the full-product shard contract are reported separately.",
               "9-3 macro audit is report-only and classifies current macro risks before formula changes.",
               "9-5/9-6 candidateDesign is a report-only scaffold; it does not approve or apply a new formula.",
               "9-6 maintainGoalContract now checks the production maintain goal contracts and keeps GOALS.maintain tied to rate, score, Coach, snapshot, and export/import paths.",
@@ -59071,6 +59203,14 @@ Notes:
               productionVisualQaCompleted: profileFormulaApprovalDecision.summary.productionVisualQaCompleted,
               fullV8Complete: profileFormulaApprovalDecision.summary.fullV8Complete
             },
+            fullCartesianExecutionContract: {
+              stage: fullCartesianExecutionContract.meta.stage,
+              shardContractReady: fullCartesianExecutionContract.meta.shardContractReady,
+              nominalFullCartesianCaseCount: fullCartesianExecutionContract.summary.nominalFullCartesianCaseCount,
+              plannedShardCount: fullCartesianExecutionContract.summary.plannedShardCount,
+              pilotTupleCount: fullCartesianExecutionContract.summary.pilotTupleCount,
+              full8_2CartesianExecutionClosed: fullCartesianExecutionContract.summary.full8_2CartesianExecutionClosed
+            },
             pairwiseStress: {
               stage: pairwiseStress.meta.stage,
               generatedTupleCount: pairwiseStress.summary.generatedTupleCount,
@@ -59100,6 +59240,7 @@ Notes:
           humanReviewNumericalApproval,
           profileFormulaApprovalPreflight,
           profileFormulaApprovalDecision,
+          fullCartesianExecutionContract,
           pairwiseStress,
           targetedStress,
           axisCoverage: {
@@ -59143,7 +59284,7 @@ Notes:
         results.push(runNamedTest("v8.0-D scenario runner separates 8-2 axis coverage from 8-3 human-review cases", () => {
           const report = runV8ScenarioRunner();
           assertTest(report.meta.reportOnly === true, "v8 runner should be report-only");
-          assertTest(report.meta.coverageMode === "8-2_axis_category_sweep_plus_8-3_human_review", "v8 runner should separate axis coverage from human review");
+          assertTest(report.meta.coverageMode === "8-2_axis_category_sweep_plus_full_cartesian_execution_contract_plus_8-3_human_review", "v8 runner should separate axis coverage, full Cartesian contract, and human review");
           assertTest(report.meta.fullCartesianRun === false, "v8 runner must not claim the 80B full cross-product was executed");
           assertTest(report.meta.nominalFullCartesianCaseCount === 80621568000, "v8 runner should report the full 8-2 cross-product size");
           assertTest(report.meta.axisCoverageCaseCount === getV8RequiredAxisExpectedValueCount(), "v8 runner should execute one category case for each required axis value");
@@ -59159,6 +59300,32 @@ Notes:
             assertTest(report.humanReview.summary.exerciseProfiles.includes(profile), `${profile} profile axis should be represented`);
           });
           assertTest(findInvalidCalibrationNumber(report).length === 0, "v8 runner report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("v8.0-AC full Cartesian contract indexes 8-2 without closing execution", () => {
+          const report = runV8ScenarioRunner();
+          const contract = report.fullCartesianExecutionContract;
+          assertTest(report.meta.version === "8.0-AC", "v8 runner version should advance to 8.0-AC");
+          assertTest(contract?.meta?.stage === "8-2_full_cartesian_execution_contract_v0", "full Cartesian contract should identify the 8-2 execution-contract stage");
+          assertTest(contract.meta.reportOnly === true, "full Cartesian contract should be report-only");
+          assertTest(contract.meta.fullCartesianRun === false, "full Cartesian contract must not claim all combinations were executed");
+          assertTest(contract.summary.nominalFullCartesianCaseCount === 80621568000, "full Cartesian contract should preserve the 80,621,568,000 product");
+          assertTest(contract.summary.axisProductMatchesNominal === true, "full Cartesian contract should recompute the axis product from counts");
+          assertTest(contract.summary.plannedShardCount === 806216, "100k-row shard contract should expose the exact planned shard count");
+          assertTest(contract.summary.lastShard.caseCount === 68000, "last shard should preserve the remainder instead of dropping rows");
+          assertTest(contract.axisStrides.length === V8_REQUIRED_AXIS_DEFINITIONS.length, "axis stride table should include every required axis");
+          assertTest(contract.axisStrides[contract.axisStrides.length - 1].stride === 1, "last axis stride should be one");
+          const first = contract.pilotTuples.find(item => item.index === 0);
+          const last = contract.pilotTuples.find(item => item.index === 80621567999);
+          assertTest(first?.tuple?.gender === "male", "index 0 should decode the first gender value");
+          assertTest(first?.tuple?.exerciseProfile === "bodybuilding", "index 0 should decode the first exercise profile value");
+          assertTest(first?.tuple?.profileSession === "rest", "index 0 should decode the first profile session value");
+          assertTest(last?.tuple?.gender === "female", "last index should decode the final gender value");
+          assertTest(last?.tuple?.exerciseProfile === "mixed", "last index should decode the final exercise profile value");
+          assertTest(last?.tuple?.profileSession === "mixed_strength_cardio", "last index should decode the final profile session value");
+          assertTest(contract.summary.full8_2CartesianExecutionClosed === false, "contract must keep full_8_2_cartesian_execution open");
+          assertTest(report.profileFormulaApprovalDecision.notApprovedYet.includes("full_8_2_cartesian_execution"), "approval decision should still list the full Cartesian gate");
+          assertTest(findInvalidCalibrationNumber(contract).length === 0, "full Cartesian contract should not contain NaN or Infinity");
         }));
 
         results.push(runNamedTest("v8.0-J axis coverage uses maintain as a production goal after contract closure", () => {
@@ -59393,7 +59560,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-AB", "v8 runner version should advance to 8.0-AB");
+          assertTest(report.meta.version === "8.0-AC", "v8 runner version should advance to 8.0-AC");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -59532,7 +59699,7 @@ Notes:
 
         results.push(runNamedTest("v8.0-S protein guard resolution closes candidate-v2 production contract blockers", () => {
           const report = runV8ScenarioRunner();
-          assertTest(report.meta.version === "8.0-AB", "v8 runner version should advance to v8.0-AB");
+          assertTest(report.meta.version === "8.0-AC", "v8 runner version should advance to v8.0-AC");
           const contract = report.profileMacroCandidateV2Contract;
           assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v4_guard_resolution", "candidate-v2 contract should identify 9-8 guard resolution contract review");
           assertTest(contract.meta.reportOnly === true, "candidate-v2 contract should be report-only");
@@ -59826,7 +59993,7 @@ Notes:
           const report = runV8ScenarioRunner();
           const approval = report.humanReviewNumericalApproval;
           const comparison = report.profileMacroCandidateV2Comparison;
-          assertTest(report.meta.version === "8.0-AB", "v8 runner should expose the AB stage while preserving the X numerical fix");
+          assertTest(report.meta.version === "8.0-AC", "v8 runner should expose the AC stage while preserving the X numerical fix");
           assertTest(approval?.meta?.stage === V8_HUMAN_REVIEW_NUMERICAL_APPROVAL_STAGE, "human-review numerical approval should identify the 8-3 stage");
           assertTest(approval.meta.reportOnly === true, "human-review numerical approval should be report-only");
           assertTest(approval.meta.productionFormulaChanged === false, "human-review numerical approval must not change production formulas");
@@ -59867,7 +60034,7 @@ Notes:
         results.push(runNamedTest("v8.0-Y profile formula approval preflight is ready but not approved or wired", () => {
           const report = runV8ScenarioRunner();
           const preflight = report.profileFormulaApprovalPreflight;
-          assertTest(report.meta.version === "8.0-AB", "v8 runner should expose the AB stage while preserving the Y preflight");
+          assertTest(report.meta.version === "8.0-AC", "v8 runner should expose the AC stage while preserving the Y preflight");
           assertTest(report.meta.profileFormulaApprovalPreflightStatus === "report_only_ready_for_explicit_formula_approval_decision_not_approved", "top-level meta should identify report-only preflight status");
           assertTest(preflight?.meta?.stage === V8_PROFILE_FORMULA_APPROVAL_PREFLIGHT_STAGE, "approval preflight should identify the 9-10 stage");
           assertTest(preflight.meta.reportOnly === true, "approval preflight should be report-only");
@@ -59910,7 +60077,7 @@ Notes:
         results.push(runNamedTest("v8.0-AB profile formula approval decision includes post-wiring visual QA evidence", () => {
           const report = runV8ScenarioRunner();
           const decision = report.profileFormulaApprovalDecision;
-          assertTest(report.meta.version === "8.0-AB", "v8 runner should expose the AB visual QA scenario version");
+          assertTest(report.meta.version === "8.0-AC", "v8 runner should expose the AC contract scenario version");
           assertTest(report.meta.profileMacroCandidateV2Status === "approved_applied_and_post_wiring_visual_qa_complete", "candidate-v2 status should include AB visual QA completion");
           assertTest(report.meta.profileFormulaApprovalDecisionStatus === "approved_applied_and_post_wiring_visual_qa_complete", "top-level meta should expose the AB approval decision status");
           assertTest(decision?.meta?.stage === V8_PROFILE_FORMULA_APPROVAL_DECISION_STAGE, "approval decision should identify the 9-11 stage");

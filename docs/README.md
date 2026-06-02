@@ -1,5 +1,14 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AC full Cartesian execution contract note
+
+- `runV8ScenarioRunner()` now reports version `8.0-AC` and adds `fullCartesianExecutionContract` at `8-2_full_cartesian_execution_contract_v0`.
+- The contract recomputes the 20 required-axis product as `80,621,568,000`, exposes deterministic axis strides, and decodes pilot indexes `0`, `1`, middle, `80,621,567,998`, and `80,621,567,999`.
+- The default shard contract is `100,000` rows per shard, so the planned full run is `806,216` shards and the final shard contains `68,000` rows.
+- This is an execution/audit contract only. It does not execute the full Cartesian set, does not replace pairwise/targeted stress or the 18 human-review cases, and does not add new exercise-physiology evidence.
+- Remaining open scopes are still `full_8_2_cartesian_execution` and `full_v8_completion`.
+- Verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 25 cases / failed 0; full internal suite = 99 suites / 1053 cases / failed 0.
+
 # v8.0-AB post-wiring production visual QA note
 
 - `tools/render_audit/capture_render_audit.cjs` now includes the actual AA-wired candidate-v2 production case as a separate `profileCandidateV2` payload instead of relying on the old rich bodybuilding fixture.
