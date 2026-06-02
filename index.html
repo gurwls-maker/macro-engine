@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-N profile macro candidate-v2 1차 구현
+Stage: v8.0-O profile macro candidate-v2 production contract review
 Date: 2026-06-03
 Notes:
+- v8.0-O profileMacroCandidateV2Contract report-only layer를 추가해 candidate-v2 production 적용 전 Today/Settings input, target-rate, Records snapshot/signature, score, Coach, backup/import 계약 누락을 코드 기준 blocker로 검토
 - v8.0-N profile macro candidate-v2 report-only 레이어를 추가해 mixed carb unresolved의 target/rate delta와 protein/fat guard 충돌을 함께 검토
 - v8.0-M targetedStress report-only 레이어를 추가해 pairwise/profile residual signal을 5개 calculated review case와 3개 constraint-only excluded tuple로 분리
 - v8.0-L 8-2 필수축 full cross-product를 실행했다고 주장하지 않고, 제약 기반 pairwise stress report-only 레이어를 추가해 806억 축을 더 강하게 검증
@@ -52380,8 +52381,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-N";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-N profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-O";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-O profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -55210,6 +55211,420 @@ Notes:
       };
     }
 
+    function makeV8ProfileMacroCandidateV2ContractItem(config){
+      const present = config.present === true;
+      const productionBlocker = config.productionBlocker === true || (config.productionBlocker !== false && !present);
+      return {
+        key: config.key,
+        area: config.area,
+        present,
+        status: config.status || (present ? (config.presentStatus || "present") : (config.missingStatus || "missing_required_before_candidate_v2_production")),
+        productionBlocker,
+        reportOnlyGuard: config.reportOnlyGuard === true,
+        currentBehavior: config.currentBehavior,
+        currentFallback: config.currentFallback || null,
+        requiredBeforeProduction: config.requiredBeforeProduction,
+        userImpactRisk: config.userImpactRisk,
+        evidenceLevel: config.evidenceLevel || "internal_code_contract_review_not_external_exercise_physiology",
+        evidence: config.evidence || null,
+        nonClaim: config.nonClaim || "does_not_approve_profile_macro_candidate_v2_for_production"
+      };
+    }
+
+    function buildV8ProfileMacroCandidateV2SnapshotProbe(){
+      const expectedFields = [
+        "exerciseProfile",
+        "profileSession",
+        "profileMacroCandidateModel",
+        "profileMacroCandidateStage",
+        "profileTargetDeltaKcal",
+        "profileTargetRateDeltaEquivalentKgPerWeek"
+      ];
+      const raw = {
+        targetCal: 2500,
+        protein: 150,
+        carbs: 320,
+        fat: 70,
+        mode: "athlete",
+        goal: "diet",
+        weight: 75,
+        height: 175,
+        age: 32,
+        gender: "male",
+        bodyFat: 18,
+        bodyFatMass: 13.5,
+        skeletal: 34,
+        activityLevel: "moderate",
+        workType: "office",
+        weeklyTrainingDays: 4,
+        routinePlan: "ppl_ul",
+        routine: "PUSH",
+        intensityOverride: 1.15,
+        weightDuration: 60,
+        cardioType: "treadmill_run",
+        cardioDuration: 40,
+        cardioSpeed: 10,
+        cardioIncline: 1,
+        workAdj: 0,
+        exerciseProfile: "mixed",
+        profileSession: "mixed_strength_cardio",
+        profileMacroCandidateModel: V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
+        profileMacroCandidateStage: "9-7_profile_macro_candidate_v2_linked_target_v0",
+        profileTargetDeltaKcal: 43.72915555555528,
+        profileTargetRateDeltaEquivalentKgPerWeek: 0.03975377777777753
+      };
+      const normalized = normalizeGoalSnapshot(raw);
+      const normalizedKeys = normalized ? Object.keys(normalized) : [];
+      let signatureFields = [];
+      try {
+        signatureFields = Object.keys(JSON.parse(getGoalSnapshotSignature(raw) || "{}"));
+      } catch (_error) {
+        signatureFields = [];
+      }
+      return {
+        expectedFields,
+        normalizedKeys,
+        signatureFields,
+        missingNormalizedFields: expectedFields.filter(key => !hasV8OwnContractKey(normalized, key)),
+        missingSignatureFields: expectedFields.filter(key => !signatureFields.includes(key)),
+        normalizedHasExerciseProfile: hasV8OwnContractKey(normalized, "exerciseProfile"),
+        normalizedHasProfileSession: hasV8OwnContractKey(normalized, "profileSession"),
+        normalizedHasCandidateV2Model: hasV8OwnContractKey(normalized, "profileMacroCandidateModel"),
+        normalizedHasCandidateV2TargetDelta: hasV8OwnContractKey(normalized, "profileTargetDeltaKcal"),
+        normalizedHasCandidateV2TargetRateDelta: hasV8OwnContractKey(normalized, "profileTargetRateDeltaEquivalentKgPerWeek"),
+        signatureHasExerciseProfile: signatureFields.includes("exerciseProfile"),
+        signatureHasProfileSession: signatureFields.includes("profileSession"),
+        signatureHasCandidateV2Model: signatureFields.includes("profileMacroCandidateModel"),
+        signatureHasCandidateV2TargetDelta: signatureFields.includes("profileTargetDeltaKcal"),
+        signatureHasCandidateV2TargetRateDelta: signatureFields.includes("profileTargetRateDeltaEquivalentKgPerWeek")
+      };
+    }
+
+    function buildV8ProfileMacroCandidateV2RateProbe(){
+      const profileDeltaInput = {
+        profileMacroCandidateModel: V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
+        profileTargetDeltaKcal: 43.72915555555528,
+        profileTargetRateDeltaEquivalentKgPerWeek: 0.03975377777777753
+      };
+      const context = buildGoalTargetRateContext({
+        s: {
+          goal: "diet",
+          weight: 75,
+          gender: "male",
+          bodyFat: 18,
+          weeklyTrainingDays: 4
+        },
+        modeCfg: { inputDepth: "advanced", preset: "athlete" },
+        targetBurnBase: 2500,
+        bmr: 1650,
+        lbmBase: 61.5,
+        weightKcal: 320,
+        cardio: { kcal: 420 },
+        epocKcal: 40,
+        ...profileDeltaInput
+      });
+      return {
+        input: profileDeltaInput,
+        outputKeys: Object.keys(context || {}),
+        outputHasCandidateV2Model: hasV8OwnContractKey(context, "profileMacroCandidateModel"),
+        outputHasProfileTargetDeltaKcal: hasV8OwnContractKey(context, "profileTargetDeltaKcal"),
+        outputHasProfileTargetRateDeltaEquivalentKgPerWeek: hasV8OwnContractKey(context, "profileTargetRateDeltaEquivalentKgPerWeek"),
+        selectedWeeklyRate: context?.selectedWeeklyRate ?? null,
+        weeklyBodyWeightDeltaKg: context?.weeklyBodyWeightDeltaKg ?? null,
+        targetCal: context?.targetCal ?? null
+      };
+    }
+
+    function buildV8ProfileMacroCandidateV2ContractReport(profileMacroCandidateV2Comparison, targetedStress){
+      const summary = profileMacroCandidateV2Comparison?.summary || {};
+      const snapshotProbe = buildV8ProfileMacroCandidateV2SnapshotProbe();
+      const rateProbe = buildV8ProfileMacroCandidateV2RateProbe();
+      const hasExerciseProfileInput = hasV8OwnContractKey(ids, "exerciseProfile")
+        || hasV8OwnContractKey(ids, "todayExerciseProfile")
+        || hasV8OwnContractKey(ids, "settingsExerciseProfile");
+      const hasProfileSessionInput = hasV8OwnContractKey(ids, "profileSession")
+        || hasV8OwnContractKey(ids, "todayProfileSession")
+        || hasV8OwnContractKey(ids, "settingsProfileSession");
+      const hasTodayDraftProfileFields = TODAY_CALCULATION_DRAFT_FIELDS.includes("todayExerciseProfile")
+        && TODAY_CALCULATION_DRAFT_FIELDS.includes("todayProfileSession");
+      const hasTargetRateCandidateDeltaContract = rateProbe.outputHasCandidateV2Model
+        && rateProbe.outputHasProfileTargetDeltaKcal
+        && rateProbe.outputHasProfileTargetRateDeltaEquivalentKgPerWeek;
+      const hasSnapshotCandidateFields = snapshotProbe.missingNormalizedFields.length === 0;
+      const hasSignatureCandidateFields = snapshotProbe.missingSignatureFields.length === 0;
+      const hasProfileMacroScoreContract = [
+        "profile_macro_candidate_v2",
+        "running",
+        "mixed",
+        V8_PROFILE_MACRO_CANDIDATE_V2_MODEL
+      ].some(key => hasV8OwnContractKey(MACRO_SCORE_PROFILES, key));
+      const hasCoachThresholdContract = [
+        "profile_macro_candidate_v2",
+        "running",
+        "mixed",
+        V8_PROFILE_MACRO_CANDIDATE_V2_MODEL
+      ].some(key => hasV8OwnContractKey(DAILY_COACH_SIGNAL_THRESHOLD_PROFILES, key));
+      const hasCoachDecisionContract = [
+        "profile_macro_candidate_v2",
+        "running",
+        "mixed",
+        V8_PROFILE_MACRO_CANDIDATE_V2_MODEL
+      ].some(key => hasV8OwnContractKey(DAILY_COACH_DECISION_PROFILES, key));
+      const hasBackupRoundTripContract = hasSnapshotCandidateFields && hasSignatureCandidateFields;
+      const hasReportOnlyGuard = profileMacroCandidateV2Comparison?.meta?.reportOnly === true
+        && profileMacroCandidateV2Comparison?.meta?.productionFormulaChanged === false
+        && profileMacroCandidateV2Comparison?.meta?.candidateFormulaApproved === false;
+      const hasConstraintOnlyGuard = (targetedStress?.summary?.constraintOnlyCaseCount || 0) > 0
+        && (targetedStress?.constraintOnlyCases || []).length === targetedStress.summary.constraintOnlyCaseCount;
+      const hasProteinConflictGuard = (summary.proteinGuardConflictCount || 0) > 0;
+      const hasTargetRateSignal = (summary.targetRateContractRequiredCount || 0) > 0;
+      const contracts = [
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "Settings/Today exerciseProfile input",
+          area: "settings_today_input",
+          present: hasExerciseProfileInput,
+          currentFallback: hasExerciseProfileInput ? "profile_input_present" : "report_axis_only",
+          currentBehavior: hasExerciseProfileInput
+            ? "A production exerciseProfile input key is present."
+            : "exerciseProfile exists only in v8 report case definitions; Settings/Today ids do not expose it as a user input.",
+          requiredBeforeProduction: "Add a user-facing exercise profile input with defaults, validation, draft persistence, and calculation ownership.",
+          userImpactRisk: "Users could receive a profile-specific macro result without ever selecting the profile that justifies it."
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "Settings/Today profileSession input",
+          area: "settings_today_input",
+          present: hasProfileSessionInput,
+          currentFallback: hasProfileSessionInput ? "session_input_present" : "production_routine_fallback",
+          currentBehavior: hasProfileSessionInput
+            ? "A production profileSession input key is present."
+            : "profileSession exists only in report definitions; production Today still works through routine/session fallback fields.",
+          requiredBeforeProduction: "Add profile-session selection and constraints so running cannot surface as rest or a bodybuilding push fallback.",
+          userImpactRisk: "A running or mixed user may see calculations driven by a fallback lifting routine rather than the actual session."
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "Today calculation draft profile/session persistence",
+          area: "settings_today_input",
+          present: hasTodayDraftProfileFields,
+          currentFallback: hasTodayDraftProfileFields ? "draft_fields_present" : "draft_drops_profile_session",
+          currentBehavior: hasTodayDraftProfileFields
+            ? "Today calculation drafts include profile/session fields."
+            : "TODAY_CALCULATION_DRAFT_FIELDS does not include profile/session fields.",
+          requiredBeforeProduction: "Persist profile/session draft fields so the next calculation and record confirmation use the same profile context.",
+          userImpactRisk: "The visible profile/session choice could disappear between Today edits and saved Records."
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "buildGoalTargetRateContext.profileCandidateDelta",
+          area: "target_rate_context",
+          present: hasTargetRateCandidateDeltaContract,
+          productionBlocker: hasTargetRateSignal && !hasTargetRateCandidateDeltaContract,
+          currentFallback: hasTargetRateCandidateDeltaContract ? "candidate_delta_contract_present" : "goal_only_rate_policy",
+          currentBehavior: hasTargetRateCandidateDeltaContract
+            ? "Target-rate context exposes candidate-v2 target/rate delta fields."
+            : "buildGoalTargetRateContext returns goal-rate fields but does not preserve candidate-v2 target delta or weekly-rate delta fields.",
+          requiredBeforeProduction: "Define how candidate-v2 target deltas interact with goal rate, recent28 trend, energy availability, and target-calorie guards.",
+          userImpactRisk: "Candidate-v2 can raise target calories in a report, but production Coach/Records would not know why the rate changed.",
+          evidence: {
+            targetRateContractRequiredCount: summary.targetRateContractRequiredCount || 0,
+            rateProbe
+          }
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "normalizeGoalSnapshot.profileCandidateFields",
+          area: "records_goal_snapshot",
+          present: hasSnapshotCandidateFields,
+          currentFallback: hasSnapshotCandidateFields ? "snapshot_preserves_profile_candidate_fields" : "snapshot_drops_profile_candidate_fields",
+          currentBehavior: hasSnapshotCandidateFields
+            ? "normalizeGoalSnapshot preserves profile/candidate-v2 fields."
+            : "normalizeGoalSnapshot strips exerciseProfile, profileSession, candidate model, target delta, and target-rate delta fields.",
+          requiredBeforeProduction: "Extend goalSnapshot schema and normalization for profile/session/candidate-v2 target-delta fields.",
+          userImpactRisk: "Records could save target/protein/carbs/fat without the profile/session reason that produced them.",
+          evidence: {
+            missingNormalizedFields: snapshotProbe.missingNormalizedFields
+          }
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "getGoalSnapshotSignature.profileCandidateFields",
+          area: "records_goal_snapshot",
+          present: hasSignatureCandidateFields,
+          currentFallback: hasSignatureCandidateFields ? "signature_tracks_profile_candidate_fields" : "signature_ignores_profile_candidate_fields",
+          currentBehavior: hasSignatureCandidateFields
+            ? "goalSnapshot signature tracks profile/candidate-v2 fields."
+            : "getGoalSnapshotSignature does not include exerciseProfile, profileSession, candidate model, target delta, or target-rate delta fields.",
+          requiredBeforeProduction: "Include profile/session/candidate-v2 fields in snapshot equivalence checks and confirmation flows.",
+          userImpactRisk: "Today/Records may consider two different profile contexts equivalent if macros happen to match or were manually edited.",
+          evidence: {
+            missingSignatureFields: snapshotProbe.missingSignatureFields
+          }
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "MACRO_SCORE_PROFILES.profileCandidateV2",
+          area: "score",
+          present: hasProfileMacroScoreContract,
+          currentFallback: hasProfileMacroScoreContract ? "profile_score_contract_present" : "goal_only_score_profile",
+          currentBehavior: hasProfileMacroScoreContract
+            ? "Score profiles include an explicit profile/candidate-v2 contract."
+            : "Macro scoring is keyed by goal profiles; there is no explicit running/mixed profile or candidate-v2 target-delta score profile.",
+          requiredBeforeProduction: "Define score tolerance behavior for profile carb floors and candidate-v2 target deltas.",
+          userImpactRisk: "A day that follows the profile-specific target could still be scored by unrelated goal-only tolerances."
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.profileCandidateV2",
+          area: "daily_coach",
+          present: hasCoachThresholdContract,
+          currentFallback: hasCoachThresholdContract ? "profile_coach_threshold_contract_present" : "goal_only_coach_thresholds",
+          currentBehavior: hasCoachThresholdContract
+            ? "Daily Coach thresholds include a profile/candidate-v2 contract."
+            : "Daily Coach signal thresholds are keyed by goal; no explicit profile/candidate-v2 threshold contract exists.",
+          requiredBeforeProduction: "Define Coach thresholds for profile carb floors, target deltas, and protein/fat guard conflicts.",
+          userImpactRisk: "Coach could mark a profile-appropriate carb or calorie result as wrong, or miss a true guard conflict."
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "DAILY_COACH_DECISION_PROFILES.profileCandidateV2",
+          area: "daily_coach",
+          present: hasCoachDecisionContract,
+          currentFallback: hasCoachDecisionContract ? "profile_coach_decision_contract_present" : "goal_only_coach_decisions",
+          currentBehavior: hasCoachDecisionContract
+            ? "Daily Coach decisions include a profile/candidate-v2 contract."
+            : "Daily Coach decision priority is keyed by goal; no explicit profile/candidate-v2 decision/copy path exists.",
+          requiredBeforeProduction: "Define decision priority and copy for candidate-v2 target-rate changes and unresolved guard conflicts.",
+          userImpactRisk: "Coach copy may explain the wrong reason for a running/mixed high-carb or adjusted-target day."
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "recentContext.profileCandidateV2TargetDeltaGate",
+          area: "recent_context",
+          present: false,
+          currentFallback: "recent_windows_goal_snapshot_without_candidate_delta",
+          currentBehavior: "RECENT_CONTEXT_WINDOWS exist, but there is no candidate-v2 target-delta gate that ties recent28 trend to the linked target/rate delta.",
+          requiredBeforeProduction: "Define whether recent14/recent28 can accept, dampen, or reject candidate-v2 target deltas.",
+          userImpactRisk: "A target delta made for a hard training session could conflict with recent weight trend feedback without explanation."
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "backup/export/import profileCandidateV2 roundtrip",
+          area: "backup_import_export",
+          present: hasBackupRoundTripContract,
+          currentFallback: hasBackupRoundTripContract ? "roundtrip_schema_preserves_candidate_v2" : "roundtrip_schema_drops_candidate_v2_context",
+          currentBehavior: hasBackupRoundTripContract
+            ? "Backup/import can preserve profile/candidate-v2 snapshot fields."
+            : "Backup/import relies on record normalization, so profile/candidate-v2 context would be dropped with the current snapshot schema.",
+          requiredBeforeProduction: "Guarantee full backup/import round-trip for profile/session/candidate-v2 target-delta fields.",
+          userImpactRisk: "Users restoring data could keep macro numbers while losing the training-profile context behind them."
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "profileMacroCandidateV2Comparison.reportOnlyGuard",
+          area: "formula_approval_guard",
+          present: hasReportOnlyGuard,
+          productionBlocker: false,
+          reportOnlyGuard: true,
+          presentStatus: "present_report_only_guard",
+          currentFallback: hasReportOnlyGuard ? "candidate_v2_not_approved" : "approval_guard_missing",
+          currentBehavior: hasReportOnlyGuard
+            ? "candidate-v2 is explicitly report-only, productionFormulaChanged=false, candidateFormulaApproved=false."
+            : "candidate-v2 approval guard is missing or incomplete.",
+          requiredBeforeProduction: "Keep report-only guard until every production contract and formula review is closed.",
+          userImpactRisk: "Without this guard, a feasibility candidate could be mistaken for the final v8 formula."
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "profileMacroCandidateV2Comparison.proteinGuardConflict",
+          area: "macro_guard_conflict",
+          present: hasProteinConflictGuard,
+          productionBlocker: hasProteinConflictGuard,
+          presentStatus: "present_unresolved_guard_conflict",
+          currentFallback: hasProteinConflictGuard ? "protein_conflict_reported_not_resolved" : "no_protein_conflict_seen_in_current_cases",
+          currentBehavior: hasProteinConflictGuard
+            ? "candidate-v2 reports protein guard conflicts instead of silently resolving them."
+            : "No protein guard conflict is visible in current candidate-v2 cases.",
+          requiredBeforeProduction: "Resolve or explicitly justify protein guard behavior before candidate-v2 can become a production formula.",
+          userImpactRisk: "A user may receive enough carbs for a session only because protein guard behavior was left unresolved.",
+          evidence: {
+            proteinGuardConflictCount: summary.proteinGuardConflictCount || 0
+          }
+        }),
+        makeV8ProfileMacroCandidateV2ContractItem({
+          key: "targetedStress.constraintOnlyTupleGuard",
+          area: "scenario_constraint_guard",
+          present: hasConstraintOnlyGuard,
+          productionBlocker: false,
+          reportOnlyGuard: true,
+          presentStatus: "present_constraint_exclusion_guard",
+          currentFallback: hasConstraintOnlyGuard ? "constraint_only_cases_not_calculated" : "constraint_guard_missing",
+          currentBehavior: hasConstraintOnlyGuard
+            ? "targetedStress keeps incoherent tuples as constraint-only exclusions instead of calculating them as user sessions."
+            : "targetedStress constraint-only guard is missing.",
+          requiredBeforeProduction: "Keep impossible profile/session tuples out of production calculation paths.",
+          userImpactRisk: "Running-without-cardio, profile/session mismatch, or no-performance training tuples could be treated as valid sessions."
+        })
+      ];
+      const missingContracts = contracts.filter(item => !item.present);
+      const productionBlockers = contracts.filter(item => item.productionBlocker);
+      const settingsTodayContractMissingCount = missingContracts.filter(item => item.area === "settings_today_input").length;
+      const scoreCoachContractMissingCount = missingContracts.filter(item => item.area === "score" || item.area === "daily_coach").length;
+      const targetRateContractMissingCount = missingContracts.filter(item => item.area === "target_rate_context").length;
+      const snapshotFieldMissingCount = snapshotProbe.missingNormalizedFields.length + snapshotProbe.missingSignatureFields.length;
+      return {
+        meta: {
+          stage: "9-8_profile_macro_candidate_v2_production_contract_review_v0",
+          reportOnly: true,
+          productionFormulaChanged: false,
+          candidateFormulaApproved: false,
+          productionReady: productionBlockers.length === 0,
+          sourceCandidateStage: profileMacroCandidateV2Comparison?.meta?.stage || null,
+          sourceCandidateModel: profileMacroCandidateV2Comparison?.meta?.model || V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
+          evidencePolicy: "internal code-contract review; external sports-nutrition references remain threshold background only and do not approve app-wide production behavior",
+          nonGoal: "does_not_change_calculate_score_coach_records_settings_or_backup_schema"
+        },
+        evidenceReferences: {
+          currentFormulaReport: V8_MACRO_AUDIT_REFERENCES.currentFormulaReport,
+          acsmNutritionAthleticPerformance2016: V8_CANDIDATE_DESIGN_REFERENCES.acsmNutritionAthleticPerformance2016,
+          resistanceCarbohydrateReview2016: V8_PROFILE_SESSION_CARB_REFERENCES.resistanceCarbohydrateReview2016,
+          contractReview: {
+            evidenceLevel: "internal_code_contract_review_not_external_exercise_physiology",
+            source: "v8.0-O profile macro candidate-v2 production contract review",
+            scope: "app-wide production readiness across Settings/Today, target-rate, Records, score, Coach, recent context, and backup/import",
+            appUse: "prevent report-only candidate-v2 from being misread as production-ready"
+          }
+        },
+        candidateV2SignalSummary: {
+          caseCount: summary.caseCount || 0,
+          targetChangedCount: summary.targetChangedCount || 0,
+          profileCarbFloorAttemptedCount: summary.profileCarbFloorAttemptedCount || 0,
+          profileCarbFloorMetCount: summary.profileCarbFloorMetCount || 0,
+          profileCarbFloorUnresolvedCount: summary.profileCarbFloorUnresolvedCount || 0,
+          targetRateContractRequiredCount: summary.targetRateContractRequiredCount || 0,
+          proteinGuardConflictCount: summary.proteinGuardConflictCount || 0,
+          fatGuardConflictCount: summary.fatGuardConflictCount || 0,
+          nonBodybuildingContractCount: summary.nonBodybuildingContractCount || 0,
+          highPriorityCaseCount: summary.highPriorityCaseCount || 0
+        },
+        probes: {
+          snapshot: snapshotProbe,
+          targetRate: rateProbe
+        },
+        contracts,
+        summary: {
+          contractCount: contracts.length,
+          presentCount: contracts.filter(item => item.present).length,
+          missingContractCount: missingContracts.length,
+          productionBlockerCount: productionBlockers.length,
+          reportOnlyGuardCount: contracts.filter(item => item.reportOnlyGuard && item.present).length,
+          settingsTodayContractMissingCount,
+          snapshotFieldMissingCount,
+          targetRateContractMissingCount,
+          scoreCoachContractMissingCount,
+          recentContextContractMissingCount: missingContracts.filter(item => item.area === "recent_context").length,
+          backupImportContractMissingCount: missingContracts.filter(item => item.area === "backup_import_export").length,
+          unresolvedProteinGuardConflictCount: summary.proteinGuardConflictCount || 0,
+          productionReady: productionBlockers.length === 0
+        },
+        requiredNextActions: [
+          "Add Settings/Today exerciseProfile and profileSession inputs with coherent session constraints.",
+          "Extend Records goalSnapshot normalization, signature, and backup/import round-trip for profile/candidate-v2 fields.",
+          "Define candidate-v2 target-rate/recent28 contract before any target delta can affect production.",
+          "Define score and Daily Coach threshold/decision/copy behavior for profile carb floors and unresolved guard conflicts.",
+          "Resolve or explicitly justify protein/fat guard behavior before approving a profile-specific macro formula."
+        ]
+      };
+    }
+
     const V8_PAIRWISE_PROFILE_SESSION_ALLOWED_PROFILES = Object.freeze({
       rest: ["bodybuilding", "powerbuilding", "strength", "running", "mixed"],
       bodybuilding_push: ["bodybuilding"],
@@ -56211,6 +56626,10 @@ Notes:
           profileSessionCarbPolicy,
           targetedStress
         );
+        const profileMacroCandidateV2Contract = buildV8ProfileMacroCandidateV2ContractReport(
+          profileMacroCandidateV2Comparison,
+          targetedStress
+        );
         const report = {
           meta: {
             version: V8_SCENARIO_RUNNER_VERSION,
@@ -56237,6 +56656,7 @@ Notes:
             profileMacroCandidateStatus: "report_only_not_approved_formula",
             profileMacroCandidateV2Model: V8_PROFILE_MACRO_CANDIDATE_V2_MODEL,
             profileMacroCandidateV2Status: "report_only_not_approved_formula",
+            profileMacroCandidateV2ContractStatus: "report_only_production_contract_review",
             requiredRegressionIncluded: !!requiredCase,
             notes: [
               "This runner is a 9-4 scaffold: it compares current production with an existing report-only candidate before changing formulas.",
@@ -56253,6 +56673,7 @@ Notes:
               "9-7 profile macro candidate-v1 is report-only; it checks whether running/mixed carb floors can be met without targetCal changes and keeps resistance profiles review-only.",
               "8-2 targetedStress is a human-review queue from pairwise/profile residual signals; calculated cases and constraint-only exclusions are separated.",
               "9-7 profile macro candidate-v2 is report-only; it tests linked target/rate deltas and reports protein/fat guard conflicts without approving production.",
+              "9-8 profile macro candidate-v2 production contract review is report-only; it blocks production until Settings/Today, target-rate, Records, score, Coach, recent context, and backup/import contracts are closed.",
               "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, candidate-v8-profile-macro-v1, or candidate-v8-profile-macro-v2-linked-target-v0 as the final v8 formula."
             ]
           },
@@ -56304,6 +56725,16 @@ Notes:
               targetRateContractRequiredCount: profileMacroCandidateV2Comparison.summary.targetRateContractRequiredCount,
               proteinGuardConflictCount: profileMacroCandidateV2Comparison.summary.proteinGuardConflictCount
             },
+            profileMacroCandidateV2Contract: {
+              stage: profileMacroCandidateV2Contract.meta.stage,
+              productionReady: profileMacroCandidateV2Contract.meta.productionReady,
+              missingContractCount: profileMacroCandidateV2Contract.summary.missingContractCount,
+              productionBlockerCount: profileMacroCandidateV2Contract.summary.productionBlockerCount,
+              settingsTodayContractMissingCount: profileMacroCandidateV2Contract.summary.settingsTodayContractMissingCount,
+              snapshotFieldMissingCount: profileMacroCandidateV2Contract.summary.snapshotFieldMissingCount,
+              targetRateContractMissingCount: profileMacroCandidateV2Contract.summary.targetRateContractMissingCount,
+              scoreCoachContractMissingCount: profileMacroCandidateV2Contract.summary.scoreCoachContractMissingCount
+            },
             pairwiseStress: {
               stage: pairwiseStress.meta.stage,
               generatedTupleCount: pairwiseStress.summary.generatedTupleCount,
@@ -56328,6 +56759,7 @@ Notes:
           profileSessionCarbPolicy,
           profileMacroCandidateComparison,
           profileMacroCandidateV2Comparison,
+          profileMacroCandidateV2Contract,
           pairwiseStress,
           targetedStress,
           axisCoverage: {
@@ -56621,7 +57053,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-N", "v8 runner version should advance to 8.0-N");
+          assertTest(report.meta.version === "8.0-O", "v8 runner version should advance to 8.0-O");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -56747,6 +57179,68 @@ Notes:
           ], "mixed candidate-v2 should expose target/rate and guard-contract findings");
           assertTest(mixed.deltaFromProfileMacroCandidateV1.targetCal > 0, "candidate-v2 should open target calories compared with candidate-v1");
           assertTest(findInvalidCalibrationNumber(comparison).length === 0, "profile macro candidate-v2 report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("v8.0-O profile macro candidate-v2 production contract blocks app-wide rollout", () => {
+          const report = runV8ScenarioRunner();
+          assertTest(report.meta.version === "8.0-O", "v8 runner version should advance to v8.0-O");
+          const contract = report.profileMacroCandidateV2Contract;
+          assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v0", "candidate-v2 contract should identify 9-8 production contract review");
+          assertTest(contract.meta.reportOnly === true, "candidate-v2 contract should be report-only");
+          assertTest(contract.meta.productionFormulaChanged === false, "candidate-v2 contract must not change production formula");
+          assertTest(contract.meta.candidateFormulaApproved === false, "candidate-v2 contract must not approve candidate-v2");
+          assertTest(contract.meta.productionReady === false, "candidate-v2 should not be production-ready while app-wide contracts are missing");
+          assertIncludesAll(contract.meta.evidencePolicy, ["internal code-contract", "do not approve app-wide production"], "candidate-v2 contract should not overclaim external evidence");
+          assertTest(contract.candidateV2SignalSummary.targetRateContractRequiredCount > 0, "contract should carry candidate-v2 target-rate signal count");
+          assertTest(contract.candidateV2SignalSummary.proteinGuardConflictCount > 0, "contract should carry candidate-v2 protein guard conflict count");
+          assertTest(contract.summary.missingContractCount > 0, "candidate-v2 contract should list missing production contracts");
+          assertTest(contract.summary.productionBlockerCount > 0, "candidate-v2 contract should expose production blockers");
+          assertTest(contract.summary.productionReady === false, "summary should also mark candidate-v2 as not production-ready");
+          assertTest(contract.summary.settingsTodayContractMissingCount >= 2, "Settings/Today profile inputs should be missing");
+          assertTest(contract.summary.snapshotFieldMissingCount > 0, "snapshot/signature candidate-v2 fields should be missing");
+          assertTest(contract.summary.targetRateContractMissingCount === 1, "target-rate candidate delta contract should be missing");
+          assertTest(contract.summary.scoreCoachContractMissingCount >= 3, "score and Coach profile contracts should be missing");
+
+          const keys = contract.contracts.map(item => item.key).join(" ");
+          assertIncludesAll(keys, [
+            "Settings/Today exerciseProfile input",
+            "Settings/Today profileSession input",
+            "buildGoalTargetRateContext.profileCandidateDelta",
+            "normalizeGoalSnapshot.profileCandidateFields",
+            "getGoalSnapshotSignature.profileCandidateFields",
+            "MACRO_SCORE_PROFILES.profileCandidateV2",
+            "DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.profileCandidateV2",
+            "DAILY_COACH_DECISION_PROFILES.profileCandidateV2",
+            "backup/export/import profileCandidateV2 roundtrip",
+            "profileMacroCandidateV2Comparison.reportOnlyGuard",
+            "targetedStress.constraintOnlyTupleGuard"
+          ], "candidate-v2 contract should list the app-wide rollout contracts");
+
+          const exerciseInput = contract.contracts.find(item => item.key === "Settings/Today exerciseProfile input");
+          assertTest(exerciseInput?.present === false && exerciseInput.productionBlocker === true, "exerciseProfile input should be a missing production blocker");
+          const sessionInput = contract.contracts.find(item => item.key === "Settings/Today profileSession input");
+          assertTest(sessionInput?.present === false && sessionInput.productionBlocker === true, "profileSession input should be a missing production blocker");
+          const rate = contract.contracts.find(item => item.key === "buildGoalTargetRateContext.profileCandidateDelta");
+          assertTest(rate?.present === false && rate.productionBlocker === true, "target-rate candidate delta should be a missing production blocker");
+          assertTest(rate.evidence.targetRateContractRequiredCount === report.profileMacroCandidateV2Comparison.summary.targetRateContractRequiredCount, "target-rate contract should reference candidate-v2 signal count");
+          const snapshot = contract.contracts.find(item => item.key === "normalizeGoalSnapshot.profileCandidateFields");
+          assertTest(snapshot?.present === false && snapshot.productionBlocker === true, "goalSnapshot profile candidate fields should be a missing production blocker");
+          const signature = contract.contracts.find(item => item.key === "getGoalSnapshotSignature.profileCandidateFields");
+          assertTest(signature?.present === false && signature.productionBlocker === true, "goalSnapshot signature should be a missing production blocker");
+          assertTest(contract.probes.snapshot.normalizedHasExerciseProfile === false, "snapshot probe should show exerciseProfile is not normalized");
+          assertTest(contract.probes.snapshot.normalizedHasProfileSession === false, "snapshot probe should show profileSession is not normalized");
+          assertTest(contract.probes.snapshot.normalizedHasCandidateV2TargetDelta === false, "snapshot probe should show candidate-v2 target delta is not normalized");
+          assertTest(contract.probes.snapshot.signatureHasProfileSession === false, "signature probe should show profileSession is not part of equivalence");
+          assertTest(contract.probes.targetRate.outputHasProfileTargetDeltaKcal === false, "target-rate probe should show candidate target delta is not returned");
+          assertTest(contract.probes.targetRate.outputHasProfileTargetRateDeltaEquivalentKgPerWeek === false, "target-rate probe should show candidate weekly-rate delta is not returned");
+
+          const reportGuard = contract.contracts.find(item => item.key === "profileMacroCandidateV2Comparison.reportOnlyGuard");
+          assertTest(reportGuard?.present === true && reportGuard.productionBlocker === false, "candidate-v2 report-only guard should be present and not itself a blocker");
+          const proteinGuard = contract.contracts.find(item => item.key === "profileMacroCandidateV2Comparison.proteinGuardConflict");
+          assertTest(proteinGuard?.present === true && proteinGuard.productionBlocker === true, "unresolved protein guard conflict should remain a production blocker");
+          const constraintGuard = contract.contracts.find(item => item.key === "targetedStress.constraintOnlyTupleGuard");
+          assertTest(constraintGuard?.present === true && constraintGuard.productionBlocker === false, "constraint-only tuple guard should be present");
+          assertTest(findInvalidCalibrationNumber(contract).length === 0, "candidate-v2 contract report should not contain NaN or Infinity");
         }));
 
         results.push(runNamedTest("v8.0-D text report is human-readable and candidate is not production-approved", () => {

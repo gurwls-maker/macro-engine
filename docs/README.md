@@ -1,5 +1,15 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-O profileMacroCandidateV2Contract note
+
+- `runV8ScenarioRunner()` now includes `profileMacroCandidateV2Contract`.
+- This layer is report-only and does not change production formulas.
+- Direct extraction on 2026-06-03: `contractCount=14`, `presentCount=3`, `missingContractCount=11`, `productionBlockerCount=12`, `productionReady=false`.
+- Missing production contracts are Settings/Today exerciseProfile input, Settings/Today profileSession input, Today draft persistence, target-rate candidate delta, Records snapshot/signature candidate fields, score, Coach thresholds/decisions, recentContext target-delta gate, and backup/import round-trip.
+- Present guards are `profileMacroCandidateV2Comparison.reportOnlyGuard` and `targetedStress.constraintOnlyTupleGuard`.
+- The extra production blocker beyond missing contracts is `profileMacroCandidateV2Comparison.proteinGuardConflict`, because the guard is present but unresolved.
+- Evidence policy: internal code-contract review only; external sports-nutrition references remain threshold background and do not approve app-wide production behavior.
+
 # v8.0-N profileMacroCandidateV2 note
 
 - `runV8ScenarioRunner()` now includes `profileMacroCandidateV2Comparison`.
