@@ -1,8 +1,10 @@
 <!--
 Version: 8.0
-Stage: v8.0-H 9-7 profile session carbohydrate policy 검토 1차 구현
+Stage: v8.0-I maintain production contract review 1차 구현
 Date: 2026-06-03
 Notes:
+- v8.0-I maintainGoalContract report-only layer를 추가해 유지 목표를 production에 넣기 전 필요한 GOALS / rate / fat / score / Coach / snapshot / export-import 계약을 코드 기준으로 점검
+- v8.0-I maintain 축의 현재 recomp fallback은 계산 편의용 임시값일 뿐 유지 목표 승인 산식이 아니며, 산식 / score / Coach / recentContext / InBody gate / backup schema 변경 없음
 - v8.0-H profileSession별 carbohydrate policy review report-only 레이어를 추가해 running / strength / powerbuilding / mixed 세션을 production routine fallback과 분리 검토
 - v8.0-H current / candidate-v8-context-macro-v0 탄수 g/kg를 세션 부하별 외부근거 검토범위와 비교하되 profile-specific formula / score / Coach / recentContext / InBody gate / backup schema 변경 없음
 - v8.0-H resistance profile은 endurance carb range를 무리하게 덮어씌우지 않도록 resistance-specific evidence limitation을 별도 finding으로 남김
@@ -52137,8 +52139,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-H";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-H profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-I";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-I maintain production contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -53470,6 +53472,252 @@ Notes:
       };
     }
 
+    function hasV8OwnContractKey(object, key){
+      return !!object && Object.prototype.hasOwnProperty.call(object, key);
+    }
+
+    function makeV8MaintainContractItem(config){
+      const present = config.present === true;
+      return {
+        key: config.key,
+        area: config.area,
+        status: present ? (config.presentStatus || "present") : (config.missingStatus || "missing_required_before_production"),
+        present,
+        productionBlocker: config.productionBlocker !== false && !present,
+        silentFallbackRisk: config.silentFallbackRisk === true,
+        autoExposureRisk: config.autoExposureRisk === true,
+        currentFallback: config.currentFallback || null,
+        currentBehavior: config.currentBehavior,
+        requiredBeforeProduction: config.requiredBeforeProduction,
+        userImpactRisk: config.userImpactRisk,
+        evidenceLevel: config.evidenceLevel || "internal_formula_evidence_plus_product_policy_review_needed",
+        nonClaim: config.nonClaim || "does_not_approve_maintain_production_behavior"
+      };
+    }
+
+    function buildV8MaintainGoalContractReport(axisCases, candidateDesign){
+      const cases = Array.isArray(axisCases) ? axisCases : [];
+      const maintainCases = cases.filter(item => item?.input?.axisGoal === "maintain");
+      const productionGoalExists = hasV8OwnContractKey(GOALS, "maintain");
+      const hasGoalRatePolicy = hasV8OwnContractKey(GOAL_RATE_POLICIES, "maintain");
+      const hasCardioReflectionRate = hasV8OwnContractKey(CARDIO_TARGET_REFLECTION_RATES, "maintain");
+      const hasTargetFloorRule = hasV8OwnContractKey(GOAL_TARGET_FLOOR_RULES, "maintain");
+      const hasMacroSoftRange = hasV8OwnContractKey(GOAL_AWARE_MACRO_SOFT_RANGE_KG, "maintain");
+      const hasFatTargetProfile = hasV8OwnContractKey(FAT_TARGET_PROFILES, "maintain");
+      const hasMacroScoreProfile = hasV8OwnContractKey(MACRO_SCORE_PROFILES, "maintain");
+      const hasCoachThresholdProfile = hasV8OwnContractKey(DAILY_COACH_SIGNAL_THRESHOLD_PROFILES, "maintain");
+      const hasCoachDecisionProfile = hasV8OwnContractKey(DAILY_COACH_DECISION_PROFILES, "maintain");
+      const goalRateFallback = hasGoalRatePolicy
+        ? "maintain"
+        : (getGoalRatePolicy("maintain") === GOAL_RATE_POLICIES.lean_bulk ? "lean_bulk" : "unknown");
+      const fatTargetFallback = hasFatTargetProfile
+        ? "maintain"
+        : (getFatTargetProfile("maintain") === FAT_TARGET_PROFILES.lean_bulk ? "lean_bulk" : "unknown");
+      const macroScoreFallback = hasMacroScoreProfile
+        ? "maintain"
+        : (getMacroScoreProfile("maintain") === MACRO_SCORE_PROFILES.lean_bulk ? "lean_bulk" : "unknown");
+      const coachThresholdFallback = hasCoachThresholdProfile
+        ? "maintain"
+        : (getDailyCoachThresholdProfile("maintain") === DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.lean_bulk ? "lean_bulk" : "unknown");
+      const coachDecisionFallback = hasCoachDecisionProfile
+        ? "maintain"
+        : (getDailyCoachDecisionProfile("maintain") === DAILY_COACH_DECISION_PROFILES.lean_bulk ? "lean_bulk" : "unknown");
+      const maintainCase = maintainCases[0] || null;
+      const contracts = [
+        makeV8MaintainContractItem({
+          key: "GOALS.maintain",
+          area: "goal_selection_and_target_delta",
+          present: productionGoalExists,
+          currentFallback: productionGoalExists ? "maintain" : "not_selectable_in_production",
+          currentBehavior: productionGoalExists
+            ? "production goal key exists"
+            : "8-2 axis is preserved in the v8 report, but production settings cannot select maintain yet.",
+          requiredBeforeProduction: "Define label, hint, factor, delta guard, protein, and fat defaults for maintain.",
+          userImpactRisk: "Without a real key, users cannot intentionally choose maintenance; with an incomplete key, UI may expose an under-specified goal."
+        }),
+        makeV8MaintainContractItem({
+          key: "CARDIO_TARGET_REFLECTION_RATES.maintain",
+          area: "cardio_target_policy",
+          present: hasCardioReflectionRate,
+          currentFallback: hasCardioReflectionRate ? "maintain" : "1.0_default_if_called_directly",
+          currentBehavior: hasCardioReflectionRate
+            ? "dedicated cardio target reflection rate exists"
+            : "getCardioTargetReflectionRate would default to 1.0 for an unknown goal.",
+          requiredBeforeProduction: "Choose a maintenance cardio target reflection rate with product/evidence rationale.",
+          userImpactRisk: "Maintenance cardio days could receive a different target-calorie response than intended."
+        }),
+        makeV8MaintainContractItem({
+          key: "GOAL_RATE_POLICIES.maintain",
+          area: "target_rate_context",
+          present: hasGoalRatePolicy,
+          currentFallback: goalRateFallback,
+          silentFallbackRisk: !hasGoalRatePolicy,
+          currentBehavior: hasGoalRatePolicy
+            ? "dedicated target-rate policy exists"
+            : "getGoalRatePolicy('maintain') falls back to lean_bulk, while the v8 axis case currently uses recomp only as a report fallback.",
+          requiredBeforeProduction: "Define maintenance weekly-rate band, default rate, and kcal delta guard.",
+          userImpactRisk: "A maintenance user could silently receive gain-oriented target-rate behavior."
+        }),
+        makeV8MaintainContractItem({
+          key: "GOAL_TARGET_FLOOR_RULES.maintain",
+          area: "goal_target_floor",
+          present: hasTargetFloorRule,
+          currentFallback: hasTargetFloorRule ? "maintain" : "no_floor_rule",
+          currentBehavior: hasTargetFloorRule
+            ? "dedicated target floor rule exists"
+            : "getGoalTargetFloor returns null for maintain unless a rule is added.",
+          requiredBeforeProduction: "Decide whether maintenance needs a below-burn guard, neutral floor, or no floor with documented rationale.",
+          userImpactRisk: "Maintenance targets may dip or float without a deliberate guard."
+        }),
+        makeV8MaintainContractItem({
+          key: "GOAL_AWARE_MACRO_SOFT_RANGE_KG.maintain",
+          area: "macro_plausibility_range",
+          present: hasMacroSoftRange,
+          currentFallback: hasMacroSoftRange ? "maintain" : "null_goal_aware_range",
+          currentBehavior: hasMacroSoftRange
+            ? "dedicated macro soft range exists"
+            : "getGoalAwareMacroSoftRange returns null, so maintenance would not get goal-aware carb/fat soft range expansion.",
+          requiredBeforeProduction: "Define maintenance-specific carb and fat soft range behavior.",
+          userImpactRisk: "Macro redistribution may be more constrained or less explanatory than intended."
+        }),
+        makeV8MaintainContractItem({
+          key: "FAT_TARGET_PROFILES.maintain",
+          area: "macro_target_profile",
+          present: hasFatTargetProfile,
+          currentFallback: fatTargetFallback,
+          silentFallbackRisk: !hasFatTargetProfile,
+          currentBehavior: hasFatTargetProfile
+            ? "dedicated fat target profile exists"
+            : "getFatTargetProfile('maintain') falls back to lean_bulk.",
+          requiredBeforeProduction: "Define maintenance fat target percent and action/physiology floors.",
+          userImpactRisk: "Maintenance could inherit lean-bulk fat behavior without the user seeing that policy decision."
+        }),
+        makeV8MaintainContractItem({
+          key: "MACRO_SCORE_PROFILES.maintain",
+          area: "adherence_score",
+          present: hasMacroScoreProfile,
+          currentFallback: macroScoreFallback,
+          silentFallbackRisk: !hasMacroScoreProfile,
+          currentBehavior: hasMacroScoreProfile
+            ? "dedicated score profile exists"
+            : "getMacroScoreProfile('maintain') falls back to lean_bulk.",
+          requiredBeforeProduction: "Define maintenance calorie, protein, carb, and fat score tolerances.",
+          userImpactRisk: "A maintenance day could be judged with gain-phase tolerances."
+        }),
+        makeV8MaintainContractItem({
+          key: "DAILY_COACH_SIGNAL_THRESHOLD_PROFILES.maintain",
+          area: "daily_coach_signal_thresholds",
+          present: hasCoachThresholdProfile,
+          currentFallback: coachThresholdFallback,
+          silentFallbackRisk: !hasCoachThresholdProfile,
+          currentBehavior: hasCoachThresholdProfile
+            ? "dedicated Coach threshold profile exists"
+            : "getDailyCoachThresholdProfile('maintain') falls back to lean_bulk thresholds.",
+          requiredBeforeProduction: "Define maintenance-specific Coach signal thresholds.",
+          userImpactRisk: "Coach may classify maintenance intake using lean-bulk high/low bands."
+        }),
+        makeV8MaintainContractItem({
+          key: "DAILY_COACH_DECISION_PROFILES.maintain",
+          area: "daily_coach_decision_priority",
+          present: hasCoachDecisionProfile,
+          currentFallback: coachDecisionFallback,
+          silentFallbackRisk: !hasCoachDecisionProfile,
+          currentBehavior: hasCoachDecisionProfile
+            ? "dedicated Coach decision profile exists"
+            : "getDailyCoachDecisionProfile('maintain') currently resolves through lean_bulk fallback.",
+          requiredBeforeProduction: "Define maintenance decision priority and combo-policy behavior.",
+          userImpactRisk: "Coach may prioritize surplus/recovery copy incorrectly for maintenance."
+        }),
+        makeV8MaintainContractItem({
+          key: "getDailyCoachGoalWording.maintain",
+          area: "daily_coach_goal_copy",
+          present: false,
+          currentFallback: productionGoalExists ? "empty_copy_risk_if_goal_key_exists_without_wording" : "lean_bulk_hidden_fallback_until_goal_key_exists",
+          silentFallbackRisk: true,
+          currentBehavior: productionGoalExists
+            ? "Maintain wording is not proven dedicated."
+            : "Because GOALS.maintain is missing, getDailyCoachGoalType('maintain') hides copy gaps by returning lean_bulk.",
+          requiredBeforeProduction: "Add dedicated maintenance wording for calorie/protein/carb/fat high-low states and combo decisions.",
+          userImpactRisk: "Users may see lean-bulk-like guidance or missing guidance while expecting maintenance."
+        }),
+        makeV8MaintainContractItem({
+          key: "normalizeGoalSnapshot.goal=maintain",
+          area: "records_goal_snapshot",
+          present: productionGoalExists,
+          currentFallback: productionGoalExists ? "maintain_preserved" : "rejected_by_Object.keys(GOALS)_validation",
+          currentBehavior: productionGoalExists
+            ? "goalSnapshot validation would allow maintain through Object.keys(GOALS)."
+            : "normalizeGoalSnapshot accepts only Object.keys(GOALS), so stored maintain snapshots are not preserved today.",
+          requiredBeforeProduction: "Verify saved records, stale-basis detection, and manual/auto Today sync with maintain snapshots.",
+          userImpactRisk: "Records could lose the user's intended goal basis or compare against the wrong goal."
+        }),
+        makeV8MaintainContractItem({
+          key: "Settings/Today goal chip integration",
+          area: "goal_ui",
+          present: productionGoalExists,
+          currentFallback: productionGoalExists ? "auto_exposed_by_Object.keys(GOALS)" : "not_exposed",
+          autoExposureRisk: true,
+          currentBehavior: productionGoalExists
+            ? "Goal chips are built from Object.keys(GOALS), so maintain would be exposed automatically."
+            : "Maintain is not shown in production goal chips.",
+          requiredBeforeProduction: "Add UI/copy tests so automatic exposure does not ship before all maintain contracts are complete.",
+          userImpactRisk: "A visible maintain button could create a user-facing feature before the app can explain or score it coherently."
+        }),
+        makeV8MaintainContractItem({
+          key: "backup/export/import maintain compatibility",
+          area: "data_management",
+          present: false,
+          currentFallback: "dependent_on_GOALS_validation_and_goalSnapshot_tests",
+          currentBehavior: "Backup/import paths rely on normalized settings and record snapshots; no dedicated maintain compatibility test exists yet.",
+          requiredBeforeProduction: "Round-trip maintain settings and records through export/import and backup restore tests.",
+          userImpactRisk: "A maintenance user's saved state may not survive migration or backup restore as intended."
+        })
+      ];
+      const missingContracts = contracts.filter(item => item.status !== "present");
+      const fallbackComparison = maintainCase ? {
+        caseId: maintainCase.id,
+        axisGoal: maintainCase.input.axisGoal,
+        productionGoalFallback: maintainCase.input.goal,
+        productionGoalFallbackReason: maintainCase.input.productionGoalFallbackReason,
+        targetCal: maintainCase.current.target.finalTargetCal,
+        proteinG: maintainCase.current.macro.protein_g,
+        carbsG: maintainCase.current.macro.carb_g,
+        fatG: maintainCase.current.macro.fat_g,
+        nonClaim: "recomp fallback output is only the current production comparison path, not maintain formula approval"
+      } : null;
+      return {
+        meta: {
+          stage: "9-6_maintain_production_contract_review_v0",
+          reportOnly: true,
+          productionFormulaChanged: false,
+          maintainProductionApproved: false,
+          sourceCandidateDesignStage: candidateDesign?.meta?.stage || null,
+          evidencePolicy: "This is internal code-contract evidence plus product-policy review; it is not external exercise physiology evidence.",
+          nonGoal: "does_not_add_GOALS_maintain_or_change_calculate_score_coach_recent_context_inbody_or_schema"
+        },
+        summary: {
+          axisMaintainCaseCount: maintainCases.length,
+          productionGoalExists,
+          missingContractCount: missingContracts.length,
+          productionBlockerCount: missingContracts.filter(item => item.productionBlocker).length,
+          silentFallbackRiskCount: contracts.filter(item => item.silentFallbackRisk).length,
+          autoExposureRiskCount: contracts.filter(item => item.autoExposureRisk).length,
+          currentAxisFallbackGoal: fallbackComparison?.productionGoalFallback || null,
+          currentTargetRateFallback: goalRateFallback,
+          currentFatTargetFallback: fatTargetFallback,
+          currentMacroScoreFallback: macroScoreFallback,
+          currentCoachDecisionFallback: coachDecisionFallback
+        },
+        fallbackComparison,
+        contracts,
+        requiredNextActions: [
+          "Do not add GOALS.maintain alone.",
+          "Define target-rate, cardio reflection, fat/macro score, Coach threshold/decision/copy, snapshot, and export-import contracts together.",
+          "Only after those contracts have tests should maintain become a production goal."
+        ]
+      };
+    }
+
     const V8_CONTEXT_MACRO_CANDIDATE_MODEL = "candidate-v8-context-macro-v0";
 
     function getV8ContextMacroCandidateProteinCapKg(input){
@@ -54084,6 +54332,7 @@ Notes:
         const humanReviewSummary = summarizeV8ScenarioCases(humanReviewCases);
         const macroAudit = buildV8MacroAuditReport(axisCases, humanReviewCases, requiredCase);
         const candidateDesign = buildV8CandidateDesignReport(macroAudit, axisCoverageSummary);
+        const maintainGoalContract = buildV8MaintainGoalContractReport(axisCases, candidateDesign);
         const candidateFormulaComparison = buildV8ContextMacroCandidateComparison([...axisCases, ...humanReviewCases], macroAudit);
         const profileSessionCarbPolicy = buildV8ProfileSessionCarbPolicyReport([...axisCases, ...humanReviewCases], candidateFormulaComparison);
         const report = {
@@ -54113,6 +54362,7 @@ Notes:
               "The 8-2 full Cartesian product is not claimed as executed; axis-category coverage is executed and reported separately.",
               "9-3 macro audit is report-only and classifies current macro risks before formula changes.",
               "9-5/9-6 candidateDesign is a report-only scaffold; it does not approve or apply a new formula.",
+              "9-6 maintainGoalContract is report-only; it prevents a GOALS.maintain-only change from being treated as a complete production goal.",
               "9-7 context macro candidate-v0 is report-only; it keeps target calories unchanged and compares macro redistribution only.",
               "9-7 profileSession carbohydrate policy review is report-only; it separates running/resistance/mixed session needs from production routine fallback.",
               "Do not treat candidate-no-weekly-xw or candidate-v8-context-macro-v0 as the final v8 formula."
@@ -54126,6 +54376,13 @@ Notes:
               stage: candidateDesign.meta.stage,
               requiredNextDecisionCount: candidateDesign.requiredNextDecisions.length,
               unresolvedProductionContractCount: candidateDesign.unresolvedProductionContracts.length
+            },
+            maintainGoalContract: {
+              stage: maintainGoalContract.meta.stage,
+              productionGoalExists: maintainGoalContract.summary.productionGoalExists,
+              missingContractCount: maintainGoalContract.summary.missingContractCount,
+              silentFallbackRiskCount: maintainGoalContract.summary.silentFallbackRiskCount,
+              currentAxisFallbackGoal: maintainGoalContract.summary.currentAxisFallbackGoal
             },
             candidateFormulaComparison: {
               stage: candidateFormulaComparison.meta.stage,
@@ -54144,6 +54401,7 @@ Notes:
           },
           macroAudit,
           candidateDesign,
+          maintainGoalContract,
           candidateFormulaComparison,
           profileSessionCarbPolicy,
           axisCoverage: {
@@ -54328,6 +54586,43 @@ Notes:
           const runningProfile = design.profileDesign.find(item => item.profile === "running");
           assertTest(runningProfile.status === "pending_profile_specific_formula", "running profile should remain pending profile-specific formula");
           assertIncludesAll(design.unresolvedProductionContracts.join(" "), ["GOALS", "goalSnapshot", "export/import"], "candidate design should list unresolved production contracts");
+        }));
+
+        results.push(runNamedTest("v8.0-I maintain contract blocks GOALS-only production mapping and exposes fallback conflicts", () => {
+          const report = runV8ScenarioRunner();
+          const contract = report.maintainGoalContract;
+          assertTest(contract?.meta?.stage === "9-6_maintain_production_contract_review_v0", "maintain contract should identify 9-6 contract review stage");
+          assertTest(contract.meta.reportOnly === true, "maintain contract should be report-only");
+          assertTest(contract.meta.productionFormulaChanged === false, "maintain contract must not change production formula");
+          assertTest(contract.meta.maintainProductionApproved === false, "maintain contract must not approve production maintain");
+          assertIncludesAll(contract.meta.evidencePolicy, ["internal code-contract", "not external exercise physiology"], "maintain contract should classify its evidence level honestly");
+          assertTest(contract.summary.axisMaintainCaseCount === 1, "maintain axis should have one required-axis coverage case");
+          assertTest(contract.summary.productionGoalExists === false, "GOALS.maintain should remain absent before a production-safe change");
+          assertTest(contract.summary.missingContractCount >= 10, "maintain should still have multiple unresolved production contracts");
+          assertTest(contract.summary.silentFallbackRiskCount >= 5, "maintain contract should expose silent fallback risks");
+          assertTest(contract.summary.currentAxisFallbackGoal === "recomp", "v8 axis case should still use recomp only as explicit report fallback");
+          assertTest(contract.summary.currentTargetRateFallback === "lean_bulk", "missing maintain rate policy should be detected as lean_bulk fallback");
+          assertTest(contract.summary.currentFatTargetFallback === "lean_bulk", "missing maintain fat profile should be detected as lean_bulk fallback");
+          assertTest(contract.summary.currentMacroScoreFallback === "lean_bulk", "missing maintain score profile should be detected as lean_bulk fallback");
+          assertTest(contract.summary.currentCoachDecisionFallback === "lean_bulk", "missing maintain Coach decision profile should be detected as lean_bulk fallback");
+          const contractKeys = contract.contracts.map(item => item.key).join(" ");
+          assertIncludesAll(contractKeys, [
+            "GOALS.maintain",
+            "CARDIO_TARGET_REFLECTION_RATES.maintain",
+            "GOAL_RATE_POLICIES.maintain",
+            "FAT_TARGET_PROFILES.maintain",
+            "MACRO_SCORE_PROFILES.maintain",
+            "DAILY_COACH_DECISION_PROFILES.maintain",
+            "normalizeGoalSnapshot.goal=maintain",
+            "backup/export/import maintain compatibility"
+          ], "maintain contract should list the cross-app production contracts");
+          const rate = contract.contracts.find(item => item.key === "GOAL_RATE_POLICIES.maintain");
+          assertTest(rate?.silentFallbackRisk === true && rate.currentFallback === "lean_bulk", "target-rate fallback conflict should be explicit");
+          const ui = contract.contracts.find(item => item.key === "Settings/Today goal chip integration");
+          assertTest(ui?.autoExposureRisk === true, "goal chip auto-exposure risk should be explicit");
+          assertTest(contract.fallbackComparison?.productionGoalFallback === "recomp", "fallback comparison should preserve current report-only recomp path");
+          assertIncludesAll(contract.fallbackComparison?.nonClaim, ["not", "approval"], "fallback comparison should state it is not maintain approval");
+          assertIncludesAll(contract.requiredNextActions.join(" "), ["Do not add GOALS.maintain alone", "tests"], "next actions should block GOALS-only implementation");
         }));
 
         results.push(runNamedTest("v8.0-G 9-7 context macro candidate compares required 1913 without approving production", () => {

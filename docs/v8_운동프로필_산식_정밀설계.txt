@@ -937,6 +937,12 @@ v8 산식은 대표 케이스 몇 개만 보고 통과시키지 않는다.
   - diet/cut rate는 목표, 체성분, 운동 프로필, deficit, 최근 trend를 함께 봐야 하며 주간 웨이트일수 단독 기준으로 확정하지 않는다.
   - lean_bulk/bulk rate는 recent28 feedback과 profile-specific macro formula 없이는 production으로 확정하지 않는다.
   - 이 단계는 승인 산식이 아니라, 9-7 candidate 산식 비교 전에 반드시 해결할 결정 목록이다.
+- 2026-06-03 v8.0-I에서 `runV8ScenarioRunner()`에 `maintainGoalContract` report-only 레이어를 추가했다.
+  - 이 레이어는 `GOALS.maintain`만 추가하는 변경을 금지한다. 유지 목표가 실제 production 선택지가 되려면 `GOALS`, `CARDIO_TARGET_REFLECTION_RATES`, `GOAL_RATE_POLICIES`, `GOAL_TARGET_FLOOR_RULES`, `GOAL_AWARE_MACRO_SOFT_RANGE_KG`, `FAT_TARGET_PROFILES`, `MACRO_SCORE_PROFILES`, `DAILY_COACH_SIGNAL_THRESHOLD_PROFILES`, `DAILY_COACH_DECISION_PROFILES`, Coach copy, `goalSnapshot`, goal chip UI, backup/export/import 계약을 함께 닫아야 한다.
+  - 현재 v8 axis case의 `maintain -> recomp` fallback은 시나리오 비교용 임시 경로일 뿐 유지 목표 승인 산식이 아니다.
+  - 반대로 production 내부에서 maintain key만 생기고 rate/fat/score/Coach profile이 빠지면 여러 함수가 `lean_bulk` fallback으로 조용히 흐를 수 있다. 이 충돌을 `maintainGoalContract.summary.currentTargetRateFallback`, `currentFatTargetFallback`, `currentMacroScoreFallback`, `currentCoachDecisionFallback`에 남긴다.
+  - v8.0-I 기준 runner summary는 `axisMaintainCaseCount=1`, `productionGoalExists=false`, `missingContractCount=13`, `silentFallbackRiskCount=6`, `autoExposureRiskCount=1`이다.
+  - 이 근거는 내부 코드 계약 + 제품 정책 감사 근거이며 외부 운동생리학 근거가 아니다.
 
 9-7. 7단계: candidate 산식 비교
 
