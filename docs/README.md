@@ -1,5 +1,15 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AF shard batch orchestration pilot note
+
+- `index.html` now reports scenario runner version `8.0-AF`.
+- New batch runner: `tools/render_audit/run_v8_full_cartesian_batch.cjs`.
+- Batch runner supports `--shards=0,144` and contiguous `--start-shard` / `--shard-count` modes, runs shard manifests through `run_v8_full_cartesian_shard.cjs`, then invokes `analyze_v8_full_cartesian_shards.cjs` for the batch folder.
+- AF pilot on 2026-06-03: `--shards=0,144 --shard-size=8 --max-cases=8 --label=af_pilot` produced batch schema `v8_full_cartesian_batch_manifest_v1`, 2 shard runs, analyzer failed 0, decoded 16, calculated 8, constraint-only 8, truncated 0.
+- Direct analyzer re-check on the batch folder also reported 2 manifests / failed 0.
+- Verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1054 cases / failed 0.
+- This is batch orchestration for bounded evidence only. It still does not execute all `80,621,568,000` rows or close `full_8_2_cartesian_execution` / `full_v8_completion`.
+
 # v8.0-AE shard manifest integrity and analyzer note
 
 - `runV8FullCartesianShard()` now emits report schema `v8_full_cartesian_shard_report_v1`, including decoded accounting and `calculationIssueCount`.

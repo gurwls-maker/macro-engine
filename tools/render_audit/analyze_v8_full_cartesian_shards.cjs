@@ -42,7 +42,7 @@ function collectManifestPaths(){
   const dir = path.resolve(root, readArgValue("--dir") || defaultShardDir);
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir)
-    .filter(name => name.endsWith(".json"))
+    .filter(name => name.startsWith("shard_") && name.endsWith(".json"))
     .sort()
     .map(name => path.join(dir, name));
 }
