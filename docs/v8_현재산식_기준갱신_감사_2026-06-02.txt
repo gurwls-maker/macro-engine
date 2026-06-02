@@ -1185,7 +1185,7 @@ candidate-v1가 하지 않는 일:
 
 - v8.0-K는 profile-specific macro formula의 production 구현이 아니라 candidate feasibility audit이다.
 - 단백질 context 후보와 maintain production goal만으로는 mixed profile 탄수 문제가 해결되지 않는다.
-- v8.0-L 이후 다음 단계는 pairwiseStress에서 드러난 축 충돌을 바탕으로 targeted stress를 더 늘리거나, profile formula candidate-v2를 진행하는 것이다. candidate-v2를 진행한다면 target/rate와 protein/fat guard를 같이 열어야 하며, score/Coach/Records 계약까지 검토해야 한다.
+- v8.0-M 이후 다음 단계는 targetedStress에서 계산/제약으로 분리한 residual signal을 바탕으로 profile formula candidate-v2를 설계하거나, 필요하면 shard/orthogonal coverage를 추가하는 것이다. candidate-v2를 진행한다면 target/rate와 protein/fat guard를 같이 열어야 하며, score/Coach/Records 계약까지 검토해야 한다.
 
 ## 11-9. 2026-06-03 v8.0-L 8-2 pairwise / targeted stress 1차
 
@@ -1243,7 +1243,61 @@ excluded pair 사유:
 - `effectiveTupleMismatchCaseCount=0`이므로 직접 제어 가능한 pairwise tuple 값은 계산 입력에 보존된다.
 - `derivedTupleMismatchCaseCount=31`은 FFMI가 height/weight/bodyFat과 동시에 독립적으로 맞기 어려운 파생축이라는 사실을 드러낸다. 이것은 숨길 문제가 아니라, FFMI 축을 production input으로 쓸 때 제약/우선순위를 정해야 한다는 근거다.
 - `inactiveTupleMismatchCaseCount=13`은 rest day에서 intensity가 비활성화되는 것처럼 계산상 축이 꺼지는 케이스다.
-- 다음 targeted stress는 derived FFMI conflict, rest-day inactive intensity, mixed carb unresolved, maintain + non-bodybuilding profile을 묶어 사람 눈 수치 검토를 확대하는 방향이 맞다.
+- v8.0-M targeted stress는 derived FFMI conflict, rest-day inactive intensity, mixed carb unresolved, maintain + non-bodybuilding profile을 묶어 사람 눈 수치 검토를 확대하는 방향이 맞다.
+
+## 11-10. 2026-06-03 v8.0-M targeted stress review 1차
+
+v8.0-M에서는 v8.0-L pairwise stress가 남긴 residual signal을 그냥 메모로 두지 않고, 계산 가능한 targeted case와 계산하면 안 되는 constraint-only case로 분리했다.
+
+targetedStress의 성격:
+
+- stage: `8-2_targeted_stress_review_v0`
+- `reportOnly`: true
+- `productionFormulaChanged`: false
+- `candidateFormulaApproved`: false
+- `fullCartesianRun`: false
+- source signals: `pairwiseStress.derivedTupleMismatches`, `pairwiseStress.inactiveTupleMismatches`, `profileMacroCandidateComparison.profileCarbFloorUnresolved`, `maintainGoalContract.plus.nonBodybuildingProfileFormulaPending`, `pairwiseStress.excludedPairRequirements`
+
+직접 추출 summary:
+
+- `caseCount`: 8
+- `calculatedCaseCount`: 5
+- `constraintOnlyCaseCount`: 3
+- `derivedFfmiConflictCount`: 1
+- `inactiveIntensityCaseCount`: 1
+- `mixedCarbUnresolvedCaseCount`: 1
+- `maintainNonBodybuildingCaseCount`: 2
+- `highPriorityCaseCount`: 2
+
+focus count:
+
+- `derived_ffmi`: 1
+- `inactive_intensity`: 1
+- `mixed_carb_unresolved`: 2
+- `maintain_non_bodybuilding`: 2
+- `excluded_constraint`: 3
+
+계산 케이스:
+
+- `targeted_derived_ffmi_high_conflict`: 의도 tuple은 `ffmiBand=low`지만 height/weight/bodyFat/skeletal에서 파생된 실제 FFMI는 다르다. `derived_ffmi_axis_conflict_requires_priority_rule`로 표시한다.
+- `targeted_rest_day_intensity_inactive`: rest day, `todayWeightDuration=0`에서 intensity 축은 숨은 training load가 아니며 `rest_day_intensity_axis_inactive_not_training_load`로 표시한다.
+- `targeted_mixed_carb_unresolved`: mixed strength/cardio 고부하에서 candidate-v1이 `profile_carb_floor_unresolved_by_target_constraints`를 유지한다. 이는 target/rate와 protein/fat guard를 함께 여는 candidate-v2 필요 근거다.
+- `targeted_maintain_running_contract`: maintain goal + running profile/session은 production maintain goal이 존재해도 running-specific macro formula와 UI/Records/Coach 계약이 별도 pending임을 표시한다.
+- `targeted_maintain_mixed_contract`: maintain goal + mixed profile/session은 non-bodybuilding profile formula pending이다. 단, 이 케이스의 carb floor는 `profile_carb_floor_met_report_only`로 남았으므로 unresolved라고 과장하지 않는다.
+
+constraint-only 케이스:
+
+- `constraint_running_session_without_cardio_axis`: `running_session_without_cardio_axis`
+- `constraint_profile_session_mismatch`: `exercise_profile_session_mismatch`
+- `constraint_performance_none_training`: `no_performance_with_training_session`, `no_performance_with_weekly_training`, `no_performance_with_weight_duration`
+
+해석:
+
+- 8개 targeted stress는 80,621,568,000개 full Cartesian 실행이 아니다.
+- 5개 calculated case는 18개 human-review case를 대체하지 않는다.
+- 3개 constraint-only case는 앱이 계산해도 되는 유저 세션이 아니라, incoherent tuple을 계산하지 않도록 남기는 감사 기록이다.
+- 외부 운동생리학 근거는 carbohydrate/protein/fat review threshold로만 쓰며, `currentFormulaReport`는 내부 구현 근거다.
+- v8.0-M은 candidate-v8-profile-macro-v1을 production formula로 승인하지 않는다.
 
 ## 12. 검증 메모
 
@@ -1416,6 +1470,21 @@ excluded pair 사유:
 - v8.0-L desktop calibration 14 suites / 123 cases / failed 0
 - 2026-06-03 v8.0-L full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-L desktop full 99 suites / 1043 cases / failed 0
+- 2026-06-03 v8.0-M targeted stress 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-M scenario runner suite 1 suite / 16 cases / failed 0
+- 2026-06-03 v8.0-M targeted stress 직접 추출:
+  - `targetedStress.summary.caseCount=8`
+  - `calculatedCaseCount=5`
+  - `constraintOnlyCaseCount=3`
+  - `derivedFfmiConflictCount=1`
+  - `inactiveIntensityCaseCount=1`
+  - `mixedCarbUnresolvedCaseCount=1`
+  - `maintainNonBodybuildingCaseCount=2`
+  - `highPriorityCaseCount=2`
+- 2026-06-03 v8.0-M calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-M desktop calibration 14 suites / 124 cases / failed 0
+- 2026-06-03 v8.0-M full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-M desktop full 99 suites / 1044 cases / failed 0
 
 실행하지 않은 것:
 
@@ -1440,3 +1509,4 @@ v8.0-I 9-6 maintain production contract review 당시에는 `maintainGoalContrac
 v8.0-J maintain production goal 1차 이후에는 `maintainGoalContract`가 report-only / productionFormulaChanged false로 남되 `productionMaintainGoalAvailable=true`, `maintainProductionApproved=true`, `missingContractCount=0`, `currentAxisFallbackGoal=null`로 바뀌는지 확인했다. 이 승인은 maintain production goal 계약에 한정되며, profile-specific macro formula 또는 전체 v8 완료를 뜻하지 않는다.
 v8.0-K profile macro candidate-v1 이후에는 `profileMacroCandidateComparison`이 report-only / productionFormulaChanged false / candidateFormulaApproved false로 남고, running/mixed 탄수 floor를 targetCal 변경 없이 맞출 수 있는지 검토했다. 직접 추출 결과 mixed floor 시도 3건은 모두 target/protein/fat 보호선 때문에 unresolved로 남았고, 이는 candidate-v2에서 target/rate와 protein/fat guard를 함께 열어야 한다는 근거다.
 v8.0-L pairwise stress 이후에는 8-2 full Cartesian을 실행했다고 주장하지 않으면서, 제약상 가능한 pair 2,472개를 50개 계산 케이스로 모두 덮는지 확인했다. 직접 제어 가능한 tuple mismatch는 0이며, FFMI 파생축과 rest-day inactive intensity는 별도 mismatch로 분리했다.
+v8.0-M targeted stress 이후에는 pairwise/profile macro residual signal을 계산 가능한 5개 targeted case와 계산하면 안 되는 3개 constraint-only case로 분리했다. mixed focus는 2건이지만 실제 unresolved finding은 1건이며, maintain mixed는 report-only carb-floor-met으로 남겨 과장하지 않았다. 이 단계도 full Cartesian, 18개 human-review 대체, candidate production approval이 아니다.

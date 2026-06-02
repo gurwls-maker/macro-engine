@@ -1,9 +1,10 @@
 <!--
 Version: 8.0
-Stage: v8.0-L pairwise stress runner 1차 구현
+Stage: v8.0-M targeted stress review 1차 구현
 Date: 2026-06-03
 Notes:
-- v8.0-L 8-2 필수축 full cross-product를 실행했다고 주장하지 않고, 제약 기반 pairwise/targeted stress report-only 레이어를 추가해 806억 축을 더 강하게 검증
+- v8.0-M targetedStress report-only 레이어를 추가해 pairwise/profile residual signal을 5개 calculated review case와 3개 constraint-only excluded tuple로 분리
+- v8.0-L 8-2 필수축 full cross-product를 실행했다고 주장하지 않고, 제약 기반 pairwise stress report-only 레이어를 추가해 806억 축을 더 강하게 검증
 - v8.0-L pairwise 제약은 profile/session, rest/duration, running/mixed cardio coherence를 명시하고 제외 pair를 별도 집계해 18개 human-review와 혼동하지 않게 함
 - v8.0-K profile-specific macro candidate-v1 report-only 레이어를 추가해 running/mixed 탄수 floor를 targetCal 변경 없이 fat/protein 보호선 안에서 재배분 가능한지 검토
 - v8.0-K resistance carbohydrate reference의 저자 표기를 Escobar / VanDusseldorp / Kerksick 2016으로 정정하고, resistance range는 제한적 review reference이지 production floor가 아님을 고정
@@ -52378,8 +52379,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-L";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-L pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-M";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-M targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -53124,7 +53125,8 @@ Notes:
         inbodyReliability: definition.inbodyReliability,
         recent14: definition.recent14,
         recent28: definition.recent28,
-        pairwiseTuple: definition.pairwiseTuple || null
+        pairwiseTuple: definition.pairwiseTuple || null,
+        targetedTuple: definition.targetedTuple || null
       };
     }
 
@@ -55227,6 +55229,449 @@ Notes:
       };
     }
 
+    function makeV8TargetedStressFinding(id, severity, evidenceKeys, note, details = {}){
+      return {
+        id,
+        severity,
+        evidenceKeys,
+        note,
+        details
+      };
+    }
+
+    function makeV8TargetedStressDefinition(base){
+      const stress = base.targetedStress || {};
+      return {
+        ...base,
+        layer: "targetedStress",
+        calibrationAxis: "v8TargetedStress",
+        targetedTuple: stress.intendedTuple || null,
+        targetedStress: {
+          focus: stress.focus || [],
+          sourceSignal: stress.sourceSignal || "manual_targeted_review",
+          reviewReason: stress.reviewReason || "",
+          intendedTuple: stress.intendedTuple || null,
+          expectedViolations: stress.expectedViolations || [],
+          evidenceKeys: stress.evidenceKeys || ["currentFormulaReport"],
+          nonClaim: "targeted_stress_case_not_full_cartesian_not_human_approval"
+        }
+      };
+    }
+
+    function buildV8TargetedStressDefinitions(){
+      return [
+        makeV8TargetedStressDefinition({
+          id: "targeted_derived_ffmi_high_conflict",
+          title: "8-2 targeted stress: derived FFMI conflict",
+          stat: makeCalibrationStat("V8TS01", "male", 32, 180, 95, 10, 47, "targeted derived FFMI conflict", "targeted_ffmi_conflict"),
+          axisGoal: "diet",
+          goal: "diet",
+          mode: "expert",
+          activityCombo: makeV8ActivityCombo("V8TS_ACTIVITY_FFMI", "targeted moderate office", "moderate", "office"),
+          weightCombo: makeV8WeightCombo("V8TS_WEIGHT_FFMI", "targeted PUSH 60m", 4, 60, "PUSH", 0.80),
+          cardioCombo: makeV8CardioCombo("V8TS_CARDIO_NONE_FFMI", "targeted no cardio"),
+          exerciseProfile: "bodybuilding",
+          profileSession: makeV8ProfileSession("bodybuilding", "bodybuilding_push", "targeted bodybuilding PUSH 60m", "PUSH", "same_as_current_production_routine"),
+          performanceLevel: "high",
+          inbodyReliability: "expert_device",
+          recent14: "sufficient",
+          recent28: "target_appropriate",
+          targetedStress: {
+            focus: ["derived_ffmi"],
+            sourceSignal: "pairwiseStress.derivedTupleMismatches",
+            intendedTuple: { ffmiBand: "low", heightBand: "average", weightBand: "obese", bodyFatBand: "low", skeletalMuscleBand: "high" },
+            evidenceKeys: ["currentFormulaReport"],
+            reviewReason: "FFMI is derived from body composition inputs, so an independent FFMI axis can conflict with height/weight/bodyFat/skeletal inputs."
+          }
+        }),
+        makeV8TargetedStressDefinition({
+          id: "targeted_rest_day_intensity_inactive",
+          title: "8-2 targeted stress: rest day inactive intensity",
+          stat: makeCalibrationStat("V8TS02", "female", 34, 165, 62, 24, 25, "targeted rest inactive intensity", "targeted_rest_inactive"),
+          axisGoal: "diet",
+          goal: "diet",
+          mode: "general",
+          activityCombo: makeV8ActivityCombo("V8TS_ACTIVITY_REST", "targeted sedentary office", "sedentary", "office"),
+          weightCombo: makeV8WeightCombo("V8TS_WEIGHT_REST", "targeted weekly training but today REST", 4, 0, "REST", 0),
+          cardioCombo: makeV8CardioCombo("V8TS_CARDIO_NONE_REST", "targeted no cardio"),
+          exerciseProfile: "bodybuilding",
+          profileSession: makeV8ProfileSession("bodybuilding", "rest", "REST", "REST", "same_as_current_production_routine"),
+          performanceLevel: "normal",
+          inbodyReliability: "direct_input",
+          recent14: "sufficient",
+          recent28: "target_appropriate",
+          targetedStress: {
+            focus: ["inactive_intensity"],
+            sourceSignal: "pairwiseStress.inactiveTupleMismatches",
+            intendedTuple: { profileSession: "rest", weeklyTrainingDays: 4, weightDuration: 0, intensity: "high" },
+            evidenceKeys: ["currentFormulaReport"],
+            reviewReason: "Rest-day intensity must be recorded as inactive rather than treated as a hidden training load."
+          }
+        }),
+        makeV8TargetedStressDefinition({
+          id: "targeted_mixed_carb_unresolved",
+          title: "8-2 targeted stress: mixed carb floor unresolved",
+          stat: makeCalibrationStat("V8TS03", "male", 40, 175, 88, 28, 33, "targeted mixed carb unresolved", "targeted_mixed_unresolved"),
+          axisGoal: "diet",
+          goal: "diet",
+          mode: "general",
+          activityCombo: makeV8ActivityCombo("V8TS_ACTIVITY_MIXED", "targeted moderate office", "moderate", "office"),
+          weightCombo: makeV8WeightCombo("V8TS_WEIGHT_MIXED", "targeted mixed strength 60m", 4, 60, "PUSH", 0.80),
+          cardioCombo: makeV8CardioCombo("V8TS_CARDIO_MIXED", "targeted mixed cardio 70m", "treadmill_run", 70, 8, 1),
+          exerciseProfile: "mixed",
+          profileSession: makeV8ProfileSession("mixed", "mixed_strength_cardio_70m", "targeted mixed strength + cardio 70m", "PUSH", "PUSH fallback represents current production weight routine; mixed profile formula is pending"),
+          performanceLevel: "unknown",
+          inbodyReliability: "low_reliability",
+          recent14: "insufficient",
+          recent28: "unknown",
+          targetedStress: {
+            focus: ["mixed_carb_unresolved"],
+            sourceSignal: "profileMacroCandidateComparison.profileCarbFloorUnresolved",
+            intendedTuple: { exerciseProfile: "mixed", profileSession: "mixed_strength_cardio", cardio: "many", weightDuration: 60 },
+            evidenceKeys: ["acsmNutritionAthleticPerformance2016", "resistanceCarbohydrateReview2016", "currentFormulaReport"],
+            reviewReason: "Mixed strength/cardio needs a targeted check because candidate-v1 may not meet carbohydrate review floors without changing target/protein/fat guards."
+          }
+        }),
+        makeV8TargetedStressDefinition({
+          id: "targeted_maintain_running_contract",
+          title: "8-2 targeted stress: maintain running profile contract",
+          stat: makeCalibrationStat("V8TS04", "female", 33, 166, 57, 22, 23, "targeted maintain running", "targeted_maintain_running"),
+          axisGoal: "maintain",
+          goal: "maintain",
+          mode: "athlete",
+          activityCombo: makeV8ActivityCombo("V8TS_ACTIVITY_RUNNING", "targeted active work", "active", "active"),
+          weightCombo: makeV8WeightCombo("V8TS_WEIGHT_RUNNING", "targeted support upper 30m", 2, 30, "UPPER", 0.60),
+          cardioCombo: makeV8CardioCombo("V8TS_CARDIO_RUNNING", "targeted tempo run 50m", "treadmill_run", 50, 10, 1),
+          exerciseProfile: "running",
+          profileSession: makeV8ProfileSession("running", "running_tempo_50m_support_upper", "targeted tempo run 50m + support upper 30m", "UPPER", "UPPER fallback represents support strength only; running load is carried by cardio fields"),
+          performanceLevel: "normal",
+          inbodyReliability: "direct_input",
+          recent14: "sufficient",
+          recent28: "too_fast",
+          targetedStress: {
+            focus: ["maintain_non_bodybuilding"],
+            sourceSignal: "maintainGoalContract.plus.profileSessionCarbPolicy",
+            intendedTuple: { goal: "maintain", exerciseProfile: "running", profileSession: "running_tempo", cardio: "moderate", weightDuration: 30 },
+            evidenceKeys: ["currentFormulaReport", "acsmNutritionAthleticPerformance2016"],
+            reviewReason: "Maintain production goal exists, but running profile/session macro formula and user-facing contracts are still separate v8 work."
+          }
+        }),
+        makeV8TargetedStressDefinition({
+          id: "targeted_maintain_mixed_contract",
+          title: "8-2 targeted stress: maintain mixed profile contract",
+          stat: makeCalibrationStat("V8TS05", "male", 37, 178, 84, 20, 37, "targeted maintain mixed", "targeted_maintain_mixed"),
+          axisGoal: "maintain",
+          goal: "maintain",
+          mode: "athlete",
+          activityCombo: makeV8ActivityCombo("V8TS_ACTIVITY_MAINTAIN_MIXED", "targeted active field", "active", "field"),
+          weightCombo: makeV8WeightCombo("V8TS_WEIGHT_MAINTAIN_MIXED", "targeted mixed strength 60m", 4, 60, "PUSH", 0.85),
+          cardioCombo: makeV8CardioCombo("V8TS_CARDIO_MAINTAIN_MIXED", "targeted mixed cardio 45m", "treadmill_walk", 45, 6, 4),
+          exerciseProfile: "mixed",
+          profileSession: makeV8ProfileSession("mixed", "mixed_strength_cardio_45m", "targeted mixed strength + cardio 45m", "PUSH", "PUSH fallback represents current production weight routine; mixed profile formula is pending"),
+          performanceLevel: "normal",
+          inbodyReliability: "home_inbody",
+          homeInbody: true,
+          recent14: "sufficient",
+          recent28: "target_appropriate",
+          targetedStress: {
+            focus: ["maintain_non_bodybuilding", "mixed_carb_unresolved"],
+            sourceSignal: "maintainGoalContract.plus.profileMacroCandidateComparison",
+            intendedTuple: { goal: "maintain", exerciseProfile: "mixed", profileSession: "mixed_strength_cardio", cardio: "moderate", weightDuration: 60 },
+            evidenceKeys: ["currentFormulaReport", "acsmNutritionAthleticPerformance2016", "resistanceCarbohydrateReview2016"],
+            reviewReason: "Maintain mixed profile needs a contract check so maintain availability is not mistaken for a completed mixed macro formula."
+          }
+        }),
+        makeV8TargetedStressDefinition({
+          id: "constraint_running_session_without_cardio_axis",
+          title: "8-2 targeted constraint: running session without cardio axis",
+          constraintOnly: true,
+          targetedStress: {
+            focus: ["excluded_constraint"],
+            sourceSignal: "pairwiseStress.excludedPairRequirements",
+            intendedTuple: { exerciseProfile: "running", profileSession: "running_tempo", cardio: "none" },
+            expectedViolations: ["running_session_without_cardio_axis"],
+            evidenceKeys: ["currentFormulaReport"],
+            reviewReason: "A running tempo session with cardio none is an excluded axis pair, not a calculated user session."
+          }
+        }),
+        makeV8TargetedStressDefinition({
+          id: "constraint_profile_session_mismatch",
+          title: "8-2 targeted constraint: profile/session mismatch",
+          constraintOnly: true,
+          targetedStress: {
+            focus: ["excluded_constraint"],
+            sourceSignal: "pairwiseStress.excludedPairRequirements",
+            intendedTuple: { exerciseProfile: "running", profileSession: "bodybuilding_push" },
+            expectedViolations: ["exercise_profile_session_mismatch"],
+            evidenceKeys: ["currentFormulaReport"],
+            reviewReason: "A running profile cannot be represented as a bodybuilding push session in the profile-session axis."
+          }
+        }),
+        makeV8TargetedStressDefinition({
+          id: "constraint_performance_none_training",
+          title: "8-2 targeted constraint: performance none with training load",
+          constraintOnly: true,
+          targetedStress: {
+            focus: ["excluded_constraint"],
+            sourceSignal: "pairwiseStress.excludedPairRequirements",
+            intendedTuple: { performanceLevel: "none", profileSession: "strength_heavy_lower", weeklyTrainingDays: 4, weightDuration: 90 },
+            expectedViolations: ["no_performance_with_training_session", "no_performance_with_weekly_training", "no_performance_with_weight_duration"],
+            evidenceKeys: ["currentFormulaReport"],
+            reviewReason: "performanceLevel none cannot be silently paired with an active training load."
+          }
+        })
+      ];
+    }
+
+    function getV8TargetedStressEffectiveTuple(input, intendedTuple = {}){
+      return Object.fromEntries(Object.keys(intendedTuple).map(axisKey => [
+        axisKey,
+        getV8PairwiseEffectiveAxisValue(input, axisKey)
+      ]));
+    }
+
+    function getV8TargetedStressTupleMismatches(intendedTuple, effectiveTuple){
+      return Object.keys(intendedTuple || {})
+        .filter(axisKey => String(intendedTuple[axisKey]) !== String(effectiveTuple[axisKey]))
+        .map(axisKey => ({
+          axis: axisKey,
+          expected: intendedTuple[axisKey],
+          actual: effectiveTuple[axisKey]
+        }));
+    }
+
+    function buildV8TargetedStressCalculatedCase(item, definition){
+      const stress = definition?.targetedStress || {};
+      const intendedTuple = stress.intendedTuple || {};
+      const effectiveTuple = getV8TargetedStressEffectiveTuple(item.input, intendedTuple);
+      const tupleMismatches = getV8TargetedStressTupleMismatches(intendedTuple, effectiveTuple);
+      const focus = stress.focus || [];
+      const currentAudit = buildV8MacroAuditCase(item, "current");
+      const contextComparison = buildV8ContextMacroCandidateComparisonCase(item, currentAudit);
+      const profilePolicyCase = buildV8ProfileSessionCarbPolicyCase(item, contextComparison);
+      const profileMacroCandidateCase = buildV8ProfileMacroCandidateComparisonCase(item, currentAudit, profilePolicyCase);
+      const findings = [];
+
+      if (focus.includes("derived_ffmi") && tupleMismatches.some(mismatch => mismatch.axis === "ffmiBand")) {
+        findings.push(makeV8TargetedStressFinding(
+          "derived_ffmi_axis_conflict_requires_priority_rule",
+          "high",
+          ["currentFormulaReport"],
+          "The intended FFMI band conflicts with FFMI derived from height/weight/body-fat inputs; v8 needs an explicit source-priority rule.",
+          {
+            intendedFfmiBand: intendedTuple.ffmiBand,
+            effectiveFfmiBand: effectiveTuple.ffmiBand,
+            ffmi: item.input.ffmi,
+            height: item.input.height,
+            weight: item.input.weight,
+            bodyFat: item.input.bodyFat,
+            skeletal: item.input.skeletal
+          }
+        ));
+      }
+
+      if (focus.includes("inactive_intensity") && Number(item.input.todayWeightDuration) === 0) {
+        findings.push(makeV8TargetedStressFinding(
+          "rest_day_intensity_axis_inactive_not_training_load",
+          "review",
+          ["currentFormulaReport"],
+          "The stress tuple asks about intensity, but todayWeightDuration is 0, so intensity is inactive and must not become a hidden training signal.",
+          {
+            intendedIntensity: intendedTuple.intensity,
+            effectiveIntensity: effectiveTuple.intensity,
+            todayWeightDuration: item.input.todayWeightDuration,
+            profileSession: item.input.profileSession
+          }
+        ));
+      }
+
+      if (
+        focus.includes("mixed_carb_unresolved")
+        && profileMacroCandidateCase.findingIds.includes("profile_carb_floor_unresolved_by_target_constraints")
+      ) {
+        findings.push(makeV8TargetedStressFinding(
+          "mixed_profile_carb_floor_unresolved_requires_candidate_v2",
+          "high",
+          ["acsmNutritionAthleticPerformance2016", "resistanceCarbohydrateReview2016", "currentFormulaReport"],
+          "Mixed profile carbohydrate floor remains unresolved under unchanged target calories and protein/fat guards; candidate-v2 must revisit the linked target and macro guards together.",
+          {
+            candidateCarbsGPerKgBodyweight: profileMacroCandidateCase.candidate.profilePolicy.candidateCarbsGPerKgBodyweight,
+            requiredCarbFloorGPerKg: profileMacroCandidateCase.candidate.profilePolicy.requiredCarbFloorGPerKg
+          }
+        ));
+      }
+
+      if (focus.includes("maintain_non_bodybuilding") && item.input.goal === "maintain" && item.input.exerciseProfile !== "bodybuilding") {
+        findings.push(makeV8TargetedStressFinding(
+          "maintain_non_bodybuilding_profile_formula_contract_pending",
+          "review",
+          ["currentFormulaReport"],
+          "Maintain is available as a production goal, but this does not approve running/mixed profile-specific macro formulas or their UI/Records/Coach contracts.",
+          {
+            exerciseProfile: item.input.exerciseProfile,
+            profileSession: item.input.profileSession,
+            productionRoutineFallback: item.input.productionRoutineFallback,
+            productionRoutineFallbackReason: item.input.productionRoutineFallbackReason
+          }
+        ));
+      }
+
+      if (item.input.exerciseProfileStatus === "report_axis_only_pending_formula") {
+        findings.push(makeV8TargetedStressFinding(
+          "profile_specific_formula_pending_user_facing_risk",
+          "review",
+          ["currentFormulaReport"],
+          "This targeted case still uses a production routine fallback, so it must not be presented as a completed profile-specific session formula.",
+          {
+            exerciseProfile: item.input.exerciseProfile,
+            todayRoutine: item.input.todayRoutine,
+            todayRoutineRole: item.input.todayRoutineRole
+          }
+        ));
+      }
+
+      return {
+        caseId: item.id,
+        title: item.title,
+        calculated: true,
+        focus,
+        sourceSignal: stress.sourceSignal,
+        reviewReason: stress.reviewReason,
+        input: {
+          goal: item.input.goal,
+          axisGoal: item.input.axisGoal,
+          exerciseProfile: item.input.exerciseProfile,
+          profileSession: item.input.profileSession,
+          todayRoutine: item.input.todayRoutine,
+          todayRoutineRole: item.input.todayRoutineRole,
+          todayWeightDuration: item.input.todayWeightDuration,
+          todayIntensityOverride: item.input.todayIntensityOverride,
+          cardioDuration: item.input.cardioDuration,
+          inbodyReliability: item.input.inbodyReliability,
+          intendedTuple,
+          effectiveTuple,
+          tupleMismatches
+        },
+        current: {
+          targetCal: item.current.target.finalTargetCal,
+          proteinG: item.current.macro.protein_g,
+          carbsG: item.current.macro.carb_g,
+          fatG: item.current.macro.fat_g,
+          carbsGPerKgBodyweight: item.current.macro.carb_g_per_kg_bodyweight
+        },
+        contextCandidate: contextComparison.candidate,
+        profilePolicy: {
+          policy: profilePolicyCase.policy,
+          findingIds: profilePolicyCase.findingIds
+        },
+        profileMacroCandidateV1: {
+          candidate: profileMacroCandidateCase.candidate,
+          findingIds: profileMacroCandidateCase.findingIds,
+          deltaFromContextCandidate: profileMacroCandidateCase.deltaFromContextCandidate
+        },
+        currentAuditFindingIds: currentAudit.findingIds,
+        contextCandidateRemainingFindingIds: contextComparison.remainingFindingIds,
+        profilePolicyFindingIds: profilePolicyCase.findingIds,
+        profileMacroCandidateFindingIds: profileMacroCandidateCase.findingIds,
+        targetedFindingIds: findings.map(finding => finding.id),
+        findings
+      };
+    }
+
+    function buildV8TargetedStressConstraintCase(definition){
+      const stress = definition.targetedStress || {};
+      const intendedTuple = stress.intendedTuple || {};
+      const violations = getV8PairwiseConstraintViolations(intendedTuple);
+      return {
+        caseId: definition.id,
+        title: definition.title,
+        calculated: false,
+        focus: stress.focus || ["excluded_constraint"],
+        sourceSignal: stress.sourceSignal,
+        reviewReason: stress.reviewReason,
+        intendedTuple,
+        expectedViolations: stress.expectedViolations || [],
+        actualViolations: violations,
+        findingIds: violations.map(reason => `excluded_pair_constraint_${reason}`),
+        findings: violations.map(reason => makeV8TargetedStressFinding(
+          `excluded_pair_constraint_${reason}`,
+          "review",
+          stress.evidenceKeys || ["currentFormulaReport"],
+          "This targeted tuple is constraint-only and must not be calculated as a plausible user session.",
+          { reason, intendedTuple }
+        ))
+      };
+    }
+
+    function summarizeV8TargetedStressCases(calculatedCases, constraintOnlyCases){
+      const allCases = [...calculatedCases, ...constraintOnlyCases];
+      const focusIds = allCases.flatMap(item => item.focus || []);
+      const findingIds = [
+        ...calculatedCases.flatMap(item => item.targetedFindingIds || []),
+        ...constraintOnlyCases.flatMap(item => item.findingIds || [])
+      ];
+      const constraintReasons = constraintOnlyCases.flatMap(item => item.actualViolations || []);
+      const countValues = values => Object.fromEntries([...new Set(values)].sort().map(value => [
+        value,
+        values.filter(item => item === value).length
+      ]));
+      return {
+        caseCount: allCases.length,
+        calculatedCaseCount: calculatedCases.length,
+        constraintOnlyCaseCount: constraintOnlyCases.length,
+        fullCartesianRun: false,
+        productionFormulaChanged: false,
+        candidateFormulaApproved: false,
+        focusCounts: countValues(focusIds),
+        findingCounts: countValues(findingIds),
+        constraintViolationCounts: countValues(constraintReasons),
+        derivedFfmiConflictCount: calculatedCases.filter(item => (item.targetedFindingIds || []).includes("derived_ffmi_axis_conflict_requires_priority_rule")).length,
+        inactiveIntensityCaseCount: calculatedCases.filter(item => (item.targetedFindingIds || []).includes("rest_day_intensity_axis_inactive_not_training_load")).length,
+        mixedCarbUnresolvedCaseCount: calculatedCases.filter(item => (item.targetedFindingIds || []).includes("mixed_profile_carb_floor_unresolved_requires_candidate_v2")).length,
+        maintainNonBodybuildingCaseCount: calculatedCases.filter(item => (item.targetedFindingIds || []).includes("maintain_non_bodybuilding_profile_formula_contract_pending")).length,
+        highPriorityCaseCount: calculatedCases.filter(item => item.findings.some(finding => finding.severity === "high")).length,
+        calculatedTargetCal: summarizeCalibrationValues(calculatedCases.map(item => item.current.targetCal)),
+        calculatedCarbsGPerKgBodyweight: summarizeCalibrationValues(calculatedCases.map(item => item.current.carbsGPerKgBodyweight))
+      };
+    }
+
+    function buildV8TargetedStressReport(definitions, calculatedCases, pairwiseStress, profileMacroCandidateComparison){
+      const definitionById = Object.fromEntries(definitions.map(item => [item.id, item]));
+      const calculated = calculatedCases.map(item => buildV8TargetedStressCalculatedCase(item, definitionById[item.id]));
+      const constraintOnly = definitions
+        .filter(item => item.constraintOnly === true)
+        .map(item => buildV8TargetedStressConstraintCase(item));
+      return {
+        meta: {
+          stage: "8-2_targeted_stress_review_v0",
+          reportOnly: true,
+          productionFormulaChanged: false,
+          candidateFormulaApproved: false,
+          fullCartesianRun: false,
+          sourcePairwiseStage: pairwiseStress?.meta?.stage || null,
+          sourceProfileMacroCandidateStage: profileMacroCandidateComparison?.meta?.stage || null,
+          coverageMode: "targeted_human_review_queue_from_pairwise_and_profile_macro_residual_signals",
+          nonGoal: "does_not_claim_80b_full_cartesian_or_approve_candidate_formula_or_replace_18_human_review_cases"
+        },
+        sourceSignals: [
+          "pairwiseStress.derivedTupleMismatches",
+          "pairwiseStress.inactiveTupleMismatches",
+          "profileMacroCandidateComparison.profileCarbFloorUnresolved",
+          "maintainGoalContract.plus.nonBodybuildingProfileFormulaPending",
+          "pairwiseStress.excludedPairRequirements"
+        ],
+        policy: {
+          calculatedCases: "Only coherent tuples are calculated as targeted stress cases.",
+          constraintOnlyCases: "Incoherent profile/session/rest/cardio/performance tuples are recorded as exclusions and are not calculated.",
+          evidenceSeparation: "currentFormulaReport is internal implementation evidence; external nutrition references remain review thresholds and do not approve production formulas.",
+          nonClaim: "This is a review queue, not a prevalence estimate, full Cartesian execution, or final v8 formula."
+        },
+        summary: summarizeV8TargetedStressCases(calculated, constraintOnly),
+        calculatedCases: calculated,
+        constraintOnlyCases: constraintOnly
+      };
+    }
+
     function buildV8ScenarioOutput(kind, definition, result, source){
       const safeSource = source || result;
       const output = {
@@ -55247,11 +55692,16 @@ Notes:
         weightCombo: definition.weightCombo,
         cardioCombo: definition.cardioCombo
       };
+      const calibrationAxis = definition.calibrationAxis || (definition.axisCoverage
+        ? "v8AxisCoverage"
+        : (definition.layer === "pairwiseStress"
+          ? "v8PairwiseStress"
+          : (definition.layer === "targetedStress" ? "v8TargetedStress" : "v8HumanReview")));
       const config = buildCalibrationCaseConfig(
         definition.stat,
         scenario,
         index,
-        definition.axisCoverage ? "v8AxisCoverage" : "v8HumanReview",
+        calibrationAxis,
         definition.mode || "athlete"
       );
       applyCalibrationCaseToInputs(config);
@@ -55383,6 +55833,13 @@ Notes:
         const candidateFormulaComparison = buildV8ContextMacroCandidateComparison([...axisCases, ...humanReviewCases], macroAudit);
         const profileSessionCarbPolicy = buildV8ProfileSessionCarbPolicyReport([...axisCases, ...humanReviewCases], candidateFormulaComparison);
         const profileMacroCandidateComparison = buildV8ProfileMacroCandidateComparison([...axisCases, ...humanReviewCases], macroAudit, profileSessionCarbPolicy);
+        const targetedStressDefinitions = buildV8TargetedStressDefinitions();
+        const targetedStressCalculationDefinitions = targetedStressDefinitions.filter(definition => definition.constraintOnly !== true);
+        const targetedStressCases = targetedStressCalculationDefinitions.map((definition, index) => buildV8ScenarioCase(
+          definition,
+          index + axisCases.length + humanReviewCases.length + pairwiseStressCases.length
+        ));
+        const targetedStress = buildV8TargetedStressReport(targetedStressDefinitions, targetedStressCases, pairwiseStress, profileMacroCandidateComparison);
         const report = {
           meta: {
             version: V8_SCENARIO_RUNNER_VERSION,
@@ -55398,6 +55855,9 @@ Notes:
             axisCoverageCaseCount: axisDefinitions.length,
             humanReviewCaseCount: humanDefinitions.length,
             pairwiseStressCaseCount: pairwiseDefinitions.length,
+            targetedStressCaseCount: targetedStressDefinitions.length,
+            targetedStressCalculatedCaseCount: targetedStressCases.length,
+            targetedStressConstraintOnlyCaseCount: targetedStressDefinitions.length - targetedStressCases.length,
             candidateModel: "candidate-no-weekly-xw",
             candidateStatus: "report_only_existing_candidate_not_approved_formula",
             contextMacroCandidateModel: V8_CONTEXT_MACRO_CANDIDATE_MODEL,
@@ -55418,6 +55878,7 @@ Notes:
               "9-7 context macro candidate-v0 is report-only; it keeps target calories unchanged and compares macro redistribution only.",
               "9-7 profileSession carbohydrate policy review is report-only; it separates running/resistance/mixed session needs from production routine fallback.",
               "9-7 profile macro candidate-v1 is report-only; it checks whether running/mixed carb floors can be met without targetCal changes and keeps resistance profiles review-only.",
+              "8-2 targetedStress is a human-review queue from pairwise/profile residual signals; calculated cases and constraint-only exclusions are separated.",
               "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, or candidate-v8-profile-macro-v1 as the final v8 formula."
             ]
           },
@@ -55465,6 +55926,15 @@ Notes:
               includedPairRequirementCount: pairwiseStress.summary.includedPairRequirementCount,
               missingPairRequirementCount: pairwiseStress.summary.missingPairRequirementCount,
               excludedPairRequirementCount: pairwiseStress.summary.excludedPairRequirementCount
+            },
+            targetedStress: {
+              stage: targetedStress.meta.stage,
+              calculatedCaseCount: targetedStress.summary.calculatedCaseCount,
+              constraintOnlyCaseCount: targetedStress.summary.constraintOnlyCaseCount,
+              derivedFfmiConflictCount: targetedStress.summary.derivedFfmiConflictCount,
+              inactiveIntensityCaseCount: targetedStress.summary.inactiveIntensityCaseCount,
+              mixedCarbUnresolvedCaseCount: targetedStress.summary.mixedCarbUnresolvedCaseCount,
+              maintainNonBodybuildingCaseCount: targetedStress.summary.maintainNonBodybuildingCaseCount
             }
           },
           macroAudit,
@@ -55474,6 +55944,7 @@ Notes:
           profileSessionCarbPolicy,
           profileMacroCandidateComparison,
           pairwiseStress,
+          targetedStress,
           axisCoverage: {
             summary: axisCoverageSummary,
             cases: options.includeAxisCases === false ? [] : axisCases
@@ -55765,7 +56236,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-L", "v8 runner version should advance to 8.0-L");
+          assertTest(report.meta.version === "8.0-M", "v8 runner version should advance to 8.0-M");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -55806,6 +56277,60 @@ Notes:
           assertTest(pairwise.summary.derivedTupleMismatchCaseCount > 0, "derived FFMI mismatches should be reported separately instead of hidden");
           assertTest(pairwise.summary.inactiveTupleMismatchCaseCount > 0, "inactive rest-day intensity mismatches should be reported separately");
           assertTest(findInvalidCalibrationNumber(pairwise).length === 0, "pairwise stress report should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("v8.0-M targeted stress separates calculated review cases from excluded constraints", () => {
+          const report = runV8ScenarioRunner();
+          const targeted = report.targetedStress;
+          assertTest(targeted?.meta?.stage === "8-2_targeted_stress_review_v0", "targeted stress should identify 8-2 targeted review stage");
+          assertTest(targeted.meta.reportOnly === true, "targeted stress should be report-only");
+          assertTest(targeted.meta.productionFormulaChanged === false, "targeted stress must not change production formula");
+          assertTest(targeted.meta.candidateFormulaApproved === false, "targeted stress must not approve a candidate formula");
+          assertTest(targeted.meta.fullCartesianRun === false, "targeted stress must not claim the full 80B cross-product");
+          assertIncludesAll(targeted.meta.nonGoal, ["does_not_claim_80b_full_cartesian", "approve_candidate_formula", "replace_18_human_review"], "targeted stress non-goal should prevent overclaiming");
+          assertTest(report.meta.targetedStressCalculatedCaseCount === targeted.summary.calculatedCaseCount, "targeted calculated count should be in report meta");
+          assertTest(report.meta.targetedStressConstraintOnlyCaseCount === targeted.summary.constraintOnlyCaseCount, "targeted constraint-only count should be in report meta");
+          assertTest(targeted.summary.calculatedCaseCount === 5, "targeted stress should calculate five coherent review cases");
+          assertTest(targeted.summary.constraintOnlyCaseCount === 3, "targeted stress should keep three incoherent tuples as constraint-only");
+          assertTest(targeted.summary.derivedFfmiConflictCount === 1, "targeted stress should include one derived FFMI conflict");
+          assertTest(targeted.summary.inactiveIntensityCaseCount === 1, "targeted stress should include one rest-day inactive intensity case");
+          assertTest(targeted.summary.mixedCarbUnresolvedCaseCount >= 1, "targeted stress should include mixed carb unresolved cases");
+          assertTest(targeted.summary.maintainNonBodybuildingCaseCount >= 2, "targeted stress should include maintain non-bodybuilding profile cases");
+          assertIncludesAll(Object.keys(targeted.summary.focusCounts).join(" "), [
+            "derived_ffmi",
+            "inactive_intensity",
+            "mixed_carb_unresolved",
+            "maintain_non_bodybuilding",
+            "excluded_constraint"
+          ], "targeted stress should expose all required focus buckets");
+
+          const ffmi = targeted.calculatedCases.find(item => item.caseId === "targeted_derived_ffmi_high_conflict");
+          assertTest(!!ffmi, "derived FFMI targeted case should exist");
+          assertIncludesAll(ffmi.targetedFindingIds.join(" "), ["derived_ffmi_axis_conflict_requires_priority_rule"], "derived FFMI targeted finding should be present");
+          assertTest(ffmi.input.tupleMismatches.some(item => item.axis === "ffmiBand"), "derived FFMI case should expose the FFMI tuple mismatch");
+
+          const rest = targeted.calculatedCases.find(item => item.caseId === "targeted_rest_day_intensity_inactive");
+          assertTest(rest?.input?.profileSession === "rest", "rest inactive targeted case should use rest session");
+          assertTest(rest.input.todayWeightDuration === 0, "rest inactive targeted case should have zero weight duration");
+          assertIncludesAll(rest.targetedFindingIds.join(" "), ["rest_day_intensity_axis_inactive_not_training_load"], "rest inactive finding should be present");
+
+          const mixed = targeted.calculatedCases.find(item => item.caseId === "targeted_mixed_carb_unresolved");
+          assertTest(mixed?.input?.exerciseProfile === "mixed", "mixed unresolved targeted case should use mixed profile");
+          assertIncludesAll(mixed.profileMacroCandidateFindingIds.join(" "), ["profile_carb_floor_unresolved_by_target_constraints"], "mixed targeted case should carry candidate-v1 unresolved carb finding");
+          assertIncludesAll(mixed.targetedFindingIds.join(" "), ["mixed_profile_carb_floor_unresolved_requires_candidate_v2"], "mixed targeted case should require candidate-v2");
+
+          const maintainRunning = targeted.calculatedCases.find(item => item.caseId === "targeted_maintain_running_contract");
+          assertTest(maintainRunning?.input?.goal === "maintain", "maintain running targeted case should preserve maintain goal");
+          assertTest(maintainRunning.input.exerciseProfile === "running", "maintain running targeted case should preserve running profile");
+          assertTest(String(maintainRunning.input.profileSession).startsWith("running_"), "maintain running targeted case should expose a running-specific session");
+          assertIncludesAll(maintainRunning.targetedFindingIds.join(" "), ["maintain_non_bodybuilding_profile_formula_contract_pending"], "maintain running targeted finding should be present");
+
+          const runningConstraint = targeted.constraintOnlyCases.find(item => item.caseId === "constraint_running_session_without_cardio_axis");
+          assertTest(!!runningConstraint, "running/cardio-none constraint case should exist");
+          assertIncludesAll(runningConstraint.actualViolations.join(" "), ["running_session_without_cardio_axis"], "running/cardio-none should remain constraint-only");
+          const mismatchConstraint = targeted.constraintOnlyCases.find(item => item.caseId === "constraint_profile_session_mismatch");
+          assertIncludesAll(mismatchConstraint.actualViolations.join(" "), ["exercise_profile_session_mismatch"], "profile/session mismatch should remain constraint-only");
+          assertTest(findInvalidCalibrationNumber(targeted).length === 0, "targeted stress report should not contain NaN or Infinity");
         }));
 
         results.push(runNamedTest("v8.0-D text report is human-readable and candidate is not production-approved", () => {
