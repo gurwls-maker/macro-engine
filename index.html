@@ -1,8 +1,11 @@
 <!--
 Version: 8.0
-Stage: v8.0-E 9-3 현재 탄단지 감사 레이어 1차 구현
+Stage: v8.0-F 9-5/9-6 candidate 설계 레이어 1차 구현
 Date: 2026-06-03
 Notes:
+- v8.0-F 9-3 macroAudit 결과를 9-5/9-6 candidateDesign report-only 레이어로 연결해 입력 후보 / 운동 프로필 보류 조건 / 목표 rate / 탄단지 정책축을 정리
+- v8.0-F candidateDesign은 승인 산식이 아니며 maintain 목표 키, protein context gate, fat/carb joint redistribution, profile-specific macro formula를 다음 설계 결정으로 명시
+- v8.0-F 산식 / score formula / Coach / recentContext / InBody gate / backup schema 변경 없음
 - v8.0-E 9-3 current macro audit를 report-only로 추가해 단백질 / 지방 / 탄수 위험 신호를 내부근거와 외부 스포츠영양 근거로 분리
 - v8.0-E 단백질 180.5g 필수 회귀 케이스는 일반 ISSN 범위 초과 / contest-prep LBM 범위 맥락 불일치 / carb guide min 하회 / fat floor hit를 동시에 표시
 - v8.0-E 산식 / score formula / Coach / recentContext / InBody gate / backup schema 변경 없음
@@ -52128,8 +52131,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-E";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-E current macro audit + current/candidate axis + human-review scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-F";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-F candidate design + current macro audit + current/candidate axis + human-review scenario runner";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
       { key: "heightBand", label: "키", values: ["low", "average", "high"] },
@@ -53225,6 +53228,232 @@ Notes:
       };
     }
 
+    const V8_CANDIDATE_DESIGN_REFERENCES = Object.freeze({
+      acsmNutritionAthleticPerformance2016: {
+        evidenceLevel: "external_sports_nutrition_reference",
+        source: "Academy of Nutrition and Dietetics, Dietitians of Canada, and ACSM position stand: Nutrition and Athletic Performance, 2016",
+        url: "https://www.sciencedirect.com/science/article/abs/pii/S221226721501802X",
+        scope: "sport_training_load_specific_energy_and_carbohydrate_planning",
+        appUse: "profile_specific_carbohydrate_and_session_load_policy_requires_external_review"
+      },
+      issnDietsBodyComposition2017: {
+        evidenceLevel: "external_sports_nutrition_reference",
+        source: "ISSN position stand: diets and body composition, 2017",
+        url: "https://jissn.biomedcentral.com/articles/10.1186/s12970-017-0174-y",
+        scope: "diet_archetypes_body_composition_high_protein_context",
+        appUse: "body_composition_goal_and_diet_context_review_before_candidate_formula"
+      }
+    });
+
+    function getV8FindingCount(summary, findingId){
+      return Number(summary?.findingCounts?.[findingId]) || 0;
+    }
+
+    function buildV8CandidateDesignInputCatalog(){
+      return [
+        {
+          key: "exerciseProfile",
+          owner: "Settings + Today report axis",
+          status: "candidate_required_not_active_for_non_bodybuilding",
+          snapshotImpact: true,
+          evidenceLevel: "product_policy_plus_internal_formula_evidence",
+          why: "Profile-specific macro and session logic cannot be inferred from weeklyTrainingDays alone."
+        },
+        {
+          key: "profileSession",
+          owner: "Today",
+          status: "candidate_required",
+          snapshotImpact: true,
+          evidenceLevel: "product_policy_plus_internal_formula_evidence",
+          why: "Running, strength, powerbuilding, mixed sessions must not collapse into PUSH/PULL/LEGS labels."
+        },
+        {
+          key: "performanceLevel",
+          owner: "Settings + Today",
+          status: "candidate_required",
+          snapshotImpact: true,
+          evidenceLevel: "product_policy_plus_external_review_needed",
+          why: "Protein, carbohydrate, and goal-rate decisions need training capacity, not just frequency."
+        },
+        {
+          key: "bodyCompReliability",
+          owner: "Today calculation input",
+          status: "candidate_required",
+          snapshotImpact: true,
+          evidenceLevel: "internal_formula_evidence_plus_product_policy",
+          why: "Bodyweight, LBM, adjusted LBM, and missing body-composition inputs lead to different protein bases."
+        },
+        {
+          key: "recent14RecordCoverage",
+          owner: "Records / recentContext",
+          status: "candidate_required_for_adjustment_not_initial_formula",
+          snapshotImpact: false,
+          evidenceLevel: "product_policy_evidence",
+          why: "Recent records can support 14-day observation but should not rewrite formula without enough evidence."
+        },
+        {
+          key: "recent28Trend",
+          owner: "Records / recentContext",
+          status: "candidate_required_for_rate_feedback",
+          snapshotImpact: false,
+          evidenceLevel: "product_policy_evidence",
+          why: "Goal-rate feedback must distinguish slow, appropriate, and too-fast trends."
+        }
+      ];
+    }
+
+    function buildV8CandidateProfileDesign(macroAudit){
+      const pendingCount = getV8FindingCount(macroAudit.humanReviewSummary, "exercise_profile_macro_formula_pending");
+      return [
+        {
+          profile: "bodybuilding",
+          status: "production_default_profile_but_macro_context_still_under_review",
+          requiredSessions: ["rest", "bodybuilding_push"],
+          formulaNeed: "protein_context_gate_and_fat_carb_joint_redistribution",
+          evidenceLevel: "internal_formula_evidence_plus_external_review_needed"
+        },
+        {
+          profile: "powerbuilding",
+          status: "pending_profile_specific_formula",
+          requiredSessions: ["powerbuilding_lower", "powerbuilding_heavy_lower"],
+          formulaNeed: "strength_hypertrophy_hybrid_load_and_recovery_carbs",
+          evidenceLevel: "product_policy_plus_external_review_needed"
+        },
+        {
+          profile: "strength",
+          status: "pending_profile_specific_formula",
+          requiredSessions: ["strength_heavy_lower"],
+          formulaNeed: "high_intensity_lower_frequency_strength_load_and_recovery_carbs",
+          evidenceLevel: "product_policy_plus_external_review_needed"
+        },
+        {
+          profile: "running",
+          status: "pending_profile_specific_formula",
+          requiredSessions: ["running_tempo"],
+          formulaNeed: "cardio_carried_training_load_and_profile_specific_carbohydrate_policy",
+          evidenceLevel: "acsmNutritionAthleticPerformance2016",
+          auditSignal: {
+            humanReviewExerciseProfileFormulaPendingCount: pendingCount
+          }
+        },
+        {
+          profile: "mixed",
+          status: "pending_profile_specific_formula",
+          requiredSessions: ["mixed_strength_cardio"],
+          formulaNeed: "mixed_weight_cardio_priority_and_recovery_policy",
+          evidenceLevel: "product_policy_plus_external_review_needed"
+        }
+      ];
+    }
+
+    function buildV8CandidateGoalRateDesign(axisCoverageSummary){
+      const hasMaintainAxis = !!axisCoverageSummary?.coveredAxisValues?.goal?.includes("maintain");
+      return [
+        {
+          key: "maintain",
+          status: hasMaintainAxis ? "axis_present_but_production_goal_key_missing" : "missing_axis",
+          requiredDecision: "add_maintain_goal_key_before_production_formula",
+          evidenceLevel: "internal_formula_evidence",
+          affectedContracts: ["GOALS", "targetRateContext", "goalSnapshot", "scoreRemaining", "CoachRecent", "exportImport"]
+        },
+        {
+          key: "diet_cut_rate",
+          status: "candidate_design_required",
+          requiredDecision: "rate_should_use_goal_bodycomp_training_profile_deficit_and_recent_trend",
+          evidenceLevel: "issnDietsBodyComposition2017_plus_helmsContestPrep2014_review_needed",
+          blockedBy: ["protein_context_gate", "fat_carb_joint_redistribution", "energy_availability_floor_interaction"]
+        },
+        {
+          key: "lean_bulk_bulk_rate",
+          status: "candidate_design_required",
+          requiredDecision: "surplus_should_be_goal_specific_and_recent28_sensitive_without_using_weekly_days_alone",
+          evidenceLevel: "product_policy_plus_external_review_needed",
+          blockedBy: ["maintain_goal_mapping", "profile_specific_macro_formula"]
+        }
+      ];
+    }
+
+    function buildV8CandidateMacroPolicyDesign(macroAudit){
+      const human = macroAudit.humanReviewSummary;
+      const required = macroAudit.requiredRegression;
+      return [
+        {
+          key: "protein_context_gate",
+          status: "candidate_required_not_approved_formula",
+          evidenceLevel: "issnProtein2017_plus_helmsContestPrep2014_plus_currentFormulaReport",
+          triggeredBy: {
+            humanReviewProteinAboveGeneralRange: getV8FindingCount(human, "protein_bodyweight_above_general_issn_range"),
+            humanReviewDietDefaultNear24: getV8FindingCount(human, "diet_default_near_2_4g_bodyweight_requires_candidate_review"),
+            requiredRegressionProteinGPerKgBodyweight: required?.proteinGPerKgBodyweight ?? null,
+            requiredRegressionProteinGPerKgLbm: required?.proteinGPerKgLbm ?? null
+          },
+          requiredDecision: "choose protein basis from goal, body fat, LBM reliability, profile, performance, and deficit context instead of fixed diet bodyweight 2.4g/kg"
+        },
+        {
+          key: "fat_carb_joint_redistribution",
+          status: "candidate_required_not_approved_formula",
+          evidenceLevel: "helmsContestPrep2014_plus_currentFormulaReport",
+          triggeredBy: {
+            humanReviewFatFloorHit: getV8FindingCount(human, "fat_at_guide_floor"),
+            humanReviewCarbBelowGuideMin: getV8FindingCount(human, "carb_below_guide_min"),
+            requiredRegressionFatFloorHit: required?.fatFloorHit === true,
+            requiredRegressionCarbMinHit: required?.carbMinHit === true
+          },
+          requiredDecision: "review protein, fat floor, and carbohydrate minimum together; do not solve by lowering one macro blindly"
+        },
+        {
+          key: "profile_specific_carbohydrate_policy",
+          status: "candidate_required_not_approved_formula",
+          evidenceLevel: "acsmNutritionAthleticPerformance2016_plus_internal_profile_axis",
+          triggeredBy: {
+            humanReviewProfilePending: getV8FindingCount(human, "exercise_profile_macro_formula_pending")
+          },
+          requiredDecision: "running, strength, powerbuilding, bodybuilding, and mixed profiles need session-specific carbohydrate and recovery rules"
+        },
+        {
+          key: "bodyweight_lbm_adjusted_basis_policy",
+          status: "candidate_required_not_approved_formula",
+          evidenceLevel: "issnDietsBodyComposition2017_plus_currentFormulaReport",
+          triggeredBy: {
+            requiredRegressionProteinGPerKgBodyweight: required?.proteinGPerKgBodyweight ?? null,
+            requiredRegressionProteinGPerKgLbm: required?.proteinGPerKgLbm ?? null
+          },
+          requiredDecision: "separate bodyweight, LBM, and adjusted-basis protein reporting before candidate production"
+        }
+      ];
+    }
+
+    function buildV8CandidateDesignReport(macroAudit, axisCoverageSummary){
+      const macroPolicies = buildV8CandidateMacroPolicyDesign(macroAudit);
+      return {
+        meta: {
+          stage: "9-5_9-6_candidate_design_scaffold",
+          reportOnly: true,
+          productionFormulaChanged: false,
+          candidateFormulaApproved: false,
+          sourceMacroAuditStage: macroAudit.meta.stage,
+          designStatus: "candidate_specification_before_formula_scan",
+          nonGoal: "does_not_apply_profile_ui_or_new_macro_formula"
+        },
+        evidenceReferences: {
+          ...V8_MACRO_AUDIT_REFERENCES,
+          ...V8_CANDIDATE_DESIGN_REFERENCES
+        },
+        inputCatalog: buildV8CandidateDesignInputCatalog(),
+        profileDesign: buildV8CandidateProfileDesign(macroAudit),
+        goalRateDesign: buildV8CandidateGoalRateDesign(axisCoverageSummary),
+        macroPolicyDesign: macroPolicies,
+        requiredNextDecisions: macroPolicies.map(item => item.key).concat(["maintain_goal_mapping", "profile_session_input_contract"]),
+        unresolvedProductionContracts: [
+          "GOALS maintain key",
+          "Records goalSnapshot schema review for new profile inputs",
+          "Today / Settings profile input ownership",
+          "score / remaining / Coach / recentContext copy gates after formula approval",
+          "export/import compatibility"
+        ]
+      };
+    }
+
     function buildV8ScenarioOutput(kind, definition, result, source){
       const safeSource = source || result;
       const output = {
@@ -53372,6 +53601,7 @@ Notes:
         const axisCoverageSummary = summarizeV8AxisCoverageCases(axisCases);
         const humanReviewSummary = summarizeV8ScenarioCases(humanReviewCases);
         const macroAudit = buildV8MacroAuditReport(axisCases, humanReviewCases, requiredCase);
+        const candidateDesign = buildV8CandidateDesignReport(macroAudit, axisCoverageSummary);
         const report = {
           meta: {
             version: V8_SCENARIO_RUNNER_VERSION,
@@ -53396,15 +53626,22 @@ Notes:
               "Profile-specific sessions are reported separately from the current production routine fallback.",
               "The 8-2 full Cartesian product is not claimed as executed; axis-category coverage is executed and reported separately.",
               "9-3 macro audit is report-only and classifies current macro risks before formula changes.",
+              "9-5/9-6 candidateDesign is a report-only scaffold; it does not approve or apply a new formula.",
               "Do not treat candidate-no-weekly-xw as the final v8 formula."
             ]
           },
           summary: {
             axisCoverage: axisCoverageSummary,
             humanReview: humanReviewSummary,
-            macroAudit: macroAudit.summary
+            macroAudit: macroAudit.summary,
+            candidateDesign: {
+              stage: candidateDesign.meta.stage,
+              requiredNextDecisionCount: candidateDesign.requiredNextDecisions.length,
+              unresolvedProductionContractCount: candidateDesign.unresolvedProductionContracts.length
+            }
           },
           macroAudit,
+          candidateDesign,
           axisCoverage: {
             summary: axisCoverageSummary,
             cases: options.includeAxisCases === false ? [] : axisCases
@@ -53561,6 +53798,32 @@ Notes:
           assertTest(required.findings.some(item => item.id === "diet_default_near_2_4g_bodyweight_requires_candidate_review" && item.severity === "high"), "diet 2.4g/kg review should be high priority");
           assertTest(report.macroAudit.summary.findingCounts.protein_bodyweight_above_general_issn_range > 0, "macro audit summary should count high bodyweight protein cases");
           assertTest(report.macroAudit.summary.highPriorityCaseCount > 0, "macro audit should expose high-priority current cases");
+        }));
+
+        results.push(runNamedTest("v8.0-F 9-5/9-6 candidate design maps required decisions without approving a formula", () => {
+          const report = runV8ScenarioRunner();
+          const design = report.candidateDesign;
+          assertTest(design?.meta?.stage === "9-5_9-6_candidate_design_scaffold", "candidate design should identify 9-5/9-6 scaffold stage");
+          assertTest(design.meta.reportOnly === true, "candidate design should be report-only");
+          assertTest(design.meta.productionFormulaChanged === false, "candidate design should not change production formula");
+          assertTest(design.meta.candidateFormulaApproved === false, "candidate design should not approve a candidate formula");
+          assertIncludesAll(design.meta.nonGoal, ["does_not_apply", "new_macro_formula"], "candidate design should state non-goals");
+          assertTest(design.evidenceReferences.acsmNutritionAthleticPerformance2016.evidenceLevel === "external_sports_nutrition_reference", "ACSM athletic performance reference should be external evidence");
+          assertTest(design.evidenceReferences.issnDietsBodyComposition2017.evidenceLevel === "external_sports_nutrition_reference", "ISSN diets/body composition reference should be external evidence");
+          ["exerciseProfile", "profileSession", "performanceLevel", "bodyCompReliability", "recent14RecordCoverage", "recent28Trend"].forEach(key => {
+            assertTest(design.inputCatalog.some(item => item.key === key), `${key} input candidate should exist`);
+          });
+          const maintain = design.goalRateDesign.find(item => item.key === "maintain");
+          assertTest(maintain?.status === "axis_present_but_production_goal_key_missing", "maintain should remain pending production goal mapping");
+          ["protein_context_gate", "fat_carb_joint_redistribution", "profile_specific_carbohydrate_policy", "bodyweight_lbm_adjusted_basis_policy"].forEach(key => {
+            assertTest(design.macroPolicyDesign.some(item => item.key === key && item.status === "candidate_required_not_approved_formula"), `${key} macro policy design should be pending and not approved`);
+            assertTest(design.requiredNextDecisions.includes(key), `${key} should be listed as a required next decision`);
+          });
+          const proteinGate = design.macroPolicyDesign.find(item => item.key === "protein_context_gate");
+          assertTest(proteinGate.triggeredBy.humanReviewDietDefaultNear24 === report.macroAudit.humanReviewSummary.findingCounts.diet_default_near_2_4g_bodyweight_requires_candidate_review, "protein gate should be driven by macroAudit human-review count");
+          const runningProfile = design.profileDesign.find(item => item.profile === "running");
+          assertTest(runningProfile.status === "pending_profile_specific_formula", "running profile should remain pending profile-specific formula");
+          assertIncludesAll(design.unresolvedProductionContracts.join(" "), ["GOALS", "goalSnapshot", "export/import"], "candidate design should list unresolved production contracts");
         }));
 
         results.push(runNamedTest("v8.0-D text report is human-readable and candidate is not production-approved", () => {

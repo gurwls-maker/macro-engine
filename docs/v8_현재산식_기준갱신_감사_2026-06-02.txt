@@ -783,6 +783,67 @@ v8.0-E runner 결과:
 - 현재 결론은 "단백질을 낮춰라"가 아니라 "일반 diet 기본값이 bodyweight 2.4g/kg으로 고정되는 구조를 candidate review 없이 승인하지 말라"이다.
 - carb guide min 하회와 fat floor hit가 동시에 나타나는 케이스는 단백질-지방-탄수 배분 순서와 재분배 기준을 함께 설계해야 한다.
 
+## 11-3. 2026-06-03 v8.0-F 9-5/9-6 candidate 설계 레이어 1차
+
+v8.0-F에서는 v8.0-E의 `macroAudit` 결과를 `candidateDesign` report-only 레이어로 연결했다.
+
+candidateDesign의 성격:
+
+- 산식 적용이 아니다.
+- candidate formula 승인도 아니다.
+- 9-7 candidate 비교를 시작하기 전에 필요한 입력, 보류 조건, 외부근거 상태, production 계약을 명시하는 설계 레이어다.
+- `candidateDesign.meta.productionFormulaChanged`는 false이고, `candidateFormulaApproved`도 false다.
+
+입력 후보:
+
+- `exerciseProfile`
+  - Settings + Today report axis 소유.
+  - non-bodybuilding profile은 아직 active production formula가 아니다.
+- `profileSession`
+  - Today 소유.
+  - 러닝 세션을 `UPPER` 같은 production fallback과 섞어 말하지 않기 위한 필수 입력이다.
+- `performanceLevel`
+  - Settings + Today 소유.
+  - 주간 웨이트일수 단독 판단을 피하기 위한 축이다.
+- `bodyCompReliability`
+  - Today calculation input 소유.
+  - bodyweight / LBM / adjusted basis 단백질 기준을 분리하기 위해 필요하다.
+- `recent14RecordCoverage`
+  - Records / recentContext 소유.
+  - 즉시 산식 변경이 아니라 기록 충분성 판단에 사용한다.
+- `recent28Trend`
+  - Records / recentContext 소유.
+  - 목표 rate feedback 후보에 사용한다.
+
+candidateDesign에서 남긴 필수 결정:
+
+- `protein_context_gate`
+  - 일반 diet 기본값이 bodyweight 2.4g/kg으로 고정되는 구조를 목표, 체지방률, LBM 신뢰도, 운동 프로필, 수행 수준, deficit 맥락으로 분리해야 한다.
+- `fat_carb_joint_redistribution`
+  - fat floor와 carb guide min 하회가 동시에 나타나는 케이스를 단일 영양소 수정으로 처리하지 않고 함께 재분배해야 한다.
+- `profile_specific_carbohydrate_policy`
+  - 러닝 / 스트렝스 / 파워빌딩 / 보디빌딩 / 혼합형은 세션별 탄수와 회복 규칙이 필요하다.
+- `bodyweight_lbm_adjusted_basis_policy`
+  - 체중 기준, LBM 기준, 보정 기준 단백질을 report와 candidate formula에서 분리해야 한다.
+- `maintain_goal_mapping`
+  - `maintain`은 축에는 남아 있지만 production `GOALS` key가 없으므로 리컴프로 확정하지 않는다.
+- `profile_session_input_contract`
+  - Today / Settings / Records snapshot / export-import에 새 profile/session 입력이 어떻게 들어가는지 정해야 한다.
+
+미해결 production 계약:
+
+- `GOALS maintain key`
+- Records `goalSnapshot` schema review for new profile inputs
+- Today / Settings profile input ownership
+- score / remaining / Coach / recentContext copy gates after formula approval
+- export/import compatibility
+
+해석 주의:
+
+- v8.0-F는 "무슨 산식으로 바꿀지"를 확정하지 않았다.
+- 대신 "무엇을 확정해야만 산식을 바꿀 수 있는지"를 report 객체로 고정했다.
+- 다음 단계는 이 설계 계약을 기준으로 9-7 candidate formula 비교를 만들거나, maintain/profile input contract를 먼저 세분화하는 것이다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -847,6 +908,16 @@ v8.0-E runner 결과:
 - v8.0-E desktop smoke 10 suites / 121 cases / failed 0
 - 2026-06-03 v8.0-E core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
 - v8.0-E desktop core 26 suites / 364 cases / failed 0
+- 2026-06-03 v8.0-F diff 확인: `git diff --check`
+- v8.0-F diff check passed
+- 2026-06-03 v8.0-F candidateDesign 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-F scenario runner suite 1 suite / 10 cases / failed 0
+- 2026-06-03 v8.0-F calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
+- v8.0-F desktop calibration 14 suites / 118 cases / failed 0
+- 2026-06-03 v8.0-F smoke 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=smoke`
+- v8.0-F desktop smoke 10 suites / 121 cases / failed 0
+- 2026-06-03 v8.0-F core 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
+- v8.0-F desktop core 26 suites / 364 cases / failed 0
 
 실행하지 않은 것:
 
@@ -863,3 +934,4 @@ v8.0-C record_detail_edit 보호 / 잔재 플래그 정리 이후에는 Today re
 v8.0-D 시나리오 러너 1차 구현 이후에는 8-2 필수축 category sweep과 8-3 human-review 분리, 유지 축 fallback 명시, 운동 프로필별 report-only session 분리를 `runV8ScenarioRunnerTests`로 확인했고, calibration/smoke/core 회귀도 다시 실행했다.
 v8.0-D1 근거 등급 재감사 이후에는 업무 보정축 active fixture가 `internal_formula_coverage_only` / `report_only_axis_coverage_case_fixture`로 남는지 `runV8ScenarioRunnerTests`에서 확인했고, calibration/smoke/core 회귀도 다시 실행했다.
 v8.0-E 9-3 현재 탄단지 감사 레이어 이후에는 `macroAudit`가 report-only / productionFormulaChanged false로 남고, 필수 1913 케이스가 단백질 context mismatch와 carb/fat 내부 충돌을 모두 표시하는지 `runV8ScenarioRunnerTests`로 확인했다.
+v8.0-F 9-5/9-6 candidate 설계 레이어 이후에는 `candidateDesign`이 report-only / productionFormulaChanged false / candidateFormulaApproved false로 남고, maintain key, protein context gate, fat/carb joint redistribution, profile-specific carbohydrate policy, profile session input contract가 required next decision에 포함되는지 `runV8ScenarioRunnerTests`로 확인했다.
