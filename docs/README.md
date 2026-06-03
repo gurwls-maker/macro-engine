@@ -1,5 +1,14 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AP whole-stage evidence boundary audit note
+
+- AP updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AP`.
+- AP adds `wholeStageEvidenceBoundaryAudit` at `whole_stage_evidence_boundary_audit_v0`.
+- The audit checks 15 evidence-boundary contracts across scenario coverage, full Cartesian tooling, macro basis, candidate layers, maintain goal scope, profile policy, candidate-v2 contracts, runtime user-facing QA, human numerical review, approval preflight/decision, and AO profile routine surface evidence.
+- Direct runner audit on 2026-06-03: check count 15 / pass 15 / findings 0, full 8-2 Cartesian closed false, full V8 completion closed false, production application separated from full completion true, internal basis separated from external evidence true.
+- Verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 28 cases / failed 0; full internal suite = 99 suites / 1058 cases / failed 0.
+- AP adds no new formula, no new external exercise-physiology evidence, and no full-completion claim. Its purpose is to stop later work from collapsing report-only, production-observation, visual-QA, user-path, and full-completion gates into each other.
+
 # v8.0-AO profile routine surface audit note
 
 - AO updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AO`.
@@ -11,7 +20,7 @@
 
 # v8.0-AN whole-stage shortcut re-audit checkpoint
 
-- AN was a docs/checkpoint re-audit after AM. It did not change `index.html`; AO is now the current app scenario runner stage.
+- AN was a docs/checkpoint re-audit after AM. It did not change `index.html`; AP is now the current app scenario runner stage.
 - Re-audit principle: do not accept a derived/report field, a fixture, a screenshot count, or a planning artifact unless it proves the actual user-owned input path and the app behavior it claims to prove.
 - Profile/session check: current source keeps `profileSession` hidden/derived from `exerciseProfile + routinePlan + routine`; bodybuilding advanced ON keeps the original routine schemes; bodybuilding/general advanced OFF keeps generic `REST / PUSH`; non-bodybuilding profiles use profile-owned sessions instead of bodybuilding fallback. Existing tests assert these paths.
 - Candidate-v2 check: Z approval, AA production target application, and AB/AH post-wiring visual evidence are separate gates. The render analyzer requires profile-owned `mixed_balanced / mixed_strength_cardio` runtime metadata, so the old normalization-only evidence cannot pass as current evidence.
@@ -22,7 +31,7 @@
 # v8.0-AM full Cartesian campaign runner re-audit note
 
 - AM adds `tools/render_audit/run_v8_full_cartesian_campaign.cjs`.
-- This is a campaign/checkpoint wrapper around the existing AI/AJ/AK ledger, planner, and exact-range executor. At AM, it did not change `index.html` scenario runner behavior; AO is now the current app runner stage.
+- This is a campaign/checkpoint wrapper around the existing AI/AJ/AK ledger, planner, and exact-range executor. At AM, it did not change `index.html` scenario runner behavior; AP is now the current app runner stage.
 - Clean seed manifests are copied into `v8_full_cartesian_campaigns/<label>/accepted_seed_manifests/` only when each seed validates clean, is not truncated, and does not overlap an existing campaign interval.
 - AM re-audit found and fixed a potential evidence overread: `--plan-only` used to report clean execution too easily. It now reports `hasExecutionEvidence=false` and `executionEvidenceClean=false` when no ranges ran.
 - Plan-only probe on 2026-06-03: clean seeds accepted 4 / rejected 0, before unique 32, contiguous from zero 24, planned ranges 2 / uncovered 16, first planned exact range 24~32, executed ranges 0, first gap 24~1152, closure blockers `coverage_gaps_present` and `full_cartesian_coverage_incomplete`.
