@@ -2,11 +2,13 @@
 
 Date: 2026-06-03
 Branch 기준: `codex/v8-formula-audit`
-Latest checked baseline before AS2: `3692d18 v8.0-AS1 quiet rounding-only basis prompts`
+Latest checked baseline before AT: `070ca2e v8 phase1 recovery audit`
+
+AT production macro note (2026-06-03): the phase-1 finding has now been applied to production. `GOALS.diet.proteinKg` and the dual-basis diet protein range use the general `2.0g/kg` policy, preserving target kcal and reallocating released kcal to carbs. Required 1913 diet regression now reports about `1913.3kcal / protein 150.4166g / carbs 226.377g / fat 45.125g`, `protein=2.0g/kg`, `carbMinHit=false`, and runner version `8.0-AT`. This fixes the general diet production default; it does not close full V8 completion, broad profile/routine/session UX review, or full Cartesian execution.
 
 AS2 hotfix note (2026-06-03): AS1's tolerance-only interpretation is superseded. Root cause was `goalSnapshot` rebuilding body-fat mass from `weight * bodyFatPercent` instead of preserving the effective Today `bodyFatMass` source value. AS2 keeps the calculation state unchanged, reads effective Today body-composition source values only inside the snapshot builder, restores exact snapshot comparison, and keeps already-diverged snapshots user-confirmable through `갱신 필요`. This is internal data-integrity/product behavior, not external exercise-physiology evidence, and it does not close `full_8_2_cartesian_execution` or `full_v8_completion`.
 
-Phase-1 recovery audit note (2026-06-03): read `docs/v8_1단계_복구감사_2026-06-03.txt` before any new V8 stage. The audit confirms that representative diet production still uses protein `2.4g/kg` (`180.048g` at `75.02kg`) while the earlier `180.5g -> 150.4g` reduction was only a report-only candidate comparison. Candidate-v2 scoped production wiring is real but narrow; it is not a general diet macro fix.
+Phase-1 recovery audit note (2026-06-03): read `docs/v8_1단계_복구감사_2026-06-03.txt` before any new V8 stage. The audit confirmed that representative diet production still used protein `2.4g/kg` (`180.048g` at `75.02kg`) before AT, while the earlier `180.5g -> 150.4g` reduction was only a report-only candidate comparison. AT is the production fix for that general diet default. Candidate-v2 scoped production wiring is real but narrow; it is not full V8 completion.
 
 이 문서는 추후 `/GOAL`로 V8 작업을 다시 시작할 때 첫 기준으로 읽어야 한다. 목적은 다음 Codex가 작은 단계 통과, 문서 요약, 파생 필드, 스크린샷 수, bounded shard 실행을 전체 완료로 오해하지 않게 하는 것이다.
 
@@ -31,7 +33,7 @@ V8 전체는 아직 완료가 아니다.
 
 2026-06-03에 `runV8ScenarioRunner({ includeCases:false, includeAxisCases:false })`를 직접 추출해 확인한 값:
 
-- `meta.version = 8.0-AS`
+- `meta.version = 8.0-AT`
 - `meta.reportOnly = true`
 - `meta.fullCartesianRun = false`
 - `meta.nominalFullCartesianCaseCount = 80,621,568,000`
@@ -54,6 +56,18 @@ V8 전체는 아직 완료가 아니다.
   - external/app-fit review for any internal/product-policy basis not explicitly marked as external sports-nutrition evidence
 
 이 값들은 "candidate-v2 적용은 완료되었으나 V8 전체는 미완"이라는 현재 상태를 뒷받침한다.
+
+AT 직접 추출 추가값:
+
+- `requiredRegression.currentTargetCal = 1913.2991519999998`
+- `requiredRegression.currentProtein = 150.4166`
+- `requiredRegression.currentCarbs = 226.376983`
+- `requiredRegression.currentFat = 45.124979999999994`
+- `requiredRegression.currentProteinPerKgBodyweight = 2`
+- `macroAudit.requiredRegression.findingIds = ["protein_lbm_in_contest_prep_range_but_context_unverified", "fat_at_guide_floor"]`
+- `candidateFormulaComparison.summary.proteinReducedCount = 0` because production already uses the candidate-v0 general protein cap
+- `profileMacroCandidateV2Comparison.summary.proteinGuardResolvedCount = 0`
+- `profileMacroCandidateV2Contract.summary.proteinLegacyGuideConflictCount = 0`
 
 ## 3. Render audit 기준
 

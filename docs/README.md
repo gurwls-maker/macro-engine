@@ -3,16 +3,25 @@
 # v8 GOAL resume playbook note
 
 - Before restarting V8 with `/GOAL`, read `docs/v8_GOAL_resume_playbook_2026-06-03.txt`.
-- Before continuing V8 after AS2, also read `docs/v8_1단계_복구감사_2026-06-03.txt`. It records that general diet production still uses `2.4g/kg` protein, while the earlier `180.5g -> 150.4g` reduction was a report-only candidate comparison, not a production diet macro fix.
+- Before continuing V8 after AT, also read `docs/v8_1단계_복구감사_2026-06-03.txt`. It records the phase-1 finding that general diet production still used `2.4g/kg` protein before AT; AT is the production macro-policy recovery that applies the general diet `2.0g/kg` policy to the actual app path.
 - Current whole-V8 status is not complete. Candidate-v2 production application and post-wiring visual QA are closed, but `full_8_2_cartesian_execution`, `full_v8_completion`, and broad profile/routine/session human UX review remain open.
 - The next agent must not start a new micro-stage before rechecking current runner output, render audit, clean full-Cartesian campaign state, and the user-owned profile/routine/session paths.
+
+# v8.0-AT diet production macro policy recovery note
+
+- AT updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AT`.
+- Production diet protein now defaults to `2.0g/kg` in both `GOALS.diet.proteinKg` and the dual-basis diet guide/activity range. The target kcal is preserved; kcal released from the old `2.4g/kg` protein default is reallocated to carbs inside the same target.
+- Required 1913 diet regression now returns about `1913.3kcal / protein 150.4166g / carbs 226.377g / fat 45.125g`, `protein=2.0g/kg`, and no longer carries `protein_bodyweight_above_general_issn_range`, `diet_default_near_2_4g_bodyweight_requires_candidate_review`, or `carb_below_guide_min`.
+- Candidate-v0 remains report-only. After AT it no longer reduces the required diet case because production already uses the general ISSN cap.
+- Candidate-v2 protein guard legacy-conflict counts are now `0`; that is a consequence of production range recovery, not a new broad candidate-v2 approval.
+- Verification on 2026-06-03: `runV8ScenarioRunnerTests`, `runTargetMacroProductionPolicyTests`, and `runDualBasisProductionTests` = 3 suites / 43 cases / failed 0; `runModeGoldenCalculationTests` = 1 suite / 8 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 137 cases / failed 0.
 
 # v8 phase-1 recovery audit note
 
 - `docs/v8_1단계_복구감사_2026-06-03.txt` classifies V8 work into production changes, report-only candidates/contracts, render/tooling evidence, and still-open user-value gates.
-- Direct production check on 2026-06-03: representative diet calculation still returns about `1908.5kcal / protein 180.048g / 2.4g/kg / carbs 195.802g / fat 45.012g`, with `profileCandidateApplied=false`.
-- The audit marks diet protein policy as unresolved production work. Candidate-v2 scoped production wiring remains useful, but it must not be read as a general diet macro formula fix.
-- Next recommended work is production macro policy recovery before additional V8 feature stages.
+- Direct phase-1 production check before AT on 2026-06-03: representative diet calculation still returned about `1908.5kcal / protein 180.048g / 2.4g/kg / carbs 195.802g / fat 45.012g`, with `profileCandidateApplied=false`.
+- The audit marked diet protein policy as unresolved production work. AT is the follow-up production fix for the general diet default; candidate-v2 scoped production wiring remains useful, but it still must not be read as full V8 completion.
+- Next recommended work after AT is not another shortcut stage: recheck scoped candidate-v2 wording, profile/routine/session broad UX, and full Cartesian/full-completion gates.
 
 # v8.0-AS2 Today goalSnapshot source alignment note
 
@@ -96,8 +105,8 @@
 
 # v8.0-AL targeted stress mixed maintain re-audit note
 
-- AL re-audit found a stale targeted-stress interpretation: current AG+ profile-owned runner output has `mixedCarbUnresolvedCaseCount=2`, not 1.
-- Both `targeted_mixed_carb_unresolved` and `targeted_maintain_mixed_contract` now carry candidate-v1 `profile_carb_floor_unresolved_by_target_constraints`.
+- AL re-audit found a stale targeted-stress interpretation at that time: AG+ profile-owned runner output had `mixedCarbUnresolvedCaseCount=2`, not 1. AT later reduces the current count to 1 by recovering general diet protein production.
+- In AL, both `targeted_mixed_carb_unresolved` and `targeted_maintain_mixed_contract` carried candidate-v1 `profile_carb_floor_unresolved_by_target_constraints`. After AT, the diet mixed case meets the candidate-v1 carb floor and maintain mixed remains unresolved.
 - `targeted_maintain_mixed_contract` is therefore both a maintain/non-bodybuilding profile contract risk and a mixed candidate-v1 carb-floor unresolved case. Do not read maintain goal production availability as a completed mixed profile formula.
 - `runV8ScenarioRunner()` now reports version `8.0-AL`.
 - Verification on 2026-06-03: direct runner extraction confirmed version `8.0-AL`, targeted 8 cases / calculated 5 / constraint-only 3 / mixed unresolved 2 / maintain non-bodybuilding 2 / high priority 3; `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1056 cases / failed 0.
@@ -156,7 +165,7 @@
 - Non-bodybuilding profiles now use profile-owned routine plans and sessions instead of mapping through bodybuilding fallbacks: running uses `running_base` / `running_speed` sessions with cardio defaults and zero weight duration by default, strength uses strength plans/sessions, powerbuilding uses powerbuilding plans/sessions, and mixed uses mixed plans/sessions.
 - AG follow-up re-audit also corrected the V8 scenario runner itself. Running, strength, powerbuilding, and mixed human-review/targeted cases now calculate through their profile-owned routine/session values (`running_tempo`, `strength_heavy_lower`, `powerbuilding_lower`, `mixed_strength_cardio`) instead of `UPPER` / `LOWER` / `LEGS` / `PUSH` bodybuilding fallbacks.
 - Current AG runner direct check: `profileSessionCarbPolicy.summary.productionFallbackCount=0`; `running_focused.input.todayRoutine=running_tempo`; `low_reliability_user.input.todayRoutine=mixed_strength_cardio`; `targeted_mixed_carb_unresolved.candidate.targetDeltaKcal≈128.996`; `low_reliability_user.candidate.targetDeltaKcal≈130.646`; both mixed cases reach `carbsGPerKgBodyweight=6`.
-- Historical pre-AG uses of target-delta numbers such as `25.029`, `29.446`, `43.729`, and `51.446` remain historical evidence from old fallback-shaped runner/runtime probes. Do not use a numeric value as current AG+ evidence unless the current profile-owned runner/runtime was re-run for that exact stage; `29.446` is also revalidated later as AA current runtime evidence, so the stage/source matters more than the number text.
+- Historical pre-AG uses of target-delta numbers such as `25.029`, `29.446`, `43.729`, and `51.446` remain historical evidence from old fallback-shaped runner/runtime probes. Do not use a numeric value as stage-current AG+ evidence unless the profile-owned runner/runtime was re-run for that exact stage; `29.446` is also revalidated later as AA runtime evidence, so the stage/source matters more than the number text.
 - The old v8.0-P sentence that profile/session preservation should keep production `targetCal` unchanged was an incorrect contract interpretation. Routine/session, intensity, weight duration, and cardio defaults are production workout inputs, so profile-owned sessions can change `targetCal` through the existing workout calculation path.
 - At AG, `index.html` reported scenario runner version `8.0-AG`; AH is now the current reported version.
 - Verification on 2026-06-03: `runTodayQuickEditTests` = 1 suite / 27 cases / failed 0; `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1056 cases / failed 0; render audit capture/analyzer = 55 captures / failed 0. Spot-checks included Settings groups open and Today quick-open profile candidate screens on desktop/mobile.
@@ -297,11 +306,11 @@
 
 # v8.0-S protein guard candidate-v2 resolution contract note
 
-- `index.html` now separates the candidate-v2 protein guard issue into external evidence guard vs internal legacy guide-floor conflict.
-- For non-contest mixed/running candidate-v2 cases, protein at `2.0g/kg BW` is classified inside the ISSN general exercising-individual range, so legacy `2.2g/kg BW` diet-floor conflicts are recorded as resolved policy cases rather than unresolved production blockers.
+- `index.html` separated the candidate-v2 protein guard issue into external evidence guard vs internal legacy guide-floor conflict at v8.0-S.
+- For non-contest mixed/running candidate-v2 cases, protein at `2.0g/kg BW` was classified inside the ISSN general exercising-individual range, so legacy `2.2g/kg BW` diet-floor conflicts were recorded as resolved policy cases rather than unresolved production blockers. After AT, the production diet range itself is recovered, so current `proteinGuardResolvedCount` and `proteinLegacyGuideConflictCount` are 0.
 - Contest-prep-like cases still use the Helms/Aragon/Fitschen lean-body-mass protein context, and low-protein or fat-floor failures would still remain blockers.
-- Direct extraction on 2026-06-03: `profileMacroCandidateV2Comparison`: `proteinGuardConflictCount=0`, `proteinGuardResolvedCount=4`, `proteinLegacyGuideConflictCount=4`, `fatGuardConflictCount=0`.
-- Direct extraction on 2026-06-03: `profileMacroCandidateV2Contract`: `contractCount=14`, `presentCount=14`, `missingContractCount=0`, `productionBlockerCount=0`, `resolvedProteinGuardPolicyCount=4`, `productionReady=true`.
+- Direct extraction at v8.0-S: `profileMacroCandidateV2Comparison`: `proteinGuardConflictCount=0`, `proteinGuardResolvedCount=4`, `proteinLegacyGuideConflictCount=4`, `fatGuardConflictCount=0`.
+- Direct extraction after AT: `profileMacroCandidateV2Comparison`: `proteinGuardConflictCount=0`, `proteinGuardResolvedCount=0`, `proteinLegacyGuideConflictCount=0`, `fatGuardConflictCount=0`.
 - This means the production contract review is ready for an explicit approval step. It still does not apply candidate-v2 target deltas to production `targetCal` and does not approve `candidate-v8-profile-macro-v2-linked-target-v0` as the final formula.
 
 # v8.0-R score Coach candidate-v2 contract note
@@ -348,7 +357,7 @@
 - This layer is report-only and does not change production formulas.
 - Historical v8.0-N direct extraction on 2026-06-03: candidate-v2 comparison covers 96 cases = axis coverage 73 + human-review 18 + targeted calculated 5.
 - `profileCarbFloorAttemptedCount=5`, `profileCarbFloorMetCount=5`, `profileCarbFloorUnresolvedCount=0`, `targetChangedCount=5`, `targetRateContractRequiredCount=5`, `proteinGuardConflictCount=4`.
-- Pre-AG `targeted_mixed_carb_unresolved` opened `targetDeltaKcal=43.72915555555528`, `targetRateDeltaEquivalentKgPerWeek=0.03975377777777753`, and reached `carbsGPerKgBodyweight=6`. Current AG+ profile-owned direct extraction is `targetDeltaKcal=128.996060400435`, `targetRateDeltaEquivalentKgPerWeek=0.11726914581857727`, `carbsGPerKgBodyweight=6`; the old `43.729` value must not be used as the current scenario expectation.
+- Pre-AG `targeted_mixed_carb_unresolved` opened `targetDeltaKcal=43.72915555555528`, `targetRateDeltaEquivalentKgPerWeek=0.03975377777777753`, and reached `carbsGPerKgBodyweight=6`. At AG+/AL before AT, profile-owned direct extraction was `targetDeltaKcal=128.996060400435`, `targetRateDeltaEquivalentKgPerWeek=0.11726914581857727`, `carbsGPerKgBodyweight=6`; the old `43.729` value must not be used as the scenario expectation for that stage, and neither value should be reused as current production-diet protein evidence after AT.
 - This is not production approval. At v8.0-N those target/rate deltas still needed recent trend, score, Coach, Records, Settings/Today, and backup/import contracts; v8.0-P closes the input/snapshot/backup part, v8.0-Q closes target-rate metadata plus the recentContext gate, v8.0-R closes candidate-v2 score/Coach contracts, and v8.0-S resolves the protein guard blocker as an evidence/product-policy contract. Formula approval and production `targetCal` wiring still remain separate.
 
 # v8.0-M targetedStress note
@@ -357,7 +366,7 @@
 - This layer is report-only and does not change production formulas.
 - Direct extraction on 2026-06-03: total targeted cases 8 = 5 calculated review cases + 3 constraint-only excluded tuples.
 - Focus counts: `derived_ffmi=1`, `inactive_intensity=1`, `mixed_carb_unresolved=2`, `maintain_non_bodybuilding=2`, `excluded_constraint=3`.
-- Current AG+ profile-owned runner output has `mixedCarbUnresolvedCaseCount=2`: both `targeted_mixed_carb_unresolved` and `targeted_maintain_mixed_contract` carry candidate-v1 carb-floor unresolved findings. The maintain mixed case is also a maintain/non-bodybuilding contract risk, so it must not be flattened into a completed maintain formula.
+- AG+ profile-owned runner output had `mixedCarbUnresolvedCaseCount=2`: both `targeted_mixed_carb_unresolved` and `targeted_maintain_mixed_contract` carried candidate-v1 carb-floor unresolved findings. After AT, current `mixedCarbUnresolvedCaseCount=1`; the diet mixed case meets the carb floor after protein recovery, while maintain mixed remains unresolved and must not be flattened into a completed maintain formula.
 - It is not the 80,621,568,000 full Cartesian run, not a replacement for the 18 human-review cases, and not candidate formula approval.
 
 이 폴더는 프로젝트의 기준문서 폴더다. 과거 `source` 폴더명은 실제 소스 코드처럼 보였기 때문에 `docs`로 바꿨다. 앱 구현 소스는 루트의 `index.html`이며, 문서는 구현 방향과 판단 기준을 정리하는 역할이다.
