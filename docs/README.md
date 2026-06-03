@@ -6,6 +6,14 @@
 - Current whole-V8 status is not complete. Candidate-v2 production application and post-wiring visual QA are closed, but `full_8_2_cartesian_execution`, `full_v8_completion`, and broad profile/routine/session human UX review remain open.
 - The next agent must not start a new micro-stage before rechecking current runner output, render audit, clean full-Cartesian campaign state, and the user-owned profile/routine/session paths.
 
+# v8.0-AS1 Today record basis rounding hotfix note
+
+- AS1 code changes are limited to `index.html`. `runV8ScenarioRunner()` remains at `8.0-AS` because this hotfix is a Today/Records stale-basis prompt fix, not a scenario-runner audit stage change.
+- The cause was exact `goalSnapshot` signature comparison: saved record basis and current Today basis could differ only by display/score-insignificant residue such as 1 kcal, 0.1 g, or 0.01~0.02 kg, yet Records still showed `갱신 필요`.
+- The fix keeps stored `goalSnapshot` values and exact signature output intact, but `areGoalSnapshotsEquivalent()` and `getGoalSnapshotDifferenceKeys()` now use conservative per-field tolerances for the update prompt. Real basis changes such as goal/profile/routine/activity/session changes or numeric deltas beyond the tolerance still show the update prompt.
+- Evidence boundary: this is internal product/UX policy based on displayed precision and scoring irrelevance. It is not an external exercise-physiology basis and must not be reused as formula evidence.
+- Regression coverage on 2026-06-03: `runTodayRecordConfirmationTests` = 1 suite / 12 cases / failed 0; related Today/Records record-basis bundle = 4 suites / 51 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; full internal suite = 99 suites / 1064 cases / failed 0.
+
 # v8.0-AS scenario runner training summary audit note
 
 - AS updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AS` after the AR Today training-summary UI change.
