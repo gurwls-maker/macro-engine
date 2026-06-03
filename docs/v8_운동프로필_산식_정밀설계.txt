@@ -1232,4 +1232,14 @@ v8의 산식 1차 완료는 아래를 모두 만족해야 한다.
 - Planner verification: clean ledger pilot with shard-size 8 / max-shards 4 planned shard indexes 1,2,3,4, planned uncovered 32, duplicate-if-batch 0. Truncation probe with shard-size 100000 / max-shards 2 planned exact 8~100000 first, planned uncovered 199,992, duplicate-if-batch 8, and exact range execution required true. `runV8ScenarioRunnerTests` 1 suite / 26 cases / failed 0; full internal suite 99 suites / 1056 cases / failed 0.
 - AJ does not close full 8-2 Cartesian execution or full V8 completion. It removes ambiguity about which uncovered ranges should run next.
 
+[Codex handoff v8.0-AK full Cartesian exact-range plan executor update]
+- AK adds `run_v8_full_cartesian_plan.cjs`.
+- The executor reads/generates an AJ plan and executes only `plannedRanges` exact uncovered ranges through the existing shard manifest wrapper.
+- It writes ignored `plan_execution_summary.json` and a fresh `coverage_ledger.json` in the execution folder.
+- AK pilot executed 2 exact ranges / 16 cases from `batch_ai_clean_ledger_pilot`, analyzer failed 0, execution-folder ledger unique 16. Cumulative explicit-file ledger over source clean pilot + exact range pilot reached unique 32, contiguous from zero 24, first gap 24~1152.
+- AK verification also found and fixed a ledger selection bug: `build_v8_full_cartesian_ledger.cjs --file=...` no longer auto-collects default-folder batch summaries.
+- AK recheck also found a plan-executor range guard issue: `--max-ranges=0` could have fallen back to all planned ranges through a truthy/falsy default. It now writes `noRangesSelected=true` with executed ranges 0 / cases 0, so a user-specified execution bound cannot silently expand into a broader evidence claim.
+- Verification: AK planner recheck planned 2 ranges / 16 cases / duplicate-if-batch 0; `runV8ScenarioRunnerTests` 1 suite / 26 cases / failed 0; full internal suite 99 suites / 1056 cases / failed 0.
+- AK does not close full 8-2 Cartesian execution or full V8 completion. It is a bounded execution bridge from plan to evidence.
+
 이 첫 작업이 끝난 뒤에만 핫픽스 또는 candidate 산식 설계로 넘어간다.

@@ -74,6 +74,10 @@ function collectShardManifestPaths(inputDir){
   return walkFiles(inputDir, name => name.startsWith("shard_") && name.endsWith(".json")).sort();
 }
 
+function hasExplicitShardManifestList(){
+  return !!readArgValue("--file", "--manifest");
+}
+
 function collectBatchSummaryPaths(inputDir){
   return walkFiles(inputDir, name => name === "batch_summary.json").sort();
 }
@@ -247,7 +251,7 @@ function main(){
   const outArg = readArgValue("--out");
   const strictClosure = process.argv.includes("--strict-closure");
   const shardPaths = collectShardManifestPaths(inputDir);
-  const batchPaths = collectBatchSummaryPaths(inputDir);
+  const batchPaths = hasExplicitShardManifestList() ? [] : collectBatchSummaryPaths(inputDir);
 
   const shardManifests = shardPaths.map(filePath => {
     try {

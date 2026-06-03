@@ -16,6 +16,7 @@ node .\tools\render_audit\analyze_v8_full_cartesian_shards.cjs
 node .\tools\render_audit\run_v8_full_cartesian_batch.cjs --shards=0,144 --shard-size=8 --max-cases=8 --label=af_pilot
 node .\tools\render_audit\build_v8_full_cartesian_ledger.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_af_pilot
 node .\tools\render_audit\plan_v8_full_cartesian_shards.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_ai_clean_ledger_pilot --shard-size=8 --max-shards=4
+node .\tools\render_audit\run_v8_full_cartesian_plan.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_ai_clean_ledger_pilot --shard-size=8 --max-ranges=2 --label=ak_exact_range_pilot
 ```
 
 특정 브라우저 채널을 지정해야 할 때:
@@ -70,6 +71,7 @@ node .\tools\render_audit\run_v8_full_cartesian_batch.cjs --shards=0,144 --shard
 node .\tools\render_audit\analyze_v8_full_cartesian_shards.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_af_pilot
 node .\tools\render_audit\build_v8_full_cartesian_ledger.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_af_pilot
 node .\tools\render_audit\plan_v8_full_cartesian_shards.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_ai_clean_ledger_pilot --shard-size=8 --max-shards=4
+node .\tools\render_audit\run_v8_full_cartesian_plan.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_ai_clean_ledger_pilot --shard-size=8 --max-ranges=2 --label=ak_exact_range_pilot
 ```
 
 The JSON output is ignored under `tools/render_audit/v8_full_cartesian_shards/`.
@@ -77,4 +79,6 @@ Shard manifests use schema `v8_full_cartesian_shard_manifest_v1` and include rep
 Batch summaries use schema `v8_full_cartesian_batch_manifest_v1` and are ignored evidence outputs.
 Coverage ledgers use schema `v8_full_cartesian_coverage_ledger_v1`, merge only actually executed ranges from `executedEndExclusive`, and report gaps, overlaps, dirty-source manifests, and truncation separately. `endExclusive` is the planned shard boundary and must not be treated as coverage when a shard was limited by `--max-cases`.
 Shard plans use schema `v8_full_cartesian_shard_plan_v1`. The planner reads a ledger or generates one from a shard directory, then emits exact uncovered range commands plus shard-index batch commands. If a partially covered shard would be rerun by shard index, the planner reports `wouldRerunCaseCountIfUsingShardIndexes` and marks exact range execution as required for no duplicate coverage.
+Plan executions use schema `v8_full_cartesian_plan_execution_v1`. The executor runs only the planner's exact uncovered ranges through `run_v8_full_cartesian_shard.cjs`, then writes `plan_execution_summary.json` and a fresh coverage ledger for the execution folder.
+If `--max-ranges=0` or `--max-shards=0` is supplied, the executor records `noRangesSelected=true` with zero executed ranges instead of falling back to all planned ranges.
 This does not execute the full `80,621,568,000` Cartesian set and must not be used to close the full V8 gate by itself.

@@ -1,5 +1,19 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AK full Cartesian exact-range plan executor note
+
+- AK adds `tools/render_audit/run_v8_full_cartesian_plan.cjs`.
+- The executor reads or generates an AJ plan, then runs only the plan's `plannedRanges` exact uncovered ranges through `run_v8_full_cartesian_shard.cjs`.
+- This avoids rerunning already-covered prefixes in partially covered shards.
+- The executor writes ignored `plan_execution_summary.json` and `coverage_ledger.json` files in the execution folder.
+- AK pilot on 2026-06-03: `--dir=batch_ai_clean_ledger_pilot --shard-size=8 --max-ranges=2 --label=ak_exact_range_pilot` executed 2 exact ranges / 16 cases, analyzer failed 0, execution-folder ledger unique 16, cumulative explicit-file ledger with the source clean pilot reached unique 32 / contiguous from zero 24 / first gap 24~1152.
+- During AK verification, `build_v8_full_cartesian_ledger.cjs --file=...` was found to also collect default-folder batch summaries. This was fixed so explicit-file cumulative checks read only the selected shard manifests.
+- During the post-commit AK recheck, `run_v8_full_cartesian_plan.cjs --max-ranges=0` was also found to be at risk of falling back to all planned ranges. It now records a no-range execution summary instead of executing every planned range.
+- Verification on 2026-06-03: AK planner recheck planned 2 ranges / 16 cases / duplicate-if-batch 0; `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1056 cases / failed 0.
+- Safety probe on 2026-06-03: `--max-ranges=0 --label=ak_zero_range_guard_probe` executed ranges 0 / cases 0 / `noRangesSelected=true` / full execution closed false.
+- `index.html` now reports scenario runner version `8.0-AK`.
+- This is bounded exact-range execution only. It does not close `full_8_2_cartesian_execution` / `full_v8_completion`.
+
 # v8.0-AJ full Cartesian next-shard planner note
 
 - AJ adds `tools/render_audit/plan_v8_full_cartesian_shards.cjs`.
@@ -7,7 +21,7 @@
 - It reports exact range commands and shard-index batch commands separately.
 - If a partially covered shard would be rerun by shard index, it reports `wouldRerunCaseCountIfUsingShardIndexes` and marks `exactRangeExecutionRequiredForNoDuplicateCoverage=true`.
 - Verification on 2026-06-03: clean ledger pilot with `--shard-size=8 --max-shards=4` planned shard indexes 1,2,3,4 / planned uncovered 32 / duplicate-if-batch 0; truncation probe with `--shard-size=100000 --max-shards=2` planned exact `8~100000` first / planned uncovered 199,992 / duplicate-if-batch 8 / exact range required true; `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1056 cases / failed 0.
-- `index.html` now reports scenario runner version `8.0-AJ`.
+- At AJ, `index.html` reported scenario runner version `8.0-AJ`; AK is now the current reported version.
 - This is a planning tool only. It does not execute the planned shards or close `full_8_2_cartesian_execution` / `full_v8_completion`.
 
 # v8.0-AI full Cartesian shard coverage ledger note
