@@ -1,5 +1,11 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8 GOAL resume playbook note
+
+- Before restarting V8 with `/GOAL`, read `docs/v8_GOAL_resume_playbook_2026-06-03.txt`.
+- Current whole-V8 status is not complete. Candidate-v2 production application and post-wiring visual QA are closed, but `full_8_2_cartesian_execution`, `full_v8_completion`, and broad profile/routine/session human UX review remain open.
+- The next agent must not start a new micro-stage before rechecking current runner output, render audit, clean full-Cartesian campaign state, and the user-owned profile/routine/session paths.
+
 # v8.0-AS scenario runner training summary audit note
 
 - AS updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AS` after the AR Today training-summary UI change.
