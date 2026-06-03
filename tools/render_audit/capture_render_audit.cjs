@@ -256,6 +256,113 @@ const profileCandidateV2InbodyRecords = [
   { date: "2026-05-17", weight: 88.4, skeletalMuscle: 33.1, bodyFat: 24.8, bodyFatPercent: 28.0 }
 ];
 
+const profileRoutineVisualFixtures = Object.freeze({
+  bodybuilding: {
+    profileSession: "bodybuilding_arms",
+    routinePlan: "split5",
+    routine: "ARM",
+    intensityOverride: 0.75,
+    weightDuration: 60,
+    cardioType: "treadmill_walk",
+    cardioDuration: 20,
+    cardioSpeed: 5,
+    cardioIncline: 4
+  },
+  powerbuilding: {
+    profileSession: "powerbuilding_lower",
+    routinePlan: "powerbuilding_ppl",
+    routine: "powerbuilding_lower",
+    intensityOverride: 1,
+    weightDuration: 90,
+    cardioType: "treadmill_walk",
+    cardioDuration: 10,
+    cardioSpeed: 5,
+    cardioIncline: 2
+  },
+  strength: {
+    profileSession: "strength_deload",
+    routinePlan: "strength_technique_deload",
+    routine: "strength_deload",
+    intensityOverride: 0.45,
+    weightDuration: 40,
+    cardioType: "treadmill_walk",
+    cardioDuration: 10,
+    cardioSpeed: 5,
+    cardioIncline: 0
+  },
+  running: {
+    profileSession: "running_interval",
+    routinePlan: "running_speed",
+    routine: "running_interval",
+    intensityOverride: 0,
+    weightDuration: 0,
+    cardioType: "treadmill_run",
+    cardioDuration: 35,
+    cardioSpeed: 12,
+    cardioIncline: 1
+  },
+  mixed: {
+    profileSession: "mixed_recovery",
+    routinePlan: "mixed_circuit",
+    routine: "mixed_recovery",
+    intensityOverride: 0,
+    weightDuration: 0,
+    cardioType: "treadmill_walk",
+    cardioDuration: 30,
+    cardioSpeed: 5,
+    cardioIncline: 0
+  }
+});
+
+function makeProfileRoutineVisualPayload(profile){
+  const fixture = profileRoutineVisualFixtures[profile];
+  const settings = {
+    ...baseSettings,
+    generalAdvancedSettings: "true",
+    exerciseProfile: profile,
+    profileSession: fixture.profileSession,
+    routinePlan: fixture.routinePlan,
+    routine: fixture.routine,
+    intensityOverride: String(fixture.intensityOverride),
+    weightDuration: String(fixture.weightDuration),
+    cardioType: fixture.cardioType,
+    cardioDuration: String(fixture.cardioDuration),
+    cardioSpeed: String(fixture.cardioSpeed),
+    cardioIncline: String(fixture.cardioIncline)
+  };
+  const draftValues = {
+    calculationWeight: 74.8,
+    skeletalMuscle: 36,
+    bodyFatMass: 11.37,
+    bodyFatPercent: 15.2,
+    todayActivityLevel: "moderate",
+    todayWorkType: "office",
+    todayExerciseProfile: profile,
+    todayProfileSession: fixture.profileSession,
+    todayRoutinePlan: fixture.routinePlan,
+    todayRoutineSession: fixture.routine,
+    todayIntensityOverride: fixture.intensityOverride,
+    todayWeightDuration: fixture.weightDuration,
+    todayCardioType: fixture.cardioType,
+    todayCardioDuration: fixture.cardioDuration,
+    todayCardioSpeed: fixture.cardioSpeed,
+    todayCardioIncline: fixture.cardioIncline,
+    bodyStatusSource: "user",
+    bodyStatusEdited: true,
+    cardioSource: "user",
+    cardioEdited: true
+  };
+  return {
+    settings,
+    records: [],
+    inbodyRecords,
+    todayDrafts: {
+      [today]: draftValues,
+      [currentAuditDate]: draftValues
+    }
+  };
+}
+
 const inbodyRecords = [
   { date: "2026-04-05", weight: 76.1, skeletalMuscle: 35.8, bodyFat: 13.2, bodyFatPercent: 17.4 },
   { date: "2026-04-13", weight: 75.4, skeletalMuscle: 35.9, bodyFat: 11.6, bodyFatPercent: 15.6 },
@@ -372,7 +479,12 @@ const payloads = {
     mealTemplates: {
       items: [{ id: "pcv2-template", name: "Candidate v2 meal", meal: meal("pcv2-template-meal", "Template", 120, 45, 14, "Candidate v2 visual QA template"), isFavorite: true }]
     }
-  }
+  },
+  profileRoutineBodybuilding: makeProfileRoutineVisualPayload("bodybuilding"),
+  profileRoutinePowerbuilding: makeProfileRoutineVisualPayload("powerbuilding"),
+  profileRoutineStrength: makeProfileRoutineVisualPayload("strength"),
+  profileRoutineRunning: makeProfileRoutineVisualPayload("running"),
+  profileRoutineMixed: makeProfileRoutineVisualPayload("mixed")
 };
 
 const actionScripts = {
@@ -467,7 +579,17 @@ const captures = [
   ["53_mobile_today_profile_candidate_v2_quick_open", "profileCandidateV2", "quickOpen", 390, 900],
   ["54_mobile_records_profile_candidate_v2_detail", "profileCandidateV2", "tabRecordsDetail", 390, 900],
   ["55_desktop_records_profile_candidate_v2_basis_open", "profileCandidateV2", "tabRecordsDetailBasisOpen", 1280, 900],
-  ["56_mobile_records_profile_candidate_v2_basis_open", "profileCandidateV2", "tabRecordsDetailBasisOpen", 390, 900]
+  ["56_mobile_records_profile_candidate_v2_basis_open", "profileCandidateV2", "tabRecordsDetailBasisOpen", 390, 900],
+  ["57_desktop_today_profile_routine_bodybuilding_quick_open", "profileRoutineBodybuilding", "quickOpen", 1280, 900],
+  ["58_desktop_today_profile_routine_powerbuilding_quick_open", "profileRoutinePowerbuilding", "quickOpen", 1280, 900],
+  ["59_desktop_today_profile_routine_strength_quick_open", "profileRoutineStrength", "quickOpen", 1280, 900],
+  ["60_desktop_today_profile_routine_running_quick_open", "profileRoutineRunning", "quickOpen", 1280, 900],
+  ["61_desktop_today_profile_routine_mixed_quick_open", "profileRoutineMixed", "quickOpen", 1280, 900],
+  ["62_mobile_today_profile_routine_bodybuilding_quick_open", "profileRoutineBodybuilding", "quickOpen", 390, 900],
+  ["63_mobile_today_profile_routine_powerbuilding_quick_open", "profileRoutinePowerbuilding", "quickOpen", 390, 900],
+  ["64_mobile_today_profile_routine_strength_quick_open", "profileRoutineStrength", "quickOpen", 390, 900],
+  ["65_mobile_today_profile_routine_running_quick_open", "profileRoutineRunning", "quickOpen", 390, 900],
+  ["66_mobile_today_profile_routine_mixed_quick_open", "profileRoutineMixed", "quickOpen", 390, 900]
 ];
 
 function makePage(name, payloadName, actionName, width, height) {
@@ -612,7 +734,15 @@ async function getRuntimeMeta(page) {
         runtimeProposalProfileCarbFloorMet: proposal.profileCarbFloorMet === true,
         recentGateStatus: gate.status || null,
         recentGateTargetDeltaApplied: gate.targetDeltaApplied === true,
-        recentGateCanApplyAutomatically: gate.canApplyAutomatically === true
+        recentGateCanApplyAutomatically: gate.canApplyAutomatically === true,
+        todayProfileSelectHidden: document.getElementById("todayQuickExerciseProfile")?.closest(".field")?.classList.contains("hidden") === true,
+        todayRoutineProfileLabelText: document.getElementById("todayQuickRoutineProfileLabel")?.textContent?.trim() || null,
+        todayRoutinePlanDisabled: document.getElementById("todayQuickRoutinePlan")?.disabled === true,
+        todayRoutinePlanValue: document.getElementById("todayQuickRoutinePlan")?.value || null,
+        todayRoutineSessionValue: document.getElementById("todayQuickRoutineSession")?.value || null,
+        todayRoutineSessionOptions: Array.from(document.getElementById("todayQuickRoutineSession")?.options || []).map(option => option.value),
+        settingsTrainingHostHasDefaultSessionPicker: document.getElementById("settingsTrainingDefaultsHost")?.contains(document.getElementById("todayRoutineAthleteField")) === true,
+        settingsTrainingHostHasWeekdaySchedule: document.getElementById("settingsTrainingDefaultsHost")?.closest(".settings-group")?.contains(document.getElementById("routineWeekdaySchedulePanel")) === true
       };
     } catch (error) {
       return {

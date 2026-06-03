@@ -1,5 +1,16 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AQ profile routine input ownership note
+
+- AQ updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AQ`.
+- AQ corrects the Settings/Today ownership split for exercise profile routine inputs. Settings owns `exerciseProfile`, `routinePlan`, and the weekday session plan; Today owns the date-specific `todayRoutinePlan` and `todayRoutineSession`.
+- Today no longer exposes a separate editable exercise-profile card. The routine/session control shows the profile as context in the label, for example `보디빌딩 - 루틴 / 세션`, and keeps routine/session editable for the selected day.
+- Settings no longer exposes a separate default session picker. This avoids conflicting with the weekday session plan while keeping the existing bodybuilding routine plan list and weekday schedule.
+- `profileSession` remains a derived compatibility/snapshot/report field. It is not a user-facing shortcut and must not replace the user-owned `exerciseProfile + routinePlan + routine` path.
+- AQ adds render-audit coverage for all five profile routine surfaces on desktop and mobile. Analyzer verification on 2026-06-03: 65 captures / desktop 42 / mobile 23 / profile-routine ownership captures 10 / failed 0.
+- Verification on 2026-06-03: full internal suite = 99 suites / 1060 cases / failed 0.
+- AQ does not close `full_8_2_cartesian_execution`, `full_v8_completion`, or broad human UX review of every profile routine/session combination.
+
 # v8.0-AP whole-stage evidence boundary audit note
 
 - AP updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AP`.

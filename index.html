@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-AP whole-stage evidence boundary audit
+Stage: v8.0-AQ profile routine input ownership realignment
 Date: 2026-06-03
 Notes:
+- v8.0-AQ separates Settings-owned exercise profile/routine-plan/weekday schedule from Today-owned routine plan/session inputs and keeps profileSession derived
 - v8.0-AP adds a whole-stage evidence boundary audit so report-only, production-observation, visual-QA, and full-completion gates cannot be collapsed into each other
 - v8.0-AO adds a profile routine surface audit so every exercise profile plan/session/default path is checked before full V8 completion
 - v8.0-AL tightens targeted stress expectations so maintain mixed is counted as both a maintain profile-contract risk and a mixed candidate-v1 carb-floor unresolved case
@@ -14460,15 +14461,15 @@ Notes:
             </div>
             <div class="today-quick-field-host" id="todayQuickWorkAdjHost"></div>
             <div class="today-quick-edit-section-title today-section-title">오늘 운동</div>
-            <div class="field today-quick-routine-card">
+            <div class="field today-quick-routine-card hidden" aria-hidden="true">
               <label for="todayQuickExerciseProfile">운동 프로필</label>
               <div class="today-quick-routine-selects">
-                <select id="todayQuickExerciseProfile" aria-label="운동 프로필"></select>
+                <select id="todayQuickExerciseProfile" aria-label="운동 프로필" tabindex="-1"></select>
                 <select id="todayQuickProfileSession" class="hidden" aria-label="파생 오늘 세션" aria-hidden="true" tabindex="-1"></select>
               </div>
             </div>
             <div class="field today-quick-routine-card">
-              <label for="todayQuickRoutinePlan">루틴 / 세션</label>
+              <label for="todayQuickRoutinePlan"><span id="todayQuickRoutineProfileLabel">보디빌딩</span> - 루틴 / 세션</label>
               <div class="today-quick-routine-selects">
                 <select id="todayQuickRoutinePlan" aria-label="루틴"></select>
                 <select id="todayQuickRoutineSession" aria-label="세션"></select>
@@ -16668,6 +16669,7 @@ Notes:
       "todayWorkType",
       "todayExerciseProfile",
       "todayProfileSession",
+      "todayRoutinePlan",
       "todayRoutineSession",
       "todayCardioType"
     ];
@@ -16858,6 +16860,19 @@ Notes:
       return hasProfileRoutinePlans(profile);
     }
 
+    function hasRoutinePlanControlsForProfile(profile = state.exerciseProfile){
+      const safeProfile = normalizeExerciseProfile(profile);
+      return safeProfile === "bodybuilding" || hasProfileRoutineScheme(safeProfile);
+    }
+
+    function shouldUseDetailedRoutineControls(profile = state.exerciseProfile, advanced = state.generalAdvancedSettings){
+      return hasRoutinePlanControlsForProfile(profile) || !!advanced;
+    }
+
+    function shouldUseDetailedRoutineDefaults(profile = state.exerciseProfile, advanced = state.generalAdvancedSettings){
+      return hasProfileRoutineScheme(profile) || !!advanced;
+    }
+
     function getProfileRoutineConfig(profile){
       return PROFILE_ROUTINE_PLANS[normalizeExerciseProfile(profile)] || null;
     }
@@ -16944,7 +16959,9 @@ Notes:
         const plan = normalizeRoutinePlanForProfile(safeProfile, options.routinePlan ?? state.routinePlan);
         return profileConfig.plans?.[plan]?.items || profileConfig.plans?.[profileConfig.defaultPlan]?.items || [];
       }
-      const advanced = options.advanced !== undefined ? !!options.advanced : !!state.generalAdvancedSettings;
+      const advanced = options.advanced !== undefined
+        ? !!options.advanced
+        : shouldUseDetailedRoutineControls(safeProfile, !!state.generalAdvancedSettings);
       if (!advanced) return getGeneralRoutineItems();
       const plan = normalizeRoutinePlanForProfile(safeProfile, options.routinePlan ?? state.routinePlan);
       return ROUTINE_SCHEMES[plan]?.items || ROUTINE_SCHEMES[DEFAULT_STATE.routinePlan].items;
@@ -17000,16 +17017,19 @@ Notes:
       return fallback;
     }
 
-    function getRoutineItemTodayDraftDefaults(entry, profile = state.exerciseProfile){
+    function getRoutineItemTodayDraftDefaults(entry, profile = state.exerciseProfile, options = {}){
       const values = {};
       if (!entry) return values;
+      const safeProfile = normalizeExerciseProfile(profile);
+      const routinePlan = normalizeRoutinePlanForProfile(safeProfile, options.routinePlan ?? state.routinePlan);
+      values.todayRoutinePlan = routinePlan;
       values.todayRoutineSession = entry.value;
-      values.todayProfileSession = deriveProfileSessionFromRoutine(profile, entry.value, {
-        advanced: state.generalAdvancedSettings,
-        routinePlan: state.routinePlan
+      values.todayProfileSession = deriveProfileSessionFromRoutine(safeProfile, entry.value, {
+        advanced: shouldUseDetailedRoutineControls(safeProfile, state.generalAdvancedSettings),
+        routinePlan
       });
       values.todayIntensityOverride = Number.isFinite(Number(entry.xw)) ? Number(entry.xw) : null;
-      values.todayWeightDuration = getRoutineItemDefaultWeightDuration(entry, getSettingsDefaultTodayWeightDuration(entry.value, profile));
+      values.todayWeightDuration = getRoutineItemDefaultWeightDuration(entry, getSettingsDefaultTodayWeightDuration(entry.value, safeProfile, { routinePlan }));
       const cardioDefaults = entry.cardioDefaults || {};
       TODAY_CARDIO_DRAFT_FIELDS.forEach(field => {
         if (Object.prototype.hasOwnProperty.call(cardioDefaults, field)) values[field] = cardioDefaults[field];
@@ -17033,14 +17053,14 @@ Notes:
       const profile = normalizeExerciseProfile(values.todayExerciseProfile || values.exerciseProfile || state.exerciseProfile);
       const routineSession = values.todayRoutineSession || values.routine || state.routine;
       return deriveProfileSessionFromRoutine(profile, routineSession, {
-        advanced: state.generalAdvancedSettings,
-        routinePlan: state.routinePlan
+        advanced: shouldUseDetailedRoutineControls(profile, state.generalAdvancedSettings),
+        routinePlan: values.todayRoutinePlan || values.routinePlan || state.routinePlan
       });
     }
 
     function deriveSettingsProfileSession(){
       return deriveProfileSessionFromRoutine(state.exerciseProfile, state.routine, {
-        advanced: state.generalAdvancedSettings,
+        advanced: shouldUseDetailedRoutineControls(state.exerciseProfile, state.generalAdvancedSettings),
         routinePlan: state.routinePlan
       });
     }
@@ -17097,6 +17117,12 @@ Notes:
       if (Object.prototype.hasOwnProperty.call(EXERCISE_PROFILE_OPTIONS, exerciseProfile)) {
         normalized.todayExerciseProfile = exerciseProfile;
       }
+      const routinePlan = typeof raw.todayRoutinePlan === "string" ? raw.todayRoutinePlan.trim() : "";
+      if (routinePlan && isRoutinePlanAllowedForAnyProfile(routinePlan)) {
+        const profileForPlan = normalized.todayExerciseProfile
+          || normalizeExerciseProfile(raw.exerciseProfile || state.exerciseProfile);
+        normalized.todayRoutinePlan = normalizeRoutinePlanForProfile(profileForPlan, routinePlan);
+      }
       const profileSession = raw.todayProfileSession;
       if (typeof profileSession === "string" && profileSession.trim()) {
         const profileForSession = normalized.todayExerciseProfile
@@ -17107,6 +17133,11 @@ Notes:
       if (isAllowedOption(cardioType, Object.keys(CARDIO_TYPES))) normalized.todayCardioType = cardioType;
       const routineSession = raw.todayRoutineSession;
       if (typeof routineSession === "string" && routineSession.trim()) normalized.todayRoutineSession = routineSession;
+      if (raw.todayRoutineExplicit === true || raw.todayRoutineExplicit === "true") {
+        normalized.todayRoutineExplicit = true;
+      } else if (raw.todayRoutineExplicit === false || raw.todayRoutineExplicit === "false") {
+        normalized.todayRoutineExplicit = false;
+      }
       const bodyStatusSource = typeof raw.bodyStatusSource === "string" ? raw.bodyStatusSource.trim() : "";
       if ([TODAY_BODY_STATUS_SOURCE_INBODY, TODAY_BODY_STATUS_SOURCE_USER, TODAY_BODY_STATUS_SOURCE_DEFAULT].includes(bodyStatusSource)) {
         normalized.bodyStatusSource = bodyStatusSource;
@@ -17388,17 +17419,18 @@ Notes:
       safe.generalLowDigestCarbs = raw.generalLowDigestCarbs === true || raw.generalLowDigestCarbs === "true";
       safe.exerciseProfile = normalizeExerciseProfile(raw.exerciseProfile, safe.exerciseProfile);
       safe.routinePlan = normalizeRoutinePlanForProfile(safe.exerciseProfile, raw.routinePlan || safe.routinePlan);
+      const detailedRoutineControls = shouldUseDetailedRoutineControls(safe.exerciseProfile, safe.generalAdvancedSettings);
       const routineValues = getRoutineItemsForProfile(safe.exerciseProfile, {
-        advanced: safe.generalAdvancedSettings,
+        advanced: detailedRoutineControls,
         routinePlan: safe.routinePlan
       }).map(item => item.value);
       if (isAllowedOption(raw.routine, routineValues)) safe.routine = raw.routine;
       else safe.routine = getDefaultRoutineSessionForProfile(safe.exerciseProfile, {
-        advanced: safe.generalAdvancedSettings,
+        advanced: detailedRoutineControls,
         routinePlan: safe.routinePlan
       });
       safe.profileSession = deriveProfileSessionFromRoutine(safe.exerciseProfile, safe.routine, {
-        advanced: safe.generalAdvancedSettings,
+        advanced: detailedRoutineControls,
         routinePlan: safe.routinePlan
       });
       safe.routineWeekdaySchedule = normalizeRoutineWeekdaySchedule(raw.routineWeekdaySchedule || {});
@@ -18092,15 +18124,18 @@ Notes:
       return { source: null, label: "" };
     }
 
-    function getSettingsDefaultTodayIntensityOverride(routineSession = state.routine || DEFAULT_STATE.routine, profile = state.exerciseProfile){
+    function getSettingsDefaultTodayIntensityOverride(routineSession = state.routine || DEFAULT_STATE.routine, profile = state.exerciseProfile, options = {}){
       const safeProfile = normalizeExerciseProfile(profile);
-      const advanced = !!(ids.generalAdvancedSettings?.checked || state.generalAdvancedSettings);
-      const routinePlan = normalizeRoutinePlanForProfile(safeProfile, state.routinePlan);
+      const advanced = options.advanced !== undefined
+        ? !!options.advanced
+        : shouldUseDetailedRoutineDefaults(safeProfile, !!(ids.generalAdvancedSettings?.checked || state.generalAdvancedSettings));
+      const routinePlan = normalizeRoutinePlanForProfile(safeProfile, options.routinePlan ?? state.routinePlan);
       const items = getRoutineItemsForProfile(safeProfile, {
         advanced,
         routinePlan
       });
-      if (hasProfileRoutineScheme(safeProfile) || advanced) {
+      const usesDetailedDefaults = shouldUseDetailedRoutineDefaults(safeProfile, advanced);
+      if (usesDetailedDefaults) {
         if (!hasProfileRoutineScheme(safeProfile) && routineSession === (state.routine || DEFAULT_STATE.routine)) {
           return normalizeTodayCalculationNumber(ids.intensityOverride?.value) ?? DEFAULT_STATE.intensityOverride;
         }
@@ -18112,11 +18147,13 @@ Notes:
       return normalizeTodayCalculationNumber(entry.xw) ?? DEFAULT_STATE.intensityOverride;
     }
 
-    function getSettingsDefaultTodayWeightDuration(routineSession = state.routine || DEFAULT_STATE.routine, profile = state.exerciseProfile){
+    function getSettingsDefaultTodayWeightDuration(routineSession = state.routine || DEFAULT_STATE.routine, profile = state.exerciseProfile, options = {}){
       const safeProfile = normalizeExerciseProfile(profile);
-      const routinePlan = normalizeRoutinePlanForProfile(safeProfile, state.routinePlan);
+      const routinePlan = normalizeRoutinePlanForProfile(safeProfile, options.routinePlan ?? state.routinePlan);
       const entry = getRoutineItemsForProfile(safeProfile, {
-        advanced: !!(ids.generalAdvancedSettings?.checked || state.generalAdvancedSettings),
+        advanced: options.advanced !== undefined
+          ? !!options.advanced
+          : shouldUseDetailedRoutineDefaults(safeProfile, !!(ids.generalAdvancedSettings?.checked || state.generalAdvancedSettings)),
         routinePlan
       }).find(item => item.value === routineSession);
       const explicit = Number(entry?.defaultWeightDuration);
@@ -18135,14 +18172,16 @@ Notes:
       const cardioType = isAllowedOption(ids.cardioType?.value, Object.keys(CARDIO_TYPES)) ? ids.cardioType.value : DEFAULT_STATE.cardioType;
       const exerciseProfile = normalizeExerciseProfile(ids.exerciseProfile?.value || state.exerciseProfile);
       const routinePlan = normalizeRoutinePlanForProfile(exerciseProfile, state.routinePlan);
+      const detailedRoutineControls = shouldUseDetailedRoutineDefaults(exerciseProfile, state.generalAdvancedSettings);
       const todayRoutineSession = normalizeTodayRoutineSession(
-        getScheduledRoutineSessionForDate(date, routinePlan, state.generalAdvancedSettings, exerciseProfile)
+        getScheduledRoutineSessionForDate(date, routinePlan, detailedRoutineControls, exerciseProfile)
           || state.routine
-          || getDefaultRoutineSessionForProfile(exerciseProfile),
-        exerciseProfile
+          || getDefaultRoutineSessionForProfile(exerciseProfile, { advanced: detailedRoutineControls, routinePlan }),
+        exerciseProfile,
+        { routinePlan, advanced: detailedRoutineControls }
       );
       const profileSession = deriveProfileSessionFromRoutine(exerciseProfile, todayRoutineSession, {
-        advanced: state.generalAdvancedSettings,
+        advanced: detailedRoutineControls,
         routinePlan
       });
       return {
@@ -18154,9 +18193,10 @@ Notes:
         todayWorkType: workType,
         todayExerciseProfile: exerciseProfile,
         todayProfileSession: profileSession,
+        todayRoutinePlan: routinePlan,
         todayRoutineSession,
-        todayIntensityOverride: getSettingsDefaultTodayIntensityOverride(todayRoutineSession, exerciseProfile),
-        todayWeightDuration: getSettingsDefaultTodayWeightDuration(todayRoutineSession, exerciseProfile),
+        todayIntensityOverride: getSettingsDefaultTodayIntensityOverride(todayRoutineSession, exerciseProfile, { routinePlan }),
+        todayWeightDuration: getSettingsDefaultTodayWeightDuration(todayRoutineSession, exerciseProfile, { routinePlan }),
         todayCardioType: cardioType,
         todayCardioDuration: normalizeTodayCalculationNumber(ids.cardioDuration?.value) ?? DEFAULT_STATE.cardioDuration,
         todayCardioSpeed: normalizeTodayCalculationNumber(ids.cardioSpeed?.value) ?? DEFAULT_STATE.cardioSpeed,
@@ -18259,20 +18299,29 @@ Notes:
       return { source: null, date: null, label: "", automatic: false };
     }
 
-    function getRoutineItemsForTodayCalculation(profile = state.exerciseProfile){
+    function getRoutineItemsForTodayCalculation(profile = state.exerciseProfile, options = {}){
+      const safeProfile = normalizeExerciseProfile(profile);
       return getRoutineItemsForProfile(profile, {
-        advanced: resolveAdvancedTuning().advancedSettings,
-        routinePlan: state.routinePlan
+        advanced: options.advanced !== undefined
+          ? !!options.advanced
+          : shouldUseDetailedRoutineControls(safeProfile, resolveAdvancedTuning().advancedSettings),
+        routinePlan: options.routinePlan ?? state.routinePlan
       });
     }
 
-    function normalizeTodayRoutineSession(value, profile = state.exerciseProfile){
+    function normalizeTodayRoutineSession(value, profile = state.exerciseProfile, options = {}){
       const safeProfile = normalizeExerciseProfile(profile);
-      const items = getRoutineItemsForTodayCalculation(safeProfile);
+      const routinePlan = normalizeRoutinePlanForProfile(safeProfile, options.routinePlan ?? state.routinePlan);
+      const items = getRoutineItemsForTodayCalculation(safeProfile, {
+        ...options,
+        routinePlan
+      });
       if (items.some(item => item.value === value)) return value;
       return getDefaultRoutineSessionForProfile(safeProfile, {
-        advanced: resolveAdvancedTuning().advancedSettings,
-        routinePlan: state.routinePlan
+        advanced: options.advanced !== undefined
+          ? !!options.advanced
+          : shouldUseDetailedRoutineControls(safeProfile, resolveAdvancedTuning().advancedSettings),
+        routinePlan
       });
     }
 
@@ -18282,31 +18331,48 @@ Notes:
       materializeTodayCardioDefaults(targetDate);
       const defaults = getSettingsCalculationDefaults(targetDate);
       const draft = normalizeTodayCalculationDraft(todayCalculationDrafts[targetDate] || {});
+      const hasDraftRoutinePlan = Object.prototype.hasOwnProperty.call(draft, "todayRoutinePlan");
       const hasDraftRoutineSession = Object.prototype.hasOwnProperty.call(draft, "todayRoutineSession");
       const hasDraftIntensityOverride = Object.prototype.hasOwnProperty.call(draft, "todayIntensityOverride");
       const hasDraftWeightDuration = Object.prototype.hasOwnProperty.call(draft, "todayWeightDuration");
       const hasDraftProfileSession = Object.prototype.hasOwnProperty.call(draft, "todayProfileSession");
       const values = { ...defaults, ...draft };
-      values.todayExerciseProfile = normalizeExerciseProfile(values.todayExerciseProfile);
+      values.todayExerciseProfile = normalizeExerciseProfile(defaults.todayExerciseProfile || state.exerciseProfile);
+      values.todayRoutinePlan = normalizeRoutinePlanForProfile(values.todayExerciseProfile, values.todayRoutinePlan || state.routinePlan);
       const usesProfileRoutine = hasProfileRoutineScheme(values.todayExerciseProfile);
+      const hasDraftRoutineExplicitFlag = Object.prototype.hasOwnProperty.call(draft, "todayRoutineExplicit");
+      const todayRoutineExplicit = hasDraftRoutineExplicitFlag
+        ? draft.todayRoutineExplicit === true
+        : (hasDraftRoutinePlan || hasDraftRoutineSession || hasDraftProfileSession);
+      const detailedRoutineControls = todayRoutineExplicit
+        ? shouldUseDetailedRoutineControls(values.todayExerciseProfile, resolveAdvancedTuning().advancedSettings)
+        : shouldUseDetailedRoutineDefaults(values.todayExerciseProfile, resolveAdvancedTuning().advancedSettings);
+      values.todayRoutineExplicit = todayRoutineExplicit;
       const routineFromLegacyProfileSession = !hasDraftRoutineSession && hasDraftProfileSession
         ? getRoutineSessionFromProfileSession(values.todayProfileSession, values.todayExerciseProfile, {
-          advanced: resolveAdvancedTuning().advancedSettings,
-          routinePlan: state.routinePlan
+          advanced: detailedRoutineControls,
+          routinePlan: values.todayRoutinePlan
         })
         : null;
-      values.todayRoutineSession = normalizeTodayRoutineSession(routineFromLegacyProfileSession || values.todayRoutineSession, values.todayExerciseProfile);
-      values.todayProfileSession = deriveProfileSessionFromRoutine(values.todayExerciseProfile, values.todayRoutineSession, {
-        advanced: resolveAdvancedTuning().advancedSettings,
-        routinePlan: state.routinePlan
+      values.todayRoutineSession = normalizeTodayRoutineSession(routineFromLegacyProfileSession || values.todayRoutineSession, values.todayExerciseProfile, {
+        routinePlan: values.todayRoutinePlan,
+        advanced: detailedRoutineControls
       });
-      const routineEntry = getRoutineItemsForTodayCalculation(values.todayExerciseProfile).find(item => item.value === values.todayRoutineSession);
+      values.todayProfileSession = deriveProfileSessionFromRoutine(values.todayExerciseProfile, values.todayRoutineSession, {
+        advanced: detailedRoutineControls,
+        routinePlan: values.todayRoutinePlan
+      });
+      const routineEntry = getRoutineItemsForTodayCalculation(values.todayExerciseProfile, {
+        routinePlan: values.todayRoutinePlan
+      }).find(item => item.value === values.todayRoutineSession);
       if (values.todayRoutineSession === "REST") {
         values.todayIntensityOverride = 0;
         values.todayWeightDuration = 0;
       } else {
         if (usesProfileRoutine && !hasDraftWeightDuration) {
-          values.todayWeightDuration = getRoutineItemDefaultWeightDuration(routineEntry, getSettingsDefaultTodayWeightDuration(values.todayRoutineSession, values.todayExerciseProfile));
+          values.todayWeightDuration = getRoutineItemDefaultWeightDuration(routineEntry, getSettingsDefaultTodayWeightDuration(values.todayRoutineSession, values.todayExerciseProfile, {
+            routinePlan: values.todayRoutinePlan
+          }));
         }
         if (usesProfileRoutine && routineEntry?.cardioDefaults) {
           TODAY_CARDIO_DRAFT_FIELDS.forEach(field => {
@@ -18436,19 +18502,20 @@ Notes:
 
       const routinePlan = readStoredValue("routinePlan");
       loaded.routinePlan = normalizeRoutinePlanForProfile(loaded.exerciseProfile, routinePlan || loaded.routinePlan);
+      const detailedRoutineControls = shouldUseDetailedRoutineControls(loaded.exerciseProfile, loaded.generalAdvancedSettings);
 
       const routineValues = getRoutineItemsForProfile(loaded.exerciseProfile, {
-        advanced: loaded.generalAdvancedSettings,
+        advanced: detailedRoutineControls,
         routinePlan: loaded.routinePlan
       }).map(item => item.value);
       const routine = readStoredValue("routine");
       if (isAllowedOption(routine, routineValues)) loaded.routine = routine;
       else loaded.routine = getDefaultRoutineSessionForProfile(loaded.exerciseProfile, {
-        advanced: loaded.generalAdvancedSettings,
+        advanced: detailedRoutineControls,
         routinePlan: loaded.routinePlan
       });
       loaded.profileSession = deriveProfileSessionFromRoutine(loaded.exerciseProfile, loaded.routine, {
-        advanced: loaded.generalAdvancedSettings,
+        advanced: detailedRoutineControls,
         routinePlan: loaded.routinePlan
       });
       loaded.routineWeekdaySchedule = normalizeRoutineWeekdaySchedule(readStoredValue("routineWeekdaySchedule"));
@@ -18870,7 +18937,7 @@ Notes:
 
     function getRoutineItems(){
       return getRoutineItemsForProfile(state.exerciseProfile, {
-        advanced: resolveAdvancedTuning().advancedSettings,
+        advanced: shouldUseDetailedRoutineControls(state.exerciseProfile, resolveAdvancedTuning().advancedSettings),
         routinePlan: state.routinePlan
       });
     }
@@ -18896,7 +18963,7 @@ Notes:
 
     function getRoutineSchedulePlanKey(plan = state.routinePlan, advanced = state.generalAdvancedSettings, profile = state.exerciseProfile){
       if (hasProfileRoutineScheme(profile)) return normalizeRoutinePlanForProfile(profile, plan);
-      if (!advanced) return ROUTINE_WEEKDAY_PLAN_GENERAL;
+      if (!shouldUseDetailedRoutineDefaults(profile, advanced)) return ROUTINE_WEEKDAY_PLAN_GENERAL;
       return normalizeRoutinePlanForProfile(profile, plan);
     }
 
@@ -19715,7 +19782,7 @@ Notes:
           profileSessionStatus: s.profileSession ? "runtime_today_input" : "missing",
           routinePlan: s.routinePlan,
           todayRoutine: s.routine,
-          todayRoutineRole: hasProfileRoutineScheme(s.exerciseProfile) ? "profile_owned_session" : "profile_session",
+          todayRoutineRole: shouldUseDetailedRoutineControls(s.exerciseProfile, s.generalAdvancedSettings) ? "profile_owned_session" : "profile_session",
           todayWeightDuration: Math.max(0, Number(s.weightDuration) || 0),
           todayIntensityOverride: Math.max(0, Number(s.intensityOverride) || 0),
           cardioType: s.cardioType,
@@ -20050,8 +20117,9 @@ Notes:
         weeklyTrainingDays: Number(ids.weeklyTrainingDays.value),
         exerciseProfile: todayValues.todayExerciseProfile,
         profileSession: todayValues.todayProfileSession,
-        routinePlan: normalizeRoutinePlanForProfile(todayValues.todayExerciseProfile, state.routinePlan),
+        routinePlan: normalizeRoutinePlanForProfile(todayValues.todayExerciseProfile, todayValues.todayRoutinePlan || state.routinePlan),
         routine: todayValues.todayRoutineSession,
+        routineSessionExplicit: todayValues.todayRoutineExplicit === true,
         intensityOverride: Number.isFinite(todayValues.todayIntensityOverride) ? todayValues.todayIntensityOverride : Number(ids.intensityOverride.value),
         weightDuration: todayValues.todayWeightDuration,
         goal: state.goal,
@@ -20192,7 +20260,9 @@ Notes:
 
       const cardio = calcCardio(s);
       const isRestDay = s.routine === "REST";
-      const usesProfileRoutineIntensity = hasProfileRoutineScheme(s.exerciseProfile);
+      const usesProfileRoutineIntensity = hasProfileRoutineScheme(s.exerciseProfile)
+        || !!s.generalAdvancedSettings
+        || (s.routineSessionExplicit === true && hasRoutinePlanControlsForProfile(s.exerciseProfile));
       let xw = 0;
       if (!isRestDay) {
         if (!usesProfileRoutineIntensity && modeCfg.inputDepth === "basic" && !modeCfg.advancedTuning) {
@@ -20571,23 +20641,20 @@ Notes:
     function syncGeneralModeDefaults(){
       state.routinePlan = normalizeRoutinePlanForProfile(state.exerciseProfile, state.routinePlan);
       let nextRoutine = state.routine;
+      const detailedRoutineControls = shouldUseDetailedRoutineControls(state.exerciseProfile, state.generalAdvancedSettings);
       const profileItems = getRoutineItemsForProfile(state.exerciseProfile, {
-        advanced: state.generalAdvancedSettings,
+        advanced: detailedRoutineControls,
         routinePlan: state.routinePlan
       });
-      if (hasProfileRoutineScheme(state.exerciseProfile)) {
+      if (detailedRoutineControls) {
         if (!profileItems.some(item => item.value === nextRoutine)) {
           nextRoutine = getDefaultRoutineSessionForProfile(state.exerciseProfile, {
-            advanced: state.generalAdvancedSettings,
+            advanced: detailedRoutineControls,
             routinePlan: state.routinePlan
           });
         }
-      } else if (!state.generalAdvancedSettings) {
+      } else if (!detailedRoutineControls) {
         if (!["REST", "PUSH"].includes(nextRoutine)) {
-          nextRoutine = "PUSH";
-        }
-      } else {
-        if (!profileItems.some(item => item.value === nextRoutine)) {
           nextRoutine = "PUSH";
         }
       }
@@ -20616,6 +20683,7 @@ Notes:
         });
         state.renderedRoutineKey = routineKey;
       }
+      const detailedRoutineControls = shouldUseDetailedRoutineControls(state.exerciseProfile, state.generalAdvancedSettings);
       if (hasProfileRoutineScheme(state.exerciseProfile)) {
         const profileScheme = getProfileRoutineScheme(state.exerciseProfile);
         document.getElementById("routinePlanHint").textContent = state.generalAdvancedSettings
@@ -20626,7 +20694,7 @@ Notes:
         document.getElementById("intensityHint").textContent = `${entry?.label || "세션"} 기본 강도는 ${baseXw}입니다.`;
         const generalHint = document.getElementById("routineGeneralHint");
         if (generalHint) generalHint.textContent = profileScheme?.hint || "운동 프로필에 맞는 세션을 고릅니다.";
-      } else if (!state.generalAdvancedSettings){
+      } else if (!detailedRoutineControls){
         document.getElementById("routinePlanHint").textContent = "";
         document.getElementById("intensityHint").textContent = "";
         const weeklyAdj = getGeneralWeeklyTrainingAdj(clamp(Math.round(Number(ids.weeklyTrainingDays.value) || 0), 0, 14));
@@ -20899,9 +20967,10 @@ Notes:
       [workAdjField, generalAdvancedField, athleteRoutineField, routinePlanField, intensityField].forEach(field => {
         field?.classList.remove("hidden", "mode-athlete-plus", "mode-general-only", "mode-general-advanced");
       });
-      athleteRoutineField?.classList.toggle("hidden", !expanded);
-      routineGeneralField?.classList.toggle("hidden", expanded);
-      routinePlanField?.classList.toggle("hidden", !expanded);
+      const showFullRoutineControls = shouldUseDetailedRoutineControls(state.exerciseProfile, expanded);
+      athleteRoutineField?.classList.toggle("hidden", !showFullRoutineControls);
+      routineGeneralField?.classList.toggle("hidden", showFullRoutineControls);
+      routinePlanField?.classList.toggle("hidden", !showFullRoutineControls);
       intensityField?.classList.toggle("hidden", !expanded);
       document.getElementById("generalModeNotice").classList.add("hidden");
     }
@@ -21651,16 +21720,17 @@ Notes:
       select.value = hasCurrent ? currentValue : safeItems[0].value;
     }
 
-    function getTodayQuickRoutineItems(){
-      const profile = normalizeExerciseProfile(getEffectiveTodayCalculationValues().todayExerciseProfile || state.exerciseProfile);
+    function getTodayQuickRoutineItems(todayValues = getEffectiveTodayCalculationValues()){
+      const profile = normalizeExerciseProfile(todayValues.todayExerciseProfile || state.exerciseProfile);
+      const routinePlan = normalizeRoutinePlanForProfile(profile, todayValues.todayRoutinePlan || state.routinePlan);
       return getRoutineItemsForProfile(profile, {
-        advanced: state.generalAdvancedSettings,
-        routinePlan: state.routinePlan
+        advanced: shouldUseDetailedRoutineControls(profile, state.generalAdvancedSettings),
+        routinePlan
       });
     }
 
     function getTodayQuickRoutineEntry(todayValues = getEffectiveTodayCalculationValues()){
-      const items = getTodayQuickRoutineItems();
+      const items = getTodayQuickRoutineItems(todayValues);
       const routineValue = todayValues?.todayRoutineSession || state.routine || DEFAULT_STATE.routine;
       return items.find(item => item.value === routineValue) || items.find(item => item.value !== "REST") || items[0] || { value: "REST", label: "휴식", xw: 0 };
     }
@@ -21712,20 +21782,22 @@ Notes:
       const sessionSelect = document.getElementById("todayQuickRoutineSession");
       if (!planSelect || !sessionSelect) return;
       const profile = normalizeExerciseProfile(todayValues.todayExerciseProfile || state.exerciseProfile);
-      const activePlan = normalizeRoutinePlanForProfile(profile, state.routinePlan);
-      const isProfileRoutine = hasProfileRoutineScheme(profile);
-      const isSimpleGeneral = !isProfileRoutine && !state.generalAdvancedSettings;
+      const activePlan = normalizeRoutinePlanForProfile(profile, todayValues.todayRoutinePlan || state.routinePlan);
+      const isSimpleGeneral = !shouldUseDetailedRoutineControls(profile, state.generalAdvancedSettings);
       const selectWrap = planSelect.closest(".today-quick-routine-selects");
       const planItems = isSimpleGeneral
         ? [{ value: activePlan, label: "기본 루틴" }]
         : getRoutinePlanItemsForProfile(profile);
       renderTodayQuickSelectOptions(planSelect, planItems, activePlan);
-      const hidePlan = isSimpleGeneral || !state.generalAdvancedSettings;
-      planSelect.disabled = true;
+      const hidePlan = isSimpleGeneral;
+      planSelect.disabled = isSimpleGeneral;
       planSelect.classList.toggle("hidden", hidePlan);
       selectWrap?.classList.toggle("simple", hidePlan);
 
-      const sessionItems = getTodayQuickRoutineItems();
+      const sessionItems = getTodayQuickRoutineItems({
+        ...todayValues,
+        todayRoutinePlan: activePlan
+      });
       const session = sessionItems.some(item => item.value === todayValues.todayRoutineSession)
         ? todayValues.todayRoutineSession
         : (sessionItems.find(item => item.value !== "REST") ?? sessionItems[0])?.value;
@@ -21735,10 +21807,15 @@ Notes:
     function syncTodayQuickProfileControls(todayValues = getEffectiveTodayCalculationValues()){
       const profileSelect = document.getElementById("todayQuickExerciseProfile");
       const sessionSelect = document.getElementById("todayQuickProfileSession");
+      const profileLabel = document.getElementById("todayQuickRoutineProfileLabel");
       if (!profileSelect || !sessionSelect) return;
       const profile = normalizeExerciseProfile(todayValues.todayExerciseProfile);
       const session = normalizeProfileSessionForProfile(todayValues.todayProfileSession, profile);
+      if (profileLabel) profileLabel.textContent = getExerciseProfileLabel(profile) || profile;
       renderTodayQuickSelectOptions(profileSelect, getExerciseProfileOptionItems(), profile);
+      profileSelect.disabled = true;
+      profileSelect.setAttribute("aria-disabled", "true");
+      profileSelect.title = "운동 프로필은 Settings의 기본 운동 프로필에서 바꿉니다.";
       renderTodayQuickSelectOptions(sessionSelect, getProfileSessionOptionItems(profile), session);
     }
 
@@ -21955,16 +22032,21 @@ Notes:
       const profile = normalizeExerciseProfile(currentValues.todayExerciseProfile || state.exerciseProfile);
       const normalizedPlan = normalizeRoutinePlanForProfile(profile, nextPlan);
       if (!normalizedPlan || !isRoutinePlanAllowedForAnyProfile(normalizedPlan)) return;
-      state.routinePlan = normalizedPlan;
-      const items = getRoutineItemsForProfile(profile, {
-        advanced: state.generalAdvancedSettings,
-        routinePlan: state.routinePlan
+      const detailedRoutineControls = shouldUseDetailedRoutineControls(profile, state.generalAdvancedSettings);
+      const defaultRoutine = getDefaultRoutineSessionForProfile(profile, {
+        advanced: detailedRoutineControls,
+        routinePlan: normalizedPlan
       });
-      const entry = items.find(item => item.value !== "REST") || items[0];
+      const items = getRoutineItemsForProfile(profile, {
+        advanced: detailedRoutineControls,
+        routinePlan: normalizedPlan
+      });
+      const entry = items.find(item => item.value === defaultRoutine) || items.find(item => item.value !== "REST") || items[0];
       if (entry) {
         setTodayCalculationDraftValues({
           todayExerciseProfile: profile,
-          ...getRoutineItemTodayDraftDefaults(entry, profile)
+          todayRoutinePlan: normalizedPlan,
+          ...getRoutineItemTodayDraftDefaults(entry, profile, { routinePlan: normalizedPlan })
         });
       }
       const focusId = event?.currentTarget?.id;
@@ -21976,33 +22058,25 @@ Notes:
       if (!nextRoutine) return;
       const currentValues = getEffectiveTodayCalculationValues();
       const profile = normalizeExerciseProfile(currentValues.todayExerciseProfile);
+      const routinePlan = normalizeRoutinePlanForProfile(profile, currentValues.todayRoutinePlan || state.routinePlan);
       const entry = getRoutineItemsForProfile(profile, {
-        advanced: state.generalAdvancedSettings,
-        routinePlan: state.routinePlan
+        advanced: shouldUseDetailedRoutineControls(profile, state.generalAdvancedSettings),
+        routinePlan
       }).find(item => item.value === nextRoutine);
-      const nextValues = getRoutineItemTodayDraftDefaults(entry, profile);
+      const nextValues = getRoutineItemTodayDraftDefaults(entry, profile, { routinePlan });
       if (!Object.keys(nextValues).length) return;
-      setTodayCalculationDraftValues(nextValues);
+      setTodayCalculationDraftValues({
+        todayExerciseProfile: profile,
+        todayRoutinePlan: routinePlan,
+        ...nextValues
+      });
       const focusId = event?.currentTarget?.id;
       renderTodayValueChange({ focusId });
     }
 
     function handleTodayQuickExerciseProfileChange(event){
-      const nextProfile = normalizeExerciseProfile(event?.currentTarget?.value);
-      state.routinePlan = normalizeRoutinePlanForProfile(nextProfile, state.routinePlan);
-      const nextRoutine = getDefaultRoutineSessionForProfile(nextProfile, {
-        advanced: state.generalAdvancedSettings,
-        routinePlan: state.routinePlan
-      });
-      const entry = getRoutineItemsForProfile(nextProfile, {
-        advanced: state.generalAdvancedSettings,
-        routinePlan: state.routinePlan
-      }).find(item => item.value === nextRoutine);
-      setTodayCalculationDraftValues({
-        todayExerciseProfile: nextProfile,
-        ...getRoutineItemTodayDraftDefaults(entry, nextProfile)
-      });
       const focusId = event?.currentTarget?.id;
+      syncTodayQuickProfileControls(getEffectiveTodayCalculationValues());
       renderTodayValueChange({ focusId });
     }
 
@@ -22010,17 +22084,19 @@ Notes:
       const currentValues = getEffectiveTodayCalculationValues();
       const profile = normalizeExerciseProfile(currentValues.todayExerciseProfile);
       const nextSession = normalizeProfileSessionForProfile(event?.currentTarget?.value, profile);
+      const routinePlan = normalizeRoutinePlanForProfile(profile, currentValues.todayRoutinePlan || state.routinePlan);
       const nextRoutine = getRoutineSessionFromProfileSession(nextSession, profile, {
-        advanced: state.generalAdvancedSettings,
-        routinePlan: state.routinePlan
+        advanced: shouldUseDetailedRoutineControls(profile, state.generalAdvancedSettings),
+        routinePlan
       });
       const entry = getRoutineItemsForProfile(profile, {
-        advanced: state.generalAdvancedSettings,
-        routinePlan: state.routinePlan
+        advanced: shouldUseDetailedRoutineControls(profile, state.generalAdvancedSettings),
+        routinePlan
       }).find(item => item.value === nextRoutine);
       setTodayCalculationDraftValues({
         todayExerciseProfile: profile,
-        ...getRoutineItemTodayDraftDefaults(entry, profile)
+        todayRoutinePlan: routinePlan,
+        ...getRoutineItemTodayDraftDefaults(entry, profile, { routinePlan })
       });
       const focusId = event?.currentTarget?.id;
       renderTodayValueChange({ focusId });
@@ -24376,7 +24452,7 @@ Notes:
         weeklyTrainingDays: ids.weeklyTrainingDays.value,
         exerciseProfile: s.exerciseProfile,
         profileSession: s.profileSession,
-        routinePlan: state.routinePlan,
+        routinePlan: s.routinePlan,
         routine: s.routine,
         intensityOverride: s.intensityOverride,
         weightDuration: s.weightDuration,
@@ -30915,7 +30991,7 @@ Notes:
         generalLowDigestCarbs: !!ids.generalLowDigestCarbs.checked,
         exerciseProfile: todayValues.todayExerciseProfile || state.exerciseProfile,
         profileSession: todayValues.todayProfileSession || state.profileSession,
-        routinePlan: normalizeRoutinePlanForProfile(todayValues.todayExerciseProfile || state.exerciseProfile, state.routinePlan),
+        routinePlan: normalizeRoutinePlanForProfile(todayValues.todayExerciseProfile || state.exerciseProfile, todayValues.todayRoutinePlan || state.routinePlan),
         routine: todayValues.todayRoutineSession || DEFAULT_STATE.routine,
         intensityOverride: parseRecordDetailNumber(todayValues.todayIntensityOverride, DEFAULT_STATE.intensityOverride),
         weightDuration: parseRecordDetailNumber(todayValues.todayWeightDuration, DEFAULT_STATE.weightDuration),
@@ -30928,8 +31004,9 @@ Notes:
 
     function getRecordDetailRoutineItemsForBasis(basis){
       const safeBasis = basis || {};
-      return getRoutineItemsForProfile(safeBasis.exerciseProfile || state.exerciseProfile, {
-        advanced: !!safeBasis.generalAdvancedSettings,
+      const profile = safeBasis.exerciseProfile || state.exerciseProfile;
+      return getRoutineItemsForProfile(profile, {
+        advanced: shouldUseDetailedRoutineControls(profile, !!safeBasis.generalAdvancedSettings),
         routinePlan: safeBasis.routinePlan
       });
     }
@@ -30965,13 +31042,14 @@ Notes:
         : raw.homeInbody === true;
       const exerciseProfile = normalizeExerciseProfile(raw.exerciseProfile, fallback.exerciseProfile || DEFAULT_STATE.exerciseProfile);
       const routinePlan = normalizeRoutinePlanForProfile(exerciseProfile, raw.routinePlan || fallback.routinePlan);
+      const detailedRoutineControls = shouldUseDetailedRoutineControls(exerciseProfile, generalAdvancedSettings);
       const routineItems = getRecordDetailRoutineItemsForBasis({ mode, exerciseProfile, routinePlan, generalAdvancedSettings });
       const routine = routineItems.some(item => item.value === raw.routine)
         ? raw.routine
         : (routineItems.some(item => item.value === fallback.routine) ? fallback.routine : routineItems[0]?.value || DEFAULT_STATE.routine);
       const cardioType = isAllowedOption(raw.cardioType, Object.keys(CARDIO_TYPES)) ? raw.cardioType : fallback.cardioType;
       const profileSession = normalizeProfileSessionForSnapshot(raw.profileSession, exerciseProfile)
-        || deriveProfileSessionFromRoutine(exerciseProfile, routine, { advanced: generalAdvancedSettings, routinePlan });
+        || deriveProfileSessionFromRoutine(exerciseProfile, routine, { advanced: detailedRoutineControls, routinePlan });
       return {
         mode,
         goal,
@@ -35020,8 +35098,9 @@ Notes:
       ids.exerciseProfile?.addEventListener("change", () => {
         state.exerciseProfile = normalizeExerciseProfile(ids.exerciseProfile.value);
         state.routinePlan = normalizeRoutinePlanForProfile(state.exerciseProfile, state.routinePlan);
+        const detailedRoutineControls = shouldUseDetailedRoutineControls(state.exerciseProfile, state.generalAdvancedSettings);
         const nextRoutine = getDefaultRoutineSessionForProfile(state.exerciseProfile, {
-          advanced: state.generalAdvancedSettings,
+          advanced: detailedRoutineControls,
           routinePlan: state.routinePlan
         });
         setRoutineFromCurrentPlan(nextRoutine);
@@ -35032,7 +35111,7 @@ Notes:
       ids.profileSession?.addEventListener("change", () => {
         state.exerciseProfile = normalizeExerciseProfile(ids.exerciseProfile?.value || state.exerciseProfile);
         const nextRoutine = getRoutineSessionFromProfileSession(ids.profileSession.value, state.exerciseProfile, {
-          advanced: state.generalAdvancedSettings,
+          advanced: shouldUseDetailedRoutineControls(state.exerciseProfile, state.generalAdvancedSettings),
           routinePlan: state.routinePlan
         });
         if (nextRoutine) setRoutineFromCurrentPlan(nextRoutine);
@@ -36578,6 +36657,7 @@ Notes:
         todayActivityLevel: safeScenario.activityLevel,
         todayWorkType: safeScenario.workType,
         todayRoutineSession: safeScenario.routine,
+        todayRoutineExplicit: false,
         todayIntensityOverride: safeScenario.intensityOverride,
         todayWeightDuration: safeScenario.weightDuration,
         todayCardioType: safeScenario.cardioType,
@@ -36996,7 +37076,10 @@ Notes:
           assertTest(ids.homeInbody.checked === true, "home InBody toggle should not be reset by legacy general mode");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.routinePlan), "routine plan should stay mounted as an advanced training setting");
           assertTest(document.getElementById("settingsTrainingDefaultsHost").contains(ids.generalAdvancedSettings), "advanced training toggle should stay visible");
-          assertTest(!isVisibleInput(ids.routinePlan), "routine plan input should stay hidden while advanced training is off");
+          assertTest(isVisibleInput(ids.routinePlan), "routine plan input should remain user-facing for routine-based profiles");
+          assertTest(!document.getElementById("settingsTrainingDefaultsHost").contains(document.getElementById("todayRoutineAthleteField")), "Settings should not expose a separate default session picker beside weekday planning");
+          assertTest(document.getElementById("settingsTrainingDefaultsHost").closest(".settings-group").contains(document.getElementById("routineWeekdaySchedulePanel")), "Settings should keep weekday session planning as the default-session source");
+          assertTest(document.getElementById("intensityField").classList.contains("hidden"), "manual intensity slider should stay hidden while advanced training is off");
           assertTest(isVisibleInput(ids.generalAdvancedSettings), "advanced training toggle should be user-facing in Settings");
         }));
 
@@ -37013,7 +37096,7 @@ Notes:
           assertTest(!!document.getElementById("todayQuickIntensityOverride"), "intensity slider should be mounted in Today quick edit");
           assertTest(isVisibleInput(ids.workAdj), "work adjustment slider should be user-facing in Today quick edit");
           assertTest(isVisibleInput(document.getElementById("todayQuickIntensityOverride")), "intensity slider should be user-facing when advanced training is enabled");
-          assertTest(document.getElementById("todayQuickIntensityOut")?.value === "0.77", "Today intensity output should mirror the current slider value");
+          assertTest(document.getElementById("todayQuickIntensityOut")?.value === "0.77", "Today intensity output should mirror the current advanced Settings value until a Today session is explicitly changed");
           assertTest(isVisibleInput(document.getElementById("todayQuickRoutinePlan")), "routine plan should be user-facing when advanced training is enabled");
         }));
 
@@ -37034,12 +37117,12 @@ Notes:
           setActiveTab("today");
           render();
           setTodayQuickEditOpen(true);
-          assertClose(result.s.intensityOverride, 0.70, 0.0001, "simple training state should use the general routine base intensity");
+          assertClose(result.s.intensityOverride, 0.70, 0.0001, "simple default training state should keep the general routine base intensity");
           assertClose(result.xw, 0.71, 0.0001, "applied Xw may still include weekly training adjustment");
           assertClose(snapshot.intensityOverride, 0.70, 0.0001, "goalSnapshot should not copy the hidden global slider value");
           assertClose(detailBasis.intensityOverride, 0.70, 0.0001, "record detail basis should not copy the hidden global slider value");
-          assertTest(!isVisibleInput(document.getElementById("todayQuickRoutinePlan")), "simple Today quick edit should hide routine plan");
-          assertTest(isVisibleInput(document.getElementById("todayQuickRoutineSession")), "simple Today quick edit should keep only exercise/rest session visible");
+          assertTest(isVisibleInput(document.getElementById("todayQuickRoutinePlan")), "simple Today quick edit should keep routine plan visible for routine-based profiles");
+          assertTest(isVisibleInput(document.getElementById("todayQuickRoutineSession")), "simple Today quick edit should keep routine session visible");
           assertTest(!isVisibleInput(document.getElementById("todayQuickIntensityOverride")), "simple Today quick edit should hide manual intensity slider");
         }));
 
@@ -45575,6 +45658,48 @@ Notes:
           if (ids.expertLbmAlpha) assertTest(!panel.contains(ids.expertLbmAlpha), "quick edit should not include expert alpha input");
         }));
 
+        results.push(runNamedTest("C4.2 profile is Settings-owned while Today routine plan and session are date-owned", () => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          state.mode = "general";
+          state.exerciseProfile = "bodybuilding";
+          state.generalAdvancedSettings = false;
+          ids.generalAdvancedSettings.checked = false;
+          state.routinePlan = "ppl_ul";
+          ids.routinePlan.value = "ppl_ul";
+          state.routine = "PUSH";
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
+          render();
+          setTodayQuickEditOpen(true);
+          const profileSelect = document.getElementById("todayQuickExerciseProfile");
+          const planSelect = document.getElementById("todayQuickRoutinePlan");
+          const sessionSelect = document.getElementById("todayQuickRoutineSession");
+          const profileField = profileSelect.closest(".field");
+          assertTest(profileSelect.disabled === true, "Today exercise profile compatibility select should be locked to Settings");
+          assertTest(profileField?.classList.contains("hidden"), "Today should not spend a separate card on the Settings-owned profile");
+          assertTest(document.getElementById("todayQuickRoutineProfileLabel")?.textContent === getExerciseProfileLabel("bodybuilding"), "Today routine/session label should show the current profile context");
+          assertTest(profileSelect.value === "bodybuilding", "Today exercise profile compatibility value should follow Settings profile");
+          assertTest(planSelect.disabled === false && !planSelect.classList.contains("hidden"), "Today routine plan should be editable for a routine-based profile");
+          setQuickSelectValue("todayQuickRoutinePlan", "split5");
+          let values = getEffectiveTodayCalculationValues();
+          let result = calculate();
+          assertTest(state.routinePlan === "ppl_ul", "Today routine plan edit should not mutate Settings routine plan");
+          assertTest(values.todayRoutinePlan === "split5", "Today routine plan should be stored for the date");
+          assertTest(result.s.routinePlan === "split5", "Today routine plan should reach calculate().s");
+          assertTest(Array.from(sessionSelect.options).some(option => option.value === "ARM"), "Today split5 session list should expose bodybuilding split sessions");
+          setQuickSelectValue("todayQuickRoutineSession", "ARM");
+          values = getEffectiveTodayCalculationValues();
+          result = calculate();
+          assertTest(values.todayRoutineSession === "ARM", "Today session should be stored for the date");
+          assertTest(result.s.routine === "ARM", "Today session should reach calculate().s");
+
+          setQuickSelectValue("todayQuickExerciseProfile", "running");
+          values = getEffectiveTodayCalculationValues();
+          assertTest(values.todayExerciseProfile === "bodybuilding", "programmatic Today profile changes should not override Settings profile");
+          assertTest(profileSelect.value === "bodybuilding", "locked hidden Today profile select should snap back to Settings profile");
+        }));
+
         results.push(runNamedTest("C4.2 calculation weight edit recalculates without changing Settings default", () => {
           setActiveTab("today");
           setValidTodayBalanceTestInputs();
@@ -45823,13 +45948,13 @@ Notes:
           const values = getEffectiveTodayCalculationValues();
           const result = calculate();
           const snapshot = buildGoalSnapshotFromCurrentState(result, "basic_routine_session_audit");
-          assertClose(values.todayIntensityOverride, 0.70, 0.0001, "basic exercise should store the general exercise xw, not the hidden Settings slider");
+          assertClose(values.todayIntensityOverride, 0.80, 0.0001, "routine-based basic exercise should store the selected session xw, not the hidden Settings slider");
           assertClose(values.todayWeightDuration, 55, 0.0001, "basic exercise should reset duration to Settings default");
-          assertClose(result.s.intensityOverride, 0.70, 0.0001, "basic exercise should pass general xw to calculate().s");
+          assertClose(result.s.intensityOverride, 0.80, 0.0001, "basic exercise should pass selected session xw to calculate().s");
           assertClose(result.s.weightDuration, 55, 0.0001, "basic exercise should pass Settings default duration to calculate().s");
-          assertClose(snapshot.intensityOverride, 0.70, 0.0001, "basic exercise should save the general xw instead of hidden Settings slider");
+          assertClose(snapshot.intensityOverride, 0.80, 0.0001, "basic exercise should save selected session xw instead of hidden Settings slider");
           assertClose(snapshot.weightDuration, 55, 0.0001, "basic exercise should save Settings default duration");
-          assertClose(result.xw, 0.70, 0.0001, "basic exercise should calculate neutral weekly xw as 0.70");
+          assertClose(result.xw, 0.80, 0.0001, "basic exercise should calculate neutral weekly xw from the selected session");
         }));
 
         results.push(runNamedTest("C4.2 routine draft fallback repairs missing intensity only", () => {
@@ -45860,8 +45985,8 @@ Notes:
           ids.intensityOverride.value = "0.69";
           todayCalculationDrafts = { [getTodayDateString()]: { todayRoutineSession: "PUSH" } };
           values = getEffectiveTodayCalculationValues();
-          assertClose(values.todayIntensityOverride, 0.70, 0.0001, "basic partial draft should recover the general exercise xw");
-          assertClose(calculate().s.intensityOverride, 0.70, 0.0001, "basic partial draft should not leak the hidden Settings slider to calculate()");
+          assertClose(values.todayIntensityOverride, 0.80, 0.0001, "routine-based basic partial draft should recover the selected session xw");
+          assertClose(calculate().s.intensityOverride, 0.80, 0.0001, "basic partial draft should not leak the hidden Settings slider to calculate()");
         }));
 
         results.push(runNamedTest("C4.2 Settings routine plan refreshes Today session options", () => {
@@ -45908,8 +46033,8 @@ Notes:
           setTodayQuickEditOpen(true);
           const generalPlan = document.getElementById("todayQuickRoutinePlan");
           const generalSession = document.getElementById("todayQuickRoutineSession");
-          assertTest(generalPlan.disabled === true, "general basic mode should keep routine plan fixed");
-          assertTest(generalPlan.classList.contains("hidden"), "general basic mode should hide routine plan and show only exercise/rest");
+          assertTest(generalPlan.disabled === false, "routine-based profiles should allow Today routine plan edits even when advanced settings are off");
+          assertTest(!generalPlan.classList.contains("hidden"), "routine-based profiles should keep Today routine plan visible");
           assertTest(Array.from(generalSession.options).some(option => option.value === "REST"), "general basic mode should offer rest session");
           assertTest(Array.from(generalSession.options).some(option => option.value === "PUSH"), "general basic mode should offer training session");
           setQuickValue("todayQuickWeightDuration", "65");
@@ -45931,7 +46056,7 @@ Notes:
           setTodayQuickEditOpen(true);
           const expertPlan = document.getElementById("todayQuickRoutinePlan");
           const expertSession = document.getElementById("todayQuickRoutineSession");
-          assertTest(expertPlan.disabled === true, "advanced settings should keep routine plan as Settings default in Today");
+          assertTest(expertPlan.disabled === false, "advanced settings should allow Today routine plan edits without mutating Settings");
           assertTest(expertSession.options.length >= ROUTINE_SCHEMES.ppl_ul.items.length, "advanced settings should show plan session options");
           setQuickValue("todayQuickWeightDuration", "70");
           setQuickSelectValue("todayQuickRoutineSession", "REST");
@@ -53993,8 +54118,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-AP";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-AP whole-stage evidence boundary audit + v8.0-AO profile routine surface audit + v8.0-AL targeted stress mixed maintain re-audit + v8.0-AK full Cartesian exact-range plan executor + v8.0-AJ full Cartesian next-shard planner + v8.0-AI full Cartesian shard coverage ledger + v8.0-AH profile-owned visual QA evidence realignment + v8.0-AG profile routine ownership realignment + v8.0-AF shard batch orchestration pilot + v8.0-AE shard manifest integrity and analyzer + v8.0-AD deterministic full Cartesian shard pilot + v8.0-AC full Cartesian execution contract + v8.0-AB post-wiring production visual QA + v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session derived-field snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-AQ";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-AQ profile routine input ownership realignment + v8.0-AP whole-stage evidence boundary audit + v8.0-AO profile routine surface audit + v8.0-AL targeted stress mixed maintain re-audit + v8.0-AK full Cartesian exact-range plan executor + v8.0-AJ full Cartesian next-shard planner + v8.0-AI full Cartesian shard coverage ledger + v8.0-AH profile-owned visual QA evidence realignment + v8.0-AG profile routine ownership realignment + v8.0-AF shard batch orchestration pilot + v8.0-AE shard manifest integrity and analyzer + v8.0-AD deterministic full Cartesian shard pilot + v8.0-AC full Cartesian execution contract + v8.0-AB post-wiring production visual QA + v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session derived-field snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_FULL_CARTESIAN_SHARD_REPORT_SCHEMA_VERSION = "v8_full_cartesian_shard_report_v1";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
@@ -57635,12 +57760,12 @@ Notes:
       const recentGateProbe = buildV8ProfileMacroCandidateV2RecentContextGateProbe();
       const scoreCoachProbe = buildV8ProfileMacroCandidateV2ScoreCoachProbe();
       const hasExerciseProfileInput = hasV8OwnContractKey(ids, "exerciseProfile")
-        || hasV8OwnContractKey(ids, "todayExerciseProfile")
         || hasV8OwnContractKey(ids, "settingsExerciseProfile");
       const hasProfileSessionInput = hasV8OwnContractKey(ids, "profileSession")
         || hasV8OwnContractKey(ids, "todayProfileSession")
         || hasV8OwnContractKey(ids, "settingsProfileSession");
-      const hasTodayDraftProfileFields = TODAY_CALCULATION_DRAFT_FIELDS.includes("todayExerciseProfile")
+      const hasTodayDraftRoutineFields = TODAY_CALCULATION_DRAFT_FIELDS.includes("todayRoutinePlan")
+        && TODAY_CALCULATION_DRAFT_FIELDS.includes("todayRoutineSession")
         && TODAY_CALCULATION_DRAFT_FIELDS.includes("todayProfileSession");
       const hasTargetRateCandidateDeltaContract = rateProbe.outputHasCandidateV2Model
         && rateProbe.outputHasProfileTargetDeltaKcal
@@ -57702,14 +57827,14 @@ Notes:
       const hasTargetRateSignal = (summary.targetRateContractRequiredCount || 0) > 0;
       const contracts = [
         makeV8ProfileMacroCandidateV2ContractItem({
-          key: "Settings/Today exerciseProfile input",
+          key: "Settings-owned exerciseProfile input",
           area: "settings_today_input",
           present: hasExerciseProfileInput,
           currentFallback: hasExerciseProfileInput ? "profile_input_present" : "report_axis_only",
           currentBehavior: hasExerciseProfileInput
-            ? "A production exerciseProfile input key is present."
-            : "exerciseProfile exists only in v8 report case definitions; Settings/Today ids do not expose it as a user input.",
-          requiredBeforeProduction: "Add a user-facing exercise profile input with defaults, validation, draft persistence, and calculation ownership.",
+            ? "A production Settings-owned exerciseProfile input key is present; Today displays it read-only."
+            : "exerciseProfile exists only in v8 report case definitions; Settings ids do not expose it as a user input.",
+          requiredBeforeProduction: "Add a user-facing Settings exercise profile input with defaults, validation, and calculation ownership.",
           userImpactRisk: "Users could receive a profile-specific macro result without ever selecting the profile that justifies it."
         }),
         makeV8ProfileMacroCandidateV2ContractItem({
@@ -57724,15 +57849,15 @@ Notes:
           userImpactRisk: "If profileSession becomes a separate user-facing shortcut, a running or mixed user can see calculations driven by a fallback lifting routine rather than the actual session."
         }),
         makeV8ProfileMacroCandidateV2ContractItem({
-          key: "Today calculation draft profile/session persistence",
+          key: "Today calculation draft routine/session persistence",
           area: "settings_today_input",
-          present: hasTodayDraftProfileFields,
-          currentFallback: hasTodayDraftProfileFields ? "draft_fields_present" : "draft_drops_profile_session",
-          currentBehavior: hasTodayDraftProfileFields
-            ? "Today calculation drafts include profile/session fields."
-            : "TODAY_CALCULATION_DRAFT_FIELDS does not include profile/session fields.",
-          requiredBeforeProduction: "Persist profile/session draft fields so the next calculation and record confirmation use the same profile context.",
-          userImpactRisk: "The visible profile/session choice could disappear between Today edits and saved Records."
+          present: hasTodayDraftRoutineFields,
+          currentFallback: hasTodayDraftRoutineFields ? "routine_draft_fields_present" : "draft_drops_routine_session",
+          currentBehavior: hasTodayDraftRoutineFields
+            ? "Today calculation drafts include routine plan/session fields and the derived profileSession field."
+            : "TODAY_CALCULATION_DRAFT_FIELDS does not include routine plan/session fields.",
+          requiredBeforeProduction: "Persist Today-owned routine plan/session draft fields while keeping exerciseProfile owned by Settings.",
+          userImpactRisk: "The visible Today routine/session choice could disappear between Today edits and saved Records."
         }),
         makeV8ProfileMacroCandidateV2ContractItem({
           key: "buildGoalTargetRateContext.profileCandidateDelta",
@@ -58486,7 +58611,10 @@ Notes:
       const profileConfig = getProfileRoutineConfig(safeProfile);
       const planOptions = getRoutinePlanItemsForProfile(safeProfile);
       const defaultPlan = normalizeRoutinePlanForProfile(safeProfile, EXERCISE_PROFILE_OPTIONS[safeProfile]?.defaultRoutinePlan || DEFAULT_STATE.routinePlan);
-      const basicItems = getRoutineItemsForProfile(safeProfile, { advanced: false, routinePlan: defaultPlan });
+      const basicItems = getRoutineItemsForProfile(safeProfile, {
+        advanced: shouldUseDetailedRoutineControls(safeProfile, false),
+        routinePlan: defaultPlan
+      });
       const findings = [];
       const planReports = planOptions.map(plan => {
         const planKey = plan.value;
@@ -58558,11 +58686,9 @@ Notes:
         expectedPlans.forEach(plan => {
           if (!planKeys.includes(plan)) findings.push(`bodybuilding_missing_legacy_plan:${plan}`);
         });
-        const expectedBasic = ["REST", "PUSH"];
-        expectedBasic.forEach(value => {
-          if (!basicSessionValues.includes(value)) findings.push(`bodybuilding_basic_missing:${value}`);
+        ["REST", "PUSH", "PULL", "LEGS", "UPPER", "LOWER"].forEach(value => {
+          if (!basicSessionValues.includes(value)) findings.push(`bodybuilding_basic_missing_legacy_session:${value}`);
         });
-        if (basicSessionValues.some(value => !expectedBasic.includes(value))) findings.push("bodybuilding_basic_has_non_general_session");
       } else {
         if (!profileConfig) findings.push("non_bodybuilding_profile_config_missing");
         if (planKeys.length < 2) findings.push("non_bodybuilding_plan_count_too_thin");
@@ -58637,7 +58763,8 @@ Notes:
           followupProfileCount: profiles.filter(item => item.status !== "pass").length,
           findingCount,
           bodybuildingLegacyPlanPreserved: Object.keys(ROUTINE_SCHEMES).every(plan => bodybuilding?.planKeys.includes(plan)),
-          bodybuildingBasicGeneralOnly: bodybuilding?.basicSessionValues.every(value => ["REST", "PUSH"].includes(value)) === true,
+          bodybuildingBasicLegacySessionsPreserved: ["REST", "PUSH", "PULL", "LEGS", "UPPER", "LOWER"].every(value => bodybuilding?.basicSessionValues.includes(value)),
+          bodybuildingBasicGeneralOnly: false,
           nonBodybuildingProfileOwnedPassCount: profileOwnedPassCount,
           nonBodybuildingExpectedCount: nonBodybuildingProfiles.length,
           runningCardioDefaultsOwned: profiles.find(item => item.profile === "running")?.findings.includes("running_defaults_not_cardio_owned") === false,
@@ -59952,25 +60079,26 @@ Notes:
       state.generalLowDigestCarbs = !!ids.generalLowDigestCarbs?.checked;
       if (ids.exerciseProfile) ids.exerciseProfile.value = profile;
       if (ids.routinePlan) setSelectOptions(ids.routinePlan, getRoutinePlanItemsForProfile(profile), routinePlan);
+      const detailedRoutineControls = shouldUseDetailedRoutineControls(profile, state.generalAdvancedSettings);
       const routineItems = getRoutineItemsForProfile(profile, {
-        advanced: state.generalAdvancedSettings,
+        advanced: detailedRoutineControls,
         routinePlan
       });
       const requestedRoutine = typeof weightCombo.routine === "string" ? weightCombo.routine : "";
       const routine = routineItems.some(item => item.value === requestedRoutine)
         ? requestedRoutine
         : getDefaultRoutineSessionForProfile(profile, {
-          advanced: state.generalAdvancedSettings,
+          advanced: detailedRoutineControls,
           routinePlan
         });
       state.routine = routine;
       state.profileSession = deriveProfileSessionFromRoutine(profile, routine, {
-        advanced: state.generalAdvancedSettings,
+        advanced: detailedRoutineControls,
         routinePlan
       });
       if (ids.profileSession) state.profileSession = syncProfileSessionSelect(ids.profileSession, profile, state.profileSession);
       const intensity = Number(weightCombo.intensityOverride);
-      state.intensityOverride = Number.isFinite(intensity) ? intensity : getSettingsDefaultTodayIntensityOverride(routine, profile);
+      state.intensityOverride = Number.isFinite(intensity) ? intensity : getSettingsDefaultTodayIntensityOverride(routine, profile, { routinePlan });
       if (ids.intensityOverride) ids.intensityOverride.value = String(state.intensityOverride);
       if (ids.weightDuration) ids.weightDuration.value = String(Math.max(0, Number(weightCombo.weightDuration) || 0));
     }
@@ -59982,12 +60110,14 @@ Notes:
       const profile = normalizeExerciseProfile(definition.exerciseProfile || "bodybuilding");
       const weightCombo = definition.weightCombo || {};
       const cardioCombo = definition.cardioCombo || {};
+      const routinePlan = normalizeRoutinePlanForProfile(profile, weightCombo.routinePlan || state.routinePlan);
       todayCalculationDrafts[date] = normalizeTodayCalculationDraft({
         todayExerciseProfile: profile,
+        todayRoutinePlan: routinePlan,
         todayRoutineSession: weightCombo.routine,
         todayProfileSession: deriveProfileSessionFromRoutine(profile, weightCombo.routine, {
-          advanced: !!ids.generalAdvancedSettings?.checked,
-          routinePlan: weightCombo.routinePlan || state.routinePlan
+          advanced: shouldUseDetailedRoutineControls(profile, !!ids.generalAdvancedSettings?.checked),
+          routinePlan
         }),
         todayIntensityOverride: Number(weightCombo.intensityOverride) || 0,
         todayWeightDuration: Math.max(0, Number(weightCombo.weightDuration) || 0),
@@ -60393,6 +60523,7 @@ Notes:
               "9-10 profile formula approval preflight is report-only; it confirms code/numerical/surface evidence is ready for an explicit approval decision while keeping the preflight boundary separate from production application.",
               "9-11 profile formula approval decision approves candidate-v8-profile-macro-v2-linked-target-v0 and v8.0-AA applies active runtime target-delta cases to production targetCal.",
               "8-2 profileRoutineSurfaceAudit checks every exercise profile's routine plan/session/default structure so derived profileSession evidence cannot stand in for user-owned routine/session paths.",
+              "v8.0-AQ makes exercise profile Settings-owned, keeps Today routine plan/session date-owned, and requires bodybuilding basic mode to preserve legacy routine sessions instead of collapsing to generic REST/PUSH.",
               "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, or candidate-v8-profile-macro-v1 as the final v8 formula; candidate-v8-profile-macro-v2-linked-target-v0 is production-applied and post-wiring visually QA-complete for active target-delta Today/Records surfaces, but full Cartesian execution and full-V8 completion remain open."
             ]
           },
@@ -60508,6 +60639,7 @@ Notes:
               passProfileCount: profileRoutineSurfaceAudit.summary.passProfileCount,
               findingCount: profileRoutineSurfaceAudit.summary.findingCount,
               bodybuildingLegacyPlanPreserved: profileRoutineSurfaceAudit.summary.bodybuildingLegacyPlanPreserved,
+              bodybuildingBasicLegacySessionsPreserved: profileRoutineSurfaceAudit.summary.bodybuildingBasicLegacySessionsPreserved,
               bodybuildingBasicGeneralOnly: profileRoutineSurfaceAudit.summary.bodybuildingBasicGeneralOnly,
               nonBodybuildingProfileOwnedPassCount: profileRoutineSurfaceAudit.summary.nonBodybuildingProfileOwnedPassCount,
               nonBodybuildingExpectedCount: profileRoutineSurfaceAudit.summary.nonBodybuildingExpectedCount
@@ -60628,10 +60760,10 @@ Notes:
           assertTest(findInvalidCalibrationNumber(report).length === 0, "v8 runner report should not contain NaN or Infinity");
         }));
 
-        results.push(runNamedTest("v8.0-AC contract is preserved inside the v8.0-AP stage", () => {
+        results.push(runNamedTest("v8.0-AC contract is preserved inside the v8.0-AQ stage", () => {
           const report = runV8ScenarioRunner();
           const contract = report.fullCartesianExecutionContract;
-          assertTest(report.meta.version === "8.0-AP", "v8 runner version should advance to 8.0-AP");
+          assertTest(report.meta.version === "8.0-AQ", "v8 runner version should advance to 8.0-AQ");
           assertTest(contract?.meta?.stage === "8-2_full_cartesian_execution_contract_v0", "full Cartesian contract should identify the 8-2 execution-contract stage");
           assertTest(contract.meta.reportOnly === true, "full Cartesian contract should be report-only");
           assertTest(contract.meta.fullCartesianRun === false, "full Cartesian contract must not claim all combinations were executed");
@@ -60657,7 +60789,7 @@ Notes:
         results.push(runNamedTest("v8.0-AD shard executor is preserved with AE manifest-ready report fields", () => {
           const coherent = runV8FullCartesianShard({ startIndex: 0, caseLimit: 8, maxCases: 8 });
           assertTest(coherent?.meta?.stage === "8-2_full_cartesian_shard_execution_v0", "shard executor should identify the 8-2 shard execution stage");
-          assertTest(coherent.meta.version === "8.0-AP", "shard executor should use the AP version");
+          assertTest(coherent.meta.version === "8.0-AQ", "shard executor should use the AQ version");
           assertTest(coherent.meta.reportSchemaVersion === V8_FULL_CARTESIAN_SHARD_REPORT_SCHEMA_VERSION, "shard executor should expose the report schema version");
           assertTest(coherent.meta.boundedShardRun === true, "shard executor should identify bounded shard execution");
           assertTest(coherent.meta.fullCartesianRun === false, "bounded shard executor must not claim full Cartesian execution");
@@ -60707,10 +60839,10 @@ Notes:
           assertTest(strengthCase.input.todayRoutineRole === "profile_owned_session", "strength production routine should be marked as profile-owned");
         }));
 
-        results.push(runNamedTest("v8.0-AO profile routine surface audit is preserved inside the v8.0-AP stage", () => {
+        results.push(runNamedTest("v8.0-AQ profile routine input ownership preserves the AO surface audit", () => {
           const report = runV8ScenarioRunner();
           const audit = report.profileRoutineSurfaceAudit;
-          assertTest(report.meta.version === "8.0-AP", "v8 runner should expose the AP stage while preserving AO profile routine audit");
+          assertTest(report.meta.version === "8.0-AQ", "v8 runner should expose the AQ stage while preserving AO/AP audit layers");
           assertTest(audit?.meta?.stage === V8_PROFILE_ROUTINE_SURFACE_AUDIT_STAGE, "profile routine surface audit should identify its stage");
           assertTest(audit.meta.reportOnly === true, "profile routine surface audit should be report-only");
           assertTest(audit.meta.nonClaim.includes("does_not_replace_human_visual_review"), "profile routine audit should not replace human visual review");
@@ -60718,7 +60850,8 @@ Notes:
           assertTest(audit.summary.passProfileCount === audit.summary.profileCount, "every profile routine surface contract should pass structurally");
           assertTest(audit.summary.findingCount === 0, "profile routine surface audit should have no structural findings");
           assertTest(audit.summary.bodybuildingLegacyPlanPreserved === true, "bodybuilding should preserve legacy routine plans");
-          assertTest(audit.summary.bodybuildingBasicGeneralOnly === true, "bodybuilding basic mode should stay generic REST/PUSH only");
+          assertTest(audit.summary.bodybuildingBasicLegacySessionsPreserved === true, "bodybuilding basic mode should still expose legacy routine sessions");
+          assertTest(audit.summary.bodybuildingBasicGeneralOnly === false, "bodybuilding basic mode should no longer collapse to generic REST/PUSH only");
           assertTest(audit.summary.nonBodybuildingProfileOwnedPassCount === audit.summary.nonBodybuildingExpectedCount, "all non-bodybuilding profiles should use profile-owned sessions");
           const running = audit.profiles.find(item => item.profile === "running");
           const strength = audit.profiles.find(item => item.profile === "strength");
@@ -60734,10 +60867,10 @@ Notes:
           assertTest(findInvalidCalibrationNumber(audit).length === 0, "profile routine surface audit should not contain NaN or Infinity");
         }));
 
-        results.push(runNamedTest("v8.0-AP whole-stage evidence boundary audit keeps gates separated", () => {
+        results.push(runNamedTest("v8.0-AQ whole-stage evidence boundary audit keeps gates separated", () => {
           const report = runV8ScenarioRunner();
           const audit = report.wholeStageEvidenceBoundaryAudit;
-          assertTest(report.meta.version === "8.0-AP", "v8 runner should expose the AP whole-stage boundary audit");
+          assertTest(report.meta.version === "8.0-AQ", "v8 runner should expose the AQ stage while preserving the AP whole-stage boundary audit");
           assertTest(report.meta.wholeStageEvidenceBoundaryAuditStatus === "whole_stage_evidence_boundaries_passed_full_completion_still_open", "top-level status should keep full completion open after boundary pass");
           assertTest(audit?.meta?.stage === V8_WHOLE_STAGE_EVIDENCE_BOUNDARY_AUDIT_STAGE, "whole-stage evidence boundary audit should identify its stage");
           assertTest(audit.meta.reportOnly === true, "whole-stage boundary audit should be report-only");
@@ -60972,7 +61105,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-AP", "v8 runner version should advance to 8.0-AP");
+          assertTest(report.meta.version === "8.0-AQ", "v8 runner version should advance to 8.0-AQ");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -61122,7 +61255,7 @@ Notes:
 
         results.push(runNamedTest("v8.0-S protein guard resolution closes candidate-v2 production contract blockers", () => {
           const report = runV8ScenarioRunner();
-          assertTest(report.meta.version === "8.0-AP", "v8 runner version should advance to v8.0-AP");
+          assertTest(report.meta.version === "8.0-AQ", "v8 runner version should advance to v8.0-AQ");
           const contract = report.profileMacroCandidateV2Contract;
           assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v4_guard_resolution", "candidate-v2 contract should identify 9-8 guard resolution contract review");
           assertTest(contract.meta.reportOnly === true, "candidate-v2 contract should be report-only");
@@ -61149,9 +61282,9 @@ Notes:
 
           const keys = contract.contracts.map(item => item.key).join(" ");
           assertIncludesAll(keys, [
-            "Settings/Today exerciseProfile input",
+            "Settings-owned exerciseProfile input",
             "Settings/Today profileSession derived field",
-            "Today calculation draft profile/session persistence",
+            "Today calculation draft routine/session persistence",
             "buildGoalTargetRateContext.profileCandidateDelta",
             "normalizeGoalSnapshot.profileCandidateFields",
             "getGoalSnapshotSignature.profileCandidateFields",
@@ -61164,12 +61297,12 @@ Notes:
             "targetedStress.constraintOnlyTupleGuard"
           ], "candidate-v2 contract should list the app-wide rollout contracts");
 
-          const exerciseInput = contract.contracts.find(item => item.key === "Settings/Today exerciseProfile input");
-          assertTest(exerciseInput?.present === true && exerciseInput.productionBlocker === false, "exerciseProfile input should be present and not a blocker");
+          const exerciseInput = contract.contracts.find(item => item.key === "Settings-owned exerciseProfile input");
+          assertTest(exerciseInput?.present === true && exerciseInput.productionBlocker === false, "Settings-owned exerciseProfile input should be present and not a blocker");
           const sessionInput = contract.contracts.find(item => item.key === "Settings/Today profileSession derived field");
           assertTest(sessionInput?.present === true && sessionInput.productionBlocker === false, "derived profileSession field should be present and not a blocker");
-          const draft = contract.contracts.find(item => item.key === "Today calculation draft profile/session persistence");
-          assertTest(draft?.present === true && draft.productionBlocker === false, "Today draft profile/session persistence should be present");
+          const draft = contract.contracts.find(item => item.key === "Today calculation draft routine/session persistence");
+          assertTest(draft?.present === true && draft.productionBlocker === false, "Today draft routine/session persistence should be present");
           const rate = contract.contracts.find(item => item.key === "buildGoalTargetRateContext.profileCandidateDelta");
           assertTest(rate?.present === true && rate.productionBlocker === false, "target-rate candidate delta metadata should be present without applying production target delta");
           assertTest(rate.evidence.targetRateContractRequiredCount === report.profileMacroCandidateV2Comparison.summary.targetRateContractRequiredCount, "target-rate contract should reference candidate-v2 signal count");
@@ -61431,7 +61564,7 @@ Notes:
           const report = runV8ScenarioRunner();
           const approval = report.humanReviewNumericalApproval;
           const comparison = report.profileMacroCandidateV2Comparison;
-          assertTest(report.meta.version === "8.0-AP", "v8 runner should expose the AP stage while preserving the X numerical fix");
+          assertTest(report.meta.version === "8.0-AQ", "v8 runner should expose the AQ stage while preserving the X numerical fix");
           assertTest(approval?.meta?.stage === V8_HUMAN_REVIEW_NUMERICAL_APPROVAL_STAGE, "human-review numerical approval should identify the 8-3 stage");
           assertTest(approval.meta.reportOnly === true, "human-review numerical approval should be report-only");
           assertTest(approval.meta.productionFormulaChanged === false, "human-review numerical approval must not change production formulas");
@@ -61472,7 +61605,7 @@ Notes:
         results.push(runNamedTest("v8.0-Y profile formula approval preflight is ready but not approved or wired", () => {
           const report = runV8ScenarioRunner();
           const preflight = report.profileFormulaApprovalPreflight;
-          assertTest(report.meta.version === "8.0-AP", "v8 runner should expose the AP stage while preserving the Y preflight");
+          assertTest(report.meta.version === "8.0-AQ", "v8 runner should expose the AQ stage while preserving the Y preflight");
           assertTest(report.meta.profileFormulaApprovalPreflightStatus === "report_only_ready_for_explicit_formula_approval_decision_not_approved", "top-level meta should identify report-only preflight status");
           assertTest(preflight?.meta?.stage === V8_PROFILE_FORMULA_APPROVAL_PREFLIGHT_STAGE, "approval preflight should identify the 9-10 stage");
           assertTest(preflight.meta.reportOnly === true, "approval preflight should be report-only");
@@ -61515,7 +61648,7 @@ Notes:
         results.push(runNamedTest("v8.0-AB profile formula approval decision includes post-wiring visual QA evidence", () => {
           const report = runV8ScenarioRunner();
           const decision = report.profileFormulaApprovalDecision;
-          assertTest(report.meta.version === "8.0-AP", "v8 runner should expose the AP scenario version");
+          assertTest(report.meta.version === "8.0-AQ", "v8 runner should expose the AQ scenario version");
           assertTest(report.meta.profileMacroCandidateV2Status === "approved_applied_and_post_wiring_visual_qa_complete", "candidate-v2 status should include AB visual QA completion");
           assertTest(report.meta.profileFormulaApprovalDecisionStatus === "approved_applied_and_post_wiring_visual_qa_complete", "top-level meta should expose the AB approval decision status");
           assertTest(decision?.meta?.stage === V8_PROFILE_FORMULA_APPROVAL_DECISION_STAGE, "approval decision should identify the 9-11 stage");

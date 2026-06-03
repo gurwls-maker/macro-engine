@@ -23,7 +23,12 @@ const REQUIRED_MOBILE_CAPTURES = Object.freeze([
   "52_mobile_today_profile_candidate_v2_applied",
   "53_mobile_today_profile_candidate_v2_quick_open",
   "54_mobile_records_profile_candidate_v2_detail",
-  "56_mobile_records_profile_candidate_v2_basis_open"
+  "56_mobile_records_profile_candidate_v2_basis_open",
+  "62_mobile_today_profile_routine_bodybuilding_quick_open",
+  "63_mobile_today_profile_routine_powerbuilding_quick_open",
+  "64_mobile_today_profile_routine_strength_quick_open",
+  "65_mobile_today_profile_routine_running_quick_open",
+  "66_mobile_today_profile_routine_mixed_quick_open"
 ]);
 
 const REQUIRED_DESKTOP_CAPTURE_PREFIXES = Object.freeze([
@@ -36,7 +41,12 @@ const REQUIRED_DESKTOP_CAPTURE_PREFIXES = Object.freeze([
   "33_desktop_smart_restore",
   "49_desktop_today_profile_candidate_v2",
   "51_desktop_records_profile_candidate_v2",
-  "55_desktop_records_profile_candidate_v2_basis_open"
+  "55_desktop_records_profile_candidate_v2_basis_open",
+  "57_desktop_today_profile_routine_bodybuilding",
+  "58_desktop_today_profile_routine_powerbuilding",
+  "59_desktop_today_profile_routine_strength",
+  "60_desktop_today_profile_routine_running",
+  "61_desktop_today_profile_routine_mixed"
 ]);
 
 const POST_WIRING_PROFILE_CANDIDATE_CAPTURES = Object.freeze([
@@ -49,6 +59,59 @@ const POST_WIRING_PROFILE_CANDIDATE_CAPTURES = Object.freeze([
   "55_desktop_records_profile_candidate_v2_basis_open",
   "56_mobile_records_profile_candidate_v2_basis_open"
 ]);
+
+const PROFILE_ROUTINE_OWNERSHIP_CAPTURES = Object.freeze({
+  "57_desktop_today_profile_routine_bodybuilding_quick_open": {
+    exerciseProfile: "bodybuilding",
+    routinePlan: "split5",
+    routine: "ARM"
+  },
+  "58_desktop_today_profile_routine_powerbuilding_quick_open": {
+    exerciseProfile: "powerbuilding",
+    routinePlan: "powerbuilding_ppl",
+    routine: "powerbuilding_lower"
+  },
+  "59_desktop_today_profile_routine_strength_quick_open": {
+    exerciseProfile: "strength",
+    routinePlan: "strength_technique_deload",
+    routine: "strength_deload"
+  },
+  "60_desktop_today_profile_routine_running_quick_open": {
+    exerciseProfile: "running",
+    routinePlan: "running_speed",
+    routine: "running_interval"
+  },
+  "61_desktop_today_profile_routine_mixed_quick_open": {
+    exerciseProfile: "mixed",
+    routinePlan: "mixed_circuit",
+    routine: "mixed_recovery"
+  },
+  "62_mobile_today_profile_routine_bodybuilding_quick_open": {
+    exerciseProfile: "bodybuilding",
+    routinePlan: "split5",
+    routine: "ARM"
+  },
+  "63_mobile_today_profile_routine_powerbuilding_quick_open": {
+    exerciseProfile: "powerbuilding",
+    routinePlan: "powerbuilding_ppl",
+    routine: "powerbuilding_lower"
+  },
+  "64_mobile_today_profile_routine_strength_quick_open": {
+    exerciseProfile: "strength",
+    routinePlan: "strength_technique_deload",
+    routine: "strength_deload"
+  },
+  "65_mobile_today_profile_routine_running_quick_open": {
+    exerciseProfile: "running",
+    routinePlan: "running_speed",
+    routine: "running_interval"
+  },
+  "66_mobile_today_profile_routine_mixed_quick_open": {
+    exerciseProfile: "mixed",
+    routinePlan: "mixed_circuit",
+    routine: "mixed_recovery"
+  }
+});
 
 function readUInt32(buffer, offset){
   return buffer.readUInt32BE(offset);
@@ -266,15 +329,45 @@ function analyzeManifest(){
       if (!value) failures.push(`${name}:post-wiring-runtime:${key}`);
     });
   });
+  Object.entries(PROFILE_ROUTINE_OWNERSHIP_CAPTURES).forEach(([name, expected]) => {
+    const capture = captures.find(item => item.name === name);
+    if (!capture) {
+      failures.push(`missing-profile-routine-ownership:${name}`);
+      return;
+    }
+    const runtime = capture.runtime || {};
+    const runtimeChecks = {
+      appFrameFound: runtime.appFrameFound === true,
+      calculateFound: runtime.calculateFound === true,
+      calculable: runtime.isCalculable === true,
+      exerciseProfile: runtime.exerciseProfile === expected.exerciseProfile,
+      routinePlan: runtime.routinePlan === expected.routinePlan,
+      routine: runtime.routine === expected.routine,
+      todayProfileSelectHidden: runtime.todayProfileSelectHidden === true,
+      todayRoutineProfileLabelPresent: typeof runtime.todayRoutineProfileLabelText === "string" && runtime.todayRoutineProfileLabelText.length > 0,
+      todayRoutinePlanEditable: runtime.todayRoutinePlanDisabled === false,
+      todayRoutinePlanValue: runtime.todayRoutinePlanValue === expected.routinePlan,
+      todayRoutineSessionValue: runtime.todayRoutineSessionValue === expected.routine,
+      todayRoutineSessionOptionsIncludeRoutine: Array.isArray(runtime.todayRoutineSessionOptions)
+        && runtime.todayRoutineSessionOptions.includes(expected.routine),
+      settingsDoesNotExposeDefaultSessionPicker: runtime.settingsTrainingHostHasDefaultSessionPicker === false,
+      settingsKeepsWeekdaySchedule: runtime.settingsTrainingHostHasWeekdaySchedule === true
+    };
+    Object.entries(runtimeChecks).forEach(([key, value]) => {
+      if (!value) failures.push(`${name}:profile-routine-ownership:${key}`);
+    });
+  });
   const mobileCaptures = analyzedCaptures.filter(capture => capture.isMobile);
   const desktopCaptures = analyzedCaptures.filter(capture => !capture.isMobile);
   const postWiringProfileCandidateCaptures = analyzedCaptures.filter(capture => POST_WIRING_PROFILE_CANDIDATE_CAPTURES.includes(capture.name));
   const postWiringProfileCandidateAppliedCaptures = postWiringProfileCandidateCaptures.filter(capture => capture.runtime?.productionWiringApplied === true && capture.runtime?.productionTargetCalApplied === true);
-  if (captures.length < 55) failures.push(`capture-count:${captures.length}`);
+  const profileRoutineOwnershipCaptures = analyzedCaptures.filter(capture => Object.prototype.hasOwnProperty.call(PROFILE_ROUTINE_OWNERSHIP_CAPTURES, capture.name));
+  if (captures.length < 65) failures.push(`capture-count:${captures.length}`);
   if (mobileCaptures.length < REQUIRED_MOBILE_CAPTURES.length) failures.push(`mobile-capture-count:${mobileCaptures.length}`);
-  if (desktopCaptures.length < 37) failures.push(`desktop-capture-count:${desktopCaptures.length}`);
+  if (desktopCaptures.length < 42) failures.push(`desktop-capture-count:${desktopCaptures.length}`);
   if (postWiringProfileCandidateCaptures.length < POST_WIRING_PROFILE_CANDIDATE_CAPTURES.length) failures.push(`post-wiring-profile-candidate-capture-count:${postWiringProfileCandidateCaptures.length}`);
   if (postWiringProfileCandidateAppliedCaptures.length < POST_WIRING_PROFILE_CANDIDATE_CAPTURES.length) failures.push(`post-wiring-profile-candidate-applied-count:${postWiringProfileCandidateAppliedCaptures.length}`);
+  if (profileRoutineOwnershipCaptures.length < Object.keys(PROFILE_ROUTINE_OWNERSHIP_CAPTURES).length) failures.push(`profile-routine-ownership-capture-count:${profileRoutineOwnershipCaptures.length}`);
 
   return {
     generatedAt: manifest.generatedAt || null,
@@ -284,6 +377,7 @@ function analyzeManifest(){
     requiredMobileCaptureCount: REQUIRED_MOBILE_CAPTURES.length,
     postWiringProfileCandidateCaptureCount: postWiringProfileCandidateCaptures.length,
     postWiringProfileCandidateAppliedCaptureCount: postWiringProfileCandidateAppliedCaptures.length,
+    profileRoutineOwnershipCaptureCount: profileRoutineOwnershipCaptures.length,
     minMobileImageHeight: mobileCaptures.reduce((min, capture) => Math.min(min, capture.png?.height || 0), Infinity),
     maxMobileImageHeight: mobileCaptures.reduce((max, capture) => Math.max(max, capture.png?.height || 0), 0),
     minUniqueSampleColorCount: analyzedCaptures.reduce((min, capture) => Math.min(min, capture.png?.uniqueSampleColorCount || 0), Infinity),
@@ -305,6 +399,7 @@ if (require.main === module) {
       requiredMobileCaptureCount: report.requiredMobileCaptureCount,
       postWiringProfileCandidateCaptureCount: report.postWiringProfileCandidateCaptureCount,
       postWiringProfileCandidateAppliedCaptureCount: report.postWiringProfileCandidateAppliedCaptureCount,
+      profileRoutineOwnershipCaptureCount: report.profileRoutineOwnershipCaptureCount,
       minMobileImageHeight: Number.isFinite(report.minMobileImageHeight) ? report.minMobileImageHeight : null,
       maxMobileImageHeight: report.maxMobileImageHeight,
       minUniqueSampleColorCount: Number.isFinite(report.minUniqueSampleColorCount) ? report.minUniqueSampleColorCount : null,
