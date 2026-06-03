@@ -1,5 +1,13 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AS scenario runner training summary audit note
+
+- AS updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AS` after the AR Today training-summary UI change.
+- AS adds `profileTrainingSummaryAudit` at `profile_aware_today_training_summary_audit_v0`. The audit calls the actual Today summary formatter and compares each exemplar against the current routine/session definition labels, instead of hardcoding separate display-copy expectations.
+- The audit covers bodybuilding, powerbuilding, strength, running, and mixed exemplars. Running interval and mixed recovery are explicit non-rest `weightDuration=0` cases, so they must not collapse to the old generic weight-rest summary.
+- AS is report-only formatter evidence. It does not replace render-audit screenshots, human visual review, full 8-2 Cartesian execution, or full V8 completion.
+- Verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 29 cases / failed 0.
+
 # v8.0-AR profile-aware Today training summary note
 
 - AR updates the Today top calculation summary copy so profile-owned training sessions are not collapsed into a weight-training rest label.
