@@ -121,16 +121,29 @@ function main(){
   };
   const batchPath = path.join(batchDir, "batch_summary.json");
   fs.writeFileSync(batchPath, JSON.stringify(manifest, null, 2), "utf-8");
+  const ledgerScript = path.join(__dirname, "build_v8_full_cartesian_ledger.cjs");
+  const ledgerPath = path.join(batchDir, "coverage_ledger.json");
+  const ledger = runJson(process.execPath, [
+    ledgerScript,
+    `--dir=${path.relative(root, batchDir)}`,
+    `--out=${path.relative(root, ledgerPath)}`
+  ]);
   console.log(JSON.stringify({
     done: true,
     schemaVersion: manifest.schemaVersion,
     batchPath,
+    ledgerPath,
     shardRunCount: manifest.summary.shardRunCount,
     analyzerFailedCount: manifest.summary.analyzerFailedCount,
     decodedCaseCount: manifest.summary.decodedCaseCount,
     calculatedCaseCount: manifest.summary.calculatedCaseCount,
     constraintOnlyCaseCount: manifest.summary.constraintOnlyCaseCount,
     truncatedCount: manifest.summary.truncatedCount,
+    ledgerUniqueExecutedCaseCount: ledger.uniqueExecutedCaseCount,
+    ledgerGapCount: ledger.gapCount,
+    ledgerOverlapCount: ledger.overlapCount,
+    ledgerDirtySourceManifestCount: ledger.dirtySourceManifestCount,
+    ledgerFullCoverageCandidate: ledger.fullCoverageCandidate,
     fullCartesianRun: manifest.summary.fullCartesianRun,
     batchSha256: manifest.integrity.batchSha256
   }, null, 2));

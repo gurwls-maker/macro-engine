@@ -1,12 +1,23 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AI full Cartesian shard coverage ledger note
+
+- AI adds `tools/render_audit/build_v8_full_cartesian_ledger.cjs`.
+- The ledger recursively reads shard manifests and batch summaries, validates their hashes/schemas/non-claim flags, and merges coverage only from `executedEndExclusive`.
+- This prevents a limited pilot such as `--max-cases=8` from being read as coverage through the planned `endExclusive` boundary.
+- The ledger reports `gapCount`, `overlapCount`, `dirtySourceManifestCount`, `truncatedManifestCount`, `contiguousCoveredFromZero`, `uniqueExecutedCaseCount`, and `closureBlockers`.
+- `run_v8_full_cartesian_batch.cjs` now writes an ignored `coverage_ledger.json` checkpoint for each batch folder after shard analyzer validation.
+- `index.html` now reports scenario runner version `8.0-AI`.
+- Verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; `run_v8_full_cartesian_batch.cjs --shards=0,144 --shard-size=8 --max-cases=8 --label=ai_ledger_pilot` = 2 shards / decoded 16 / calculated 8 / constraint-only 8 / ledger unique 16 / gap 2 / dirty-source manifests 2 / fullCoverageCandidate false; truncation probe with `--shard-size=100000 --max-cases=8` = ledger unique 8 / truncated manifests 1 / first gap starts at 8; contiguous probe with `--shards=0,1 --shard-size=8` = ledger unique 16 / overlap 0 / first gap starts at 16; full internal suite = 99 suites / 1056 cases / failed 0.
+- This is a checkpoint/gap-tracking tool only. It does not execute all `80,621,568,000` rows or close `full_8_2_cartesian_execution` / `full_v8_completion`.
+
 # v8.0-AH profile-owned visual QA evidence realignment note
 
 - AH re-audit found that the AA/AB runtime and render-audit fixture still started the mixed candidate-v2 case from `routinePlan=ppl_ul` / `routine=PUSH`, relying on normalization to reach `profileSession=mixed_strength_cardio`.
 - That was the same class of shortcut the AG profile/session correction was meant to prevent: the evidence named the right derived session but did not prove the user-owned `exerciseProfile + routinePlan + routine` input.
 - The candidate-v2 runtime QA and render-audit payload now use `exerciseProfile=mixed`, `routinePlan=mixed_balanced`, and `routine=mixed_strength_cardio` directly.
 - `analyze_render_audit.cjs` now requires all 8 post-wiring candidate-v2 captures to report `routinePlan=mixed_balanced` and `routine=mixed_strength_cardio`, in addition to `exerciseProfile=mixed`, `profileSession=mixed_strength_cardio`, `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, and `recentGateStatus=applied`.
-- `index.html` now reports scenario runner version `8.0-AH`.
+- At AH, `index.html` reported scenario runner version `8.0-AH`; AI is now the current reported version.
 - Verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; render audit capture/analyzer = 55 captures / 8 post-wiring candidate-v2 captures / failed 0; full internal suite = 99 suites / 1056 cases / failed 0.
 - This is a visual/runtime evidence realignment only. It does not close `full_8_2_cartesian_execution` or `full_v8_completion`.
 
