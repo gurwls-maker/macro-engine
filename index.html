@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-AL targeted stress mixed maintain re-audit
+Stage: v8.0-AO profile routine surface audit
 Date: 2026-06-03
 Notes:
+- v8.0-AO adds a profile routine surface audit so every exercise profile plan/session/default path is checked before full V8 completion
 - v8.0-AL tightens targeted stress expectations so maintain mixed is counted as both a maintain profile-contract risk and a mixed candidate-v1 carb-floor unresolved case
 - v8.0-AK adds an exact-range plan executor so planner output can be executed without rerunning already-covered shard prefixes
 - v8.0-AJ adds a ledger-driven next-shard planner so future full Cartesian execution can choose uncovered ranges deterministically without treating partial shards as complete
@@ -53991,8 +53992,8 @@ Notes:
       });
     }
 
-    const V8_SCENARIO_RUNNER_VERSION = "8.0-AL";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-AL targeted stress mixed maintain re-audit + v8.0-AK full Cartesian exact-range plan executor + v8.0-AJ full Cartesian next-shard planner + v8.0-AI full Cartesian shard coverage ledger + v8.0-AH profile-owned visual QA evidence realignment + v8.0-AG profile routine ownership realignment + v8.0-AF shard batch orchestration pilot + v8.0-AE shard manifest integrity and analyzer + v8.0-AD deterministic full Cartesian shard pilot + v8.0-AC full Cartesian execution contract + v8.0-AB post-wiring production visual QA + v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session derived-field snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_VERSION = "8.0-AO";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-AO profile routine surface audit + v8.0-AL targeted stress mixed maintain re-audit + v8.0-AK full Cartesian exact-range plan executor + v8.0-AJ full Cartesian next-shard planner + v8.0-AI full Cartesian shard coverage ledger + v8.0-AH profile-owned visual QA evidence realignment + v8.0-AG profile routine ownership realignment + v8.0-AF shard batch orchestration pilot + v8.0-AE shard manifest integrity and analyzer + v8.0-AD deterministic full Cartesian shard pilot + v8.0-AC full Cartesian execution contract + v8.0-AB post-wiring production visual QA + v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session derived-field snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_FULL_CARTESIAN_SHARD_REPORT_SCHEMA_VERSION = "v8_full_cartesian_shard_report_v1";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
@@ -58473,6 +58474,184 @@ Notes:
       };
     }
 
+    const V8_PROFILE_ROUTINE_SURFACE_AUDIT_STAGE = "settings_today_profile_routine_surface_audit_v0";
+
+    function getV8RoutineEntryCardioDuration(entry){
+      return Number(entry?.cardioDefaults?.todayCardioDuration || 0);
+    }
+
+    function getV8RoutineSurfaceProfileAudit(profile){
+      const safeProfile = normalizeExerciseProfile(profile);
+      const profileConfig = getProfileRoutineConfig(safeProfile);
+      const planOptions = getRoutinePlanItemsForProfile(safeProfile);
+      const defaultPlan = normalizeRoutinePlanForProfile(safeProfile, EXERCISE_PROFILE_OPTIONS[safeProfile]?.defaultRoutinePlan || DEFAULT_STATE.routinePlan);
+      const basicItems = getRoutineItemsForProfile(safeProfile, { advanced: false, routinePlan: defaultPlan });
+      const findings = [];
+      const planReports = planOptions.map(plan => {
+        const planKey = plan.value;
+        const items = getRoutineItemsForProfile(safeProfile, { advanced: true, routinePlan: planKey });
+        const trainingItems = items.filter(item => item.value !== "REST");
+        const sessionReports = items.map(item => {
+          const derivedSession = deriveProfileSessionFromRoutine(safeProfile, item.value, {
+            advanced: true,
+            routinePlan: planKey
+          });
+          const cardioDuration = getV8RoutineEntryCardioDuration(item);
+          const defaultWeightDuration = getRoutineItemDefaultWeightDuration(item, DEFAULT_STATE.weightDuration);
+          const usesLegacyBodybuildingRoutineValue = safeProfile !== "bodybuilding"
+            && item.value !== "REST"
+            && Object.prototype.hasOwnProperty.call(BODYBUILDING_PROFILE_SESSION_BY_ROUTINE, item.value);
+          const profileSessionAllowed = isProfileSessionAllowedForProfile(derivedSession, safeProfile);
+          const issues = [];
+          if (!profileSessionAllowed) issues.push("derived_profile_session_not_allowed_for_profile");
+          if (usesLegacyBodybuildingRoutineValue) issues.push("non_bodybuilding_uses_bodybuilding_routine_value");
+          if (item.value === "REST" && defaultWeightDuration !== 0) issues.push("rest_default_weight_duration_not_zero");
+          if (item.value !== "REST" && safeProfile === "running" && defaultWeightDuration !== 0) issues.push("running_session_inherits_weight_duration");
+          if (item.value !== "REST" && safeProfile === "running" && !(cardioDuration > 0)) issues.push("running_session_missing_cardio_default");
+          if (item.value !== "REST" && ["strength", "powerbuilding"].includes(safeProfile) && !(defaultWeightDuration > 0)) issues.push("resistance_session_missing_weight_duration");
+          return {
+            value: item.value,
+            label: item.label || item.value,
+            xw: Number(item.xw),
+            profileSession: item.profileSession || derivedSession,
+            derivedProfileSession: derivedSession,
+            defaultWeightDuration,
+            cardioDefaultDuration: cardioDuration,
+            cardioDefaultType: item.cardioDefaults?.todayCardioType || null,
+            usesLegacyBodybuildingRoutineValue,
+            profileSessionAllowed,
+            issues
+          };
+        });
+        if (!items.some(item => item.value === "REST")) findings.push(`${planKey}:missing_rest_session`);
+        if (!trainingItems.length) findings.push(`${planKey}:missing_training_session`);
+        sessionReports.forEach(report => {
+          report.issues.forEach(issue => findings.push(`${planKey}/${report.value}:${issue}`));
+        });
+        return {
+          plan: planKey,
+          label: plan.label || planKey,
+          sessionCount: items.length,
+          trainingSessionCount: trainingItems.length,
+          sessionValues: items.map(item => item.value),
+          sessions: sessionReports
+        };
+      });
+
+      const planKeys = planOptions.map(item => item.value);
+      const allSessions = planReports.flatMap(plan => plan.sessions);
+      const allTrainingSessions = allSessions.filter(item => item.value !== "REST");
+      const basicSessionValues = basicItems.map(item => item.value);
+      const defaultSession = getDefaultRoutineSessionForProfile(safeProfile, { advanced: true, routinePlan: defaultPlan });
+      const defaultProfileSession = deriveProfileSessionFromRoutine(safeProfile, defaultSession, {
+        advanced: true,
+        routinePlan: defaultPlan
+      });
+
+      if (!planKeys.includes(defaultPlan)) findings.push("default_plan_missing_from_options");
+      if (!defaultSession || defaultSession === "REST") findings.push("default_training_session_missing");
+      if (!isProfileSessionAllowedForProfile(defaultProfileSession, safeProfile)) findings.push("default_profile_session_not_allowed");
+
+      if (safeProfile === "bodybuilding") {
+        const expectedPlans = Object.keys(ROUTINE_SCHEMES);
+        expectedPlans.forEach(plan => {
+          if (!planKeys.includes(plan)) findings.push(`bodybuilding_missing_legacy_plan:${plan}`);
+        });
+        const expectedBasic = ["REST", "PUSH"];
+        expectedBasic.forEach(value => {
+          if (!basicSessionValues.includes(value)) findings.push(`bodybuilding_basic_missing:${value}`);
+        });
+        if (basicSessionValues.some(value => !expectedBasic.includes(value))) findings.push("bodybuilding_basic_has_non_general_session");
+      } else {
+        if (!profileConfig) findings.push("non_bodybuilding_profile_config_missing");
+        if (planKeys.length < 2) findings.push("non_bodybuilding_plan_count_too_thin");
+        if (basicSessionValues.some(value => Object.prototype.hasOwnProperty.call(BODYBUILDING_PROFILE_SESSION_BY_ROUTINE, value) && value !== "REST")) {
+          findings.push("non_bodybuilding_basic_uses_bodybuilding_session");
+        }
+        if (!allTrainingSessions.length) findings.push("non_bodybuilding_training_sessions_missing");
+      }
+
+      if (safeProfile === "running") {
+        const runningTraining = allTrainingSessions.filter(item => item.derivedProfileSession.startsWith("running_"));
+        if (runningTraining.length < 4) findings.push("running_session_variety_too_thin");
+        if (!runningTraining.every(item => item.defaultWeightDuration === 0 && item.cardioDefaultDuration > 0)) {
+          findings.push("running_defaults_not_cardio_owned");
+        }
+      }
+      if (safeProfile === "strength") {
+        if (!allTrainingSessions.some(item => item.derivedProfileSession === "strength_heavy_lower")) findings.push("strength_missing_heavy_lower");
+        if (!allTrainingSessions.some(item => item.derivedProfileSession === "strength_deload")) findings.push("strength_missing_deload");
+      }
+      if (safeProfile === "powerbuilding") {
+        if (!allTrainingSessions.some(item => item.derivedProfileSession === "powerbuilding_upper")) findings.push("powerbuilding_missing_upper");
+        if (!allTrainingSessions.some(item => item.derivedProfileSession === "powerbuilding_lower")) findings.push("powerbuilding_missing_lower");
+      }
+      if (safeProfile === "mixed") {
+        const hasStrengthAndCardio = allTrainingSessions.some(item => item.defaultWeightDuration > 0 && item.cardioDefaultDuration > 0);
+        const hasCardioFocus = allTrainingSessions.some(item => item.derivedProfileSession === "mixed_cardio_focus");
+        const hasRecovery = allTrainingSessions.some(item => item.derivedProfileSession === "mixed_recovery");
+        if (!hasStrengthAndCardio) findings.push("mixed_missing_strength_cardio_combined_session");
+        if (!hasCardioFocus) findings.push("mixed_missing_cardio_focus_session");
+        if (!hasRecovery) findings.push("mixed_missing_recovery_session");
+      }
+
+      return {
+        profile: safeProfile,
+        label: getExerciseProfileLabel(safeProfile),
+        hasProfileRoutineScheme: hasProfileRoutineScheme(safeProfile),
+        defaultPlan,
+        defaultSession,
+        defaultProfileSession,
+        planCount: planKeys.length,
+        planKeys,
+        basicSessionValues,
+        basicUsesProfileOwnedSessions: safeProfile !== "bodybuilding" && basicSessionValues.every(value => value === "REST" || !Object.prototype.hasOwnProperty.call(BODYBUILDING_PROFILE_SESSION_BY_ROUTINE, value)),
+        planReports,
+        trainingSessionCount: allTrainingSessions.length,
+        findingCount: findings.length,
+        findings,
+        status: findings.length ? "needs_followup" : "pass"
+      };
+    }
+
+    function buildV8ProfileRoutineSurfaceAuditReport(){
+      const profiles = Object.keys(EXERCISE_PROFILE_OPTIONS).map(profile => getV8RoutineSurfaceProfileAudit(profile));
+      const findingCount = profiles.reduce((sum, item) => sum + item.findingCount, 0);
+      const nonBodybuildingProfiles = profiles.filter(item => item.profile !== "bodybuilding");
+      const profileOwnedPassCount = nonBodybuildingProfiles.filter(item => item.hasProfileRoutineScheme && item.basicUsesProfileOwnedSessions && item.findingCount === 0).length;
+      const bodybuilding = profiles.find(item => item.profile === "bodybuilding");
+      return {
+        meta: {
+          version: V8_SCENARIO_RUNNER_VERSION,
+          stage: V8_PROFILE_ROUTINE_SURFACE_AUDIT_STAGE,
+          reportOnly: true,
+          source: "settings_today_routine_plan_session_contract",
+          evidenceLevel: "internal_code_contract_plus_product_policy",
+          nonClaim: "does_not_replace_human_visual_review_or_full_v8_completion"
+        },
+        summary: {
+          profileCount: profiles.length,
+          expectedProfileCount: Object.keys(EXERCISE_PROFILE_OPTIONS).length,
+          passProfileCount: profiles.filter(item => item.status === "pass").length,
+          followupProfileCount: profiles.filter(item => item.status !== "pass").length,
+          findingCount,
+          bodybuildingLegacyPlanPreserved: Object.keys(ROUTINE_SCHEMES).every(plan => bodybuilding?.planKeys.includes(plan)),
+          bodybuildingBasicGeneralOnly: bodybuilding?.basicSessionValues.every(value => ["REST", "PUSH"].includes(value)) === true,
+          nonBodybuildingProfileOwnedPassCount: profileOwnedPassCount,
+          nonBodybuildingExpectedCount: nonBodybuildingProfiles.length,
+          runningCardioDefaultsOwned: profiles.find(item => item.profile === "running")?.findings.includes("running_defaults_not_cardio_owned") === false,
+          mixedCombinedCoveragePresent: profiles.find(item => item.profile === "mixed")?.findings.some(item => item.startsWith("mixed_missing_")) === false,
+          fullV8CompletionClosed: false
+        },
+        profiles,
+        openHumanReviewScope: [
+          "This report checks structural routine/session contracts in code.",
+          "It does not replace a human visual review of every Settings and Today quick-edit profile surface.",
+          "It does not close full 8-2 Cartesian execution or full V8 completion."
+        ]
+      };
+    }
+
     const V8_PAIRWISE_PROFILE_SESSION_ALLOWED_PROFILES = Object.freeze({
       rest: ["bodybuilding", "powerbuilding", "strength", "running", "mixed"],
       bodybuilding_push: ["bodybuilding"],
@@ -59822,6 +60001,7 @@ Notes:
           profileFormulaApprovalPreflight,
           profileFormulaUserFacingQa
         );
+        const profileRoutineSurfaceAudit = buildV8ProfileRoutineSurfaceAuditReport();
         const report = {
           meta: {
             version: V8_SCENARIO_RUNNER_VERSION,
@@ -59860,6 +60040,9 @@ Notes:
             humanReviewNumericalApprovalStatus: "report_only_18_of_18_numeric_gate_ready_not_formula_approval",
             profileFormulaApprovalPreflightStatus: "report_only_ready_for_explicit_formula_approval_decision_not_approved",
             profileFormulaApprovalDecisionStatus: "approved_applied_and_post_wiring_visual_qa_complete",
+            profileRoutineSurfaceAuditStatus: profileRoutineSurfaceAudit.summary.findingCount === 0
+              ? "structural_profile_routine_surface_contract_passed_human_review_still_open"
+              : "profile_routine_surface_followup_required",
             requiredRegressionIncluded: !!requiredCase,
             notes: [
               "This runner preserves the 9-4 report-only audit baseline while reporting the later AA production candidate-v2 wiring status separately.",
@@ -59883,6 +60066,7 @@ Notes:
               "8-3 human-review numerical approval gate is report-only; v8.0-X resolves the low_reliability_user fat-percent blocker inside the candidate-v2 linked-target feasibility layer, so 18 of 18 human-review cases pass the numeric gate without approving the formula.",
               "9-10 profile formula approval preflight is report-only; it confirms code/numerical/surface evidence is ready for an explicit approval decision while keeping the preflight boundary separate from production application.",
               "9-11 profile formula approval decision approves candidate-v8-profile-macro-v2-linked-target-v0 and v8.0-AA applies active runtime target-delta cases to production targetCal.",
+              "8-2 profileRoutineSurfaceAudit checks every exercise profile's routine plan/session/default structure so derived profileSession evidence cannot stand in for user-owned routine/session paths.",
               "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, or candidate-v8-profile-macro-v1 as the final v8 formula; candidate-v8-profile-macro-v2-linked-target-v0 is production-applied and post-wiring visually QA-complete for active target-delta Today/Records surfaces, but full Cartesian execution and full-V8 completion remain open."
             ]
           },
@@ -59992,6 +60176,16 @@ Notes:
               productionVisualQaCompleted: profileFormulaApprovalDecision.summary.productionVisualQaCompleted,
               fullV8Complete: profileFormulaApprovalDecision.summary.fullV8Complete
             },
+            profileRoutineSurfaceAudit: {
+              stage: profileRoutineSurfaceAudit.meta.stage,
+              profileCount: profileRoutineSurfaceAudit.summary.profileCount,
+              passProfileCount: profileRoutineSurfaceAudit.summary.passProfileCount,
+              findingCount: profileRoutineSurfaceAudit.summary.findingCount,
+              bodybuildingLegacyPlanPreserved: profileRoutineSurfaceAudit.summary.bodybuildingLegacyPlanPreserved,
+              bodybuildingBasicGeneralOnly: profileRoutineSurfaceAudit.summary.bodybuildingBasicGeneralOnly,
+              nonBodybuildingProfileOwnedPassCount: profileRoutineSurfaceAudit.summary.nonBodybuildingProfileOwnedPassCount,
+              nonBodybuildingExpectedCount: profileRoutineSurfaceAudit.summary.nonBodybuildingExpectedCount
+            },
             fullCartesianExecutionContract: {
               stage: fullCartesianExecutionContract.meta.stage,
               shardContractReady: fullCartesianExecutionContract.meta.shardContractReady,
@@ -60029,6 +60223,7 @@ Notes:
           humanReviewNumericalApproval,
           profileFormulaApprovalPreflight,
           profileFormulaApprovalDecision,
+          profileRoutineSurfaceAudit,
           fullCartesianExecutionContract,
           pairwiseStress,
           targetedStress,
@@ -60091,10 +60286,10 @@ Notes:
           assertTest(findInvalidCalibrationNumber(report).length === 0, "v8 runner report should not contain NaN or Infinity");
         }));
 
-        results.push(runNamedTest("v8.0-AC contract is preserved inside the v8.0-AL stage", () => {
+        results.push(runNamedTest("v8.0-AC contract is preserved inside the v8.0-AO stage", () => {
           const report = runV8ScenarioRunner();
           const contract = report.fullCartesianExecutionContract;
-          assertTest(report.meta.version === "8.0-AL", "v8 runner version should advance to 8.0-AL");
+          assertTest(report.meta.version === "8.0-AO", "v8 runner version should advance to 8.0-AO");
           assertTest(contract?.meta?.stage === "8-2_full_cartesian_execution_contract_v0", "full Cartesian contract should identify the 8-2 execution-contract stage");
           assertTest(contract.meta.reportOnly === true, "full Cartesian contract should be report-only");
           assertTest(contract.meta.fullCartesianRun === false, "full Cartesian contract must not claim all combinations were executed");
@@ -60120,7 +60315,7 @@ Notes:
         results.push(runNamedTest("v8.0-AD shard executor is preserved with AE manifest-ready report fields", () => {
           const coherent = runV8FullCartesianShard({ startIndex: 0, caseLimit: 8, maxCases: 8 });
           assertTest(coherent?.meta?.stage === "8-2_full_cartesian_shard_execution_v0", "shard executor should identify the 8-2 shard execution stage");
-          assertTest(coherent.meta.version === "8.0-AL", "shard executor should use the AL version");
+          assertTest(coherent.meta.version === "8.0-AO", "shard executor should use the AO version");
           assertTest(coherent.meta.reportSchemaVersion === V8_FULL_CARTESIAN_SHARD_REPORT_SCHEMA_VERSION, "shard executor should expose the report schema version");
           assertTest(coherent.meta.boundedShardRun === true, "shard executor should identify bounded shard execution");
           assertTest(coherent.meta.fullCartesianRun === false, "bounded shard executor must not claim full Cartesian execution");
@@ -60168,6 +60363,33 @@ Notes:
           assertTest(strengthCase.input.profileSession.startsWith("strength_"), "strength profile should expose a strength-specific report session");
           assertTest(strengthCase.input.todayRoutine === "strength_heavy_lower", "strength profile should calculate through the strength routine session");
           assertTest(strengthCase.input.todayRoutineRole === "profile_owned_session", "strength production routine should be marked as profile-owned");
+        }));
+
+        results.push(runNamedTest("v8.0-AO profile routine surface audit covers every profile without fallback shortcuts", () => {
+          const report = runV8ScenarioRunner();
+          const audit = report.profileRoutineSurfaceAudit;
+          assertTest(report.meta.version === "8.0-AO", "v8 runner should expose the AO profile routine audit stage");
+          assertTest(audit?.meta?.stage === V8_PROFILE_ROUTINE_SURFACE_AUDIT_STAGE, "profile routine surface audit should identify its stage");
+          assertTest(audit.meta.reportOnly === true, "profile routine surface audit should be report-only");
+          assertTest(audit.meta.nonClaim.includes("does_not_replace_human_visual_review"), "profile routine audit should not replace human visual review");
+          assertTest(audit.summary.profileCount === Object.keys(EXERCISE_PROFILE_OPTIONS).length, "audit should cover every exercise profile");
+          assertTest(audit.summary.passProfileCount === audit.summary.profileCount, "every profile routine surface contract should pass structurally");
+          assertTest(audit.summary.findingCount === 0, "profile routine surface audit should have no structural findings");
+          assertTest(audit.summary.bodybuildingLegacyPlanPreserved === true, "bodybuilding should preserve legacy routine plans");
+          assertTest(audit.summary.bodybuildingBasicGeneralOnly === true, "bodybuilding basic mode should stay generic REST/PUSH only");
+          assertTest(audit.summary.nonBodybuildingProfileOwnedPassCount === audit.summary.nonBodybuildingExpectedCount, "all non-bodybuilding profiles should use profile-owned sessions");
+          const running = audit.profiles.find(item => item.profile === "running");
+          const strength = audit.profiles.find(item => item.profile === "strength");
+          const mixed = audit.profiles.find(item => item.profile === "mixed");
+          assertIncludesAll(running.planKeys, ["running_base", "running_speed"], "running should expose base and speed/recovery plans");
+          assertTest(running.planReports.flatMap(item => item.sessionValues).includes("running_interval"), "running should expose interval sessions");
+          assertTest(running.planReports.flatMap(item => item.sessions).filter(item => item.value !== "REST").every(item => item.defaultWeightDuration === 0 && item.cardioDefaultDuration > 0), "running sessions should be cardio-owned and not inherit weight duration");
+          assertIncludesAll(strength.planKeys, ["strength_heavy_volume", "strength_technique_deload"], "strength should expose heavy/volume and technique/deload plans");
+          assertTest(strength.planReports.flatMap(item => item.sessionValues).includes("strength_deload"), "strength should expose deload");
+          assertIncludesAll(mixed.planReports.flatMap(item => item.sessionValues), ["mixed_strength_cardio", "mixed_cardio_focus", "mixed_recovery"], "mixed should expose combined, cardio-focus, and recovery sessions");
+          assertTest(audit.openHumanReviewScope.some(item => item.includes("does not replace")), "audit should keep human review scope open");
+          assertTest(report.summary.profileRoutineSurfaceAudit.findingCount === 0, "top-level summary should carry the zero finding count");
+          assertTest(findInvalidCalibrationNumber(audit).length === 0, "profile routine surface audit should not contain NaN or Infinity");
         }));
 
         results.push(runNamedTest("v8.0-D1 work adjustment fixture marks internal-only evidence and avoids clamp-collapsed categories", () => {
@@ -60380,7 +60602,7 @@ Notes:
         results.push(runNamedTest("v8.0-K profile macro candidate-v1 checks profile carb feasibility without approving production", () => {
           const report = runV8ScenarioRunner();
           const comparison = report.profileMacroCandidateComparison;
-          assertTest(report.meta.version === "8.0-AL", "v8 runner version should advance to 8.0-AL");
+          assertTest(report.meta.version === "8.0-AO", "v8 runner version should advance to 8.0-AO");
           assertTest(comparison?.meta?.stage === "9-7_profile_macro_candidate_v1", "profile macro candidate should identify 9-7 candidate-v1 stage");
           assertTest(comparison.meta.reportOnly === true, "profile macro candidate should be report-only");
           assertTest(comparison.meta.productionFormulaChanged === false, "profile macro candidate must not change production formula");
@@ -60530,7 +60752,7 @@ Notes:
 
         results.push(runNamedTest("v8.0-S protein guard resolution closes candidate-v2 production contract blockers", () => {
           const report = runV8ScenarioRunner();
-          assertTest(report.meta.version === "8.0-AL", "v8 runner version should advance to v8.0-AL");
+          assertTest(report.meta.version === "8.0-AO", "v8 runner version should advance to v8.0-AO");
           const contract = report.profileMacroCandidateV2Contract;
           assertTest(contract?.meta?.stage === "9-8_profile_macro_candidate_v2_production_contract_review_v4_guard_resolution", "candidate-v2 contract should identify 9-8 guard resolution contract review");
           assertTest(contract.meta.reportOnly === true, "candidate-v2 contract should be report-only");
@@ -60839,7 +61061,7 @@ Notes:
           const report = runV8ScenarioRunner();
           const approval = report.humanReviewNumericalApproval;
           const comparison = report.profileMacroCandidateV2Comparison;
-          assertTest(report.meta.version === "8.0-AL", "v8 runner should expose the AL stage while preserving the X numerical fix");
+          assertTest(report.meta.version === "8.0-AO", "v8 runner should expose the AO stage while preserving the X numerical fix");
           assertTest(approval?.meta?.stage === V8_HUMAN_REVIEW_NUMERICAL_APPROVAL_STAGE, "human-review numerical approval should identify the 8-3 stage");
           assertTest(approval.meta.reportOnly === true, "human-review numerical approval should be report-only");
           assertTest(approval.meta.productionFormulaChanged === false, "human-review numerical approval must not change production formulas");
@@ -60880,7 +61102,7 @@ Notes:
         results.push(runNamedTest("v8.0-Y profile formula approval preflight is ready but not approved or wired", () => {
           const report = runV8ScenarioRunner();
           const preflight = report.profileFormulaApprovalPreflight;
-          assertTest(report.meta.version === "8.0-AL", "v8 runner should expose the AL stage while preserving the Y preflight");
+          assertTest(report.meta.version === "8.0-AO", "v8 runner should expose the AO stage while preserving the Y preflight");
           assertTest(report.meta.profileFormulaApprovalPreflightStatus === "report_only_ready_for_explicit_formula_approval_decision_not_approved", "top-level meta should identify report-only preflight status");
           assertTest(preflight?.meta?.stage === V8_PROFILE_FORMULA_APPROVAL_PREFLIGHT_STAGE, "approval preflight should identify the 9-10 stage");
           assertTest(preflight.meta.reportOnly === true, "approval preflight should be report-only");
@@ -60923,7 +61145,7 @@ Notes:
         results.push(runNamedTest("v8.0-AB profile formula approval decision includes post-wiring visual QA evidence", () => {
           const report = runV8ScenarioRunner();
           const decision = report.profileFormulaApprovalDecision;
-          assertTest(report.meta.version === "8.0-AL", "v8 runner should expose the AL scenario version");
+          assertTest(report.meta.version === "8.0-AO", "v8 runner should expose the AO scenario version");
           assertTest(report.meta.profileMacroCandidateV2Status === "approved_applied_and_post_wiring_visual_qa_complete", "candidate-v2 status should include AB visual QA completion");
           assertTest(report.meta.profileFormulaApprovalDecisionStatus === "approved_applied_and_post_wiring_visual_qa_complete", "top-level meta should expose the AB approval decision status");
           assertTest(decision?.meta?.stage === V8_PROFILE_FORMULA_APPROVAL_DECISION_STAGE, "approval decision should identify the 9-11 stage");
