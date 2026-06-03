@@ -1,9 +1,10 @@
 <!--
 Version: 8.0
-Stage: v8.0-AS1 Today record basis rounding hotfix
+Stage: v8.0-AS2 Today goalSnapshot source alignment
 Date: 2026-06-03
 Notes:
-- v8.0-AS1 keeps Today record basis prompts quiet for display/score-insignificant rounding residue while preserving real basis-change prompts
+- v8.0-AS2 preserves the actual Today body-composition source in goalSnapshot and restores stale-basis prompts for source mismatches instead of hiding them
+- v8.0-AS1 tolerance-only prompt handling is superseded by AS2 source alignment
 - v8.0-AS synchronizes the scenario runner stage after AR and adds a report-only profile-aware Today training summary audit
 - v8.0-AR makes the Today top training summary profile-aware so running/mixed cardio-owned sessions do not appear as a generic weight-training rest day
 - v8.0-AQ1 applies checked Today detailed fasting weight before meal snapshot scoring so Records weight, Today calculation weight, and saved goalSnapshot weight stay aligned
@@ -16713,29 +16714,6 @@ Notes:
       bodyFatMass: 0.05,
       bodyFatPercent: 0.1
     };
-    // Record-update prompts use this UI tolerance; it is not formula or physiology evidence.
-    const GOAL_SNAPSHOT_EQUIVALENCE_TOLERANCE = Object.freeze({
-      targetCal: 1,
-      protein: 0.1,
-      carbs: 0.1,
-      fat: 0.1,
-      weight: TODAY_RECORD_WEIGHT_MATCH_TOLERANCE,
-      height: 0.05,
-      age: 0.001,
-      bodyFat: 0.05,
-      bodyFatMass: TODAY_INBODY_APPLY_TOLERANCE.bodyFatMass,
-      skeletal: TODAY_INBODY_APPLY_TOLERANCE.skeletalMuscle,
-      weeklyTrainingDays: 0.001,
-      intensityOverride: 0.005,
-      weightDuration: 0.5,
-      cardioDuration: 0.5,
-      cardioSpeed: 0.05,
-      cardioIncline: 0.05,
-      workAdj: 0.005,
-      expertLbmAlpha: 0.005,
-      profileTargetDeltaKcal: 1,
-      profileTargetRateDeltaEquivalentKgPerWeek: 0.001
-    });
     let todayCalculationDrafts = {};
     let cardioPresetState = {
       items: [],
@@ -24490,6 +24468,10 @@ Notes:
     function buildGoalSnapshotFromCurrentState(currentResult = calculate(), snapshotSource = "saved_at_entry"){
       if (!currentResult?.isCalculable) return null;
       const s = currentResult.s || collectState();
+      const todayValues = getEffectiveTodayCalculationValues();
+      const bodyFatMass = Number.isFinite(todayValues.bodyFatMass)
+        ? todayValues.bodyFatMass
+        : (Number.isFinite(s.weight) && Number.isFinite(s.bodyFat) ? s.weight * s.bodyFat / 100 : ids.bodyFatMass?.value);
       return normalizeGoalSnapshot({
         targetCal: currentResult.targetCal,
         protein: currentResult.protein,
@@ -24502,7 +24484,7 @@ Notes:
         age: ids.age.value,
         gender: ids.gender.value,
         bodyFat: s.bodyFat,
-        bodyFatMass: Number.isFinite(s.weight) && Number.isFinite(s.bodyFat) ? s.weight * s.bodyFat / 100 : ids.bodyFatMass?.value,
+        bodyFatMass,
         skeletal: s.skeletal,
         activityLevel: s.activityLevel,
         workType: s.workType,
@@ -24586,24 +24568,10 @@ Notes:
       return signature ? JSON.stringify(signature) : null;
     }
 
-    function areGoalSnapshotValuesEquivalent(key, left, right){
-      if (
-        typeof left === "number" &&
-        typeof right === "number" &&
-        Number.isFinite(left) &&
-        Number.isFinite(right)
-      ) {
-        const tolerance = GOAL_SNAPSHOT_EQUIVALENCE_TOLERANCE[key];
-        if (Number.isFinite(tolerance)) return Math.abs(left - right) <= tolerance + Number.EPSILON;
-      }
-      return JSON.stringify(left) === JSON.stringify(right);
-    }
-
     function areGoalSnapshotsEquivalent(a, b){
-      const left = getGoalSnapshotSignatureObject(a);
-      const right = getGoalSnapshotSignatureObject(b);
-      if (!left || !right) return false;
-      return GOAL_SNAPSHOT_SIGNATURE_KEYS.every(key => areGoalSnapshotValuesEquivalent(key, left[key], right[key]));
+      const aSignature = getGoalSnapshotSignature(a);
+      const bSignature = getGoalSnapshotSignature(b);
+      return !!aSignature && !!bSignature && aSignature === bSignature;
     }
 
     function getGoalSnapshotDifferenceKeys(a, b){
@@ -24611,7 +24579,7 @@ Notes:
       const right = getGoalSnapshotSignatureObject(b);
       if (!left || !right) return ["unavailable"];
       return GOAL_SNAPSHOT_SIGNATURE_KEYS
-        .filter(key => !areGoalSnapshotValuesEquivalent(key, left[key], right[key]));
+        .filter(key => JSON.stringify(left[key]) !== JSON.stringify(right[key]));
     }
 
     function hasMeaningfulRecordWeightDifference(a, b, tolerance = TODAY_RECORD_WEIGHT_MATCH_TOLERANCE){
@@ -46381,34 +46349,40 @@ Notes:
           assertTest(!!panel && panel.classList.contains("hidden") && panel.getAttribute("aria-hidden") === "true", "current state should stay hidden instead of repeating a latest-state card");
         }));
 
-        results.push(runNamedTest("v8.0-AS1 rounding-only Today record basis residue stays current", () => {
-          seedCurrentRecord();
-          const currentResult = calculate();
-          const currentSnapshot = buildGoalSnapshotFromCurrentState(currentResult, "today_manual_confirm");
-          const roundedSnapshot = { ...currentSnapshot };
-          roundedSnapshot.targetCal += 1;
-          roundedSnapshot.carbs -= 0.1;
-          if (Number.isFinite(roundedSnapshot.bodyFatMass)) roundedSnapshot.bodyFatMass += 0.02;
-          if (Number.isFinite(roundedSnapshot.skeletal)) roundedSnapshot.skeletal += 0.02;
-          if (Number.isFinite(roundedSnapshot.bodyFat)) roundedSnapshot.bodyFat += 0.04;
-          upsertRecord({
-            date: today,
-            goalSnapshot: normalizeGoalSnapshot(roundedSnapshot),
-            snapshotSource: "saved_at_entry"
-          });
-          const roundedInfo = getTodayRecordConfirmationState(currentResult);
-          assertTest(roundedInfo.status === "current", `rounding-only basis residue should not ask for update (got ${roundedInfo.status}: ${(roundedInfo.mismatchKeys || []).join(",")})`);
-          assertTest(getGoalSnapshotDifferenceKeys(getRecordByDate(today)?.goalSnapshot, currentSnapshot).length === 0, "rounding-only residue should not report mismatch keys");
+        results.push(runNamedTest("v8.0-AS2 goalSnapshot preserves Today body-composition source values", () => {
+          const previousDrafts = JSON.stringify(todayCalculationDrafts || {});
+          try {
+            setTodayCalculationDraftValues({
+              calculationWeight: 75.02,
+              skeletalMuscle: 36.28,
+              bodyFatMass: 11.39,
+              bodyFatPercent: 15.2
+            }, { markBodyStatusUserEdited: true });
+            const currentResult = calculate();
+            const currentSnapshot = buildGoalSnapshotFromCurrentState(currentResult, "today_manual_confirm");
+            assertClose(currentSnapshot.weight, 75.02, 0.0001, "snapshot should preserve Today calculation weight");
+            assertClose(currentSnapshot.skeletal, 36.28, 0.0001, "snapshot should preserve Today skeletal source value");
+            assertClose(currentSnapshot.bodyFatMass, 11.39, 0.0001, "snapshot should preserve explicit Today body-fat-mass source value");
+            assertClose(currentSnapshot.bodyFat, 15.2, 0.0001, "snapshot should preserve Today body-fat-percent source value");
+            assertClose(currentSnapshot.targetCal, currentResult.targetCal, 0.0001, "snapshot target should stay tied to the same calculate() result");
 
-          const changedSnapshot = { ...currentSnapshot, targetCal: currentSnapshot.targetCal + 2, carbs: currentSnapshot.carbs + 0.2 };
-          upsertRecord({
-            date: today,
-            goalSnapshot: normalizeGoalSnapshot(changedSnapshot),
-            snapshotSource: "saved_at_entry"
-          });
-          const changedInfo = getTodayRecordConfirmationState(currentResult);
-          assertTest(changedInfo.status === "stale", "basis differences beyond AS1 tolerance should still ask for update");
-          assertIncludesAll(changedInfo.mismatchKeys || [], ["targetCal", "carbs"], "meaningful target differences should remain visible in mismatch keys");
+            const recomputedSnapshot = {
+              ...currentSnapshot,
+              bodyFatMass: currentSnapshot.weight * currentSnapshot.bodyFat / 100,
+              skeletal: 36.3
+            };
+            upsertRecord({
+              date: today,
+              weight: 75.02,
+              goalSnapshot: normalizeGoalSnapshot(recomputedSnapshot),
+              snapshotSource: "saved_at_entry"
+            });
+            const stateInfo = getTodayRecordConfirmationState(currentResult);
+            assertTest(stateInfo.status === "stale", "recomputed or rounded stored body composition should ask for a real basis refresh");
+            assertIncludesAll(stateInfo.mismatchKeys || [], ["bodyFatMass", "skeletal"], "source-value mismatches should remain visible in mismatch keys");
+          } finally {
+            todayCalculationDrafts = JSON.parse(previousDrafts);
+          }
         }));
 
         results.push(runNamedTest("v8.0-A snapshotless detailed record asks to save basis instead of showing stale mismatch", () => {
