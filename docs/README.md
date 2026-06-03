@@ -93,10 +93,21 @@
 - The next design stage is level context design, not production formula wiring.
 - Verification on 2026-06-04: `runV8ScenarioRunnerTests` = 1 suite / 34 cases / failed 0; targeted V8/Today ownership bundle = 3 suites / 92 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 142 cases / failed 0.
 
+# v8.0-BD user-level context design note
+
+- Added `docs/v8_수준별산식_설계4_수준별컨텍스트_2026-06-04.txt`.
+- BD adds `userLevelContextDesign` to `runV8ScenarioRunner()` as report-only context-authority evidence before formula-principle design.
+- BD combines 23 source inputs into 7 context axes: training load, profile specificity, recent record quality, body-composition authority, target-relief pressure, formula authority, and explanation surface.
+- BD blocks shortcut interpretations: weekly training days alone cannot decide level; InBody alone cannot raise target/protein; recent28 trend and target-relief pressure cannot auto-apply targetCal; `performanceLevel` remains derived and hidden from direct user editing.
+- BD preserves the BC training model: running cardio-owned sessions remain training context even with `weightDuration=0`, mixed hybrid sessions keep both resistance/cardio roles, and strength deload downgrades load context.
+- BD keeps `productionFormulaChanged=false`, `userLevelFormulaImplemented=false`, `recent28AutoApplyAllowed=false`, `targetReliefAutoApplyAllowed=false`, and full V8 completion open. Whole-stage boundary audit now has 23 checks.
+- The next design stage is formula-principle design, not production formula wiring.
+- Verification on 2026-06-04: `runV8ScenarioRunnerTests` = 1 suite / 35 cases / failed 0; targeted V8/Today ownership bundle = 3 suites / 93 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 143 cases / failed 0.
+
 # v8 manual continuation note
 
 - Do not resume V8 through a long `/GOAL` run. The user has deprecated that workflow because it repeatedly encouraged fast micro-stage completion and over-broad claims.
-- Before continuing V8 after BC, read this README, `docs/v8_수준별산식_설계1_현상태진실지도_2026-06-04.txt`, `docs/v8_수준별산식_설계2_사용자입력소유권_화면흐름_2026-06-04.txt`, `docs/v8_수준별산식_설계3_운동프로필별훈련모델_2026-06-04.txt`, `docs/v8_1단계_복구감사_2026-06-03.txt`, `docs/v8_현재산식_기준갱신_감사_2026-06-02.txt`, and `docs/v8_운동프로필_산식_정밀설계.txt`.
+- Before continuing V8 after BD, read this README, `docs/v8_수준별산식_설계1_현상태진실지도_2026-06-04.txt`, `docs/v8_수준별산식_설계2_사용자입력소유권_화면흐름_2026-06-04.txt`, `docs/v8_수준별산식_설계3_운동프로필별훈련모델_2026-06-04.txt`, `docs/v8_수준별산식_설계4_수준별컨텍스트_2026-06-04.txt`, `docs/v8_1단계_복구감사_2026-06-03.txt`, `docs/v8_현재산식_기준갱신_감사_2026-06-02.txt`, and `docs/v8_운동프로필_산식_정밀설계.txt`.
 - The phase-1 recovery audit records that general diet production still used `2.4g/kg` protein before AT; AT is the production macro-policy recovery that applies the general diet `2.0g/kg` policy to the actual app path.
 - Current whole-V8 status is not complete. Candidate-v2 production application and post-wiring visual QA are closed, but `full_8_2_cartesian_execution`, `full_v8_completion`, and broad profile/routine/session human UX review remain open.
 - The next agent must not start a new micro-stage before rechecking current runner output, render audit, clean full-Cartesian campaign state, and the user-owned profile/routine/session paths.
