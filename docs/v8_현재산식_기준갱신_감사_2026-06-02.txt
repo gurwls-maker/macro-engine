@@ -2429,6 +2429,29 @@ AQ에서는 Today/Settings 화면에서 드러난 profile/routine/session 입력
 - AQ가 full 8-2 Cartesian 실행, full V8 completion, 모든 프로필/루틴/세션 조합의 사람 눈 UX 검토를 닫지는 않는다.
 - 다음 구현에서 `profileSession`이나 normalized output만 맞는다는 이유로 사용자 입력 경로 검증을 생략하면 안 된다.
 
+## 11-43. 2026-06-03 v8.0-AQ1 Today detailed fasting weight snapshot hotfix
+
+AQ1에서는 Today 탭의 상세 식사 추가에서 `오늘 공복 체중`을 입력했는데 Records 상세/기준 쪽에서 다른 체중이 보일 수 있는 저장 순서 문제를 수정했다.
+
+원인:
+
+- `saveTodayRecordStartDetailed()`가 `saveMealEntry()`를 먼저 호출했다.
+- `saveMealEntry()`는 식사 저장과 동시에 `persistAutoAdherenceForDate(date, calculate())`를 호출해 goalSnapshot과 자동 점수를 만든다.
+- 체크된 공복 체중을 Today 계산용 체중에 반영하는 `applyTodayRecordWeightToCalculation()`은 그 뒤에 호출되었다.
+- 그래서 Records 공복 체중은 새 입력값이 될 수 있지만, 같은 상세 기록의 `goalSnapshot.weight`는 이전 Today 계산용 체중으로 남을 수 있었다.
+
+수정:
+
+- 상세 식사 입력에 실제 저장할 식사 내용이 있을 때만, 체크된 공복 체중을 `saveMealEntry()` 전에 Today calculation draft에 먼저 반영한다.
+- 그 다음 식사 저장과 snapshot/score 계산이 같은 체중 기준으로 실행된다.
+- 식사 내용이 비어 있어 저장 실패할 케이스에서는 공복 체중을 선반영하지 않아 빈 식사 검증 실패가 Today 계산용 체중을 조용히 바꾸지 않는다.
+- 기존 성공 후 Records 공복 체중/메모 merge는 유지한다.
+
+검증:
+
+- `runTodayRecordStartTests`, `runTodayRecordConfirmationTests`, `runTodayInputActionTests`, `runRecordWeightTodayApplyPromptTests` -> 4 suites / 50 cases / failed 0.
+- C3 detailed save regression now asserts Records fasting weight, Today calculation weight, and saved `goalSnapshot.weight` all equal the checked detailed fasting weight, and that no Records/Today weight mismatch remains.
+
 ## 12. 검증 메모
 
 실행한 확인:

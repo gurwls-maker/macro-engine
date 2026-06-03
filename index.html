@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-AQ profile routine input ownership realignment
+Stage: v8.0-AQ1 today detailed fasting weight snapshot hotfix
 Date: 2026-06-03
 Notes:
+- v8.0-AQ1 applies checked Today detailed fasting weight before meal snapshot scoring so Records weight, Today calculation weight, and saved goalSnapshot weight stay aligned
 - v8.0-AQ separates Settings-owned exercise profile/routine-plan/weekday schedule from Today-owned routine plan/session inputs and keeps profileSession derived
 - v8.0-AP adds a whole-stage evidence boundary audit so report-only, production-observation, visual-QA, and full-completion gates cannot be collapsed into each other
 - v8.0-AO adds a profile routine surface audit so every exercise profile plan/session/default path is checked before full V8 completion
@@ -23712,10 +23713,24 @@ Notes:
       ids.mealAlcoholKcal.value = document.getElementById("todayRecordMealAlcoholKcal")?.value || "";
       ids.mealOtherKcal.value = document.getElementById("todayRecordMealOtherKcal")?.value || "";
       ids.mealMemo.value = document.getElementById("todayRecordMealMemo")?.value || "";
+      const shouldApplyWeightBeforeMealSave = commonInput.applyToCalculation && commonInput.weight?.hasValue;
+      const hasDetailedMealContent = [
+        ids.mealCarbs.value,
+        ids.mealProtein.value,
+        ids.mealFat.value,
+        ids.mealAlcoholKcal.value,
+        ids.mealOtherKcal.value
+      ].some(value => normalizeMacroValue(value) > 0) || String(ids.mealMemo.value || "").trim().length > 0;
+      const appliedWeightBeforeMealSave = shouldApplyWeightBeforeMealSave && hasDetailedMealContent;
+      if (appliedWeightBeforeMealSave) {
+        applyTodayRecordWeightToCalculation(commonInput);
+      }
       const result = saveMealEntry();
       if (result?.saved) {
         mergeTodayRecordStartCommonFields(prepared.today, commonInput);
-        applyTodayRecordWeightToCalculation(commonInput);
+        if (!appliedWeightBeforeMealSave) {
+          applyTodayRecordWeightToCalculation(commonInput);
+        }
         syncRecordInputsForDate(prepared.today);
         render();
         result.record = getRecordByDate(prepared.today);
@@ -44721,8 +44736,11 @@ Notes:
           document.getElementById("todayRecordMealFat").value = "";
           document.getElementById("todayRecordMealAlcoholKcal").value = "";
           document.getElementById("todayRecordMealOtherKcal").value = "";
+          document.getElementById("todayRecordDetailedWeight").value = "79.9";
+          const beforeWeight = getEffectiveTodayCalculationValues().calculationWeight;
           const result = saveTodayRecordStartDetailed();
           assertTest(result?.saved === false, "empty detailed modal meal should not save");
+          assertClose(getEffectiveTodayCalculationValues().calculationWeight, beforeWeight, 0.0001, "empty detailed meal should not pre-apply fasting weight");
           assertTest(isOpen(), "failed detailed save should keep modal open");
           assertIncludesAll(document.getElementById("todayRecordStartFeedback").textContent || "", ["저장할 식사 내용"], "failed detailed save should show modal feedback");
           closeTodayRecordStartDialog();
@@ -45004,6 +45022,8 @@ Notes:
           assertTest(record.meals.length === 2, "detailed fasting weight save should preserve existing meals and add the new meal");
           assertTest(ids.weight.value === calculationWeightBefore, "checked detailed fasting weight should not update Settings default weight");
           assertClose(getEffectiveTodayCalculationValues().calculationWeight, 76.4, 0.0001, "checked detailed fasting weight should update Today calculation weight");
+          assertClose(record.goalSnapshot?.weight, 76.4, 0.0001, "checked detailed fasting weight should be used for the saved detailed snapshot");
+          assertTest(getTodayRecordWeightMismatch().hasMismatch === false, "checked detailed fasting weight should not leave Records/Today weight mismatch");
           assertTest(document.getElementById("todayQuickWeight").value === "76.40", "checked detailed fasting weight should sync Today calculation value");
         }));
 

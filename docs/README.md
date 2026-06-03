@@ -1,5 +1,12 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AQ1 Today detailed fasting weight snapshot hotfix note
+
+- AQ1 fixes the Today tab detailed meal-add flow where a checked `오늘 공복 체중` could update Records/Today calculation weight after the meal snapshot had already been generated.
+- The detailed save path now applies the checked fasting weight to the Today calculation draft before `saveMealEntry()` creates the detailed record snapshot and auto score. That keeps Records fasting weight, Today calculation weight, and saved `goalSnapshot.weight` aligned.
+- The pre-apply only runs when the detailed meal form has actual meal content, so an empty meal validation failure does not silently change Today calculation weight.
+- Regression coverage on 2026-06-03: `runTodayRecordStartTests`, `runTodayRecordConfirmationTests`, `runTodayInputActionTests`, and `runRecordWeightTodayApplyPromptTests` = 4 suites / 50 cases / failed 0.
+
 # v8.0-AQ profile routine input ownership note
 
 - AQ updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AQ`.
