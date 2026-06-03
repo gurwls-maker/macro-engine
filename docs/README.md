@@ -53,6 +53,15 @@
 - Current whole-V8 status is not complete. Candidate-v2 production application and post-wiring visual QA are closed, but `full_8_2_cartesian_execution`, `full_v8_completion`, and broad profile/routine/session human UX review remain open.
 - The next agent must not start a new micro-stage before rechecking current runner output, render audit, clean full-Cartesian campaign state, and the user-owned profile/routine/session paths.
 
+# v8.0-AW profile routine user-path matrix note
+
+- AW adds `profileRoutineUserPathMatrix` to `runV8ScenarioRunner()` as report-only evidence for the existing 3-stage work.
+- The matrix separates two paths that must not be collapsed: Settings/default Today path and Today explicit routine/session override path.
+- Current code fact captured by AW: bodybuilding advanced OFF default path uses the simple training/rest flow, with training default intensity `0.70` before weekly adjustment. Today explicit override can still preserve the selected session xw, for example `PUSH` at `0.80`.
+- Current code fact captured by AW: non-bodybuilding profiles keep profile-specific routine/session defaults even when advanced is OFF; advanced mainly controls manual intensity/expanded controls. This is left as product review scope, not silently claimed as final UX approval.
+- AW documents the future user-level formula input scope (`performanceLevel`, body-composition reliability, recent record coverage, trend) but does not implement that formula and does not close broad human visual review, full Cartesian execution, or full V8 completion.
+- Verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 30 cases / failed 0; Today quick-edit/calculation/record-confirmation bundle = 3 suites / 70 cases / failed 0; core profile = 26 suites / 370 cases / failed 0.
+
 # v8.0-AV docs cleanup completion note
 
 - AV closes the document-cleanup pass for now. The docs are not shortened into a summary; they are organized so current production, scoped production, report-only evidence, historical records, and open gates are not read as the same thing.

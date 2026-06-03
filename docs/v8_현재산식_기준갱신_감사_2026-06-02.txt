@@ -3251,3 +3251,38 @@ AU 당시 다음 수동 작업 우선순위:
 - AT의 `2.0g/kg` 복구를 수준별 산식 완료로 말하지 않는다.
 - candidate-v2의 active runtime target-delta 적용을 모든 profile-specific macro formula 승인으로 말하지 않는다.
 - 문서정리 완료를 V8 완료로 말하지 않는다.
+
+## 16. 2026-06-03 v8.0-AW profile routine user-path matrix
+
+AW는 기존 3단계 진입 작업의 첫 보완이다. `runV8ScenarioRunner()`에 `profileRoutineUserPathMatrix`를 추가해 프로필/루틴/세션 경로를 코드상으로 전수 확인하되, 이것을 broad human visual review나 수준별 산식 구현 완료로 말하지 않는다.
+
+확인한 경로는 두 종류로 분리한다.
+
+- Settings/default Today path: Today draft가 없는 기본 경로.
+- Today explicit override path: Today에서 날짜별 루틴/세션을 명시 선택한 경로.
+
+중요한 현재 코드 사실:
+
+- 보디빌딩 + 고급설정 OFF + Today 명시 override 없음은 단순 훈련/휴식 흐름을 유지한다. 훈련 기본 강도는 주간 보정 전 `0.70`이다.
+- 보디빌딩 + 고급설정 OFF라도 Today에서 `PUSH` 같은 루틴/세션을 명시 override하면 선택 세션의 xw가 보존될 수 있다. 예: `PUSH`는 `0.80`.
+- 비보디빌딩 프로필은 고급설정 OFF에서도 프로필 전용 루틴/세션 기본값을 유지한다. 고급설정 ON/OFF의 주 차이는 현재 수동 훈련강도/확장 입력의 노출 여부다.
+- 이 비보디빌딩 OFF 동작은 "제품적으로 충분히 좋은가"가 남아 있는 검토대상이다. 코드 연속성 통과를 사용자 경험 승인으로 읽으면 안 된다.
+
+AW matrix는 모든 프로필, 모든 루틴 플랜, 모든 세션, 고급설정 ON/OFF를 Today 값, `calculate()`, Records `goalSnapshot`, future level-formula input scope까지 확인한다. 다만 `performanceLevel`, 체성분 신뢰도, 최근 기록 커버리지, 최근 추세를 묶는 사용자 수준별 산식은 아직 구현하지 않았다.
+
+검증:
+
+- `node .\tools\render_audit\run_internal_tests.cjs --profile=core --suite=runV8ScenarioRunnerTests`
+  - 1 suite / 30 cases / failed 0
+- `node .\tools\render_audit\run_internal_tests.cjs --profile=core --suite=runTodayQuickEditTests,runTodayCalculationOwnershipTests,runTodayRecordConfirmationTests`
+  - 3 suites / 70 cases / failed 0
+- `node .\tools\render_audit\run_internal_tests.cjs --profile=core`
+  - 26 suites / 370 cases / failed 0
+
+열린 범위:
+
+- non-bodybuilding advanced OFF/ON product review
+- profile/routine/session broad human visual review
+- user-level formula design/implementation
+- full 8-2 Cartesian execution
+- full V8 completion

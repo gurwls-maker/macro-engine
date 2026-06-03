@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-AT diet production macro policy recovery
+Stage: v8.0-AW profile routine user-path matrix
 Date: 2026-06-03
 Notes:
+- v8.0-AW adds a report-only profile/routine/session user-path matrix that checks every profile plan/session row through Today selection, calculate(), Records goalSnapshot, and the future level-formula input scope without implementing the level formula or closing full visual review
 - v8.0-AT applies the phase-1 recovery audit result to production diet macros: general diet protein now defaults to 2.0g/kg in GOALS and dual-basis guide/activity paths, preserving target kcal and reallocating the difference to carbs inside the same target
 - v8.0-AT keeps contest-prep/high-preservation protein as a separate context decision; the old 2.4g/kg diet default remains historical audit evidence, not the general production default
 - v8.0-AS2 preserves the actual Today body-composition source in goalSnapshot and restores stale-basis prompts for source mismatches instead of hiding them
@@ -54226,7 +54227,7 @@ Notes:
     }
 
     const V8_SCENARIO_RUNNER_VERSION = "8.0-AT";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-AT diet production macro policy recovery + v8.0-AS scenario runner metadata and profile-aware Today training summary audit + v8.0-AR profile-aware Today training summary + v8.0-AQ profile routine input ownership realignment + v8.0-AP whole-stage evidence boundary audit + v8.0-AO profile routine surface audit + v8.0-AL targeted stress mixed maintain re-audit + v8.0-AK full Cartesian exact-range plan executor + v8.0-AJ full Cartesian next-shard planner + v8.0-AI full Cartesian shard coverage ledger + v8.0-AH profile-owned visual QA evidence realignment + v8.0-AG profile routine ownership realignment + v8.0-AF shard batch orchestration pilot + v8.0-AE shard manifest integrity and analyzer + v8.0-AD deterministic full Cartesian shard pilot + v8.0-AC full Cartesian execution contract + v8.0-AB post-wiring production visual QA + v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session derived-field snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-AW profile routine user-path matrix + v8.0-AT diet production macro policy recovery + v8.0-AS scenario runner metadata and profile-aware Today training summary audit + v8.0-AR profile-aware Today training summary + v8.0-AQ profile routine input ownership realignment + v8.0-AP whole-stage evidence boundary audit + v8.0-AO profile routine surface audit + v8.0-AL targeted stress mixed maintain re-audit + v8.0-AK full Cartesian exact-range plan executor + v8.0-AJ full Cartesian next-shard planner + v8.0-AI full Cartesian shard coverage ledger + v8.0-AH profile-owned visual QA evidence realignment + v8.0-AG profile routine ownership realignment + v8.0-AF shard batch orchestration pilot + v8.0-AE shard manifest integrity and analyzer + v8.0-AD deterministic full Cartesian shard pilot + v8.0-AC full Cartesian execution contract + v8.0-AB post-wiring production visual QA + v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session derived-field snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_FULL_CARTESIAN_SHARD_REPORT_SCHEMA_VERSION = "v8_full_cartesian_shard_report_v1";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
@@ -58998,6 +58999,434 @@ Notes:
       };
     }
 
+    const V8_PROFILE_ROUTINE_USER_PATH_MATRIX_STAGE = "profile_routine_session_user_path_matrix_v0";
+
+    function withV8ProfileRoutineUserPathProbeContext(config, callback){
+      const date = getTodayDateString();
+      const snapshot = {
+        state: JSON.stringify(state),
+        todayDrafts: JSON.stringify(todayCalculationDrafts || {}),
+        storedTodayDrafts: readStoredValue(TODAY_CALCULATION_DRAFT_STORAGE_KEY),
+        selectedMacroBasis: uiState.selectedMacroBasis,
+        weight: ids.weight.value,
+        height: ids.height.value,
+        age: ids.age.value,
+        bodyFat: ids.bodyFat.value,
+        bodyFatMass: ids.bodyFatMass?.value,
+        skeletal: ids.skeletal.value,
+        gender: ids.gender.value,
+        activityLevel: ids.activityLevel.value,
+        workType: ids.workType.value,
+        workAdj: ids.workAdj.value,
+        homeInbody: ids.homeInbody.checked,
+        expertLbmAlpha: ids.expertLbmAlpha?.value,
+        weeklyTrainingDays: ids.weeklyTrainingDays.value,
+        generalAdvancedSettings: ids.generalAdvancedSettings.checked,
+        generalLowDigestCarbs: ids.generalLowDigestCarbs.checked,
+        exerciseProfile: ids.exerciseProfile?.value,
+        routinePlan: ids.routinePlan?.value,
+        intensityOverride: ids.intensityOverride.value,
+        weightDuration: ids.weightDuration.value,
+        cardioType: ids.cardioType.value,
+        cardioDuration: ids.cardioDuration.value,
+        cardioSpeed: ids.cardioSpeed.value,
+        cardioIncline: ids.cardioIncline.value
+      };
+      try {
+        const profile = normalizeExerciseProfile(config.profile);
+        const advanced = config.advanced === true;
+        const routinePlan = normalizeRoutinePlanForProfile(profile, config.routinePlan || state.routinePlan);
+        state.weight = 75;
+        state.height = 173;
+        state.age = 32;
+        state.bodyFat = 15;
+        state.skeletal = 36;
+        state.gender = "male";
+        state.activityLevel = "moderate";
+        state.workType = "office";
+        state.workAdj = 0;
+        state.homeInbody = false;
+        state.expertLbmAlpha = DEFAULT_STATE.expertLbmAlpha;
+        state.weeklyTrainingDays = 3;
+        state.weeklyTrainingDaysManual = true;
+        state.generalAdvancedSettings = advanced;
+        state.generalLowDigestCarbs = false;
+        state.exerciseProfile = profile;
+        state.routinePlan = routinePlan;
+        state.routine = config.routine || getDefaultRoutineSessionForProfile(profile, {
+          advanced: shouldUseDetailedRoutineControls(profile, advanced),
+          routinePlan
+        });
+        state.profileSession = deriveProfileSessionFromRoutine(profile, state.routine, {
+          advanced: shouldUseDetailedRoutineControls(profile, advanced),
+          routinePlan
+        });
+        state.goal = "diet";
+        ids.weight.value = "75";
+        ids.height.value = "173";
+        ids.age.value = "32";
+        ids.bodyFat.value = "15";
+        if (ids.bodyFatMass) ids.bodyFatMass.value = "11.25";
+        ids.skeletal.value = "36";
+        ids.gender.value = "male";
+        ids.activityLevel.value = "moderate";
+        ids.workType.value = "office";
+        ids.workAdj.value = "0";
+        ids.homeInbody.checked = false;
+        if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = String(Math.round(DEFAULT_STATE.expertLbmAlpha * 100));
+        ids.weeklyTrainingDays.value = "3";
+        ids.generalAdvancedSettings.checked = advanced;
+        ids.generalLowDigestCarbs.checked = false;
+        if (ids.exerciseProfile) ids.exerciseProfile.value = profile;
+        if (ids.routinePlan) setSelectOptions(ids.routinePlan, getRoutinePlanItemsForProfile(profile), routinePlan);
+        ids.intensityOverride.value = String(config.intensityOverride ?? DEFAULT_STATE.intensityOverride);
+        ids.weightDuration.value = String(config.weightDuration ?? DEFAULT_STATE.weightDuration);
+        ids.cardioType.value = config.cardioType || DEFAULT_STATE.cardioType;
+        ids.cardioDuration.value = String(config.cardioDuration ?? DEFAULT_STATE.cardioDuration);
+        ids.cardioSpeed.value = String(config.cardioSpeed ?? DEFAULT_STATE.cardioSpeed);
+        ids.cardioIncline.value = String(config.cardioIncline ?? DEFAULT_STATE.cardioIncline);
+        todayCalculationDrafts = JSON.parse(snapshot.todayDrafts || "{}");
+        if (config.todayDraft) {
+          todayCalculationDrafts[date] = normalizeTodayCalculationDraft(config.todayDraft);
+        } else {
+          delete todayCalculationDrafts[date];
+        }
+        uiState.selectedMacroBasis = "guide";
+        return callback({ date, profile, advanced, routinePlan });
+      } finally {
+        Object.assign(state, JSON.parse(snapshot.state));
+        todayCalculationDrafts = JSON.parse(snapshot.todayDrafts || "{}");
+        if (snapshot.storedTodayDrafts === null || snapshot.storedTodayDrafts === undefined) {
+          localStorage.removeItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY));
+        } else {
+          localStorage.setItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY), snapshot.storedTodayDrafts);
+        }
+        uiState.selectedMacroBasis = snapshot.selectedMacroBasis || "guide";
+        ids.weight.value = snapshot.weight;
+        ids.height.value = snapshot.height;
+        ids.age.value = snapshot.age;
+        ids.bodyFat.value = snapshot.bodyFat;
+        if (ids.bodyFatMass) ids.bodyFatMass.value = snapshot.bodyFatMass || "";
+        ids.skeletal.value = snapshot.skeletal;
+        ids.gender.value = snapshot.gender;
+        ids.activityLevel.value = snapshot.activityLevel;
+        ids.workType.value = snapshot.workType;
+        ids.workAdj.value = snapshot.workAdj;
+        ids.homeInbody.checked = snapshot.homeInbody;
+        if (ids.expertLbmAlpha && snapshot.expertLbmAlpha !== undefined) ids.expertLbmAlpha.value = snapshot.expertLbmAlpha;
+        ids.weeklyTrainingDays.value = snapshot.weeklyTrainingDays;
+        ids.generalAdvancedSettings.checked = snapshot.generalAdvancedSettings;
+        ids.generalLowDigestCarbs.checked = snapshot.generalLowDigestCarbs;
+        if (ids.exerciseProfile && snapshot.exerciseProfile) ids.exerciseProfile.value = snapshot.exerciseProfile;
+        if (ids.routinePlan) ids.routinePlan.value = snapshot.routinePlan;
+        ids.intensityOverride.value = snapshot.intensityOverride;
+        ids.weightDuration.value = snapshot.weightDuration;
+        ids.cardioType.value = snapshot.cardioType;
+        ids.cardioDuration.value = snapshot.cardioDuration;
+        ids.cardioSpeed.value = snapshot.cardioSpeed;
+        ids.cardioIncline.value = snapshot.cardioIncline;
+      }
+    }
+
+    function getV8ProfileRoutineAdvancedToggleRole(profile, advanced){
+      const safeProfile = normalizeExerciseProfile(profile);
+      if (advanced) return "manual_intensity_and_expanded_training_controls_enabled";
+      if (safeProfile === "bodybuilding") return "settings_default_simplifies_to_rest_or_training_today_override_still_allowed";
+      return "profile_specific_defaults_preserved_manual_intensity_hidden";
+    }
+
+    function getV8ProfileRoutineLevelFormulaScope(row){
+      const closed = ["exerciseProfile", "routinePlan", "routineSession", "profileSession"];
+      const open = ["performanceLevel", "bodyCompReliability", "recent14RecordCoverage", "recent28Trend"];
+      return {
+        closedCurrentPathKeys: closed,
+        openFutureFormulaKeys: open,
+        currentPath: {
+          exerciseProfile: "Settings-owned default, Today-read-only context, calculate().s, Records goalSnapshot",
+          routinePlan: "Today date-owned override plus Settings default, calculate().s, Records goalSnapshot",
+          routineSession: "Today date-owned session override, calculate().s.routine, Records goalSnapshot.routine",
+          profileSession: "derived from exerciseProfile + routinePlan + routine; not a user-facing shortcut"
+        },
+        futureFormulaScope: {
+          performanceLevel: "scenario-runner axis exists, but no production user-owned level input is approved in this matrix",
+          bodyCompReliability: "current body-composition reliability exists elsewhere; profile-level formula use remains open",
+          recent14RecordCoverage: "Records/recentContext coverage gate remains future formula scope",
+          recent28Trend: "Records/recentContext trend gate remains future formula scope"
+        },
+        implementationReady: false,
+        nonClaim: "documents_input_scope_only_does_not_implement_user_level_formula"
+      };
+    }
+
+    function makeV8ProfileRoutineDefaultPathRow(profile, advanced){
+      return withV8ProfileRoutineUserPathProbeContext({ profile, advanced }, () => {
+        const todayValues = getEffectiveTodayCalculationValues();
+        const result = calculate();
+        const snapshot = buildGoalSnapshotFromCurrentState(result, "v8_profile_routine_default_matrix");
+        const safeProfile = normalizeExerciseProfile(profile);
+        const defaultUsesDetailed = shouldUseDetailedRoutineDefaults(safeProfile, advanced);
+        const detailedControlsAvailable = shouldUseDetailedRoutineControls(safeProfile, advanced);
+        const findings = [];
+        if (result?.isCalculable !== true) findings.push("default_path_not_calculable");
+        if (result?.s?.exerciseProfile !== safeProfile) findings.push("default_profile_not_in_calculate_state");
+        if (!isProfileSessionAllowedForProfile(result?.s?.profileSession, safeProfile)) findings.push("default_profile_session_not_allowed");
+        if (snapshot?.exerciseProfile !== safeProfile) findings.push("default_snapshot_missing_profile");
+        if (snapshot?.profileSession !== result?.s?.profileSession) findings.push("default_snapshot_profile_session_mismatch");
+        if (!advanced && safeProfile === "bodybuilding") {
+          if (!["REST", "PUSH"].includes(todayValues.todayRoutineSession)) findings.push("bodybuilding_off_default_not_simple_rest_training");
+          if (todayValues.todayRoutineSession !== "REST" && Math.abs(Number(todayValues.todayIntensityOverride) - 0.70) > 1e-6) {
+            findings.push("bodybuilding_off_default_training_intensity_not_0_70");
+          }
+        }
+        if (!advanced && safeProfile !== "bodybuilding") {
+          if (!defaultUsesDetailed) findings.push("non_bodybuilding_off_lost_profile_default");
+          if (Object.prototype.hasOwnProperty.call(BODYBUILDING_PROFILE_SESSION_BY_ROUTINE, todayValues.todayRoutineSession) && todayValues.todayRoutineSession !== "REST") {
+            findings.push("non_bodybuilding_off_default_uses_bodybuilding_session");
+          }
+        }
+        return {
+          id: `${safeProfile}_${advanced ? "advanced_on" : "advanced_off"}_default`,
+          pathKind: "settings_default_path",
+          profile: safeProfile,
+          profileLabel: getExerciseProfileLabel(safeProfile),
+          advanced,
+          advancedToggleRole: getV8ProfileRoutineAdvancedToggleRole(safeProfile, advanced),
+          defaultUsesDetailedRoutineDefaults: defaultUsesDetailed,
+          todayDetailedControlsAvailable: detailedControlsAvailable,
+          manualIntensityEditable: advanced,
+          todayRoutinePlan: todayValues.todayRoutinePlan,
+          todayRoutineSession: todayValues.todayRoutineSession,
+          todayProfileSession: todayValues.todayProfileSession,
+          todayIntensityOverride: todayValues.todayIntensityOverride,
+          calculatedXw: result?.xw,
+          calculatedWeightKcal: result?.weightKcal,
+          snapshotRoutinePlan: snapshot?.routinePlan,
+          snapshotRoutine: snapshot?.routine,
+          snapshotProfileSession: snapshot?.profileSession,
+          findings,
+          reviewNotes: !advanced && safeProfile !== "bodybuilding"
+            ? ["advanced_off_keeps_profile_specific_default_sessions_and_only_hides_manual_intensity_review_if_this_is_product_enough"]
+            : [],
+          levelFormulaInputScope: getV8ProfileRoutineLevelFormulaScope({ profile: safeProfile }),
+          status: findings.length ? "needs_followup" : "pass"
+        };
+      });
+    }
+
+    function makeV8ProfileRoutineExplicitPathRow(profile, planKey, item, advanced){
+      const safeProfile = normalizeExerciseProfile(profile);
+      const routinePlan = normalizeRoutinePlanForProfile(safeProfile, planKey);
+      const routine = item.value;
+      const derivedProfileSession = deriveProfileSessionFromRoutine(safeProfile, routine, {
+        advanced: true,
+        routinePlan
+      });
+      const weightDuration = getRoutineItemDefaultWeightDuration(item, getSettingsDefaultTodayWeightDuration(routine, safeProfile, {
+        advanced: true,
+        routinePlan
+      }));
+      const cardioDefaults = item.cardioDefaults || {};
+      const todayDraft = {
+        calculationWeight: 75,
+        skeletalMuscle: 36,
+        bodyFatPercent: 15,
+        bodyFatMass: 11.25,
+        todayActivityLevel: "moderate",
+        todayWorkType: "office",
+        todayExerciseProfile: safeProfile,
+        todayRoutinePlan: routinePlan,
+        todayRoutineSession: routine,
+        todayProfileSession: derivedProfileSession,
+        todayIntensityOverride: Number.isFinite(Number(item.xw)) ? Number(item.xw) : 0,
+        todayWeightDuration: weightDuration,
+        todayCardioType: cardioDefaults.todayCardioType || DEFAULT_STATE.cardioType,
+        todayCardioDuration: Number.isFinite(Number(cardioDefaults.todayCardioDuration)) ? Number(cardioDefaults.todayCardioDuration) : 0,
+        todayCardioSpeed: Number.isFinite(Number(cardioDefaults.todayCardioSpeed)) ? Number(cardioDefaults.todayCardioSpeed) : 0,
+        todayCardioIncline: Number.isFinite(Number(cardioDefaults.todayCardioIncline)) ? Number(cardioDefaults.todayCardioIncline) : 0
+      };
+      return withV8ProfileRoutineUserPathProbeContext({
+        profile: safeProfile,
+        advanced,
+        routinePlan,
+        routine,
+        intensityOverride: todayDraft.todayIntensityOverride,
+        weightDuration,
+        cardioType: todayDraft.todayCardioType,
+        cardioDuration: todayDraft.todayCardioDuration,
+        cardioSpeed: todayDraft.todayCardioSpeed,
+        cardioIncline: todayDraft.todayCardioIncline,
+        todayDraft
+      }, () => {
+        const todayValues = getEffectiveTodayCalculationValues();
+        const result = calculate();
+        const snapshot = buildGoalSnapshotFromCurrentState(result, "v8_profile_routine_explicit_matrix");
+        const findings = [];
+        const expectedNoWeightSession = routine === "REST"
+          || (safeProfile === "running" && routine !== "REST")
+          || (safeProfile === "mixed" && weightDuration === 0 && Number(item.xw) <= 0);
+        if (result?.isCalculable !== true) findings.push("explicit_path_not_calculable");
+        if (todayValues.todayExerciseProfile !== safeProfile) findings.push("today_profile_mismatch");
+        if (todayValues.todayRoutinePlan !== routinePlan) findings.push("today_routine_plan_mismatch");
+        if (todayValues.todayRoutineSession !== routine) findings.push("today_routine_session_mismatch");
+        if (todayValues.todayProfileSession !== derivedProfileSession) findings.push("today_profile_session_derivation_mismatch");
+        if (result?.s?.routinePlan !== routinePlan) findings.push("calculate_routine_plan_mismatch");
+        if (result?.s?.routine !== routine) findings.push("calculate_routine_session_mismatch");
+        if (result?.s?.profileSession !== derivedProfileSession) findings.push("calculate_profile_session_mismatch");
+        if (snapshot?.routinePlan !== routinePlan) findings.push("snapshot_routine_plan_mismatch");
+        if (snapshot?.routine !== routine) findings.push("snapshot_routine_session_mismatch");
+        if (snapshot?.profileSession !== derivedProfileSession) findings.push("snapshot_profile_session_mismatch");
+        if (!isProfileSessionAllowedForProfile(derivedProfileSession, safeProfile)) findings.push("derived_profile_session_not_allowed");
+        if (safeProfile !== "bodybuilding" && routine !== "REST" && Object.prototype.hasOwnProperty.call(BODYBUILDING_PROFILE_SESSION_BY_ROUTINE, routine)) {
+          findings.push("non_bodybuilding_explicit_path_uses_bodybuilding_session");
+        }
+        if (routine === "REST") {
+          if (Number(todayValues.todayWeightDuration) !== 0) findings.push("rest_today_weight_duration_not_zero");
+          if (Number(result?.xw) !== 0) findings.push("rest_calculated_xw_not_zero");
+          if (Number(result?.weightKcal) !== 0) findings.push("rest_weight_kcal_not_zero");
+        }
+        if (safeProfile === "running" && routine !== "REST") {
+          if (Number(todayValues.todayWeightDuration) !== 0) findings.push("running_explicit_path_has_weight_duration");
+          if (!(Number(todayValues.todayCardioDuration) > 0)) findings.push("running_explicit_path_missing_cardio_duration");
+        }
+        if (!expectedNoWeightSession && routine !== "REST" && !(Number(todayValues.todayWeightDuration) > 0)) {
+          findings.push("training_session_missing_weight_duration");
+        }
+        return {
+          id: `${safeProfile}_${routinePlan}_${routine}_${advanced ? "advanced_on" : "advanced_off"}_explicit`,
+          pathKind: "today_explicit_override_path",
+          profile: safeProfile,
+          profileLabel: getExerciseProfileLabel(safeProfile),
+          routinePlan,
+          routine,
+          routineLabel: item.label || routine,
+          advanced,
+          advancedToggleRole: getV8ProfileRoutineAdvancedToggleRole(safeProfile, advanced),
+          manualIntensityEditable: advanced,
+          profileSession: derivedProfileSession,
+          profileSessionLabel: getProfileSessionLabel(derivedProfileSession),
+          expectedWeightDuration: weightDuration,
+          todayWeightDuration: todayValues.todayWeightDuration,
+          todayIntensityOverride: todayValues.todayIntensityOverride,
+          calculatedXw: result?.xw,
+          calculatedWeightKcal: result?.weightKcal,
+          cardioDefaults: {
+            type: todayValues.todayCardioType,
+            duration: todayValues.todayCardioDuration,
+            speed: todayValues.todayCardioSpeed,
+            incline: todayValues.todayCardioIncline
+          },
+          snapshot: {
+            exerciseProfile: snapshot?.exerciseProfile,
+            profileSession: snapshot?.profileSession,
+            routinePlan: snapshot?.routinePlan,
+            routine: snapshot?.routine,
+            intensityOverride: snapshot?.intensityOverride,
+            weightDuration: snapshot?.weightDuration,
+            cardioType: snapshot?.cardioType,
+            cardioDuration: snapshot?.cardioDuration
+          },
+          findings,
+          reviewNotes: !advanced && safeProfile !== "bodybuilding"
+            ? ["advanced_off_explicit_session_choices_match_profile_specific_on_choices_manual_intensity_hidden_only"]
+            : [],
+          levelFormulaInputScope: getV8ProfileRoutineLevelFormulaScope({ profile: safeProfile, routinePlan, routine }),
+          status: findings.length ? "needs_followup" : "pass"
+        };
+      });
+    }
+
+    function buildV8ProfileRoutineUserPathMatrixReport(){
+      const profiles = Object.keys(EXERCISE_PROFILE_OPTIONS);
+      const advancedStates = [false, true];
+      const defaultRows = profiles.flatMap(profile => advancedStates.map(advanced => makeV8ProfileRoutineDefaultPathRow(profile, advanced)));
+      const explicitRows = profiles.flatMap(profile => {
+        const safeProfile = normalizeExerciseProfile(profile);
+        return getRoutinePlanItemsForProfile(safeProfile).flatMap(plan => {
+          const routinePlan = normalizeRoutinePlanForProfile(safeProfile, plan.value);
+          const items = getRoutineItemsForProfile(safeProfile, {
+            advanced: true,
+            routinePlan
+          });
+          return items.flatMap(item => advancedStates.map(advanced => makeV8ProfileRoutineExplicitPathRow(safeProfile, routinePlan, item, advanced)));
+        });
+      });
+      const rows = [...defaultRows, ...explicitRows];
+      const findings = rows.flatMap(row => row.findings.map(finding => ({
+        rowId: row.id,
+        pathKind: row.pathKind,
+        profile: row.profile,
+        routinePlan: row.routinePlan || row.todayRoutinePlan,
+        routine: row.routine || row.todayRoutineSession,
+        advanced: row.advanced,
+        finding
+      })));
+      const advancedOffReviewRows = rows.filter(row => row.advanced === false && row.reviewNotes.length);
+      const profileSummaries = profiles.map(profile => {
+        const profileRows = rows.filter(row => row.profile === profile);
+        return {
+          profile,
+          rowCount: profileRows.length,
+          explicitRowCount: profileRows.filter(row => row.pathKind === "today_explicit_override_path").length,
+          defaultRowCount: profileRows.filter(row => row.pathKind === "settings_default_path").length,
+          findingCount: profileRows.reduce((sum, row) => sum + row.findings.length, 0),
+          advancedOffReviewCount: profileRows.filter(row => row.advanced === false && row.reviewNotes.length).length
+        };
+      });
+      return {
+        meta: {
+          version: V8_SCENARIO_RUNNER_VERSION,
+          stage: V8_PROFILE_ROUTINE_USER_PATH_MATRIX_STAGE,
+          reportOnly: true,
+          source: "Settings default path + Today date-owned explicit routine/session override + calculate() + Records goalSnapshot",
+          evidenceLevel: "internal_user_path_matrix_not_human_visual_review",
+          productionFormulaChanged: false,
+          userLevelFormulaImplemented: false,
+          nonClaim: "does_not_replace_human_visual_review_or_implement_user_level_formula_or_close_full_v8_completion"
+        },
+        summary: {
+          profileCount: profiles.length,
+          defaultPathRowCount: defaultRows.length,
+          explicitPathRowCount: explicitRows.length,
+          rowCount: rows.length,
+          passRowCount: rows.filter(row => row.status === "pass").length,
+          findingCount: findings.length,
+          advancedOffReviewRowCount: advancedOffReviewRows.length,
+          bodybuildingOffDefaultSimpleRestTraining: defaultRows.some(row =>
+            row.profile === "bodybuilding"
+            && row.advanced === false
+            && row.todayRoutineSession === "PUSH"
+            && Math.abs(Number(row.todayIntensityOverride) - 0.70) <= 1e-6
+            && row.findings.length === 0
+          ),
+          nonBodybuildingOffProfileDefaultsPreserved: defaultRows
+            .filter(row => row.profile !== "bodybuilding" && row.advanced === false)
+            .every(row => row.defaultUsesDetailedRoutineDefaults === true && row.findings.length === 0),
+          explicitTodayOverridePathPreserved: explicitRows.every(row => row.findings.length === 0),
+          manualIntensityOnlyWhenAdvanced: rows.every(row => row.manualIntensityEditable === row.advanced),
+          levelFormulaInputScopeDocumented: rows.every(row => row.levelFormulaInputScope?.implementationReady === false),
+          userLevelFormulaImplemented: false,
+          fullHumanVisualReviewClosed: false,
+          fullV8CompletionClosed: false
+        },
+        profileSummaries,
+        rows,
+        findings,
+        advancedToggleOpenReview: advancedOffReviewRows.map(row => ({
+          rowId: row.id,
+          profile: row.profile,
+          pathKind: row.pathKind,
+          notes: row.reviewNotes
+        })),
+        openHumanReviewScope: [
+          "This matrix checks code/user-path continuity for every profile routine/session row.",
+          "It separates Settings defaults from Today explicit overrides, so bodybuilding OFF simple training and Today explicit session xw cannot be confused.",
+          "It flags non-bodybuilding advanced-OFF behavior as a product review question because profile-specific sessions remain available while manual intensity is hidden.",
+          "It does not replace screenshot-level or owner human UX review.",
+          "It documents user-level formula input scope but does not implement the user-level formula."
+        ]
+      };
+    }
+
     const V8_WHOLE_STAGE_EVIDENCE_BOUNDARY_AUDIT_STAGE = "whole_stage_evidence_boundary_audit_v0";
 
     function makeV8WholeStageEvidenceBoundaryCheck(config){
@@ -59033,6 +59462,7 @@ Notes:
       const profileFormulaApprovalDecision = report?.profileFormulaApprovalDecision || {};
       const profileRoutineSurfaceAudit = report?.profileRoutineSurfaceAudit || {};
       const profileTrainingSummaryAudit = report?.profileTrainingSummaryAudit || {};
+      const profileRoutineUserPathMatrix = report?.profileRoutineUserPathMatrix || {};
       const fullCartesianExecutionContract = report?.fullCartesianExecutionContract || {};
       const pairwiseStress = report?.pairwiseStress || {};
       const targetedStress = report?.targetedStress || {};
@@ -59305,6 +59735,29 @@ Notes:
         },
         riskIfMisread: "A formatter-level pass could be mistaken for complete visual review or full profile routine/session UX approval."
       });
+      addCheck({
+        key: "profile_routine_user_path_matrix_not_level_formula_or_visual_completion",
+        layer: "profileRoutineUserPathMatrix",
+        category: "user_path_boundary",
+        passed: profileRoutineUserPathMatrix?.meta?.reportOnly === true
+          && profileRoutineUserPathMatrix?.meta?.productionFormulaChanged === false
+          && profileRoutineUserPathMatrix?.summary?.findingCount === 0
+          && profileRoutineUserPathMatrix?.summary?.userLevelFormulaImplemented === false
+          && profileRoutineUserPathMatrix?.summary?.fullHumanVisualReviewClosed === false
+          && profileRoutineUserPathMatrix?.summary?.fullV8CompletionClosed === false
+          && String(profileRoutineUserPathMatrix?.meta?.nonClaim || "").includes("does_not_replace_human_visual_review"),
+        expected: "profile routine user-path matrix passes code continuity while level formula and human visual review remain open",
+        actual: {
+          reportOnly: profileRoutineUserPathMatrix?.meta?.reportOnly,
+          productionFormulaChanged: profileRoutineUserPathMatrix?.meta?.productionFormulaChanged,
+          findingCount: profileRoutineUserPathMatrix?.summary?.findingCount,
+          userLevelFormulaImplemented: profileRoutineUserPathMatrix?.summary?.userLevelFormulaImplemented,
+          fullHumanVisualReviewClosed: profileRoutineUserPathMatrix?.summary?.fullHumanVisualReviewClosed,
+          fullV8CompletionClosed: profileRoutineUserPathMatrix?.summary?.fullV8CompletionClosed,
+          nonClaim: profileRoutineUserPathMatrix?.meta?.nonClaim
+        },
+        riskIfMisread: "A full profile/routine/session code matrix could be mistaken for user-level formula implementation or complete human UX approval."
+      });
 
       const findings = checks.filter(item => item.passed !== true);
       return {
@@ -59339,6 +59792,7 @@ Notes:
           "full_v8_completion",
           "human visual review of every Settings/Today profile routine/session surface",
           "render and human review of every profile-aware Today training summary surface",
+          "owner review of advanced-OFF versus advanced-ON behavior for non-bodybuilding profile defaults",
           "external evidence and app-fit review for any internal/product-policy basis not explicitly marked as external sports-nutrition evidence"
         ]
       };
@@ -60698,6 +61152,7 @@ Notes:
         );
         const profileRoutineSurfaceAudit = buildV8ProfileRoutineSurfaceAuditReport();
         const profileTrainingSummaryAudit = buildV8ProfileTrainingSummaryAuditReport();
+        const profileRoutineUserPathMatrix = buildV8ProfileRoutineUserPathMatrixReport();
         const report = {
           meta: {
             version: V8_SCENARIO_RUNNER_VERSION,
@@ -60742,6 +61197,9 @@ Notes:
             profileTrainingSummaryAuditStatus: profileTrainingSummaryAudit.summary.findingCount === 0
               ? "profile_aware_today_training_summary_formatter_passed_render_and_human_review_still_open"
               : "profile_training_summary_followup_required",
+            profileRoutineUserPathMatrixStatus: profileRoutineUserPathMatrix.summary.findingCount === 0
+              ? "profile_routine_user_path_matrix_passed_level_formula_scope_and_human_review_still_open"
+              : "profile_routine_user_path_matrix_followup_required",
             requiredRegressionIncluded: !!requiredCase,
             notes: [
               "This runner preserves the 9-4 report-only audit baseline while reporting the later AA production candidate-v2 wiring status separately.",
@@ -60766,6 +61224,7 @@ Notes:
               "9-10 profile formula approval preflight is report-only; it confirms code/numerical/surface evidence is ready for an explicit approval decision while keeping the preflight boundary separate from production application.",
               "9-11 profile formula approval decision approves candidate-v8-profile-macro-v2-linked-target-v0 and v8.0-AA applies active runtime target-delta cases to production targetCal.",
               "8-2 profileRoutineSurfaceAudit checks every exercise profile's routine plan/session/default structure so derived profileSession evidence cannot stand in for user-owned routine/session paths.",
+              "v8.0-AW profileRoutineUserPathMatrix separates Settings defaults from Today explicit routine/session overrides and documents level-formula input scope without implementing it.",
               "v8.0-AQ makes exercise profile Settings-owned, keeps Today routine plan/session date-owned, and requires bodybuilding basic mode to preserve legacy routine sessions instead of collapsing to generic REST/PUSH.",
               "v8.0-AR changes the Today top row from weight-training-only copy to a profile-aware training summary; v8.0-AS mirrors that behavior in runner metadata and a report-only formatter audit.",
               "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, or candidate-v8-profile-macro-v1 as the final v8 formula; candidate-v8-profile-macro-v2-linked-target-v0 is production-applied and post-wiring visually QA-complete for active target-delta Today/Records surfaces, but full Cartesian execution and full-V8 completion remain open."
@@ -60897,6 +61356,19 @@ Notes:
               nonRestZeroWeightDurationPassCount: profileTrainingSummaryAudit.summary.nonRestZeroWeightDurationPassCount,
               weightRestCopyBlocked: profileTrainingSummaryAudit.summary.weightRestCopyBlocked
             },
+            profileRoutineUserPathMatrix: {
+              stage: profileRoutineUserPathMatrix.meta.stage,
+              rowCount: profileRoutineUserPathMatrix.summary.rowCount,
+              defaultPathRowCount: profileRoutineUserPathMatrix.summary.defaultPathRowCount,
+              explicitPathRowCount: profileRoutineUserPathMatrix.summary.explicitPathRowCount,
+              findingCount: profileRoutineUserPathMatrix.summary.findingCount,
+              advancedOffReviewRowCount: profileRoutineUserPathMatrix.summary.advancedOffReviewRowCount,
+              bodybuildingOffDefaultSimpleRestTraining: profileRoutineUserPathMatrix.summary.bodybuildingOffDefaultSimpleRestTraining,
+              nonBodybuildingOffProfileDefaultsPreserved: profileRoutineUserPathMatrix.summary.nonBodybuildingOffProfileDefaultsPreserved,
+              explicitTodayOverridePathPreserved: profileRoutineUserPathMatrix.summary.explicitTodayOverridePathPreserved,
+              userLevelFormulaImplemented: profileRoutineUserPathMatrix.summary.userLevelFormulaImplemented,
+              fullHumanVisualReviewClosed: profileRoutineUserPathMatrix.summary.fullHumanVisualReviewClosed
+            },
             fullCartesianExecutionContract: {
               stage: fullCartesianExecutionContract.meta.stage,
               shardContractReady: fullCartesianExecutionContract.meta.shardContractReady,
@@ -60936,6 +61408,7 @@ Notes:
           profileFormulaApprovalDecision,
           profileRoutineSurfaceAudit,
           profileTrainingSummaryAudit,
+          profileRoutineUserPathMatrix,
           fullCartesianExecutionContract,
           pairwiseStress,
           targetedStress,
@@ -61121,7 +61594,7 @@ Notes:
           assertTest(findInvalidCalibrationNumber(audit).length === 0, "profile routine surface audit should not contain NaN or Infinity");
         }));
 
-        results.push(runNamedTest("v8.0-AS whole-stage evidence boundary audit keeps gates separated", () => {
+        results.push(runNamedTest("v8.0-AW whole-stage evidence boundary audit keeps gates separated", () => {
           const report = runV8ScenarioRunner();
           const audit = report.wholeStageEvidenceBoundaryAudit;
           assertTest(report.meta.version === "8.0-AT", "v8 runner should expose the AT stage while preserving the AP whole-stage boundary audit");
@@ -61130,7 +61603,7 @@ Notes:
           assertTest(audit.meta.reportOnly === true, "whole-stage boundary audit should be report-only");
           assertTest(audit.meta.productionFormulaChanged === false, "whole-stage boundary audit should not change production formula");
           assertTest(audit.meta.nonClaim.includes("does_not_introduce_new_formula"), "whole-stage boundary audit should not introduce new formula evidence");
-          assertTest(audit.summary.checkCount === 16, "whole-stage boundary audit should cover the expected AP/AS evidence checks");
+          assertTest(audit.summary.checkCount === 17, "whole-stage boundary audit should cover the expected AP/AS/AW evidence checks");
           assertTest(audit.summary.passCount === audit.summary.checkCount, "every whole-stage boundary check should pass");
           assertTest(audit.summary.findingCount === 0, "whole-stage boundary audit should have no findings");
           assertTest(audit.summary.full8_2CartesianExecutionClosed === false, "AP audit must keep full Cartesian execution open");
@@ -61144,10 +61617,49 @@ Notes:
           assertTest(checksByKey.approval_decision_applied_but_not_full_v8?.passed === true, "approval decision should not close full V8");
           assertTest(checksByKey.profile_routine_surface_structural_not_human_visual?.passed === true, "profile routine structural audit should not replace human visual review");
           assertTest(checksByKey.profile_training_summary_formatter_not_visual_completion?.passed === true, "profile training summary formatter audit should not replace render or human visual review");
+          assertTest(checksByKey.profile_routine_user_path_matrix_not_level_formula_or_visual_completion?.passed === true, "profile routine user-path matrix should not replace level formula or human visual review");
           assertIncludesAll(audit.openScopes, ["full_8_2_cartesian_execution", "full_v8_completion"], "AP audit should keep full execution/completion scopes open");
           assertTest(audit.openScopes.some(item => item.includes("human visual review")), "AP audit should keep human profile visual review open");
           assertTest(report.summary.wholeStageEvidenceBoundaryAudit.findingCount === 0, "top-level summary should carry AP zero findings");
           assertTest(findInvalidCalibrationNumber(audit).length === 0, "whole-stage evidence boundary audit should not contain NaN or Infinity");
+        }));
+
+        results.push(runNamedTest("v8.0-AW profile routine user-path matrix separates defaults, overrides, and level formula scope", () => {
+          const report = runV8ScenarioRunner();
+          const matrix = report.profileRoutineUserPathMatrix;
+          assertTest(report.meta.version === "8.0-AT", "v8 runner should keep the production macro version while adding AW audit scope");
+          assertTest(report.meta.stage.includes("v8.0-AW"), "v8 runner stage should include AW");
+          assertTest(report.meta.profileRoutineUserPathMatrixStatus === "profile_routine_user_path_matrix_passed_level_formula_scope_and_human_review_still_open", "top-level meta should expose AW matrix status without closing level formula or visual review");
+          assertTest(matrix?.meta?.stage === V8_PROFILE_ROUTINE_USER_PATH_MATRIX_STAGE, "profile routine user-path matrix should identify its stage");
+          assertTest(matrix.meta.reportOnly === true, "profile routine user-path matrix should be report-only");
+          assertTest(matrix.meta.productionFormulaChanged === false, "profile routine user-path matrix should not change production formula");
+          assertTest(matrix.meta.userLevelFormulaImplemented === false, "profile routine user-path matrix should not claim user-level formula implementation");
+          assertTest(matrix.meta.nonClaim.includes("does_not_replace_human_visual_review"), "profile routine user-path matrix should not replace human visual review");
+          assertTest(matrix.summary.profileCount === Object.keys(EXERCISE_PROFILE_OPTIONS).length, "matrix should cover every exercise profile");
+          assertTest(matrix.summary.rowCount === matrix.summary.defaultPathRowCount + matrix.summary.explicitPathRowCount, "matrix should separate default and explicit rows");
+          assertTest(matrix.summary.passRowCount === matrix.summary.rowCount, "every matrix row should pass code continuity checks");
+          assertTest(matrix.summary.findingCount === 0, "profile routine user-path matrix should have no findings");
+          assertTest(matrix.summary.bodybuildingOffDefaultSimpleRestTraining === true, "bodybuilding advanced-OFF default path should preserve simple training/rest intensity");
+          assertTest(matrix.summary.nonBodybuildingOffProfileDefaultsPreserved === true, "non-bodybuilding advanced-OFF defaults should preserve profile-specific sessions");
+          assertTest(matrix.summary.explicitTodayOverridePathPreserved === true, "Today explicit routine/session override path should be preserved for every row");
+          assertTest(matrix.summary.manualIntensityOnlyWhenAdvanced === true, "manual training intensity editability should track advanced setting");
+          assertTest(matrix.summary.userLevelFormulaImplemented === false, "matrix summary should keep user-level formula implementation open");
+          assertTest(matrix.summary.fullHumanVisualReviewClosed === false, "matrix summary should keep human visual review open");
+          const bodyOffDefault = matrix.rows.find(row => row.id === "bodybuilding_advanced_off_default");
+          assertTest(bodyOffDefault?.todayRoutineSession === "PUSH", "bodybuilding advanced-OFF default should use the simple training token");
+          assertClose(bodyOffDefault?.todayIntensityOverride, 0.70, 0.0001, "bodybuilding advanced-OFF default training intensity should be 0.70 before weekly adjustment");
+          const bodyPushExplicit = matrix.rows.find(row => row.id === "bodybuilding_ppl_ul_PUSH_advanced_off_explicit");
+          assertClose(bodyPushExplicit?.todayIntensityOverride, 0.80, 0.0001, "bodybuilding advanced-OFF Today explicit PUSH should preserve the selected session xw");
+          const runningOffDefault = matrix.rows.find(row => row.id === "running_advanced_off_default");
+          assertTest(String(runningOffDefault?.todayRoutineSession || "").startsWith("running_"), "running advanced-OFF default should not collapse to bodybuilding REST/PUSH");
+          const runningInterval = matrix.rows.find(row => row.id === "running_running_speed_running_interval_advanced_off_explicit");
+          assertClose(runningInterval?.todayWeightDuration, 0, 0.0001, "running interval should stay cardio-owned with zero weight duration");
+          assertTest(Number(runningInterval?.cardioDefaults?.duration) > 0, "running interval should carry cardio duration");
+          assertTest(matrix.advancedToggleOpenReview.some(item => item.profile === "running"), "matrix should keep non-bodybuilding advanced-OFF product review visible");
+          assertTest(matrix.rows.every(row => row.levelFormulaInputScope?.implementationReady === false), "every row should keep level formula implementation open");
+          assertIncludesAll(matrix.rows[0].levelFormulaInputScope.openFutureFormulaKeys, ["performanceLevel", "recent28Trend"], "matrix should document future level-formula input keys");
+          assertTest(report.summary.profileRoutineUserPathMatrix.findingCount === 0, "top-level summary should carry AW zero findings");
+          assertTest(findInvalidCalibrationNumber(matrix).length === 0, "profile routine user-path matrix should not contain NaN or Infinity");
         }));
 
         results.push(runNamedTest("v8.0-AS profile-aware Today training summary audit keeps runner metadata aligned", () => {
