@@ -22,6 +22,7 @@
 - `[REPORT_ONLY]` candidate-v0/v1/v2 비교, macroAudit, pairwise, targeted stress, human-review numerical gate, full Cartesian tooling의 상당 부분은 여전히 증거/검토 레이어다.
 - `[OPEN_GATE]` full 8-2 Cartesian execution, full V8 completion, broad profile/routine/session human UX review는 open이다.
 - `[OPEN_GATE]` 사용자 수준별 산식은 V8의 원래 핵심 목표에 포함되어 있다. 현재는 일부 입력 맥락과 scoped candidate-v2만 production에 반영됐으므로, 운동 프로필/세션/수행 수준/체성분 신뢰도/최근 기록/최근 추세를 묶는 전면 profile-specific macro formula는 아직 완료로 보지 않는다.
+- `[REPORT_ONLY]` v8.0-AZ는 사용자 수준별 산식의 초정밀 설계 계약을 추가했다. `userLevelFormulaPrecisionDesign`은 external evidence / internal code contract / product policy를 분리하고 다음 candidate 구현 순서를 고정하지만, production 산식을 변경하거나 user-level formula gate를 닫지 않는다.
 
 문서 역할:
 
@@ -31,19 +32,30 @@
 | `docs/v8_1단계_복구감사_2026-06-03.txt` | 복구 감사 증거 | AS2 시점의 문제와 AT follow-up을 분리해 읽는다. |
 | `docs/v8_현재산식_기준갱신_감사_2026-06-02.txt` | 긴 감사 ledger | 단계별 historical/current/report-only 경계를 확인한다. |
 | `docs/v8_운동프로필_산식_정밀설계.txt` | V8 설계 원칙과 원래 순서 | 수준별 산식, 프로필/루틴/세션, 근거 등급 원칙을 확인한다. |
+| `docs/v8_수준별산식_초정밀설계_2026-06-04.txt` | 수준별 산식 설계 계약 | AZ 이후 다음 작업은 이 문서의 순서대로 report-only candidate부터 진행한다. |
 
 다음 작업 우선순위:
 
-1. `[OPEN_GATE]` 기존 3단계로 진입한다: profile/routine/session broad human UX review matrix를 만들고, 수준별 산식이 실제 사용자 경로와 어떻게 연결될지 정한다.
-2. `[OPEN_GATE]` 기존 3단계 preflight로 candidate-v2/scoped production status wording이 full V8 완료처럼 보이는 표현을 좁힌다. 새 장시간 stage로 분리하지 말고, 3단계 진입 전/중에 필요한 범위만 처리한다.
+1. `[REPORT_ONLY]` AZ 이후 다음 단계는 `levelAwareMacroCandidateV0`이다. 먼저 `userLevelFormulaContext` builder와 current production vs candidate 비교를 report-only로 만든다.
+2. `[OPEN_GATE]` candidate가 생겨도 user-level formula production implementation은 닫지 않는다. Records/Score/Coach/Backup contract와 human-eye profile cases를 먼저 붙인다.
 3. `[OPEN_GATE]` full Cartesian을 실제 전수 실행할지, owner-approved 대체 gate로 바꿀지 결정한다.
 
 금지선:
 
 - AT의 `2.0g/kg` 복구를 수준별 산식 완성으로 말하지 않는다.
 - candidate-v2의 scoped production 적용을 모든 사용자/모든 운동 프로필의 전면 산식 승인으로 말하지 않는다.
+- AZ의 초정밀 설계를 user-level formula production 구현 완료로 말하지 않는다.
 - 18개 human-review, pairwise/targeted stress, render audit, shard pilot, clean campaign 일부 실행을 80,621,568,000개 full Cartesian 실행으로 말하지 않는다.
 - 문서 기준이 실제 사용자 경로와 충돌하면 문서를 고쳐야 하며, 기준 통과를 위해 사용자 경로를 우회하지 않는다.
+
+# v8.0-AZ user-level formula precision design note
+
+- AZ adds `userLevelFormulaPrecisionDesign` to `runV8ScenarioRunner()` as report-only design evidence.
+- The design separates external sports-nutrition references, internal code contracts, and product-policy reasons.
+- Covered design inputs are goal, exerciseProfile, routinePlan, routineSession, derived profileSession, performanceLevel, trainingEvidence, bodyCompReliability, recent14 coverage, recent28 trend, activity workload, cardio load, and advanced tuning.
+- Covered formula layers are context, targetEnergy, protein, fat, carbohydrate, recentTrend, and score/Coach/snapshot.
+- The completion gate remains open for `user_level_profile_specific_macro_formula`; AZ is design readiness for the next candidate, not implementation.
+- Verification on 2026-06-04: targeted V8/Today bundle = 3 suites / 89 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 139 cases / failed 0.
 
 # v8 manual continuation note
 
