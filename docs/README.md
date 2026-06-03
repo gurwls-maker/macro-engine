@@ -53,14 +53,15 @@
 - Current whole-V8 status is not complete. Candidate-v2 production application and post-wiring visual QA are closed, but `full_8_2_cartesian_execution`, `full_v8_completion`, and broad profile/routine/session human UX review remain open.
 - The next agent must not start a new micro-stage before rechecking current runner output, render audit, clean full-Cartesian campaign state, and the user-owned profile/routine/session paths.
 
-# v8.0-AW profile routine user-path matrix note
+# v8.0-AX exercise advanced toggle semantics recovery note
 
-- AW adds `profileRoutineUserPathMatrix` to `runV8ScenarioRunner()` as report-only evidence for the existing 3-stage work.
+- AX supersedes the earlier AW advanced-toggle interpretation. AW's matrix remains, but its expected behavior is now: advanced OFF exposes simple `REST / PUSH` only, and advanced ON exposes detailed profile routine/session choices.
+- AW/AX adds `profileRoutineUserPathMatrix` to `runV8ScenarioRunner()` as report-only evidence for the existing 3-stage work.
 - The matrix separates two paths that must not be collapsed: Settings/default Today path and Today explicit routine/session override path.
-- Current code fact captured by AW: bodybuilding advanced OFF default path uses the simple training/rest flow, with training default intensity `0.70` before weekly adjustment. Today explicit override can still preserve the selected session xw, for example `PUSH` at `0.80`.
-- Current code fact captured by AW: non-bodybuilding profiles keep profile-specific routine/session defaults even when advanced is OFF; advanced mainly controls manual intensity/expanded controls. This is left as product review scope, not silently claimed as final UX approval.
-- AW documents the future user-level formula input scope (`performanceLevel`, body-composition reliability, recent record coverage, trend) but does not implement that formula and does not close broad human visual review, full Cartesian execution, or full V8 completion.
-- Verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 30 cases / failed 0; Today quick-edit/calculation/record-confirmation bundle = 3 suites / 70 cases / failed 0; core profile = 26 suites / 370 cases / failed 0.
+- Current code fact captured by AX: bodybuilding advanced OFF uses the original simple training/rest flow, with training default intensity `0.70` before weekly adjustment. Detailed bodybuilding routine/session xw such as `PPL-UL / PUSH 0.80` is advanced-ON behavior.
+- Current code fact captured by AX: non-bodybuilding advanced OFF still shows only simple `REST / PUSH`, but a simple training day applies that profile's default training session internally for calculation defaults such as xw, weight duration, and cardio defaults. Detailed non-bodybuilding routine/session selection is advanced-ON behavior.
+- AX documents the future user-level formula input scope (`performanceLevel`, body-composition reliability, recent record coverage, trend) but does not implement that formula and does not close broad human visual review, full Cartesian execution, or full V8 completion.
+- Verification on 2026-06-03: `runTodayCalculationOwnershipTests`, `runTodayQuickEditTests`, `runV8ScenarioRunnerTests` = 3 suites / 88 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 138 cases / failed 0.
 
 # v8.0-AV docs cleanup completion note
 
