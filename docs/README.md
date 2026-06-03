@@ -1,5 +1,14 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AL targeted stress mixed maintain re-audit note
+
+- AL re-audit found a stale targeted-stress interpretation: current AG+ profile-owned runner output has `mixedCarbUnresolvedCaseCount=2`, not 1.
+- Both `targeted_mixed_carb_unresolved` and `targeted_maintain_mixed_contract` now carry candidate-v1 `profile_carb_floor_unresolved_by_target_constraints`.
+- `targeted_maintain_mixed_contract` is therefore both a maintain/non-bodybuilding profile contract risk and a mixed candidate-v1 carb-floor unresolved case. Do not read maintain goal production availability as a completed mixed profile formula.
+- `runV8ScenarioRunner()` now reports version `8.0-AL`.
+- Verification on 2026-06-03: direct runner extraction confirmed version `8.0-AL`, targeted 8 cases / calculated 5 / constraint-only 3 / mixed unresolved 2 / maintain non-bodybuilding 2 / high priority 3; `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1056 cases / failed 0.
+- This is a re-audit/test-tightening update. It does not close `full_8_2_cartesian_execution` / `full_v8_completion`.
+
 # v8.0-AK full Cartesian exact-range plan executor note
 
 - AK adds `tools/render_audit/run_v8_full_cartesian_plan.cjs`.
@@ -12,7 +21,7 @@
 - During the post-commit AK recheck, `run_v8_full_cartesian_plan.cjs --max-ranges=0` was also found to be at risk of falling back to all planned ranges. It now records a no-range execution summary instead of executing every planned range.
 - Verification on 2026-06-03: AK planner recheck planned 2 ranges / 16 cases / duplicate-if-batch 0; `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1056 cases / failed 0.
 - Safety probe on 2026-06-03: `--max-ranges=0 --label=ak_zero_range_guard_probe` executed ranges 0 / cases 0 / `noRangesSelected=true` / full execution closed false.
-- `index.html` now reports scenario runner version `8.0-AK`.
+- At AK, `index.html` reported scenario runner version `8.0-AK`; AL is now the current reported version.
 - This is bounded exact-range execution only. It does not close `full_8_2_cartesian_execution` / `full_v8_completion`.
 
 # v8.0-AJ full Cartesian next-shard planner note
@@ -254,7 +263,7 @@
 - This layer is report-only and does not change production formulas.
 - Direct extraction on 2026-06-03: total targeted cases 8 = 5 calculated review cases + 3 constraint-only excluded tuples.
 - Focus counts: `derived_ffmi=1`, `inactive_intensity=1`, `mixed_carb_unresolved=2`, `maintain_non_bodybuilding=2`, `excluded_constraint=3`.
-- Actual unresolved mixed carb finding count is 1. The maintain mixed case is marked as report-only carb-floor-met, not unresolved.
+- Current AG+ profile-owned runner output has `mixedCarbUnresolvedCaseCount=2`: both `targeted_mixed_carb_unresolved` and `targeted_maintain_mixed_contract` carry candidate-v1 carb-floor unresolved findings. The maintain mixed case is also a maintain/non-bodybuilding contract risk, so it must not be flattened into a completed maintain formula.
 - It is not the 80,621,568,000 full Cartesian run, not a replacement for the 18 human-review cases, and not candidate formula approval.
 
 이 폴더는 프로젝트의 기준문서 폴더다. 과거 `source` 폴더명은 실제 소스 코드처럼 보였기 때문에 `docs`로 바꿨다. 앱 구현 소스는 루트의 `index.html`이며, 문서는 구현 방향과 판단 기준을 정리하는 역할이다.

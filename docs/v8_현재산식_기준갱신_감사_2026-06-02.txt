@@ -1265,9 +1265,9 @@ targetedStress의 성격:
 - `constraintOnlyCaseCount`: 3
 - `derivedFfmiConflictCount`: 1
 - `inactiveIntensityCaseCount`: 1
-- `mixedCarbUnresolvedCaseCount`: 1
+- `mixedCarbUnresolvedCaseCount`: 2
 - `maintainNonBodybuildingCaseCount`: 2
-- `highPriorityCaseCount`: 2
+- `highPriorityCaseCount`: 3
 
 focus count:
 
@@ -1283,7 +1283,7 @@ focus count:
 - `targeted_rest_day_intensity_inactive`: rest day, `todayWeightDuration=0`에서 intensity 축은 숨은 training load가 아니며 `rest_day_intensity_axis_inactive_not_training_load`로 표시한다.
 - `targeted_mixed_carb_unresolved`: mixed strength/cardio 고부하에서 candidate-v1이 `profile_carb_floor_unresolved_by_target_constraints`를 유지한다. 이는 target/rate와 protein/fat guard를 함께 여는 candidate-v2 필요 근거다.
 - `targeted_maintain_running_contract`: maintain goal + running profile/session은 production maintain goal이 존재해도 running-specific macro formula와 UI/Records/Coach 계약이 별도 pending임을 표시한다.
-- `targeted_maintain_mixed_contract`: maintain goal + mixed profile/session은 non-bodybuilding profile formula pending이다. 단, 이 케이스의 carb floor는 `profile_carb_floor_met_report_only`로 남았으므로 unresolved라고 과장하지 않는다.
+- `targeted_maintain_mixed_contract`: maintain goal + mixed profile/session은 non-bodybuilding profile formula pending이다. 현재 AG+ profile-owned 입력 기준으로는 이 케이스도 candidate-v1 `profile_carb_floor_unresolved_by_target_constraints`를 가지므로, maintain 계약 risk와 mixed carb-floor unresolved risk가 함께 남는다.
 
 constraint-only 케이스:
 
@@ -2212,6 +2212,37 @@ v8.0-AK에서는 AJ planner가 만든 exact uncovered range를 실제 shard mani
 - 최초 AK pilot은 편집 중 실행했으므로 dirty-source manifests 2를 closure blocker로 남겼다. post-push clean-source rerun은 같은 2개 exact range에서 dirty-source manifests 0을 확인했지만, cumulative ledger에는 여전히 gap 24~1152와 full Cartesian incomplete blocker가 남는다.
 - AK는 `full_8_2_cartesian_execution` 또는 `full_v8_completion`을 닫지 않는다.
 
+## 11-36. 2026-06-03 v8.0-AL targeted stress mixed maintain 재감사
+
+사용자 지적을 운동프로필/세션 외 다른 단계에도 적용해 재검토하던 중, v8.0-M targeted stress 문서와 테스트가 현재 AG+ profile-owned runner 상태를 느슨하게 읽는 문제를 발견했다.
+
+발견:
+
+- 문서 일부는 `mixedCarbUnresolvedCaseCount=1`, `highPriorityCaseCount=2`, maintain mixed case는 carb-floor-met이라고 설명했다.
+- 현재 runner 직접 추출 기준은 `mixedCarbUnresolvedCaseCount=2`, `highPriorityCaseCount=3`이다.
+- `targeted_mixed_carb_unresolved`와 `targeted_maintain_mixed_contract`가 모두 candidate-v1 `profile_carb_floor_unresolved_by_target_constraints`를 가진다.
+- `targeted_maintain_mixed_contract`는 maintain/non-bodybuilding profile formula contract pending이면서 동시에 mixed candidate-v1 carb-floor unresolved case다.
+
+수정:
+
+- `runV8ScenarioRunnerTests`의 targeted stress 기대값을 `>=1`에서 정확한 current count로 강화했다.
+- maintain mixed case가 mixed carb-floor unresolved와 maintain profile-contract risk를 모두 갖는지 test assertion을 추가했다.
+- `index.html` stage/version을 `8.0-AL`로 올렸다.
+- `docs/README.md`, `docs/v8_운동프로필_산식_정밀설계.txt`, 이 감사 문서의 stale targeted stress 해석을 현재 runner 기준으로 갱신했다.
+
+검증:
+
+- 직접 runner 추출: `version=8.0-AL`, targeted 8 cases / calculated 5 / constraint-only 3 / mixed unresolved 2 / maintain non-bodybuilding 2 / high priority 3.
+- `targeted_maintain_mixed_contract`: `goal=maintain`, `exerciseProfile=mixed`, `profileSession=mixed_strength_cardio`, targeted findings에 `mixed_profile_carb_floor_unresolved_requires_candidate_v2`와 `maintain_non_bodybuilding_profile_formula_contract_pending` 포함.
+- `runV8ScenarioRunnerTests`: 1 suite / 26 cases / failed 0.
+- full internal suite: 99 suites / 1056 cases / failed 0.
+
+판단:
+
+- 이것은 production formula 변경이 아니라 감사/테스트 고정이다.
+- maintain goal production availability를 mixed profile formula completion으로 읽으면 안 된다.
+- AL도 full Cartesian 실행 완료, 18개 human-review 대체, full V8 completion을 닫지 않는다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -2391,9 +2422,9 @@ v8.0-AK에서는 AJ planner가 만든 exact uncovered range를 실제 shard mani
   - `constraintOnlyCaseCount=3`
   - `derivedFfmiConflictCount=1`
   - `inactiveIntensityCaseCount=1`
-  - `mixedCarbUnresolvedCaseCount=1`
+  - `mixedCarbUnresolvedCaseCount=2`
   - `maintainNonBodybuildingCaseCount=2`
-  - `highPriorityCaseCount=2`
+  - `highPriorityCaseCount=3`
 - 2026-06-03 v8.0-M calibration profile 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=calibration`
 - v8.0-M desktop calibration 14 suites / 124 cases / failed 0
 - 2026-06-03 v8.0-M full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
@@ -2716,7 +2747,7 @@ v8.0-I 9-6 maintain production contract review 당시에는 `maintainGoalContrac
 v8.0-J maintain production goal 1차 이후에는 `maintainGoalContract`가 report-only / productionFormulaChanged false로 남되 `productionMaintainGoalAvailable=true`, `maintainProductionApproved=true`, `missingContractCount=0`, `currentAxisFallbackGoal=null`로 바뀌는지 확인했다. 이 승인은 maintain production goal 계약에 한정되며, profile-specific macro formula 또는 전체 v8 완료를 뜻하지 않는다.
 v8.0-K profile macro candidate-v1 이후에는 `profileMacroCandidateComparison`이 report-only / productionFormulaChanged false / candidateFormulaApproved false로 남고, running/mixed 탄수 floor를 targetCal 변경 없이 맞출 수 있는지 검토했다. 직접 추출 결과 mixed floor 시도 3건은 모두 target/protein/fat 보호선 때문에 unresolved로 남았고, 이는 candidate-v2에서 target/rate와 protein/fat guard를 함께 열어야 한다는 근거다.
 v8.0-L pairwise stress 이후에는 8-2 full Cartesian을 실행했다고 주장하지 않으면서, 제약상 가능한 pair 2,472개를 50개 계산 케이스로 모두 덮는지 확인했다. 직접 제어 가능한 tuple mismatch는 0이며, FFMI 파생축과 rest-day inactive intensity는 별도 mismatch로 분리했다.
-v8.0-M targeted stress 이후에는 pairwise/profile macro residual signal을 계산 가능한 5개 targeted case와 계산하면 안 되는 3개 constraint-only case로 분리했다. mixed focus는 2건이지만 실제 unresolved finding은 1건이며, maintain mixed는 report-only carb-floor-met으로 남겨 과장하지 않았다. 이 단계도 full Cartesian, 18개 human-review 대체, candidate production approval이 아니다.
+v8.0-M targeted stress 이후에는 pairwise/profile macro residual signal을 계산 가능한 5개 targeted case와 계산하면 안 되는 3개 constraint-only case로 분리했다. 현재 AG+ profile-owned runner 기준 mixed focus는 2건이고 실제 mixed carb unresolved finding도 2건이다. maintain mixed는 maintain/non-bodybuilding contract risk와 mixed candidate-v1 carb-floor unresolved risk가 함께 남으므로, maintain goal production availability를 mixed formula 완료로 읽으면 안 된다. 이 단계도 full Cartesian, 18개 human-review 대체, candidate production approval이 아니다.
 v8.0-N profile macro candidate-v2 이후에는 mixed carb floor를 target delta로 맞출 수 있는지 report-only로 계산했다. targeted mixed case는 +43.729kcal, 주간 rate equivalent +0.0398kg/week로 6g/kg에 도달하지만, protein guard conflict와 production contract pending이 남으므로 production formula가 아니다.
 v8.0-O profile macro candidate-v2 production contract review 이후에는 candidate-v2 productionReady=false를 코드 계약으로 확인했다. Settings/Today input, target-rate delta, Records snapshot/signature, score, Coach, recentContext, backup/import 계약 11개가 missing이며, unresolved protein guard conflict까지 포함해 productionBlockerCount=12다.
 v8.0-P profile/session snapshot contract 이후에는 Settings/Today exerciseProfile/profileSession derived field, Today draft persistence, Records snapshot/signature, backup/import roundtrip을 production data path로 닫았다. v8.0-AG에서 이 항목은 "profileSession 별도 입력"이 아니라 "routine/session에서 파생되는 스냅샷 필드"로 정정됐다. 그러나 target-rate delta, score, Coach, recentContext 계약 5개와 unresolved protein guard conflict가 남아 productionBlockerCount=6이며, candidate-v2는 여전히 report-only다.
