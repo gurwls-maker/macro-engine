@@ -62,7 +62,7 @@
 - Non-bodybuilding profiles now use profile-owned routine plans and sessions instead of mapping through bodybuilding fallbacks: running uses `running_base` / `running_speed` sessions with cardio defaults and zero weight duration by default, strength uses strength plans/sessions, powerbuilding uses powerbuilding plans/sessions, and mixed uses mixed plans/sessions.
 - AG follow-up re-audit also corrected the V8 scenario runner itself. Running, strength, powerbuilding, and mixed human-review/targeted cases now calculate through their profile-owned routine/session values (`running_tempo`, `strength_heavy_lower`, `powerbuilding_lower`, `mixed_strength_cardio`) instead of `UPPER` / `LOWER` / `LEGS` / `PUSH` bodybuilding fallbacks.
 - Current AG runner direct check: `profileSessionCarbPolicy.summary.productionFallbackCount=0`; `running_focused.input.todayRoutine=running_tempo`; `low_reliability_user.input.todayRoutine=mixed_strength_cardio`; `targeted_mixed_carb_unresolved.candidate.targetDeltaKcal≈128.996`; `low_reliability_user.candidate.targetDeltaKcal≈130.646`; both mixed cases reach `carbsGPerKgBodyweight=6`.
-- Historical pre-AG target-delta numbers such as `25.029`, `29.446`, `43.729`, and `51.446` remain historical evidence from the old fallback-shaped runner/runtime probes. Do not use them as the current AG profile-owned scenario expectation without re-running the current runner.
+- Historical pre-AG uses of target-delta numbers such as `25.029`, `29.446`, `43.729`, and `51.446` remain historical evidence from old fallback-shaped runner/runtime probes. Do not use a numeric value as current AG+ evidence unless the current profile-owned runner/runtime was re-run for that exact stage; `29.446` is also revalidated later as AA current runtime evidence, so the stage/source matters more than the number text.
 - The old v8.0-P sentence that profile/session preservation should keep production `targetCal` unchanged was an incorrect contract interpretation. Routine/session, intensity, weight duration, and cardio defaults are production workout inputs, so profile-owned sessions can change `targetCal` through the existing workout calculation path.
 - At AG, `index.html` reported scenario runner version `8.0-AG`; AH is now the current reported version.
 - Verification on 2026-06-03: `runTodayQuickEditTests` = 1 suite / 27 cases / failed 0; `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1056 cases / failed 0; render audit capture/analyzer = 55 captures / failed 0. Spot-checks included Settings groups open and Today quick-open profile candidate screens on desktop/mobile.
@@ -248,13 +248,13 @@
 - The extra production blocker beyond missing contracts is `profileMacroCandidateV2Comparison.proteinGuardConflict`, because the guard is present but unresolved.
 - Evidence policy: internal code-contract review only; external sports-nutrition references remain threshold background and do not approve app-wide production behavior.
 
-# v8.0-N profileMacroCandidateV2 note
+# v8.0-N profileMacroCandidateV2 note, AG-corrected
 
-- `runV8ScenarioRunner()` now includes `profileMacroCandidateV2Comparison`.
+- At v8.0-N, `runV8ScenarioRunner()` first included `profileMacroCandidateV2Comparison`.
 - This layer is report-only and does not change production formulas.
-- Direct extraction on 2026-06-03: candidate-v2 comparison covers 96 cases = axis coverage 73 + human-review 18 + targeted calculated 5.
+- Historical v8.0-N direct extraction on 2026-06-03: candidate-v2 comparison covers 96 cases = axis coverage 73 + human-review 18 + targeted calculated 5.
 - `profileCarbFloorAttemptedCount=5`, `profileCarbFloorMetCount=5`, `profileCarbFloorUnresolvedCount=0`, `targetChangedCount=5`, `targetRateContractRequiredCount=5`, `proteinGuardConflictCount=4`.
-- For `targeted_mixed_carb_unresolved`, candidate-v2 opens `targetDeltaKcal=43.72915555555528`, `targetRateDeltaEquivalentKgPerWeek=0.03975377777777753`, and reaches `carbsGPerKgBodyweight=6`.
+- Pre-AG `targeted_mixed_carb_unresolved` opened `targetDeltaKcal=43.72915555555528`, `targetRateDeltaEquivalentKgPerWeek=0.03975377777777753`, and reached `carbsGPerKgBodyweight=6`. Current AG+ profile-owned direct extraction is `targetDeltaKcal=128.996060400435`, `targetRateDeltaEquivalentKgPerWeek=0.11726914581857727`, `carbsGPerKgBodyweight=6`; the old `43.729` value must not be used as the current scenario expectation.
 - This is not production approval. At v8.0-N those target/rate deltas still needed recent trend, score, Coach, Records, Settings/Today, and backup/import contracts; v8.0-P closes the input/snapshot/backup part, v8.0-Q closes target-rate metadata plus the recentContext gate, v8.0-R closes candidate-v2 score/Coach contracts, and v8.0-S resolves the protein guard blocker as an evidence/product-policy contract. Formula approval and production `targetCal` wiring still remain separate.
 
 # v8.0-M targetedStress note
