@@ -4,6 +4,12 @@ v8 운동 프로필 / 목표 산식 / 시나리오 검증 초정밀 인계서
 상태: v8 시작 기준 문서 / 구현 전 인계서
 적용 범위: v7.4 이후의 산식, 사용자 유형, 운동 프로필, 목표별 칼로리/탄단지, Today-Records 기준갱신 감사, 시나리오 검증
 
+2026-06-03 v8.0-AU 문서 계층 정리 기준:
+- 이 문서는 원래 V8 순서와 설계 의도를 보존하는 living design ledger다. "구현 전 인계서"라는 원래 상태 문구는 작성 당시의 성격이며, 아래 handoff/stage note가 현재 진행 상태를 갱신한다.
+- `/GOAL` 장시간 재개 방식은 폐기한다. 이후 작업은 `docs/README.md`의 문서 태그와 이 문서의 원래 순서를 함께 보고, 수동으로 작게 범위를 잡아 진행한다.
+- AT는 일반 diet production protein 기본값을 `2.0g/kg`으로 복구한 단계다. 이것은 수준별 산식 완성이 아니라, 수준별 산식을 올리기 전 일반 기본값의 shortcut을 제거한 것이다.
+- V8의 수준별 산식 목표는 여전히 open이다. 운동 프로필, 루틴/세션, 수행 수준, 체성분 신뢰도, 최근 기록/최근 추세를 실제 UI/Records/Coach/backup 경로와 연결해야 한다.
+
 이 문서는 “방향성 메모”가 아니라 다른 컴퓨터의 다른 Codex가 처음 투입되어도 같은 의도로 작업할 수 있게 만든 구현 인계서다.
 문서에 없는 내용을 Codex가 임의로 채우면 안 된다.
 구현 중 더 좋은 판단이 생기면 먼저 문서를 갱신하고, 왜 기존 기준을 바꿨는지 남긴 뒤 구현한다.
@@ -880,6 +886,7 @@ v8 산식은 대표 케이스 몇 개만 보고 통과시키지 않는다.
   - human-review 18건 기준 주요 신호: `protein_bodyweight_above_general_issn_range` 8건, `diet_default_near_2_4g_bodyweight_requires_candidate_review` 8건, `protein_lbm_in_contest_prep_range_but_context_unverified` 8건, `fat_at_guide_floor` 15건, `carb_below_guide_min` 10건, `exercise_profile_macro_formula_pending` 5건.
   - 필수 `required_user_rest_diet_1913` 케이스는 단백질 2.4g/kg bodyweight, 2.83g/kg LBM, 지방 21.23% kcal이며, fat floor와 carb guide min 하회를 동시에 표시한다.
   - 결론: 180.5g은 "버그라서 즉시 낮춘다"가 아니라 "일반 diet 기본값으로 유지하려면 외부근거와 앱 맥락이 더 필요하다"는 high-priority candidate review 항목이다.
+  - v8.0-AT 이후 현재 production 필수 1913 케이스는 단백질 약 150.4166g / 2.0g/kg BW, 탄수 약 226.377g으로 복구됐다. 위 2.4g/kg 기록은 AT 전 감사 신호로 읽는다.
 
 9-4. 4단계: 시나리오 검증 러너 작성
 
@@ -897,7 +904,7 @@ v8 산식은 대표 케이스 몇 개만 보고 통과시키지 않는다.
 - 목표 축은 문서의 `유지 / 다이어트 / 커팅 / 린매스업 / 벌크업`을 보존한다.
   - v8.0-D/I 당시 유지 축 케이스는 production `GOALS.maintain` 부재를 드러내기 위해 `axisGoal=maintain`, `productionGoalFallback=recomp`로 명시했다. 이것은 유지 목표를 리컴프로 확정했다는 뜻이 아니다.
   - v8.0-J 현재 유지 축 케이스는 `axisGoal=maintain`, `goal=maintain`, `goalAxisStatus=production_goal`, `productionGoalFallback=null`로 바뀌었다. 이 변경은 maintain production 계약 1차 완료를 뜻하지만, profile-specific macro formula 승인을 뜻하지 않는다.
-- 운동 프로필 축은 `bodybuilding / powerbuilding / strength / running / mixed`를 report field로만 둔다. `bodybuilding` 외 프로필은 아직 active UI 기능이나 승인된 산식이 아니다.
+- 운동 프로필 축은 `bodybuilding / powerbuilding / strength / running / mixed`를 처음에는 report field로만 두었다. v8.0-AQ/AO 이후 프로필/루틴/세션 UI 구조와 ownership은 실제 앱 경로로 개선됐지만, `bodybuilding` 외 프로필의 전면 profile-specific macro formula가 모두 승인됐다는 뜻은 아니다.
 - 운동 프로필별 오늘 세션은 `exerciseProfile + routinePlan + routine`이 소유한다. `profileSession`은 snapshot/draft/report/candidate contract용 파생 필드다. 러닝의 오늘 세션은 `running_tempo` 같은 러닝 세션이어야 하며, v8.0-AG 이후 `UPPER` 같은 보디빌딩 fallback을 현재 계산 입력으로 쓰면 안 된다.
 - candidate 열은 기존 report-only `candidate-no-weekly-xw` 비교값이다. 이것을 v8 최종 candidate 또는 production 산식으로 해석하면 안 된다.
 - 출력에는 유지 칼로리 분해, 목표 칼로리 분해, `protein_g`, `protein_g_per_kg_bodyweight`, `protein_g_per_kg_lbm`, `fat_floor_hit`, `carb_min_hit`, `redistribution_reason` 등 9-3 감사 필드가 포함된다.

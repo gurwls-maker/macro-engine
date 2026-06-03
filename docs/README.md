@@ -1,9 +1,54 @@
 # 탄단지 다이어리 문서 읽는 순서
 
-# v8 GOAL resume playbook note
+## 0. 현재 기준 지도 (v8.0-AU 문서 계층 정리)
 
-- Before restarting V8 with `/GOAL`, read `docs/v8_GOAL_resume_playbook_2026-06-03.txt`.
-- Before continuing V8 after AT, also read `docs/v8_1단계_복구감사_2026-06-03.txt`. It records the phase-1 finding that general diet production still used `2.4g/kg` protein before AT; AT is the production macro-policy recovery that applies the general diet `2.0g/kg` policy to the actual app path.
+이 문서의 목적은 다음 Codex가 V8 문서를 읽을 때 `production`, `scoped production`, `report-only`, `historical`, `open gate`를 섞지 않게 하는 것이다. 아래의 `v8.0-*` 섹션들은 대부분 시간순 stage notes다. 최신 stage note가 과거 stage note를 폐기하지는 않지만, 과거 값을 현재 기준으로 재사용하려면 반드시 현재 `index.html`, `runV8ScenarioRunner()`, 관련 테스트와 다시 대조한다.
+
+문서 태그:
+
+- `[CURRENT_PRODUCTION]`: 현재 앱의 실제 사용자 계산/저장/표시 경로에 적용된 기준.
+- `[SCOPED_PRODUCTION]`: 실제 production에 적용됐지만 특정 조건, 특정 runtime case, 특정 사용자 경로에만 적용되는 기준.
+- `[REPORT_ONLY]`: runner, audit, candidate, numerical gate, contract review처럼 비교/증거/검토용이며 앱 기본 산식을 바꾸지 않는 기준.
+- `[HISTORICAL]`: 과거 stage 당시에는 맞았지만 이후 stage에서 supersede되었거나 현재값으로 쓰면 안 되는 기록.
+- `[OPEN_GATE]`: V8 전체 완료 전에 반드시 다시 닫아야 하는 작업.
+- `[DO_NOT_CLAIM_COMPLETE]`: 작은 통과 결과를 full V8, full Cartesian, broad UX, 또는 전면 수준별 산식 완료로 말하지 말라는 금지선.
+
+현재 핵심 상태:
+
+- `[DO_NOT_CLAIM_COMPLETE]` `/GOAL` 방식의 장시간 자동 진행은 더 이상 기준 작업 방식으로 쓰지 않는다. 이후 V8은 수동으로 작게 범위를 잡고, 각 단계가 실제 앱 동작 개선인지 report-only 증거인지 먼저 분류한 뒤 진행한다.
+- `[CURRENT_PRODUCTION]` v8.0-AT 이후 일반 diet protein은 `2.0g/kg` 기준이다. `GOALS.diet.proteinKg`와 dual-basis diet protein range가 이 기준을 사용하며, target kcal은 유지하고 줄어든 protein kcal은 carbs로 재배분한다.
+- `[SCOPED_PRODUCTION]` candidate-v2는 active runtime target-delta case에서 production target/macro에 적용될 수 있고, AA/AB/AH 계열에서 대표 visual/runtime evidence가 닫혔다.
+- `[REPORT_ONLY]` candidate-v0/v1/v2 비교, macroAudit, pairwise, targeted stress, human-review numerical gate, full Cartesian tooling의 상당 부분은 여전히 증거/검토 레이어다.
+- `[OPEN_GATE]` full 8-2 Cartesian execution, full V8 completion, broad profile/routine/session human UX review는 open이다.
+- `[OPEN_GATE]` 사용자 수준별 산식은 V8의 원래 핵심 목표에 포함되어 있다. 현재는 일부 입력 맥락과 scoped candidate-v2만 production에 반영됐으므로, 운동 프로필/세션/수행 수준/체성분 신뢰도/최근 기록/최근 추세를 묶는 전면 profile-specific macro formula는 아직 완료로 보지 않는다.
+
+문서 역할:
+
+| 문서 | 역할 | 읽는 법 |
+| --- | --- | --- |
+| `docs/README.md` | 현재 문서 지도와 최신 경계 | 여기서 태그와 읽는 순서를 먼저 고정한다. |
+| `docs/v8_1단계_복구감사_2026-06-03.txt` | 복구 감사 증거 | AS2 시점의 문제와 AT follow-up을 분리해 읽는다. |
+| `docs/v8_현재산식_기준갱신_감사_2026-06-02.txt` | 긴 감사 ledger | 단계별 historical/current/report-only 경계를 확인한다. |
+| `docs/v8_운동프로필_산식_정밀설계.txt` | V8 설계 원칙과 원래 순서 | 수준별 산식, 프로필/루틴/세션, 근거 등급 원칙을 확인한다. |
+
+다음 작업 우선순위:
+
+1. `[OPEN_GATE]` candidate-v2/scoped production status wording을 좁혀 full V8 완료와 섞이지 않게 한다.
+2. `[OPEN_GATE]` profile/routine/session broad human UX review matrix를 만들고, 수준별 산식이 실제 사용자 경로와 어떻게 연결될지 정한다.
+3. `[OPEN_GATE]` full Cartesian을 실제 전수 실행할지, owner-approved 대체 gate로 바꿀지 결정한다.
+
+금지선:
+
+- AT의 `2.0g/kg` 복구를 수준별 산식 완성으로 말하지 않는다.
+- candidate-v2의 scoped production 적용을 모든 사용자/모든 운동 프로필의 전면 산식 승인으로 말하지 않는다.
+- 18개 human-review, pairwise/targeted stress, render audit, shard pilot, clean campaign 일부 실행을 80,621,568,000개 full Cartesian 실행으로 말하지 않는다.
+- 문서 기준이 실제 사용자 경로와 충돌하면 문서를 고쳐야 하며, 기준 통과를 위해 사용자 경로를 우회하지 않는다.
+
+# v8 manual continuation note
+
+- Do not resume V8 through a long `/GOAL` run. The user has deprecated that workflow because it repeatedly encouraged fast micro-stage completion and over-broad claims.
+- Before continuing V8 after AU, read this README, `docs/v8_1단계_복구감사_2026-06-03.txt`, `docs/v8_현재산식_기준갱신_감사_2026-06-02.txt`, and `docs/v8_운동프로필_산식_정밀설계.txt`.
+- The phase-1 recovery audit records that general diet production still used `2.4g/kg` protein before AT; AT is the production macro-policy recovery that applies the general diet `2.0g/kg` policy to the actual app path.
 - Current whole-V8 status is not complete. Candidate-v2 production application and post-wiring visual QA are closed, but `full_8_2_cartesian_execution`, `full_v8_completion`, and broad profile/routine/session human UX review remain open.
 - The next agent must not start a new micro-stage before rechecking current runner output, render audit, clean full-Cartesian campaign state, and the user-owned profile/routine/session paths.
 
