@@ -3,8 +3,16 @@
 # v8 GOAL resume playbook note
 
 - Before restarting V8 with `/GOAL`, read `docs/v8_GOAL_resume_playbook_2026-06-03.txt`.
+- Before continuing V8 after AS2, also read `docs/v8_1단계_복구감사_2026-06-03.txt`. It records that general diet production still uses `2.4g/kg` protein, while the earlier `180.5g -> 150.4g` reduction was a report-only candidate comparison, not a production diet macro fix.
 - Current whole-V8 status is not complete. Candidate-v2 production application and post-wiring visual QA are closed, but `full_8_2_cartesian_execution`, `full_v8_completion`, and broad profile/routine/session human UX review remain open.
 - The next agent must not start a new micro-stage before rechecking current runner output, render audit, clean full-Cartesian campaign state, and the user-owned profile/routine/session paths.
+
+# v8 phase-1 recovery audit note
+
+- `docs/v8_1단계_복구감사_2026-06-03.txt` classifies V8 work into production changes, report-only candidates/contracts, render/tooling evidence, and still-open user-value gates.
+- Direct production check on 2026-06-03: representative diet calculation still returns about `1908.5kcal / protein 180.048g / 2.4g/kg / carbs 195.802g / fat 45.012g`, with `profileCandidateApplied=false`.
+- The audit marks diet protein policy as unresolved production work. Candidate-v2 scoped production wiring remains useful, but it must not be read as a general diet macro formula fix.
+- Next recommended work is production macro policy recovery before additional V8 feature stages.
 
 # v8.0-AS2 Today goalSnapshot source alignment note
 

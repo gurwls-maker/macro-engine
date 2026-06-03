@@ -1,0 +1,262 @@
+# V8 1단계 복구 감사
+
+Date: 2026-06-03
+Branch: `codex/v8-formula-audit`
+Latest checked commit: `1641f49 v8.0-AS2 align today snapshot source values`
+
+이 문서는 V8을 더 진행하기 전에, 지금까지의 작업이 실제 앱 production 동작인지, report-only 후보/감사인지, 문서/테스트/렌더 증거인지 분리하기 위한 1단계 복구 감사다.
+
+결론부터 말하면 V8은 버릴 상태는 아니지만, 진행 방식에는 실제 위험이 있었다. 특히 "후보 산식에서 해결됨", "runner에서 통과함", "render audit이 통과함", "사용자가 보는 production 산식이 바뀜"이 서로 다른데, 일부 단계와 문구가 이것을 쉽게 섞어 읽게 만들었다.
+
+## 1. 직접 확인한 현재 상태
+
+### Git
+
+- `git status --short --branch`
+- 결과: `## codex/v8-formula-audit...origin/codex/v8-formula-audit`
+- 해석: 현재 감사 시작 시점의 worktree는 clean이다.
+
+### V8 runner
+
+- 명령: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- 결과: 1 suite / 29 cases / failed 0
+- 직접 추출 요약:
+  - `meta.version = 8.0-AS`
+  - `meta.reportOnly = true`
+  - `meta.fullCartesianRun = false`
+  - `axisCoverageCaseCount = 73`
+  - `humanReviewCaseCount = 18`
+  - `nominalFullCartesianCaseCount = 80,621,568,000`
+  - `profileFormulaApprovalDecision.summary.productionTargetCalApplied = true`
+  - `profileFormulaApprovalDecision.summary.productionVisualQaCompleted = true`
+  - `profileFormulaApprovalDecision.summary.fullV8Complete = false`
+  - `notApprovedYet = ["full_8_2_cartesian_execution", "full_v8_completion"]`
+  - `wholeStageEvidenceBoundaryAudit.summary.passCount = 16`, `findingCount = 0`
+
+해석:
+- runner test는 현재 문서화된 boundary를 통과한다.
+- 그러나 runner 자체가 여전히 report-only이며 full Cartesian과 full V8은 닫히지 않았다고 보고한다.
+- `wholeStageEvidenceBoundaryAudit` 통과는 "현재 체크한 boundary들이 서로 섞이지 않았다"는 증거이지, 모든 V8 작업이 사용자 의도에 맞게 구현됐다는 증거가 아니다.
+
+### Render audit
+
+- 명령: `node .\tools\render_audit\analyze_render_audit.cjs`
+- 결과:
+  - captureCount 65
+  - desktop 42
+  - mobile 23
+  - postWiringProfileCandidateCaptureCount 8
+  - profileRoutineOwnershipCaptureCount 10
+  - failed 0
+
+해석:
+- post-wiring candidate-v2 대표 화면과 profile routine ownership 대표 화면은 analyzer 기준으로 통과했다.
+- 하지만 65개 screenshot과 runtime metadata는 full human UX review가 아니다.
+- 특히 profile/routine/session 전체 조합의 실제 사용성은 아직 별도 review matrix로 봐야 한다.
+
+### Full Cartesian ledger
+
+- 명령: `node .\tools\render_audit\build_v8_full_cartesian_ledger.cjs --dir=tools\render_audit\v8_full_cartesian_shards --detail-limit=3`
+- 결과:
+  - uniqueExecutedCaseCount 32
+  - contiguousCoveredFromZero 24
+  - firstGap 24~1152
+  - dirtySourceManifestCount 15
+  - truncatedManifestCount 1
+  - overlapCount 15
+  - fullCoverageCandidate false
+
+해석:
+- full 8-2 Cartesian execution은 닫히지 않았다.
+- 현재 evidence는 도구/manifest/ledger 경로가 작동한다는 bounded evidence이지, 80,621,568,000개 조합 실행 완료가 아니다.
+
+### 대표 다이어트 production 계산
+
+직접 브라우저 실행에서 앱 내부 `state`를 다이어트 대표값으로 놓고 `calculate()`를 확인했다.
+
+- 입력 요약: diet, 75.02kg, 남성, 체지방률 15.2%, 보통 활동, 사무직, 주간 웨이트 2일, bodybuilding / PPL-UL / REST, cardio 0
+- 결과:
+  - `targetCal = 1908.5088`
+  - `protein = 180.048g`
+  - `carbs = 195.8022g`
+  - `fat = 45.012g`
+  - `proteinPerKg = 2.4`
+  - `selectedMacroBasis = guide`
+  - `guideProteinRange = { min: 2.2, mid: 2.4, max: 2.6 }`
+  - `profileCandidateApplied = false`
+
+해석:
+- 사용자가 본 "다이어트 단백질 과다"는 실제 production에 남아 있다.
+- v8.0-G candidate-v0는 같은 required case를 `protein 180.5g -> 150.4g`로 비교했지만 `productionFormulaChanged=false`였다.
+- 따라서 단백질 문제는 "후보/감사에서 인지됨"이지 "production 일반 다이어트 산식에서 해결됨"이 아니다.
+
+## 2. Stage 분류
+
+### 실제 production 동작을 바꾼 범위
+
+- v8.0-A/B/C: Today/Records goalSnapshot, selected basis, 기준갱신 정책.
+- v8.0-J: `GOALS.maintain` production 목표 추가. 단, maintain 목표 계약에 한정된다.
+- v8.0-AA: active runtime profile target-delta cases에서 candidate-v2 target/macro를 production `calculate()` 결과에 적용.
+- v8.0-AQ/AQ1/AR/AS2: Settings/Today profile routine ownership, Today detailed fasting weight snapshot, Today training summary, goalSnapshot source alignment.
+
+주의:
+- 위 항목들은 실제 production 변화가 맞지만, 각 범위가 좁다.
+- 특히 AA는 "active runtime profile target-delta cases"에 한정된다. 일반 다이어트 macro 산식 전체 변경이 아니다.
+
+### report-only / 후보 / 계약 / 감사 성격이 강한 범위
+
+- v8.0-D/D1/E/F/G/H/I/K/L/M/N/O: scenario runner, macro audit, candidate design, candidate-v0/v1/v2 comparison, maintain/profile/session contract 검토.
+- v8.0-P/Q/R/S: candidate-v2가 production에 들어가기 전 필요한 snapshot/target-rate/score/Coach/protein guard 계약을 닫는 단계. 일부 data path는 production에 추가됐지만, 일반 macro output 변경은 아니다.
+- v8.0-T/U/W/X/Y: runtime proposal, user-facing QA, numerical approval gate, approval preflight. production targetCal 적용 전 검토 단계다.
+- v8.0-Z: formula approval decision. 승인 decision이지 production 적용은 아직 아니었다.
+- v8.0-AC~AM: full Cartesian contract/shard/ledger/campaign tooling. full 실행 완료가 아니다.
+- v8.0-AO/AP/AS: code-contract/evidence-boundary/formatter audit. 실제 사용자 UX 전체 검토가 아니다.
+
+### evidence / tooling 성격
+
+- v8.0-V/AB/AH render audit: screenshot/runtime metadata evidence.
+- `tools/render_audit/analyze_render_audit.cjs`는 post-wiring candidate-v2 8개 capture와 profile routine ownership 10개 capture의 runtime metadata를 검증한다.
+- 이것은 "대표 화면에서 특정 runtime state가 보임"을 증명하지만, 모든 조합의 사용성을 증명하지 않는다.
+
+## 3. 우회성 또는 오해 위험이 큰 항목
+
+### F1. 다이어트 단백질 production 미해결
+
+상태: 실제 미해결.
+
+근거:
+- `index.html`의 `getDualBasisProteinRange(goal)`는 diet에서 `{ min: 2.2, mid: 2.4, max: 2.6 }`을 반환한다.
+- `calculateGuideBasisMacrosWithinTarget()`는 `rangeContext.protein.mid`를 사용한다.
+- 직접 실행 결과 diet 대표값은 protein 180.048g / 2.4g/kg이다.
+- v8.0-G candidate-v0의 150.4g 비교는 `productionFormulaChanged=false`였다.
+
+위험:
+- 문서상 "protein guard conflict resolved" 또는 "candidate-v2 productionReady"를 단백질 과다 해결로 읽으면 틀린다.
+- 실제 사용자는 여전히 일반 diet 기본값에서 고단백을 본다.
+
+다음 행동:
+- 2단계에서 production macro policy를 정면으로 수정해야 한다.
+- 단순히 2.4를 2.0으로 낮추는 작업이 아니라, goal/profile/body-fat/LBM reliability/training load/fat floor/carb redistribution을 함께 설계해야 한다.
+
+### F2. candidate-v2 적용 범위가 과대해석되기 쉽다
+
+상태: production 적용은 맞지만 범위가 좁다.
+
+근거:
+- `buildProfileCandidateV2ProductionWiring()`는 `requested`, `profileCarbFloorMet`, guard clear, valid macro, positive target delta가 모두 true일 때만 적용한다.
+- `calculate()`는 적용 시 `selectedMacroBasis = "profile_candidate_v2"`로 바꾼다.
+- 직접 대표 diet case는 `profileCandidateApplied=false`였다.
+
+위험:
+- `productionFormulaChanged=true`, `productionTargetCalApplied=true`라는 runner summary만 보면 V8 macro formula 전체가 바뀐 것처럼 보인다.
+- 실제로는 mixed/running 등 profile target-delta가 필요한 active runtime case 중심의 scoped wiring이다.
+
+다음 행동:
+- runner/status 문구를 "candidate-v2 scoped production target-delta applied"처럼 더 좁게 표현하는 것이 안전하다.
+- 문서와 UI/Records copy에서도 "전체 diet macro 개선"처럼 읽히지 않게 해야 한다.
+
+### F3. `profileFormulaApprovalDecisionStatus` 문구가 지나치게 자신 있어 보인다
+
+상태: 오해 위험.
+
+근거:
+- runner meta는 `approved_applied_and_post_wiring_visual_qa_complete`를 사용한다.
+- 같은 summary 안에 `fullV8Complete=false`와 open gates가 있기는 하다.
+
+위험:
+- 긴 GOAL 작업 중에는 앞부분의 "approved/applied/complete"만 보고 full V8 또는 broad macro completion으로 오해할 수 있다.
+
+다음 행동:
+- 2단계 이후 별도 정리에서 이 status를 scope-limited 명칭으로 바꾸는 것을 권장한다.
+
+### F4. render audit 통과가 human UX 통과는 아니다
+
+상태: 대표 evidence는 양호하지만 완결 증거는 아니다.
+
+근거:
+- analyzer는 65 captures, profile routine ownership 10 captures를 검증한다.
+- profile routine ownership capture는 profile별 대표 1개씩 desktop/mobile이다.
+
+위험:
+- user가 직접 발견한 Settings/Today profile/routine/session 이상처럼, 대표 capture가 통과해도 실제 흐름의 어색함은 남을 수 있다.
+
+다음 행동:
+- profile x routinePlan x session x Settings/Today/Records matrix를 만들어 사람이 직접 보는 UX review를 해야 한다.
+- 이 review는 screenshot count가 아니라 "입력 위치, 수정 가능 여부, 기본값/오늘값 소유권, 계산 반영"을 판단해야 한다.
+
+### F5. full Cartesian은 도구만 쌓였고 실행 완료는 아니다
+
+상태: 미완.
+
+근거:
+- runner: `fullCartesianRun=false`
+- ledger: unique 32, contiguous 24, first gap 24~1152, fullCoverageCandidate false.
+- clean campaign도 unique 48 / contiguous 40 수준으로 문서화되어 있다.
+
+위험:
+- shard planner/ledger/campaign 도구가 많아지면서 "체계가 있으니 거의 된 것"처럼 보일 수 있다.
+
+다음 행동:
+- 실제 full 실행을 유지할지, 수학적 contract + targeted stress + owner-approved representative gate로 대체할지 owner decision이 필요하다.
+- Codex가 임의로 대체하면 안 된다.
+
+### F6. evidence boundary audit 자체도 최종 보증이 아니다
+
+상태: 통과했지만 범위 제한.
+
+근거:
+- `wholeStageEvidenceBoundaryAudit` 16/16 pass.
+- 이 audit는 내부적으로 이미 정해진 boundary를 검사한다.
+
+위험:
+- "boundary audit pass"를 "우회성 작업이 더는 없음"으로 읽으면 틀린다.
+- 사용자 의도와 실제 UX를 이해하지 못한 shortcut은 audit 항목 밖에 있을 수 있다.
+
+다음 행동:
+- 다음 단계마다 새 의심 항목을 audit 항목에 추가해야 한다.
+- 특히 production macro policy, user-path UX, external/app-fit evidence는 별도 체크로 유지해야 한다.
+
+### F7. 문서의 "닫힘/완료" 언어가 scope를 가릴 수 있다
+
+상태: 문서 방어 문구는 많지만 여전히 오해 가능.
+
+근거:
+- README와 resume playbook은 여러 곳에서 "does not close"를 적고 있다.
+- 동시에 "candidate-v2 formula selection / active runtime targetCal application / post-wiring visual QA는 닫힘"처럼 축약 표현도 많다.
+
+위험:
+- 축약 문구만 보면 앱 핵심 산식이 닫힌 것처럼 읽힌다.
+
+다음 행동:
+- 앞으로 "완료"라는 단어는 반드시 범위를 붙인다.
+- 예: "candidate-v2 scoped runtime target-delta production wiring 완료"처럼 쓴다.
+
+## 4. 1단계 결론
+
+V8 자산은 남길 가치가 있다.
+
+- runner / render analyzer / ledger / profile routine structure / snapshot path / candidate-v2 wiring은 실제로 유용한 기반이다.
+- 이미 여러 단계가 report-only와 production을 분리하려고 노력한 흔적도 있다.
+
+하지만 사용자가 우려한 "기준문서 통과용 우회" 위험도 실제로 존재했다.
+
+- profileSession 중심 증거가 user-owned routine/session path를 대체하려 했던 전력이 있다.
+- 단백질 과다 문제는 후보에서는 다뤄졌지만 production 일반 diet 산식에는 남아 있다.
+- render/test 통과가 실제 사용성 완료로 과대해석될 수 있다.
+- full Cartesian은 실행 완료가 아닌 도구/소량 evidence 상태다.
+
+따라서 다음 작업은 새 feature stage가 아니라 다음 순서여야 한다.
+
+1. production macro policy 2단계: diet protein/fat/carb 재설계와 실제 production 적용 여부 결정.
+2. runner/status wording hardening: scoped production 적용과 full V8 completion이 섞이지 않게 명칭 정리.
+3. profile/routine/session broad human UX review matrix.
+4. full Cartesian closure strategy 또는 owner-approved 대체 gate 결정.
+
+## 5. 다음 Codex 작업 금지선
+
+- `proteinGuardConflictCount=0`을 diet protein over-resolved로 말하지 않는다.
+- `productionTargetCalApplied=true`를 general diet macro production 완료로 말하지 않는다.
+- render audit failed 0을 profile/routine/session UX 전체 완료로 말하지 않는다.
+- full Cartesian tooling을 full Cartesian execution 완료로 말하지 않는다.
+- `wholeStageEvidenceBoundaryAudit` pass를 "더 이상 shortcut 없음"으로 말하지 않는다.
+- 다음 단계에서 기준문서가 앱 사용자 흐름과 충돌하면 기준문서를 고친다. 기준문서 통과를 위해 사용자 경로를 우회하지 않는다.
