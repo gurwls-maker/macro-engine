@@ -16,6 +16,7 @@
 현재 핵심 상태:
 
 - `[DO_NOT_CLAIM_COMPLETE]` `/GOAL` 방식의 장시간 자동 진행은 더 이상 기준 작업 방식으로 쓰지 않는다. 이후 V8은 수동으로 작게 범위를 잡고, 각 단계가 실제 앱 동작 개선인지 report-only 증거인지 먼저 분류한 뒤 진행한다.
+- `[CURRENT_PRODUCTION]` 문서정리는 v8.0-AV에서 다음 작업 진입을 막지 않는 수준으로 닫는다. 남은 문서 수정은 새 구현/감사 중 발견되는 충돌을 해당 단계에서 갱신하는 방식으로 처리한다.
 - `[CURRENT_PRODUCTION]` v8.0-AT 이후 일반 diet protein은 `2.0g/kg` 기준이다. `GOALS.diet.proteinKg`와 dual-basis diet protein range가 이 기준을 사용하며, target kcal은 유지하고 줄어든 protein kcal은 carbs로 재배분한다.
 - `[SCOPED_PRODUCTION]` candidate-v2는 active runtime target-delta case에서 production target/macro에 적용될 수 있고, AA/AB/AH 계열에서 대표 visual/runtime evidence가 닫혔다.
 - `[REPORT_ONLY]` candidate-v0/v1/v2 비교, macroAudit, pairwise, targeted stress, human-review numerical gate, full Cartesian tooling의 상당 부분은 여전히 증거/검토 레이어다.
@@ -33,8 +34,8 @@
 
 다음 작업 우선순위:
 
-1. `[OPEN_GATE]` candidate-v2/scoped production status wording을 좁혀 full V8 완료와 섞이지 않게 한다.
-2. `[OPEN_GATE]` profile/routine/session broad human UX review matrix를 만들고, 수준별 산식이 실제 사용자 경로와 어떻게 연결될지 정한다.
+1. `[OPEN_GATE]` 기존 3단계로 진입한다: profile/routine/session broad human UX review matrix를 만들고, 수준별 산식이 실제 사용자 경로와 어떻게 연결될지 정한다.
+2. `[OPEN_GATE]` 기존 3단계 preflight로 candidate-v2/scoped production status wording이 full V8 완료처럼 보이는 표현을 좁힌다. 새 장시간 stage로 분리하지 말고, 3단계 진입 전/중에 필요한 범위만 처리한다.
 3. `[OPEN_GATE]` full Cartesian을 실제 전수 실행할지, owner-approved 대체 gate로 바꿀지 결정한다.
 
 금지선:
@@ -51,6 +52,12 @@
 - The phase-1 recovery audit records that general diet production still used `2.4g/kg` protein before AT; AT is the production macro-policy recovery that applies the general diet `2.0g/kg` policy to the actual app path.
 - Current whole-V8 status is not complete. Candidate-v2 production application and post-wiring visual QA are closed, but `full_8_2_cartesian_execution`, `full_v8_completion`, and broad profile/routine/session human UX review remain open.
 - The next agent must not start a new micro-stage before rechecking current runner output, render audit, clean full-Cartesian campaign state, and the user-owned profile/routine/session paths.
+
+# v8.0-AV docs cleanup completion note
+
+- AV closes the document-cleanup pass for now. The docs are not shortened into a summary; they are organized so current production, scoped production, report-only evidence, historical records, and open gates are not read as the same thing.
+- The deleted GOAL resume file is intentional. V8 continuation should be manual and bounded.
+- Next implementation/review work should move to the existing 3단계: profile/routine/session broad human UX review matrix plus user-level formula scope design. Candidate-v2 wording hardening is treated as a preflight inside that work, not as a reason to restart long automatic staging.
 
 # v8.0-AT diet production macro policy recovery note
 
