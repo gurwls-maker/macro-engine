@@ -17,6 +17,7 @@ node .\tools\render_audit\run_v8_full_cartesian_batch.cjs --shards=0,144 --shard
 node .\tools\render_audit\build_v8_full_cartesian_ledger.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_af_pilot
 node .\tools\render_audit\plan_v8_full_cartesian_shards.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_ai_clean_ledger_pilot --shard-size=8 --max-shards=4
 node .\tools\render_audit\run_v8_full_cartesian_plan.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_ai_clean_ledger_pilot --shard-size=8 --max-ranges=2 --label=ak_exact_range_pilot
+node .\tools\render_audit\run_v8_full_cartesian_campaign.cjs --label=am_campaign_plan --seed-dir=tools\render_audit\v8_full_cartesian_shards\batch_ai_clean_ledger_pilot,tools\render_audit\v8_full_cartesian_shards\batch_ak_clean_exact_range_pilot --shard-size=8 --max-ranges=2 --plan-only
 ```
 
 특정 브라우저 채널을 지정해야 할 때:
@@ -36,6 +37,7 @@ node .\tools\render_audit\run_internal_tests.cjs
 - `_debug/`
 - `seeds/`
 - `v8_full_cartesian_shards/`
+- `v8_full_cartesian_campaigns/`
 
 필요한 기준 스크린샷은 `_ui_refs/current_baseline_YYYY_MM_DD` 같은 ignored 폴더에 별도로 복사해서 사용합니다.
 
@@ -81,4 +83,6 @@ Coverage ledgers use schema `v8_full_cartesian_coverage_ledger_v1`, merge only a
 Shard plans use schema `v8_full_cartesian_shard_plan_v1`. The planner reads a ledger or generates one from a shard directory, then emits exact uncovered range commands plus shard-index batch commands. If a partially covered shard would be rerun by shard index, the planner reports `wouldRerunCaseCountIfUsingShardIndexes` and marks exact range execution as required for no duplicate coverage.
 Plan executions use schema `v8_full_cartesian_plan_execution_v1`. The executor runs only the planner's exact uncovered ranges through `run_v8_full_cartesian_shard.cjs`, then writes `plan_execution_summary.json` and a fresh coverage ledger for the execution folder.
 If `--max-ranges=0` or `--max-shards=0` is supplied, the executor records `noRangesSelected=true` with zero executed ranges instead of falling back to all planned ranges.
+Campaign runs use schema `v8_full_cartesian_campaign_state_v1`. The campaign runner copies only clean, non-overlapping seed manifests into an ignored campaign folder, builds before/after ledgers, emits the next exact plan, optionally executes planned ranges, and records `hasExecutionEvidence` separately from `executionEvidenceClean`.
+`--plan-only` is planning evidence only: it can show clean seed ledgers and next ranges, but it must not be read as clean execution evidence because `hasExecutionEvidence=false` and `executionEvidenceClean=false`.
 This does not execute the full `80,621,568,000` Cartesian set and must not be used to close the full V8 gate by itself.

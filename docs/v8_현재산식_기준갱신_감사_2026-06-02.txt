@@ -2271,6 +2271,63 @@ AL 재감사 이후 같은 원리로 candidate-v2 숫자 문서를 다시 훑었
 - pre-AG 숫자를 current AG+ profile-owned runner 기대값처럼 재사용하는 것은 운동프로필/세션 우회 문제와 같은 계열의 문서통과 위험이다.
 - 이 재감사도 full Cartesian 실행 완료, full V8 completion, 새 외부 운동생리학 근거를 뜻하지 않는다.
 
+## 11-38. 2026-06-03 v8.0-AM full Cartesian campaign runner 재감사
+
+AM에서는 기존 AK exact-range executor 이후 바로 원래 개발 단계로 돌아가지 않고, 사용자가 지적한 "기준 통과용/우회성 증거" 위험을 full Cartesian 증거 운영에도 적용해 재검토했다.
+
+문제:
+
+- AK까지는 exact range를 실행할 수 있었지만, 여러 clean/dirty/truncated pilot을 어떤 기준으로 누적할지 관리하는 campaign layer가 없었다.
+- 이 상태에서는 다음 작업자가 clean seed와 dirty pilot을 손으로 섞거나, plan-only 결과를 실행 증거처럼 읽거나, overlap/gap이 있는 ledger를 full closure 근거처럼 과장할 위험이 남았다.
+
+수정:
+
+- `tools/render_audit/run_v8_full_cartesian_campaign.cjs`를 추가했다.
+- seed manifest는 `build_v8_full_cartesian_ledger.cjs --file=...` 검증을 통과하고, dirty-source/truncation/overlap blocker가 없을 때만 campaign의 `accepted_seed_manifests/` 아래 `shard_seed_...json` 이름으로 복사한다.
+- campaign은 before ledger, next exact-range plan, optional execution, after ledger, `campaign_state.json`을 같은 ignored campaign 폴더에 남긴다.
+- 재검토 중 plan-only 실행이 실제 실행 evidence처럼 읽힐 수 있는 출력 문제를 발견했다. 이제 `executedRangeCount=0`이면 `hasExecutionEvidence=false`, `executionEvidenceClean=false`로 기록한다.
+
+검증:
+
+- `node --check .\tools\render_audit\run_v8_full_cartesian_campaign.cjs`
+- `node .\tools\render_audit\run_v8_full_cartesian_campaign.cjs --label=am_reaudit_plan_only_probe_after_evidence_flag --seed-dir=tools\render_audit\v8_full_cartesian_shards\batch_ai_clean_ledger_pilot,tools\render_audit\v8_full_cartesian_shards\batch_ak_clean_exact_range_pilot --shard-size=8 --max-ranges=2 --plan-only`
+- plan-only probe 결과: seed accepted 4 / rejected 0, before unique 32, contiguous from zero 24, planned ranges 2, planned uncovered 16, first planned range 24~32, executed ranges 0, executed cases 0, after first gap 24~1152, dirty-source manifests 0, truncated manifests 0, closure blockers `coverage_gaps_present`, `full_cartesian_coverage_incomplete`, `hasExecutionEvidence=false`, `executionEvidenceClean=false`.
+- `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests` -> 1 suite / 26 cases / failed 0.
+- `node .\tools\render_audit\run_internal_tests.cjs` -> 99 suites / 1056 cases / failed 0.
+
+판단:
+
+- AM은 산식 변경이나 HTML runner stage 변경이 아니다. 현재 `runV8ScenarioRunner()` version은 AL로 유지된다.
+- AM은 full Cartesian 전수 실행을 더 쉽게 주장하는 단계가 아니라, 실행 증거를 더 좁고 정직하게 누적하기 위한 운영 장치다.
+- 따라서 `full_8_2_cartesian_execution`과 `full_v8_completion`은 계속 open이다.
+
+## 11-39. 2026-06-03 v8.0-AN V8 전체 shortcut 정밀 재감사 체크포인트
+
+AN에서는 AM 재검토 뒤 곧바로 원래 개발 단계로 돌아가지 않고, 운동 프로필/세션 지적의 근본 원리를 V8 전체 단계에 적용해 다시 보았다.
+
+재검토 원리:
+
+- 파생 필드가 맞다고 해서 사용자 입력 경로가 맞는 것은 아니다.
+- 테스트 fixture가 정상화로 복구된 값을 보여준다고 해서 실제 사용자가 고른 값이 올바른 것은 아니다.
+- screenshot 개수, report-only 숫자, plan-only 결과, shard 계획은 각각 자기 증거 범위를 넘어서면 안 된다.
+- 내부 코드 근거와 제품 정책 근거는 외부 운동생리학 근거처럼 말하면 안 된다.
+- 기능은 Today 계산, Settings 기본값, Records snapshot, Recent/Coach, backup/import, 시각 QA가 함께 이어질 때만 사용자에게 실질 기능으로 본다.
+
+확인한 내용:
+
+- 운동 프로필/세션: 현재 소스는 `profileSession`을 숨겨진 파생 필드로 두고, 실제 사용자 선택은 `exerciseProfile + routinePlan + routine`이 소유한다. 보디빌딩 고급설정 ON은 기존 루틴 스킴을 유지하고, 보디빌딩/일반 고급설정 OFF는 기존 `REST / PUSH` 기본 운동일 경로를 유지한다. 비보디빌딩 프로필은 러닝/스트렝스/파워빌딩/혼합 전용 routine/session을 계산 입력으로 쓴다.
+- 운동 입력과 `targetCal`: 프로필/세션, 강도, 웨이트 시간, 유산소 기본값은 기존 workout input 경로에 들어가므로 `targetCal`을 바꿀 수 있다. "프로필/세션은 targetCal을 바꾸면 안 된다"는 과거 P 해석은 AG에서 잘못된 계약으로 정정된 상태다.
+- candidate-v2: Y preflight, Z approval decision, AA production target 적용, AB post-wiring visual QA, AH profile-owned visual evidence 정렬은 단계가 분리되어 있다. AB/AH analyzer는 `exerciseProfile=mixed`, `routinePlan=mixed_balanced`, `routine=mixed_strength_cardio`, `profileSession=mixed_strength_cardio`, `productionTargetCalApplied=true`를 함께 요구하므로 derived session만 맞는 우회 증거는 현재 통과할 수 없다.
+- 8-2/8-3 증거: D category sweep, L pairwise, M/AL targeted stress, W 18개 human-review numerical gate, AC~AM shard/campaign 도구는 서로 대체물이 아니다. 80,621,568,000개 전체 조합은 계속 별도 open gate다.
+- 근거 등급: D1 이후 문서는 내부 코드 근거, 제품 정책 근거, 외부 운동생리학 근거를 분리한다. maintain의 kcal 중립폭, cardio reflection, score/Coach threshold, work-adjustment fixture, campaign closure flag는 외부 생리학 근거가 아니라 내부 정책/증거 운영 기준으로 남아 있다.
+- 앱 연결성: candidate-v2는 target/rate context, score/Coach, Records snapshot/signature, backup/import, user-facing QA, render audit까지 연결되었지만, full Cartesian 실행과 전체 프로필 루틴/세션의 사람 눈 UX 검토는 아직 완료가 아니다.
+
+판단:
+
+- AN 재감사에서 AM 외에 즉시 수정해야 할 추가 source-code shortcut은 새로 발견하지 못했다.
+- 다만 이것은 V8 완료 선언이 아니다. 특히 `full_8_2_cartesian_execution`, `full_v8_completion`, 전체 프로필 routine/session 표면의 폭넓은 인간 검토는 계속 open이다.
+- 다음 Codex는 이 체크포인트를 "전체 문제 없음"으로 읽으면 안 된다. 이것은 현재까지 발견된 우회성 해석을 막는 재감사 경계선이다.
+
 ## 12. 검증 메모
 
 실행한 확인:

@@ -1,5 +1,25 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AN whole-stage shortcut re-audit checkpoint
+
+- AN is a docs/checkpoint re-audit after AM. It does not change `index.html`, and the app scenario runner remains `8.0-AL`.
+- Re-audit principle: do not accept a derived/report field, a fixture, a screenshot count, or a planning artifact unless it proves the actual user-owned input path and the app behavior it claims to prove.
+- Profile/session check: current source keeps `profileSession` hidden/derived from `exerciseProfile + routinePlan + routine`; bodybuilding advanced ON keeps the original routine schemes; bodybuilding/general advanced OFF keeps generic `REST / PUSH`; non-bodybuilding profiles use profile-owned sessions instead of bodybuilding fallback. Existing tests assert these paths.
+- Candidate-v2 check: Z approval, AA production target application, and AB/AH post-wiring visual evidence are separate gates. The render analyzer requires profile-owned `mixed_balanced / mixed_strength_cardio` runtime metadata, so the old normalization-only evidence cannot pass as current evidence.
+- Evidence check: D category sweep, L pairwise, M/AL targeted stress, W 18-case human numerical gate, AC~AM shard/campaign tooling, and the 80,621,568,000 full Cartesian product are separate evidence layers. AM's `--plan-only` output is planning evidence only.
+- Basis check: internal product policy and internal code evidence remain review targets unless external sports-nutrition evidence is explicitly named and app-fit reviewed. Maintain kcal neutral range, cardio reflection, score/Coach thresholds, work-adjustment fixture behavior, and campaign closure flags are not external physiology claims.
+- Remaining open scopes: full 8-2 Cartesian execution, full V8 completion, and broader human/UX review of all profile routine/session surfaces before calling the profile system complete.
+
+# v8.0-AM full Cartesian campaign runner re-audit note
+
+- AM adds `tools/render_audit/run_v8_full_cartesian_campaign.cjs`.
+- This is a campaign/checkpoint wrapper around the existing AI/AJ/AK ledger, planner, and exact-range executor. It does not change `index.html` scenario runner behavior, so the app runner remains `8.0-AL`.
+- Clean seed manifests are copied into `v8_full_cartesian_campaigns/<label>/accepted_seed_manifests/` only when each seed validates clean, is not truncated, and does not overlap an existing campaign interval.
+- AM re-audit found and fixed a potential evidence overread: `--plan-only` used to report clean execution too easily. It now reports `hasExecutionEvidence=false` and `executionEvidenceClean=false` when no ranges ran.
+- Plan-only probe on 2026-06-03: clean seeds accepted 4 / rejected 0, before unique 32, contiguous from zero 24, planned ranges 2 / uncovered 16, first planned exact range 24~32, executed ranges 0, first gap 24~1152, closure blockers `coverage_gaps_present` and `full_cartesian_coverage_incomplete`.
+- Verification on 2026-06-03: `node --check` for the campaign runner passed; `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1056 cases / failed 0.
+- AM does not close `full_8_2_cartesian_execution` or `full_v8_completion`.
+
 # v8.0-AL targeted stress mixed maintain re-audit note
 
 - AL re-audit found a stale targeted-stress interpretation: current AG+ profile-owned runner output has `mixedCarbUnresolvedCaseCount=2`, not 1.
