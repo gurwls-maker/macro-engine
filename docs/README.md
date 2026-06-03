@@ -67,10 +67,16 @@
 - The next work is not production application. The next work is Records/Score/Coach/Backup contracts for the candidate context, then expanded human-eye profile cases and Cartesian closure decision.
 - Verification on 2026-06-04: targeted V8/Today bundle = 3 suites / 90 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 140 cases / failed 0.
 
+# v8 level-formula design step 1 truth map note
+
+- Added `docs/v8_수준별산식_설계1_현상태진실지도_2026-06-04.txt`.
+- The truth map directly records current runner facts: BA candidate 146 cases, profile coverage 5, `productionAutoApplyAllowedCount=0`, boundary audit 20/20, and four remaining open completion gates.
+- The next design stage is user input ownership and screen-flow finalization, not production implementation.
+
 # v8 manual continuation note
 
 - Do not resume V8 through a long `/GOAL` run. The user has deprecated that workflow because it repeatedly encouraged fast micro-stage completion and over-broad claims.
-- Before continuing V8 after AU, read this README, `docs/v8_1단계_복구감사_2026-06-03.txt`, `docs/v8_현재산식_기준갱신_감사_2026-06-02.txt`, and `docs/v8_운동프로필_산식_정밀설계.txt`.
+- Before continuing V8 after BA, read this README, `docs/v8_수준별산식_설계1_현상태진실지도_2026-06-04.txt`, `docs/v8_1단계_복구감사_2026-06-03.txt`, `docs/v8_현재산식_기준갱신_감사_2026-06-02.txt`, and `docs/v8_운동프로필_산식_정밀설계.txt`.
 - The phase-1 recovery audit records that general diet production still used `2.4g/kg` protein before AT; AT is the production macro-policy recovery that applies the general diet `2.0g/kg` policy to the actual app path.
 - Current whole-V8 status is not complete. Candidate-v2 production application and post-wiring visual QA are closed, but `full_8_2_cartesian_execution`, `full_v8_completion`, and broad profile/routine/session human UX review remain open.
 - The next agent must not start a new micro-stage before rechecking current runner output, render audit, clean full-Cartesian campaign state, and the user-owned profile/routine/session paths.

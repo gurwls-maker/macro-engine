@@ -1,0 +1,304 @@
+# V8 수준별 산출식 설계 1단계 - 현 상태 진실지도
+
+작성일: 2026-06-04
+브랜치: `codex/v8-formula-audit`
+기준 커밋: `1a9b5f1 v8.0-BA add level-aware macro candidate`
+목적: 수준별 산출식 설계를 완성하기 전에 production, scoped production, report-only, 문서 설계, open gate를 서로 헷갈리지 않게 고정한다.
+
+이 문서는 완성 선언이 아니다. 다음 단계 설계의 기준판이다.
+
+## 1. 직접 추출한 현재 runner 사실
+
+2026-06-04 현재 `runV8ScenarioRunner()` 직접 추출 기준:
+
+```text
+runner version = 8.0-AT
+runner stage includes = v8.0-BA level-aware macro candidate v0 contract
+runner reportOnly = true
+fullCartesianRun = false
+nominalFullCartesianCaseCount = 80,621,568,000
+axisCoverageCaseCount = 73
+humanReviewCaseCount = 18
+pairwiseStressCaseCount = 50
+targetedStressCaseCount = 8
+levelAwareMacroCandidateV0Status = report_only_level_aware_macro_candidate_v0_ready_contracts_still_open
+completionDeclarationGateStatus = full_v8_completion_declaration_blocked_required_gates_open
+```
+
+중요 해석:
+
+- runner version `8.0-AT`는 production macro policy recovery 기준 version이다.
+- runner stage는 BA까지 누적되어 있다.
+- runner 자체는 report-only audit/report surface다.
+- 18개 human-review case는 별도 층이다. BA candidate는 axis/human/pairwise/targeted를 합친 146개 case를 비교하지만, 이것도 80,621,568,000개 full Cartesian 실행이 아니다.
+
+## 2. 현재 production / scoped production
+
+### 2-1. 현재 production으로 봐도 되는 것
+
+직접 추출 기준:
+
+```text
+GOALS.diet.proteinKg = 2.0
+getDualBasisProteinRange("diet") = { min: 1.4, mid: 2.0, max: 2.0 }
+GOALS.maintain exists = true
+GOALS.maintain.proteinKg = 2.0
+CARDIO_TARGET_REFLECTION_RATES.diet = 0.40
+CARDIO_TARGET_REFLECTION_RATES.maintain = 0.50
+```
+
+현재 production으로 인정되는 범위:
+
+- 일반 diet 단백질 기본값은 `2.0g/kg`로 복구됐다.
+- maintain goal key는 production `GOALS`에 존재한다.
+- active runtime candidate-v2 target-delta wiring은 이미 production 적용/QA 완료로 기록되어 있다.
+- 운동 프로필/루틴/세션 input path는 `calculate()`와 Records snapshot까지 연결되는 code-path evidence가 있다.
+
+### 2-2. scoped production으로만 봐야 하는 것
+
+`profileFormulaApprovalDecision.summary` 직접 추출 기준:
+
+```text
+candidateFormulaApproved = true
+approvedCandidateModel = candidate-v8-profile-macro-v2-linked-target-v0
+productionFormulaChanged = true
+productionWiringAllowed = true
+productionTargetCalApplied = true
+productionVisualQaCompleted = true
+fullV8Complete = false
+```
+
+이 값은 전체 수준별 산출식 완성이 아니다.
+
+정확한 범위:
+
+- candidate-v2는 active runtime target-delta case에 scoped production으로 적용된 것이다.
+- candidate-v2 approval은 모든 사용자, 모든 프로필, 모든 수준별 macro formula approval이 아니다.
+- `productionFormulaChanged=true`가 보인다고 해서 BA level-aware candidate나 user-level formula가 production 적용됐다는 뜻이 아니다.
+
+## 3. 현재 report-only code evidence
+
+### 3-1. profileRoutineUserPathMatrix
+
+직접 추출 기준:
+
+```text
+stage = profile_routine_session_user_path_matrix_v1
+rowCount = 76
+defaultPathRowCount = 10
+explicitPathRowCount = 66
+findingCount = 0
+bodybuildingOffDefaultSimpleRestTraining = true
+nonBodybuildingOffSimpleProfileDefaultsApplied = true
+detailedProfileRowsAdvancedOnly = true
+explicitTodayOverridePathPreserved = true
+userLevelFormulaImplemented = false
+fullHumanVisualReviewClosed = false
+```
+
+의미:
+
+- Settings/default Today path와 Today explicit override path는 code level에서 분리되어 있다.
+- advanced OFF/ON의 기본 의미도 code evidence로 고정되어 있다.
+- 하지만 이것은 human UX signoff가 아니다.
+- 이것은 수준별 산출식 구현도 아니다.
+
+### 3-2. userLevelFormulaPrecisionDesign
+
+직접 추출 기준:
+
+```text
+stage = v8.0-AZ_user_level_formula_precision_design_v0
+precisionDesignReadyForCandidate = true
+sourceInputKeyCount = 13
+formulaLayerCount = 7
+profilePolicyCount = 5
+levelBandCount = 4
+gateCount = 6
+findingCount = 0
+externalEvidenceSeparated = true
+productionFormulaChanged = false
+userLevelFormulaImplemented = false
+fullV8CompletionClosed = false
+```
+
+의미:
+
+- AZ는 수준별 산출식의 입력, layer, 프로필 정책, 근거 분리, gate를 설계 contract로 고정했다.
+- AZ는 후보 구현 준비 완료이지 production 산식 구현이 아니다.
+- `precisionDesignReadyForCandidate=true`는 `userLevelFormulaImplemented=true`가 아니다.
+
+### 3-3. levelAwareMacroCandidateV0
+
+직접 추출 기준:
+
+```text
+stage = v8.0-BA_level_aware_macro_candidate_v0
+model = candidate-v8-level-aware-macro-v0
+caseCount = 146
+contextCount = 146
+contextCompleteCount = 146
+profileCoverageCount = 5
+targetChangedCount = 5
+macroChangedCount = 24
+profileFuelRequestCount = 22
+recentTrendAutoApplyBlockedCount = 146
+productionAutoApplyAllowedCount = 0
+findingCount = 0
+productionFormulaChanged = false
+candidateFormulaApproved = false
+userLevelFormulaImplemented = false
+fullV8CompletionClosed = false
+```
+
+의미:
+
+- BA는 실제 scenario input summary에서 `userLevelFormulaContext`를 만든다.
+- BA는 current production과 level-aware candidate를 비교한다.
+- BA는 profile fuel policy와 target relief를 분리한다.
+- BA에서 recent14/recent28은 자동 targetCal 변경 권한이 아니라 gate/review signal이다.
+- BA는 production 적용이 아니다.
+- BA는 user-level formula implementation이 아니다.
+
+### 3-4. wholeStageEvidenceBoundaryAudit
+
+직접 추출 기준:
+
+```text
+checkCount = 20
+passCount = 20
+findingCount = 0
+full8_2CartesianExecutionClosed = false
+fullV8CompletionClosed = false
+completionDeclarationGateClosed = false
+completionDeclarationOpenGateCount = 4
+productionApplicationSeparatedFromFullCompletion = true
+internalBasisSeparatedFromExternalEvidence = true
+```
+
+의미:
+
+- 현재 boundary audit은 통과한다.
+- 통과의 뜻은 “경계가 분리되어 있다”이지 “수준별 산출식이 완성됐다”가 아니다.
+
+## 4. 아직 문서 설계 또는 미구현으로 봐야 하는 것
+
+아직 production 구현으로 보면 안 되는 항목:
+
+- user-level profile-specific macro formula production implementation
+- BA candidate의 Records snapshot/signature contract
+- BA candidate의 Score/Coach explanation contract
+- BA candidate의 backup/import roundtrip contract
+- 사용자가 Today/Records에서 수준별 산출 이유를 자연스럽게 이해하는 UX flow
+- expanded human-eye profile/routine/session case set
+- full Cartesian 실행 또는 owner-approved closure 대체 gate
+- 최종 production approval
+
+아직 문서 설계 성격이 강한 항목:
+
+- 수준별 산출식 layer별 최종 수식 순서
+- profile별 targetEnergy/protein/fat/carbohydrate 조정 정책의 production 승격 조건
+- body-composition reliability가 낮을 때의 damping 강도
+- recent14/recent28이 target change에 개입하는 최종 조건
+- Score/Coach/Records에 보여줄 사용자 언어
+
+## 5. completionDeclarationGate 현재 상태
+
+직접 추출 기준 closed gates:
+
+```text
+candidate_v2_formula_approval_decision
+active_runtime_candidate_v2_production_macro_application
+post_wiring_production_visual_qa
+production_diet_macro_policy_recovery
+profile_routine_session_code_path_matrix
+```
+
+직접 추출 기준 open gates:
+
+```text
+profile_routine_session_broad_human_ux_review
+user_level_profile_specific_macro_formula
+full_8_2_cartesian_execution
+full_v8_completion
+```
+
+`user_level_profile_specific_macro_formula` gate evidence:
+
+```text
+levelFormulaInputScopeDocumented = true
+precisionDesignReadyForCandidate = true
+designStage = v8.0-AZ_user_level_formula_precision_design_v0
+designFindingCount = 0
+candidateStage = v8.0-BA_level_aware_macro_candidate_v0
+candidateModel = candidate-v8-level-aware-macro-v0
+candidateCaseCount = 146
+candidateFindingCount = 0
+candidateFormulaApproved = false
+candidateProductionFormulaChanged = false
+userLevelFormulaImplemented = false
+```
+
+정확한 결론:
+
+- 수준별 산출식 gate는 open이다.
+- BA candidate가 있어도 gate는 open이다.
+- designFindingCount 0, candidateFindingCount 0은 production 구현 승인과 다르다.
+
+## 6. 사용자가 바로 느낄 수 있는 UX 상태
+
+현재 사용자 흐름에서 좋아진 것:
+
+- Settings는 기본 운동 프로필을 갖는다.
+- Today는 date-owned routine/session override를 갖는다.
+- advanced OFF/ON 의미가 복구되어 있다.
+- 러닝/혼합운동이 weightDuration=0이라는 이유로 generic rest처럼 보이는 위험은 줄었다.
+- Today top training summary는 profile-aware로 바뀌었다.
+- Records snapshot 쪽에도 운동 프로필/루틴/세션 code path evidence가 있다.
+
+하지만 아직 완벽하지 않은 것:
+
+- 사용자는 아직 “수준별 산출식이 왜 이 칼로리/탄단지를 냈는지” 완성된 흐름으로 설명받지 못한다.
+- BA candidate의 model/stage/context가 Records/Score/Coach/Backup에 production-grade로 보존되지 않는다.
+- 사용자 입장에서 profile/routine/session 전체 조합을 눈으로 검수한 broad UX signoff가 없다.
+- 수준별 산출식의 최종 production 숫자 정책이 아직 승인되지 않았다.
+
+## 7. 혼동 금지 목록
+
+아래 등식은 모두 금지한다.
+
+```text
+AZ precisionDesignReadyForCandidate = user-level formula implemented
+BA candidateFindingCount 0 = production formula approved
+BA caseCount 146 = full Cartesian execution
+candidate-v2 scoped production = all-user level-aware macro formula
+profileRoutineUserPathMatrix findingCount 0 = broad human UX review complete
+wholeStageEvidenceBoundaryAudit pass = full V8 complete
+productionFormulaChanged true in candidate-v2 decision = BA candidate production applied
+```
+
+## 8. 다음 설계 단계
+
+다음 단계는 구현이 아니라 설계 2단계다.
+
+설계 2단계 이름:
+
+```text
+V8 수준별 산출식 설계 2단계 - 사용자 입력 소유권/화면 흐름 확정
+```
+
+2단계에서 반드시 결정할 것:
+
+- Settings에서 사용자가 고르는 것
+- Today에서 사용자가 고르는 것
+- Records에서 저장만 되는 것
+- 자동 파생만 되고 사용자가 직접 고르지 않는 것
+- 화면에 보여주지만 수정은 막는 것
+- advanced OFF/ON에 따라 바뀌는 것
+- 수준별 산출식 context에 들어가지만 아직 production 산식을 움직이면 안 되는 것
+
+2단계 전제:
+
+- 이 문서의 truth map을 먼저 기준으로 삼는다.
+- production과 report-only를 섞지 않는다.
+- UI 편의나 테스트 통과를 위해 hidden shortcut을 만들지 않는다.
