@@ -113,6 +113,14 @@ const PROFILE_ROUTINE_OWNERSHIP_CAPTURES = Object.freeze({
   }
 });
 
+const PROFILE_ROUTINE_SUMMARY_TERMS_BY_ROUTINE = Object.freeze({
+  ARM: "팔",
+  powerbuilding_lower: "하체/복합",
+  strength_deload: "디로드",
+  running_interval: "인터벌",
+  mixed_recovery: "회복"
+});
+
 function readUInt32(buffer, offset){
   return buffer.readUInt32BE(offset);
 }
@@ -336,6 +344,8 @@ function analyzeManifest(){
       return;
     }
     const runtime = capture.runtime || {};
+    const todayCalcSummaryText = typeof runtime.todayCalcSummaryText === "string" ? runtime.todayCalcSummaryText : "";
+    const expectedSummaryTerm = PROFILE_ROUTINE_SUMMARY_TERMS_BY_ROUTINE[expected.routine];
     const runtimeChecks = {
       appFrameFound: runtime.appFrameFound === true,
       calculateFound: runtime.calculateFound === true,
@@ -350,6 +360,9 @@ function analyzeManifest(){
       todayRoutineSessionValue: runtime.todayRoutineSessionValue === expected.routine,
       todayRoutineSessionOptionsIncludeRoutine: Array.isArray(runtime.todayRoutineSessionOptions)
         && runtime.todayRoutineSessionOptions.includes(expected.routine),
+      todayTrainingSummaryLabel: todayCalcSummaryText.includes("오늘 훈련"),
+      todayTrainingSummaryIncludesSession: !expectedSummaryTerm || todayCalcSummaryText.includes(expectedSummaryTerm),
+      todayTrainingSummaryDoesNotUseWeightRestCopy: !todayCalcSummaryText.includes("오늘 웨이트"),
       settingsDoesNotExposeDefaultSessionPicker: runtime.settingsTrainingHostHasDefaultSessionPicker === false,
       settingsKeepsWeekdaySchedule: runtime.settingsTrainingHostHasWeekdaySchedule === true
     };

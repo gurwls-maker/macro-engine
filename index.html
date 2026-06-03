@@ -1,8 +1,9 @@
 <!--
 Version: 8.0
-Stage: v8.0-AQ1 today detailed fasting weight snapshot hotfix
+Stage: v8.0-AR profile-aware Today training summary
 Date: 2026-06-03
 Notes:
+- v8.0-AR makes the Today top training summary profile-aware so running/mixed cardio-owned sessions do not appear as a generic weight-training rest day
 - v8.0-AQ1 applies checked Today detailed fasting weight before meal snapshot scoring so Records weight, Today calculation weight, and saved goalSnapshot weight stay aligned
 - v8.0-AQ separates Settings-owned exercise profile/routine-plan/weekday schedule from Today-owned routine plan/session inputs and keeps profileSession derived
 - v8.0-AP adds a whole-stage evidence boundary audit so report-only, production-observation, visual-QA, and full-completion gates cannot be collapsed into each other
@@ -21439,11 +21440,27 @@ Notes:
       return parts.join(" · ");
     }
 
-    function formatTodayQuickWeightSummary(s){
-      const routine = getRoutineEntry(s?.routine || state.routine);
+    function getTodayQuickRoutineEntryForSummary(s){
+      const profile = normalizeExerciseProfile(s?.exerciseProfile || state.exerciseProfile);
+      const routinePlan = normalizeRoutinePlanForProfile(profile, s?.routinePlan || state.routinePlan);
+      const routineItems = getRoutineItemsForProfile(profile, {
+        advanced: shouldUseDetailedRoutineControls(profile, !!s?.generalAdvancedSettings),
+        routinePlan
+      });
+      return routineItems.find(item => item.value === s?.routine)
+        ?? getAllRoutineOptionItems().find(item => item.value === s?.routine)
+        ?? routineItems.find(item => item.value !== "REST")
+        ?? routineItems[0]
+        ?? getRoutineEntry(state.routine);
+    }
+
+    function formatTodayQuickTrainingSummary(s){
+      const routine = getTodayQuickRoutineEntryForSummary(s);
       const duration = Math.max(0, Number(s?.weightDuration) || 0);
-      if (routine?.value === "REST" || duration <= 0) return "휴식";
-      return `${routine?.label || "운동"} · ${Math.round(duration)}분`;
+      if (routine?.value === "REST") return "휴식";
+      const label = routine?.label || "운동";
+      if (duration <= 0) return label;
+      return `${label} · ${Math.round(duration)}분`;
     }
 
     function formatTodayQuickProfileSummary(s){
@@ -21841,7 +21858,7 @@ Notes:
         ["활동량", ACTIVITY_LABELS[s.activityLevel] || "-"],
         ["업무 유형", WORK_TYPE_LABELS[s.workType] || "-"],
         ["운동 프로필", formatTodayQuickProfileSummary(s)],
-        ["오늘 웨이트", formatTodayQuickWeightSummary(s)],
+        ["오늘 훈련", formatTodayQuickTrainingSummary(s)],
         ["유산소", formatTodayQuickCardioSummary(s)]
       ];
       host.innerHTML = rows.map(([label, value]) => `
@@ -45719,6 +45736,32 @@ Notes:
           assertTest(values.todayExerciseProfile === "bodybuilding", "programmatic Today profile changes should not override Settings profile");
           assertTest(profileSelect.value === "bodybuilding", "locked hidden Today profile select should snap back to Settings profile");
         }));
+
+        results.push(runNamedTest("C4.2 running Today summary uses training session instead of weight-rest copy", () => withRecordTestSandbox(() => {
+          setActiveTab("today");
+          setValidTodayBalanceTestInputs();
+          state.exerciseProfile = "running";
+          ids.exerciseProfile.value = "running";
+          state.routinePlan = "running_speed";
+          state.routine = "running_interval";
+          state.profileSession = "running_interval";
+          todayCalculationDrafts = {};
+          saveTodayCalculationDrafts();
+          setTodayCalculationDraftValues({
+            todayRoutinePlan: "running_speed",
+            todayRoutineSession: "running_interval",
+            todayProfileSession: "running_interval",
+            todayWeightDuration: 0,
+            todayCardioType: "treadmill_run",
+            todayCardioDuration: 35,
+            todayCardioSpeed: 12,
+            todayCardioIncline: 1
+          });
+          render();
+          const text = document.getElementById("todayCalcSummary")?.textContent || "";
+          assertIncludesAll(text, ["오늘 훈련", "인터벌"], "running summary should show the profile-owned training session");
+          assertExcludesAll(text, ["오늘 웨이트", "오늘 웨이트휴식"], "running summary should not look like a generic weight-rest day");
+        })));
 
         results.push(runNamedTest("C4.2 calculation weight edit recalculates without changing Settings default", () => {
           setActiveTab("today");

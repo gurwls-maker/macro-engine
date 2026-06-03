@@ -1,5 +1,12 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AR profile-aware Today training summary note
+
+- AR updates the Today top calculation summary copy so profile-owned training sessions are not collapsed into a weight-training rest label.
+- The summary row now uses `오늘 훈련` and reads the current profile/routine/session label. Running interval surfaces show `인터벌` even when `weightDuration=0`; detailed weight/cardio evidence remains in the lower exercise summary and cardio panel.
+- Render audit runtime metadata now records `todayCalcSummaryText`, and analyzer checks all 10 profile routine ownership captures for `오늘 훈련` plus the expected session term while rejecting `오늘 웨이트` in that top summary.
+- Verification on 2026-06-03: `runTodayQuickEditTests` + `runTodayCalculationOwnershipTests` = 2 suites / 58 cases / failed 0; render audit capture/analyzer = 65 captures / profile routine ownership captures 10 / failed 0.
+
 # v8.0-AQ1 Today detailed fasting weight snapshot hotfix note
 
 - AQ1 fixes the Today tab detailed meal-add flow where a checked `오늘 공복 체중` could update Records/Today calculation weight after the meal snapshot had already been generated.

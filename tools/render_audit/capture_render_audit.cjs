@@ -741,6 +741,7 @@ async function getRuntimeMeta(page) {
         todayRoutinePlanValue: document.getElementById("todayQuickRoutinePlan")?.value || null,
         todayRoutineSessionValue: document.getElementById("todayQuickRoutineSession")?.value || null,
         todayRoutineSessionOptions: Array.from(document.getElementById("todayQuickRoutineSession")?.options || []).map(option => option.value),
+        todayCalcSummaryText: document.getElementById("todayCalcSummary")?.textContent?.trim() || null,
         settingsTrainingHostHasDefaultSessionPicker: document.getElementById("settingsTrainingDefaultsHost")?.contains(document.getElementById("todayRoutineAthleteField")) === true,
         settingsTrainingHostHasWeekdaySchedule: document.getElementById("settingsTrainingDefaultsHost")?.closest(".settings-group")?.contains(document.getElementById("routineWeekdaySchedulePanel")) === true
       };
