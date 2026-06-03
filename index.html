@@ -1,9 +1,10 @@
 <!--
 Version: 8.0
-Stage: v8.0-AZ user-level formula precision design contract
+Stage: v8.0-BA level-aware macro candidate v0 contract
 Date: 2026-06-04
 Notes:
 - v8.0-AZ adds a report-only userLevelFormulaPrecisionDesign contract so performance level, body-composition reliability, recent record coverage, recent trend, profile/routine/session policy, external sports-nutrition evidence, and app policy gates are designed before any broad user-level macro formula is implemented
+- v8.0-BA adds a report-only levelAwareMacroCandidateV0 that builds userLevelFormulaContext from actual scenario inputs and compares current production macros against a level-aware candidate without changing production formulas
 - v8.0-AY adds a phase-4 completionDeclarationGate so candidate-v2 approval, active runtime production macro application, post-wiring visual QA, diet macro recovery, profile routine/session code-path evidence, broad human UX review, user-level formula implementation, full Cartesian execution, and full V8 completion cannot be collapsed into one "done" claim
 - v8.0-AX restores the original exercise advanced-toggle meaning across expanded profiles: advanced OFF exposes simple REST/PUSH only, bodybuilding OFF keeps the legacy 0.70 training baseline, non-bodybuilding OFF applies the profile default training session internally, and detailed profile routine/session choices are advanced-ON only
 - v8.0-AW adds a report-only profile/routine/session user-path matrix that checks every profile plan/session row through Today selection, calculate(), Records goalSnapshot, and the future level-formula input scope without implementing the level formula or closing full visual review
@@ -54291,7 +54292,7 @@ Notes:
     }
 
     const V8_SCENARIO_RUNNER_VERSION = "8.0-AT";
-    const V8_SCENARIO_RUNNER_STAGE = "v8.0-AZ user-level formula precision design contract + v8.0-AY completion declaration gate lock + v8.0-AX exercise advanced toggle semantics recovery + v8.0-AW profile routine user-path matrix + v8.0-AT diet production macro policy recovery + v8.0-AS scenario runner metadata and profile-aware Today training summary audit + v8.0-AR profile-aware Today training summary + v8.0-AQ profile routine input ownership realignment + v8.0-AP whole-stage evidence boundary audit + v8.0-AO profile routine surface audit + v8.0-AL targeted stress mixed maintain re-audit + v8.0-AK full Cartesian exact-range plan executor + v8.0-AJ full Cartesian next-shard planner + v8.0-AI full Cartesian shard coverage ledger + v8.0-AH profile-owned visual QA evidence realignment + v8.0-AG profile routine ownership realignment + v8.0-AF shard batch orchestration pilot + v8.0-AE shard manifest integrity and analyzer + v8.0-AD deterministic full Cartesian shard pilot + v8.0-AC full Cartesian execution contract + v8.0-AB post-wiring production visual QA + v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session derived-field snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
+    const V8_SCENARIO_RUNNER_STAGE = "v8.0-BA level-aware macro candidate v0 contract + v8.0-AZ user-level formula precision design contract + v8.0-AY completion declaration gate lock + v8.0-AX exercise advanced toggle semantics recovery + v8.0-AW profile routine user-path matrix + v8.0-AT diet production macro policy recovery + v8.0-AS scenario runner metadata and profile-aware Today training summary audit + v8.0-AR profile-aware Today training summary + v8.0-AQ profile routine input ownership realignment + v8.0-AP whole-stage evidence boundary audit + v8.0-AO profile routine surface audit + v8.0-AL targeted stress mixed maintain re-audit + v8.0-AK full Cartesian exact-range plan executor + v8.0-AJ full Cartesian next-shard planner + v8.0-AI full Cartesian shard coverage ledger + v8.0-AH profile-owned visual QA evidence realignment + v8.0-AG profile routine ownership realignment + v8.0-AF shard batch orchestration pilot + v8.0-AE shard manifest integrity and analyzer + v8.0-AD deterministic full Cartesian shard pilot + v8.0-AC full Cartesian execution contract + v8.0-AB post-wiring production visual QA + v8.0-AA production candidate-v2 target wiring + profile formula approval decision + profile formula approval preflight + candidate-v2 fat floor linked-target consistency + human-review numerical approval gate + candidate-v2 runtime user-facing QA + target-delta proposal wiring + protein guard candidate-v2 resolution contract + score Coach candidate-v2 contract + target-rate recentContext candidate-delta contract + profile/session derived-field snapshot contract + profile macro candidate-v2 production contract review + profile macro candidate-v2 + targeted stress review + pairwise stress runner + profile macro candidate-v1 + maintain production goal + maintain contract review + profile session carbohydrate policy review + context macro candidate comparison + candidate design + current macro audit + scenario runner";
     const V8_FULL_CARTESIAN_SHARD_REPORT_SCHEMA_VERSION = "v8_full_cartesian_shard_report_v1";
     const V8_REQUIRED_AXIS_DEFINITIONS = Object.freeze([
       { key: "gender", label: "성별", values: ["male", "female"] },
@@ -54998,6 +54999,7 @@ Notes:
         profileSession: profileSession.id,
         profileSessionLabel: profileSession.label,
         profileSessionStatus: profileSession.status,
+        routinePlan: definition.weightCombo.routinePlan || null,
         productionRoutineFallback: profileSession.productionRoutineFallback,
         productionRoutineFallbackLabel: getV8ProductionRoutineLabel(profileSession.productionRoutineFallback, definition.weightCombo.routinePlan, definition.exerciseProfile),
         productionRoutineFallbackReason: profileSession.fallbackReason,
@@ -59912,6 +59914,471 @@ Notes:
       };
     }
 
+    const V8_LEVEL_AWARE_MACRO_CANDIDATE_V0_STAGE = "v8.0-BA_level_aware_macro_candidate_v0";
+    const V8_LEVEL_AWARE_MACRO_CANDIDATE_V0_MODEL = "candidate-v8-level-aware-macro-v0";
+    const V8_LEVEL_AWARE_MACRO_CANDIDATE_CONTEXT_KEYS = Object.freeze([
+      "goal",
+      "exerciseProfile",
+      "routinePlan",
+      "routineSession",
+      "profileSession",
+      "performanceLevel",
+      "trainingEvidence",
+      "bodyCompReliability",
+      "recent14RecordCoverage",
+      "recent28Trend",
+      "activityWorkload",
+      "cardioLoad",
+      "advancedTuning"
+    ]);
+
+    function normalizeV8LevelAwarePerformanceLevel(input = {}){
+      const raw = String(input.performanceLevel || "").trim();
+      if (["none", "low", "normal", "high"].includes(raw)) return raw;
+      if (input.profileSession === "rest" || input.todayRoutine === "REST") return "none";
+      return "low";
+    }
+
+    function resolveV8LevelAwareTrainingEvidence(input = {}){
+      const weeklyTrainingDays = clamp(Math.round(Number(input.weeklyTrainingDays) || 0), 0, 14);
+      const weightDuration = Math.max(0, Number(input.todayWeightDuration) || 0);
+      const cardioDuration = Math.max(0, Number(input.cardioDuration) || 0);
+      const intensity = clamp(Number(input.todayIntensityOverride) || 0, 0, 1);
+      const performanceLevel = normalizeV8LevelAwarePerformanceLevel(input);
+      const hasTraining = input.profileSession !== "rest"
+        && input.todayRoutine !== "REST"
+        && (weeklyTrainingDays > 0 || weightDuration > 0 || cardioDuration > 0);
+      if (!hasTraining || performanceLevel === "none") return "none";
+      if (performanceLevel === "high" || weeklyTrainingDays >= 5 || weightDuration >= 75 || cardioDuration >= 60 || intensity >= 0.9) return "high";
+      if (performanceLevel === "normal" || weeklyTrainingDays >= 3 || weightDuration >= 45 || cardioDuration >= 30) return "regular";
+      return "light";
+    }
+
+    function resolveV8LevelAwareBodyCompReliability(input = {}){
+      const raw = String(input.inbodyReliability || "").trim();
+      if (raw === "expert_device") return "inbody";
+      if (raw === "home_inbody") return "home";
+      if (raw === "direct_input") return "partial";
+      if (raw === "low_reliability") return "low";
+      return "none";
+    }
+
+    function resolveV8LevelAwareRecentContext(input = {}){
+      const recent14 = String(input.recent14 || "unknown");
+      const recent28 = String(input.recent28 || "unknown");
+      const recent14Sufficient = recent14 === "sufficient";
+      const recent28Known = ["slower_than_target", "target_appropriate", "too_fast"].includes(recent28);
+      const trendSignal = recent28 === "slower_than_target"
+        ? "rate_too_slow_review"
+        : (recent28 === "too_fast" ? "rate_too_fast_review" : (recent28 === "target_appropriate" ? "on_target" : "unknown"));
+      return {
+        recent14,
+        recent28,
+        recent14Sufficient,
+        recent28Known,
+        trendSignal,
+        recordConfidenceProxy: recent14Sufficient && recent28Known ? "scenario_sufficient" : "scenario_limited",
+        canUseForAutomaticTargetDelta: false,
+        automaticBlockers: [
+          "report_only_candidate_not_production_implementation",
+          ...(!recent14Sufficient ? ["recent14_record_coverage_insufficient"] : []),
+          ...(!recent28Known ? ["recent28_trend_unknown"] : [])
+        ]
+      };
+    }
+
+    function buildV8UserLevelFormulaContextFromScenarioCase(item = {}){
+      const input = item.input || {};
+      const current = item.current || {};
+      const performanceLevel = normalizeV8LevelAwarePerformanceLevel(input);
+      const trainingEvidence = resolveV8LevelAwareTrainingEvidence(input);
+      const bodyCompReliability = resolveV8LevelAwareBodyCompReliability(input);
+      const recentContext = resolveV8LevelAwareRecentContext(input);
+      const profilePolicy = getV8ProfileSessionCarbPolicy(input);
+      const context = {
+        caseId: item.id,
+        title: item.title,
+        layer: item.layer,
+        goal: input.goal,
+        axisGoal: input.axisGoal,
+        exerciseProfile: input.exerciseProfile,
+        routinePlan: input.routinePlan,
+        routineSession: input.todayRoutine,
+        profileSession: input.profileSession,
+        profileSessionStatus: input.profileSessionStatus,
+        routineOwnership: input.routineOwnership,
+        productionRoutineFallback: input.productionRoutineFallback,
+        performanceLevel,
+        rawPerformanceLevel: input.performanceLevel || null,
+        trainingEvidence,
+        bodyCompReliability,
+        recent14RecordCoverage: recentContext.recent14,
+        recent28Trend: recentContext.recent28,
+        recentContext,
+        activityWorkload: {
+          activityLevel: input.activityLevel,
+          workType: input.workType,
+          workAdj: Number.isFinite(Number(input.workAdj)) ? Number(input.workAdj) : 0,
+          totalBurn: Number.isFinite(Number(current.maintenance?.totalBurn)) ? current.maintenance.totalBurn : null,
+          bmr: Number.isFinite(Number(current.maintenance?.bmr)) ? current.maintenance.bmr : null
+        },
+        cardioLoad: {
+          cardioType: input.cardioType,
+          duration: Math.max(0, Number(input.cardioDuration) || 0),
+          speed: Math.max(0, Number(input.cardioSpeed) || 0),
+          incline: Math.max(0, Number(input.cardioIncline) || 0),
+          kcal: Number.isFinite(Number(current.maintenance?.cardioKcal)) ? current.maintenance.cardioKcal : 0,
+          met: Number.isFinite(Number(current.maintenance?.cardioMet)) ? current.maintenance.cardioMet : 0
+        },
+        resistanceLoad: {
+          weeklyTrainingDays: clamp(Math.round(Number(input.weeklyTrainingDays) || 0), 0, 14),
+          weightDuration: Math.max(0, Number(input.todayWeightDuration) || 0),
+          intensityOverride: clamp(Number(input.todayIntensityOverride) || 0, 0, 1)
+        },
+        advancedTuning: {
+          enabled: input.inbodyReliability === "expert_device",
+          source: input.inbodyReliability === "expert_device" ? "scenario_expert_device_fixture" : "not_explicit_in_scenario_summary"
+        },
+        profilePolicy: {
+          profileLoadClass: profilePolicy.profileLoadClass,
+          directness: profilePolicy.directness,
+          externalCarbReviewRangeGPerKg: profilePolicy.externalCarbReviewRangeGPerKg,
+          evidenceKeys: profilePolicy.evidenceKeys
+        }
+      };
+      const missingKeys = V8_LEVEL_AWARE_MACRO_CANDIDATE_CONTEXT_KEYS.filter(key => {
+        if (key === "recent14RecordCoverage") return !context.recent14RecordCoverage;
+        if (key === "recent28Trend") return !context.recent28Trend;
+        return context[key] === undefined || context[key] === null || context[key] === "";
+      });
+      context.formulaInputCompleteness = {
+        requiredKeys: V8_LEVEL_AWARE_MACRO_CANDIDATE_CONTEXT_KEYS,
+        missingKeys,
+        complete: missingKeys.length === 0
+      };
+      context.contextSignature = [
+        context.goal,
+        context.exerciseProfile,
+        context.routinePlan || "no_plan",
+        context.routineSession || "no_routine",
+        context.profileSession || "no_profile_session",
+        context.performanceLevel,
+        context.trainingEvidence,
+        context.bodyCompReliability,
+        context.recent14RecordCoverage,
+        context.recent28Trend
+      ].join("|");
+      return context;
+    }
+
+    function getV8LevelAwareMacroCandidateAutoApplyBlockers(context = {}){
+      const blockers = ["report_only_candidate_not_production_implementation"];
+      if (context.formulaInputCompleteness?.complete !== true) blockers.push("user_level_formula_context_incomplete");
+      if (context.recentContext?.recent14Sufficient !== true) blockers.push("recent14_record_coverage_insufficient");
+      if (context.recentContext?.recent28Known !== true) blockers.push("recent28_trend_unknown");
+      if (["none", "low"].includes(context.bodyCompReliability) && context.performanceLevel === "high") {
+        blockers.push("high_performance_level_without_reliable_body_composition");
+      }
+      return [...new Set(blockers)];
+    }
+
+    function buildV8LevelAwareMacroCandidateV0Case(item = {}, profileMacroCandidateV2Case = null){
+      const input = item.input || {};
+      const current = item.current || {};
+      const context = buildV8UserLevelFormulaContextFromScenarioCase(item);
+      const contextCandidate = buildV8ContextMacroCandidateOutput(item);
+      const profilePolicy = getV8ProfileSessionCarbPolicy(input);
+      const v2Candidate = profileMacroCandidateV2Case?.candidate || null;
+      const profileFuelPolicyRequested = isV8ProfileCarbFloorCandidatePolicy(profilePolicy, input)
+        && !!profilePolicy.externalCarbReviewRangeGPerKg
+        && input.profileSession !== "rest";
+      const useProfileTargetCandidate = v2Candidate?.model === V8_PROFILE_MACRO_CANDIDATE_V2_MODEL
+        && v2Candidate?.profilePolicy?.profileCarbFloorAttempted === true;
+      const sourceTargetCal = Math.max(0, Number(current.target?.finalTargetCal) || 0);
+      const candidateTargetCal = useProfileTargetCandidate
+        ? Math.max(0, Number(v2Candidate.targetCal) || 0)
+        : Math.max(0, Number(contextCandidate.target?.finalTargetCal) || 0);
+      const weight = Math.max(1, Number(input.weight) || 1);
+      const lbm = Math.max(1, Number(input.lbm) || weight);
+      const candidateProtein = useProfileTargetCandidate
+        ? Math.max(0, Number(v2Candidate.proteinG) || 0)
+        : Math.max(0, Number(contextCandidate.macro?.protein_g) || 0);
+      const candidateFat = useProfileTargetCandidate
+        ? Math.max(0, Number(v2Candidate.fatG) || 0)
+        : Math.max(0, Number(contextCandidate.macro?.fat_g) || 0);
+      const candidateCarbs = useProfileTargetCandidate
+        ? Math.max(0, Number(v2Candidate.carbsG) || 0)
+        : Math.max(0, Number(contextCandidate.macro?.carb_g) || 0);
+      const currentProtein = Math.max(0, Number(current.macro?.protein_g) || 0);
+      const currentFat = Math.max(0, Number(current.macro?.fat_g) || 0);
+      const currentCarbs = Math.max(0, Number(current.macro?.carb_g) || 0);
+      const profileFuelRequest = {
+        requested: profileFuelPolicyRequested,
+        sourceModel: useProfileTargetCandidate ? V8_PROFILE_MACRO_CANDIDATE_V2_MODEL : null,
+        reason: useProfileTargetCandidate
+          ? "profile_session_carb_floor_feasibility_from_candidate_v2"
+          : (profileFuelPolicyRequested ? "profile_session_carb_floor_review_without_target_relief" : "no_profile_session_fuel_floor_for_this_case"),
+        reviewRangeGPerKg: profilePolicy.externalCarbReviewRangeGPerKg || null,
+        targetReliefRequested: useProfileTargetCandidate,
+        profileCarbFloorAttempted: v2Candidate?.profilePolicy?.profileCarbFloorAttempted === true,
+        profileCarbFloorMet: v2Candidate?.profilePolicy?.profileCarbFloorMet === true,
+        targetDeltaKcal: useProfileTargetCandidate ? Number(v2Candidate.targetDeltaKcal) || 0 : 0,
+        targetRateDeltaEquivalentKgPerWeek: useProfileTargetCandidate ? Number(v2Candidate.targetRateDeltaEquivalentKgPerWeek) || 0 : 0
+      };
+      const autoApplyBlockers = getV8LevelAwareMacroCandidateAutoApplyBlockers(context);
+      const macroKcalSum = candidateProtein * 4 + candidateCarbs * 4 + candidateFat * 9;
+      const candidate = {
+        model: V8_LEVEL_AWARE_MACRO_CANDIDATE_V0_MODEL,
+        reportOnly: true,
+        productionFormulaChanged: false,
+        candidateFormulaApproved: false,
+        userLevelFormulaImplemented: false,
+        sourceContextCandidateModel: V8_CONTEXT_MACRO_CANDIDATE_MODEL,
+        sourceProfileMacroCandidateV2Model: useProfileTargetCandidate ? V8_PROFILE_MACRO_CANDIDATE_V2_MODEL : null,
+        target: {
+          finalTargetCal: candidateTargetCal,
+          baseProductionTargetCal: sourceTargetCal,
+          targetDeltaKcal: candidateTargetCal - sourceTargetCal,
+          targetRateDeltaEquivalentKgPerWeek: (candidateTargetCal - sourceTargetCal) * 7 / TARGET_RATE_KCAL_PER_KG,
+          targetChangedInsideReportOnlyCandidate: Math.abs(candidateTargetCal - sourceTargetCal) > 1e-6,
+          autoApplyAllowed: false,
+          autoApplyBlockers,
+          selectionReason: useProfileTargetCandidate
+            ? "level_aware_candidate_uses_profile_carb_floor_target_relief_report_only"
+            : "level_aware_candidate_preserves_current_target_report_only"
+        },
+        macro: {
+          protein_g: candidateProtein,
+          protein_kcal: candidateProtein * 4,
+          protein_percent_kcal: candidateTargetCal > 0 ? candidateProtein * 4 / candidateTargetCal * 100 : 0,
+          protein_g_per_kg_bodyweight: candidateProtein / weight,
+          protein_g_per_kg_lbm: candidateProtein / lbm,
+          protein_rule_source: contextCandidate.macro?.protein_rule_source || "level_aware_context_candidate",
+          fat_g: candidateFat,
+          fat_kcal: candidateFat * 9,
+          fat_percent_kcal: candidateTargetCal > 0 ? candidateFat * 9 / candidateTargetCal * 100 : 0,
+          fat_g_per_kg_bodyweight: candidateFat / weight,
+          carb_g: candidateCarbs,
+          carb_kcal: candidateCarbs * 4,
+          carb_percent_kcal: candidateTargetCal > 0 ? candidateCarbs * 4 / candidateTargetCal * 100 : 0,
+          carb_g_per_kg_bodyweight: candidateCarbs / weight,
+          macro_kcal_sum: macroKcalSum,
+          macro_kcal_gap: Math.max(0, candidateTargetCal - macroKcalSum),
+          redistribution_reason: [
+            "level_aware_macro_candidate_v0_report_only",
+            ...((contextCandidate.macro?.redistribution_reason || []).filter(Boolean)),
+            ...(useProfileTargetCandidate ? ["profile_session_target_relief_candidate_v2_imported_as_report_only"] : [])
+          ]
+        },
+        formulaLayers: {
+          context: {
+            status: "built_from_scenario_input_summary",
+            contextSignature: context.contextSignature,
+            missingInputKeys: context.formulaInputCompleteness.missingKeys
+          },
+          targetEnergy: {
+            status: "candidate_compared_report_only",
+            baseProductionTargetCal: sourceTargetCal,
+            candidateTargetCal,
+            targetDeltaKcal: candidateTargetCal - sourceTargetCal,
+            source: useProfileTargetCandidate ? "profile_macro_candidate_v2_target_relief" : "current_production_target_preserved",
+            autoApplyAllowed: false,
+            autoApplyBlockers
+          },
+          protein: {
+            status: "context_candidate_compared_report_only",
+            currentProteinG: currentProtein,
+            candidateProteinG: candidateProtein,
+            deltaProteinG: candidateProtein - currentProtein,
+            evidenceKeys: ["issnProteinExercise2017", "issnDietsBodyComposition2017", "currentFormulaReport"]
+          },
+          fat: {
+            status: "context_candidate_compared_report_only",
+            currentFatG: currentFat,
+            candidateFatG: candidateFat,
+            deltaFatG: candidateFat - currentFat,
+            evidenceKeys: ["iomDriAmdr", "currentFormulaReport"]
+          },
+          carbohydrate: {
+            status: "profile_session_candidate_compared_report_only",
+            currentCarbsG: currentCarbs,
+            candidateCarbsG: candidateCarbs,
+            deltaCarbsG: candidateCarbs - currentCarbs,
+            profileFuelRequest,
+            evidenceKeys: profilePolicy.evidenceKeys
+          },
+          recentTrend: {
+            status: "gate_recorded_no_auto_apply",
+            recent14RecordCoverage: context.recent14RecordCoverage,
+            recent28Trend: context.recent28Trend,
+            trendSignal: context.recentContext.trendSignal,
+            autoApplyAllowed: false,
+            autoApplyBlockers
+          },
+          scoreCoachSnapshot: {
+            status: "required_before_production_not_implemented_in_ba",
+            requiredFields: ["model", "stage", "contextSignature", "selectedMacroBasis", "targetDeltaKcal", "profileSessionReason"],
+            productionReady: false
+          }
+        },
+        profileFuelRequest,
+        gates: {
+          automaticProductionApplyAllowed: false,
+          blockerCount: autoApplyBlockers.length,
+          blockers: autoApplyBlockers,
+          requiredBeforeProduction: [
+            "snapshot_signature_contract",
+            "score_coach_copy_contract",
+            "backup_import_contract",
+            "broad_profile_routine_session_human_ux_review",
+            "full_cartesian_or_owner_approved_closure_strategy"
+          ]
+        }
+      };
+      return {
+        caseId: item.id,
+        title: item.title,
+        layer: item.layer,
+        requiredRegression: !!item.requiredRegression,
+        input,
+        userLevelFormulaContext: context,
+        current: {
+          targetCal: sourceTargetCal,
+          proteinG: currentProtein,
+          carbsG: currentCarbs,
+          fatG: currentFat,
+          proteinGPerKgBodyweight: current.macro?.protein_g_per_kg_bodyweight,
+          carbsGPerKgBodyweight: current.macro?.carb_g_per_kg_bodyweight,
+          fatGPerKgBodyweight: current.macro?.fat_g_per_kg_bodyweight
+        },
+        candidate,
+        deltaFromCurrent: {
+          targetCal: candidateTargetCal - sourceTargetCal,
+          proteinG: candidateProtein - currentProtein,
+          carbsG: candidateCarbs - currentCarbs,
+          fatG: candidateFat - currentFat
+        },
+        reviewSignals: [
+          ...(context.formulaInputCompleteness.complete ? [] : ["context_input_missing_review"]),
+          ...(useProfileTargetCandidate ? ["profile_fuel_target_relief_review"] : []),
+          ...(context.bodyCompReliability === "low" || context.bodyCompReliability === "none" ? ["body_comp_reliability_dampening_review"] : []),
+          ...(context.recentContext.trendSignal !== "on_target" ? ["recent_trend_review_not_auto_apply"] : [])
+        ]
+      };
+    }
+
+    function summarizeV8LevelAwareMacroCandidateV0Cases(cases){
+      const profiles = Object.keys(EXERCISE_PROFILE_OPTIONS);
+      const profileCounts = Object.fromEntries(profiles.map(profile => [
+        profile,
+        cases.filter(item => item.userLevelFormulaContext.exerciseProfile === profile).length
+      ]));
+      const missingProfiles = profiles.filter(profile => !profileCounts[profile]);
+      const layerKeys = V8_USER_LEVEL_FORMULA_DESIGN_LAYER_KEYS;
+      const missingLayerCases = cases.filter(item => layerKeys.some(key => !item.candidate.formulaLayers[key]));
+      const invalidNumberRows = cases.flatMap(item => {
+        const checks = [
+          ["candidate.target.finalTargetCal", item.candidate.target.finalTargetCal],
+          ["candidate.macro.protein_g", item.candidate.macro.protein_g],
+          ["candidate.macro.carb_g", item.candidate.macro.carb_g],
+          ["candidate.macro.fat_g", item.candidate.macro.fat_g],
+          ["deltaFromCurrent.targetCal", item.deltaFromCurrent.targetCal],
+          ["deltaFromCurrent.proteinG", item.deltaFromCurrent.proteinG],
+          ["deltaFromCurrent.carbsG", item.deltaFromCurrent.carbsG],
+          ["deltaFromCurrent.fatG", item.deltaFromCurrent.fatG]
+        ];
+        return checks
+          .filter(([, value]) => !Number.isFinite(Number(value)))
+          .map(([field, value]) => ({ caseId: item.caseId, field, value }));
+      });
+      return {
+        caseCount: cases.length,
+        contextCount: cases.filter(item => item.userLevelFormulaContext?.formulaInputCompleteness).length,
+        contextCompleteCount: cases.filter(item => item.userLevelFormulaContext?.formulaInputCompleteness?.complete === true).length,
+        contextIncompleteCount: cases.filter(item => item.userLevelFormulaContext?.formulaInputCompleteness?.complete !== true).length,
+        profileCoverageCount: profiles.length - missingProfiles.length,
+        expectedProfileCoverageCount: profiles.length,
+        missingProfiles,
+        formulaLayerCount: layerKeys.length,
+        missingLayerCaseCount: missingLayerCases.length,
+        targetChangedCount: cases.filter(item => Math.abs(item.deltaFromCurrent.targetCal) > 1e-6).length,
+        macroChangedCount: cases.filter(item => Math.abs(item.deltaFromCurrent.proteinG) > 1e-6 || Math.abs(item.deltaFromCurrent.carbsG) > 1e-6 || Math.abs(item.deltaFromCurrent.fatG) > 1e-6).length,
+        proteinChangedCount: cases.filter(item => Math.abs(item.deltaFromCurrent.proteinG) > 1e-6).length,
+        carbsChangedCount: cases.filter(item => Math.abs(item.deltaFromCurrent.carbsG) > 1e-6).length,
+        fatChangedCount: cases.filter(item => Math.abs(item.deltaFromCurrent.fatG) > 1e-6).length,
+        profileFuelRequestCount: cases.filter(item => item.candidate.profileFuelRequest.requested === true).length,
+        recentTrendAutoApplyBlockedCount: cases.filter(item => item.candidate.formulaLayers.recentTrend.autoApplyAllowed === false).length,
+        productionAutoApplyAllowedCount: cases.filter(item => item.candidate.gates.automaticProductionApplyAllowed === true).length,
+        lowBodyCompReliabilityReviewCount: cases.filter(item => ["none", "low"].includes(item.userLevelFormulaContext.bodyCompReliability)).length,
+        profileCounts,
+        targetDeltaKcal: summarizeCalibrationValues(cases.map(item => item.deltaFromCurrent.targetCal)),
+        deltaProteinG: summarizeCalibrationValues(cases.map(item => item.deltaFromCurrent.proteinG)),
+        deltaCarbsG: summarizeCalibrationValues(cases.map(item => item.deltaFromCurrent.carbsG)),
+        deltaFatG: summarizeCalibrationValues(cases.map(item => item.deltaFromCurrent.fatG)),
+        invalidNumberCount: invalidNumberRows.length,
+        invalidNumberRows: invalidNumberRows.slice(0, 20)
+      };
+    }
+
+    function buildV8LevelAwareMacroCandidateV0Report(cases = [], profileMacroCandidateV2Comparison = {}, userLevelFormulaPrecisionDesign = {}){
+      const v2ByCaseId = Object.fromEntries((profileMacroCandidateV2Comparison?.cases || []).map(item => [item.caseId, item]));
+      const comparisons = cases.map(item => buildV8LevelAwareMacroCandidateV0Case(item, v2ByCaseId[item.id]));
+      const summaryBase = summarizeV8LevelAwareMacroCandidateV0Cases(comparisons);
+      const findings = [];
+      if (userLevelFormulaPrecisionDesign?.meta?.precisionDesignReadyForCandidate !== true) {
+        findings.push({ key: "precision_design_not_ready_for_candidate", designStage: userLevelFormulaPrecisionDesign?.meta?.stage || null });
+      }
+      if (summaryBase.missingProfiles.length) findings.push({ key: "missing_profile_coverage", values: summaryBase.missingProfiles });
+      if (summaryBase.missingLayerCaseCount > 0) findings.push({ key: "missing_formula_layer_outputs", count: summaryBase.missingLayerCaseCount });
+      if (summaryBase.invalidNumberCount > 0) findings.push({ key: "invalid_candidate_numbers", rows: summaryBase.invalidNumberRows });
+      return {
+        meta: {
+          version: V8_SCENARIO_RUNNER_VERSION,
+          stage: V8_LEVEL_AWARE_MACRO_CANDIDATE_V0_STAGE,
+          model: V8_LEVEL_AWARE_MACRO_CANDIDATE_V0_MODEL,
+          reportOnly: true,
+          productionFormulaChanged: false,
+          candidateFormulaApproved: false,
+          userLevelFormulaImplemented: false,
+          implementationReady: false,
+          sourcePrecisionDesignStage: userLevelFormulaPrecisionDesign?.meta?.stage || null,
+          sourceProfileMacroCandidateV2Stage: profileMacroCandidateV2Comparison?.meta?.stage || null,
+          candidateReadyForContracts: findings.length === 0,
+          evidencePolicy: "external evidence, internal code contracts, and product policy are separated; BA computes candidate comparison only",
+          nonClaim: "does_not_change_production_macro_formula_or_close_user_level_formula_gate_full_cartesian_gate_human_ux_gate_or_full_v8_completion"
+        },
+        evidenceReferences: userLevelFormulaPrecisionDesign?.evidenceReferences || buildV8UserLevelFormulaEvidenceReferences(),
+        policy: {
+          context: "Build userLevelFormulaContext from actual scenario input summary: goal, profile, routine plan/session, profileSession, performance, body-composition reliability, recent windows, workload, cardio, and advanced tuning.",
+          targetEnergy: "Compare current production target against report-only profile fuel relief; automatic application remains blocked in BA.",
+          protein: "Use context candidate protein review boundaries without increasing production protein.",
+          fat: "Keep fat guard visible when target relief changes the denominator.",
+          carbohydrate: "Use profile/session carb floor feasibility from candidate-v2 only as report-only candidate evidence.",
+          recentTrend: "Record recent14/recent28 signal but do not automatically move targetCal in BA.",
+          scoreCoachSnapshot: "Production requires snapshot/signature, score, Coach, and backup/import contracts after this candidate."
+        },
+        requiredNextContracts: [
+          "Records goalSnapshot/signature fields for level-aware macro model/stage/context",
+          "Score and Coach copy that explains targetDelta/profileSession/recentTrend without exposing internal candidate labels",
+          "Backup/import roundtrip for candidate context fields",
+          "Broad human UX review for Settings/Today profile/routine/session surfaces",
+          "Full Cartesian execution or explicit owner-approved closure strategy"
+        ],
+        summary: {
+          ...summaryBase,
+          findingCount: findings.length,
+          productionFormulaChanged: false,
+          candidateFormulaApproved: false,
+          userLevelFormulaImplemented: false,
+          fullHumanVisualReviewClosed: false,
+          full8_2CartesianExecutionClosed: false,
+          fullV8CompletionClosed: false
+        },
+        cases: comparisons,
+        findings
+      };
+    }
+
     const V8_WHOLE_STAGE_EVIDENCE_BOUNDARY_AUDIT_STAGE = "whole_stage_evidence_boundary_audit_v0";
 
     function makeV8WholeStageEvidenceBoundaryCheck(config){
@@ -59951,6 +60418,7 @@ Notes:
       const userFacingQa = context?.profileFormulaUserFacingQa || {};
       const matrix = context?.profileRoutineUserPathMatrix || {};
       const userLevelFormulaPrecisionDesign = context?.userLevelFormulaPrecisionDesign || {};
+      const levelAwareMacroCandidateV0 = context?.levelAwareMacroCandidateV0 || {};
       const fullCartesian = context?.fullCartesianExecutionContract || {};
       const dietProteinRange = getDualBasisProteinRange("diet", {});
       const dietProductionMacroPolicyRecovered = Number(GOALS?.diet?.proteinKg) === 2.0
@@ -60041,9 +60509,17 @@ Notes:
             precisionDesignReadyForCandidate: userLevelFormulaPrecisionDesign?.meta?.precisionDesignReadyForCandidate,
             designStage: userLevelFormulaPrecisionDesign?.meta?.stage || null,
             designFindingCount: userLevelFormulaPrecisionDesign?.summary?.findingCount,
-            userLevelFormulaImplemented: userLevelFormulaPrecisionDesign?.meta?.userLevelFormulaImplemented ?? matrix?.summary?.userLevelFormulaImplemented
+            candidateStage: levelAwareMacroCandidateV0?.meta?.stage || null,
+            candidateModel: levelAwareMacroCandidateV0?.meta?.model || null,
+            candidateCaseCount: levelAwareMacroCandidateV0?.summary?.caseCount,
+            candidateFindingCount: levelAwareMacroCandidateV0?.summary?.findingCount,
+            candidateFormulaApproved: levelAwareMacroCandidateV0?.meta?.candidateFormulaApproved,
+            candidateProductionFormulaChanged: levelAwareMacroCandidateV0?.meta?.productionFormulaChanged,
+            userLevelFormulaImplemented: levelAwareMacroCandidateV0?.meta?.userLevelFormulaImplemented
+              ?? userLevelFormulaPrecisionDesign?.meta?.userLevelFormulaImplemented
+              ?? matrix?.summary?.userLevelFormulaImplemented
           },
-          note: "Performance level, body-composition reliability, recent record coverage, and trend now have a report-only precision design, but they are not yet production formula inputs."
+          note: "Performance level, body-composition reliability, recent record coverage, and trend now have a report-only precision design and BA candidate comparison, but they are not yet production formula inputs."
         }),
         makeV8CompletionDeclarationGateItem({
           key: "full_8_2_cartesian_execution",
@@ -60100,6 +60576,7 @@ Notes:
       const profileTrainingSummaryAudit = report?.profileTrainingSummaryAudit || {};
       const profileRoutineUserPathMatrix = report?.profileRoutineUserPathMatrix || {};
       const userLevelFormulaPrecisionDesign = report?.userLevelFormulaPrecisionDesign || {};
+      const levelAwareMacroCandidateV0 = report?.levelAwareMacroCandidateV0 || {};
       const fullCartesianExecutionContract = report?.fullCartesianExecutionContract || {};
       const pairwiseStress = report?.pairwiseStress || {};
       const targetedStress = report?.targetedStress || {};
@@ -60423,12 +60900,45 @@ Notes:
         riskIfMisread: "A precise design document/contract could be overread as production user-level formula implementation.",
         evidenceLevel: "external_reference_boundary_plus_internal_code_contract_plus_product_policy"
       });
+      addCheck({
+        key: "level_aware_macro_candidate_v0_report_only_not_production_formula",
+        layer: "levelAwareMacroCandidateV0",
+        category: "user_level_formula_boundary",
+        passed: levelAwareMacroCandidateV0?.meta?.reportOnly === true
+          && levelAwareMacroCandidateV0?.meta?.productionFormulaChanged === false
+          && levelAwareMacroCandidateV0?.meta?.candidateFormulaApproved === false
+          && levelAwareMacroCandidateV0?.meta?.userLevelFormulaImplemented === false
+          && levelAwareMacroCandidateV0?.meta?.implementationReady === false
+          && levelAwareMacroCandidateV0?.summary?.findingCount === 0
+          && levelAwareMacroCandidateV0?.summary?.caseCount > 0
+          && levelAwareMacroCandidateV0?.summary?.profileCoverageCount === Object.keys(EXERCISE_PROFILE_OPTIONS).length
+          && levelAwareMacroCandidateV0?.summary?.productionAutoApplyAllowedCount === 0
+          && levelAwareMacroCandidateV0?.summary?.profileFuelRequestCount > 0
+          && String(levelAwareMacroCandidateV0?.meta?.nonClaim || "").includes("does_not_change_production_macro_formula"),
+        expected: "BA builds level-aware candidate comparison and context while keeping formula approval, production change, and implementation gates open",
+        actual: {
+          reportOnly: levelAwareMacroCandidateV0?.meta?.reportOnly,
+          productionFormulaChanged: levelAwareMacroCandidateV0?.meta?.productionFormulaChanged,
+          candidateFormulaApproved: levelAwareMacroCandidateV0?.meta?.candidateFormulaApproved,
+          userLevelFormulaImplemented: levelAwareMacroCandidateV0?.meta?.userLevelFormulaImplemented,
+          implementationReady: levelAwareMacroCandidateV0?.meta?.implementationReady,
+          findingCount: levelAwareMacroCandidateV0?.summary?.findingCount,
+          caseCount: levelAwareMacroCandidateV0?.summary?.caseCount,
+          profileCoverageCount: levelAwareMacroCandidateV0?.summary?.profileCoverageCount,
+          productionAutoApplyAllowedCount: levelAwareMacroCandidateV0?.summary?.productionAutoApplyAllowedCount,
+          profileFuelRequestCount: levelAwareMacroCandidateV0?.summary?.profileFuelRequestCount,
+          nonClaim: levelAwareMacroCandidateV0?.meta?.nonClaim
+        },
+        riskIfMisread: "A current-vs-candidate report could be overread as production user-level formula implementation.",
+        evidenceLevel: "report_only_candidate_boundary_plus_internal_code_contract"
+      });
 
       const completionDeclarationGate = buildV8CompletionDeclarationGateReport({
         profileFormulaApprovalDecision,
         profileFormulaUserFacingQa,
         profileRoutineUserPathMatrix,
         userLevelFormulaPrecisionDesign,
+        levelAwareMacroCandidateV0,
         fullCartesianExecutionContract
       });
       addCheck({
@@ -60462,7 +60972,7 @@ Notes:
           reportOnly: true,
           evidenceLevel: "internal_whole_stage_boundary_contract",
           productionFormulaChanged: false,
-          nonClaim: "does_not_introduce_new_formula_external_evidence_or_close_full_v8_completion"
+          nonClaim: "does_not_apply_new_formula_or_introduce_new_external_evidence_or_close_full_v8_completion"
         },
         summary: {
           checkCount: checks.length,
@@ -61858,6 +62368,12 @@ Notes:
         const profileTrainingSummaryAudit = buildV8ProfileTrainingSummaryAuditReport();
         const profileRoutineUserPathMatrix = buildV8ProfileRoutineUserPathMatrixReport();
         const userLevelFormulaPrecisionDesign = buildV8UserLevelFormulaPrecisionDesignReport(profileRoutineUserPathMatrix);
+        const levelAwareMacroCandidateCases = [...axisCases, ...humanReviewCases, ...pairwiseStressCases, ...targetedStressCases];
+        const levelAwareMacroCandidateV0 = buildV8LevelAwareMacroCandidateV0Report(
+          levelAwareMacroCandidateCases,
+          profileMacroCandidateV2Comparison,
+          userLevelFormulaPrecisionDesign
+        );
         const report = {
           meta: {
             version: V8_SCENARIO_RUNNER_VERSION,
@@ -61908,6 +62424,9 @@ Notes:
             userLevelFormulaPrecisionDesignStatus: userLevelFormulaPrecisionDesign.summary.findingCount === 0
               ? "report_only_precision_design_ready_for_candidate_user_level_formula_still_open"
               : "user_level_formula_precision_design_followup_required",
+            levelAwareMacroCandidateV0Status: levelAwareMacroCandidateV0.summary.findingCount === 0
+              ? "report_only_level_aware_macro_candidate_v0_ready_contracts_still_open"
+              : "level_aware_macro_candidate_v0_followup_required",
             requiredRegressionIncluded: !!requiredCase,
             notes: [
               "This runner preserves the report-only audit baseline while reporting the later AA production candidate-v2 wiring status separately.",
@@ -61934,6 +62453,7 @@ Notes:
               "8-2 profileRoutineSurfaceAudit checks every exercise profile's routine plan/session/default structure so derived profileSession evidence cannot stand in for user-owned routine/session paths.",
               "v8.0-AW/AX profileRoutineUserPathMatrix separates Settings defaults from Today explicit routine/session overrides, keeps advanced-OFF visible choices as generic REST/PUSH, and documents level-formula input scope without implementing it.",
               "v8.0-AZ userLevelFormulaPrecisionDesign turns the future level-formula scope into a report-only design contract across performance level, body-composition reliability, recent windows, profile policies, external evidence, and app policy gates without changing production macros.",
+              "v8.0-BA levelAwareMacroCandidateV0 builds userLevelFormulaContext from axis/human/pairwise/targeted scenario inputs and compares current production against a level-aware candidate while keeping production formulas and automatic application unchanged.",
               "v8.0-AQ/AX makes exercise profile Settings-owned, keeps Today routine plan/session date-owned, and restores advanced-OFF to simple REST/PUSH while advanced-ON preserves detailed profile routine/session choices.",
               "v8.0-AR changes the Today top row from weight-training-only copy to a profile-aware training summary; v8.0-AS mirrors that behavior in runner metadata and a report-only formatter audit.",
               "Do not treat candidate-no-weekly-xw, candidate-v8-context-macro-v0, or candidate-v8-profile-macro-v1 as the final v8 formula; candidate-v8-profile-macro-v2-linked-target-v0 is production-applied and post-wiring visually QA-complete for active target-delta Today/Records surfaces, but full Cartesian execution and full-V8 completion remain open."
@@ -62094,6 +62614,24 @@ Notes:
               userLevelFormulaImplemented: userLevelFormulaPrecisionDesign.summary.userLevelFormulaImplemented,
               fullV8CompletionClosed: userLevelFormulaPrecisionDesign.summary.fullV8CompletionClosed
             },
+            levelAwareMacroCandidateV0: {
+              stage: levelAwareMacroCandidateV0.meta.stage,
+              model: levelAwareMacroCandidateV0.meta.model,
+              caseCount: levelAwareMacroCandidateV0.summary.caseCount,
+              contextCount: levelAwareMacroCandidateV0.summary.contextCount,
+              contextCompleteCount: levelAwareMacroCandidateV0.summary.contextCompleteCount,
+              profileCoverageCount: levelAwareMacroCandidateV0.summary.profileCoverageCount,
+              targetChangedCount: levelAwareMacroCandidateV0.summary.targetChangedCount,
+              macroChangedCount: levelAwareMacroCandidateV0.summary.macroChangedCount,
+              profileFuelRequestCount: levelAwareMacroCandidateV0.summary.profileFuelRequestCount,
+              recentTrendAutoApplyBlockedCount: levelAwareMacroCandidateV0.summary.recentTrendAutoApplyBlockedCount,
+              productionAutoApplyAllowedCount: levelAwareMacroCandidateV0.summary.productionAutoApplyAllowedCount,
+              findingCount: levelAwareMacroCandidateV0.summary.findingCount,
+              productionFormulaChanged: levelAwareMacroCandidateV0.summary.productionFormulaChanged,
+              candidateFormulaApproved: levelAwareMacroCandidateV0.summary.candidateFormulaApproved,
+              userLevelFormulaImplemented: levelAwareMacroCandidateV0.summary.userLevelFormulaImplemented,
+              fullV8CompletionClosed: levelAwareMacroCandidateV0.summary.fullV8CompletionClosed
+            },
             fullCartesianExecutionContract: {
               stage: fullCartesianExecutionContract.meta.stage,
               shardContractReady: fullCartesianExecutionContract.meta.shardContractReady,
@@ -62135,6 +62673,7 @@ Notes:
           profileTrainingSummaryAudit,
           profileRoutineUserPathMatrix,
           userLevelFormulaPrecisionDesign,
+          levelAwareMacroCandidateV0,
           fullCartesianExecutionContract,
           pairwiseStress,
           targetedStress,
@@ -62379,6 +62918,49 @@ Notes:
           assertTest(findInvalidCalibrationNumber(design).length === 0, "precision design should not contain NaN or Infinity");
         }));
 
+        results.push(runNamedTest("v8.0-BA level-aware macro candidate v0 stays report-only", () => {
+          const report = runV8ScenarioRunner();
+          const candidate = report.levelAwareMacroCandidateV0;
+          assertTest(report.meta.stage.includes("v8.0-BA"), "v8 runner stage should include BA candidate");
+          assertTest(report.meta.levelAwareMacroCandidateV0Status === "report_only_level_aware_macro_candidate_v0_ready_contracts_still_open", "top-level status should expose BA report-only candidate");
+          assertTest(candidate?.meta?.stage === V8_LEVEL_AWARE_MACRO_CANDIDATE_V0_STAGE, "BA candidate should identify its stage");
+          assertTest(candidate.meta.model === V8_LEVEL_AWARE_MACRO_CANDIDATE_V0_MODEL, "BA candidate should expose its model");
+          assertTest(candidate.meta.reportOnly === true, "BA candidate should be report-only");
+          assertTest(candidate.meta.productionFormulaChanged === false, "BA candidate must not change production formulas");
+          assertTest(candidate.meta.candidateFormulaApproved === false, "BA candidate must not approve a formula");
+          assertTest(candidate.meta.userLevelFormulaImplemented === false, "BA candidate must not claim user-level formula implementation");
+          assertTest(candidate.meta.implementationReady === false, "BA candidate should keep implementation gate open");
+          assertTest(candidate.meta.sourcePrecisionDesignStage === V8_USER_LEVEL_FORMULA_PRECISION_DESIGN_STAGE, "BA candidate should point back to AZ precision design");
+          assertTest(candidate.summary.findingCount === 0, "BA candidate should have no structural findings");
+          assertTest(candidate.summary.caseCount > report.meta.axisCoverageCaseCount + report.meta.humanReviewCaseCount, "BA candidate should use more than the 18 human-review cases");
+          assertTest(candidate.summary.contextCount === candidate.summary.caseCount, "BA candidate should build a context for every candidate case");
+          assertTest(candidate.summary.profileCoverageCount === Object.keys(EXERCISE_PROFILE_OPTIONS).length, "BA candidate should cover every exercise profile");
+          assertTest(candidate.summary.productionAutoApplyAllowedCount === 0, "BA candidate should not allow automatic production application");
+          assertTest(candidate.summary.profileFuelRequestCount > 0, "BA candidate should retain running/mixed profile fuel target-relief requests");
+          assertTest(candidate.summary.targetChangedCount === candidate.cases.filter(item => Math.abs(item.deltaFromCurrent.targetCal) > 1e-6).length, "BA targetChangedCount should match per-case target deltas");
+          assertTest(candidate.summary.recentTrendAutoApplyBlockedCount === candidate.summary.caseCount, "BA should record recent-trend auto-apply as blocked for every candidate case");
+          assertTest(candidate.summary.userLevelFormulaImplemented === false, "BA summary should keep user-level formula open");
+          assertTest(candidate.summary.productionFormulaChanged === false, "BA summary should keep production formula unchanged");
+          assertIncludesAll(Object.keys(candidate.policy).join(" "), [
+            "context",
+            "targetEnergy",
+            "protein",
+            "fat",
+            "carbohydrate",
+            "recentTrend",
+            "scoreCoachSnapshot"
+          ], "BA policy should cover every user-level formula layer");
+          const runningFuelCase = candidate.cases.find(item => item.userLevelFormulaContext.exerciseProfile === "running" && item.candidate.profileFuelRequest.requested === true);
+          assertTest(!!runningFuelCase, "BA candidate should include a running case with profile fuel target relief");
+          assertTest(runningFuelCase.candidate.gates.automaticProductionApplyAllowed === false, "running fuel candidate should remain blocked from automatic production application");
+          assertIncludesAll(runningFuelCase.candidate.gates.blockers.join(" "), ["report_only_candidate_not_production_implementation"], "running fuel candidate should name the report-only blocker");
+          const lowReliabilityCase = candidate.cases.find(item => ["none", "low"].includes(item.userLevelFormulaContext.bodyCompReliability));
+          assertTest(!!lowReliabilityCase, "BA candidate should include low/no body-composition reliability cases");
+          assertTest(lowReliabilityCase.reviewSignals.includes("body_comp_reliability_dampening_review"), "low reliability cases should be marked for dampening review");
+          assertTest(report.summary.levelAwareMacroCandidateV0.productionAutoApplyAllowedCount === 0, "top-level BA summary should preserve no automatic production apply");
+          assertTest(findInvalidCalibrationNumber(candidate).length === 0, "BA candidate should not contain NaN or Infinity");
+        }));
+
         results.push(runNamedTest("v8.0-AY whole-stage completion declaration gate keeps gates separated", () => {
           const report = runV8ScenarioRunner();
           const audit = report.wholeStageEvidenceBoundaryAudit;
@@ -62389,8 +62971,8 @@ Notes:
           assertTest(audit?.meta?.stage === V8_WHOLE_STAGE_EVIDENCE_BOUNDARY_AUDIT_STAGE, "whole-stage evidence boundary audit should identify its stage");
           assertTest(audit.meta.reportOnly === true, "whole-stage boundary audit should be report-only");
           assertTest(audit.meta.productionFormulaChanged === false, "whole-stage boundary audit should not change production formula");
-          assertTest(audit.meta.nonClaim.includes("does_not_introduce_new_formula"), "whole-stage boundary audit should not introduce new formula evidence");
-          assertTest(audit.summary.checkCount === 19, "whole-stage boundary audit should cover the expected AP/AS/AW/AY/AZ evidence checks");
+          assertTest(audit.meta.nonClaim.includes("does_not_apply_new_formula"), "whole-stage boundary audit should not apply new formula evidence");
+          assertTest(audit.summary.checkCount === 20, "whole-stage boundary audit should cover the expected AP/AS/AW/AY/AZ/BA evidence checks");
           assertTest(audit.summary.passCount === audit.summary.checkCount, "every whole-stage boundary check should pass");
           assertTest(audit.summary.findingCount === 0, "whole-stage boundary audit should have no findings");
           assertTest(audit.summary.full8_2CartesianExecutionClosed === false, "AP audit must keep full Cartesian execution open");
@@ -62408,6 +62990,7 @@ Notes:
           assertTest(checksByKey.profile_training_summary_formatter_not_visual_completion?.passed === true, "profile training summary formatter audit should not replace render or human visual review");
           assertTest(checksByKey.profile_routine_user_path_matrix_not_level_formula_or_visual_completion?.passed === true, "profile routine user-path matrix should not replace level formula or human visual review");
           assertTest(checksByKey.user_level_formula_precision_design_not_implementation?.passed === true, "precision design should not replace user-level formula implementation");
+          assertTest(checksByKey.level_aware_macro_candidate_v0_report_only_not_production_formula?.passed === true, "BA candidate should not replace user-level formula implementation");
           assertTest(checksByKey.phase_4_completion_declaration_gate_blocks_overclaim?.passed === true, "AY completion gate should block over-broad V8 completion claims");
           assertTest(audit.completionDeclarationGate?.stage === V8_COMPLETION_DECLARATION_GATE_STAGE, "completion declaration gate should identify its stage");
           assertTest(audit.completionDeclarationGate.fullV8CompletionAllowed === false, "completion declaration gate should not allow full V8 completion");

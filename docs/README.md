@@ -36,7 +36,7 @@
 
 다음 작업 우선순위:
 
-1. `[REPORT_ONLY]` AZ 이후 다음 단계는 `levelAwareMacroCandidateV0`이다. 먼저 `userLevelFormulaContext` builder와 current production vs candidate 비교를 report-only로 만든다.
+1. `[REPORT_ONLY]` BA 이후 다음 단계는 level-aware candidate의 Records/Score/Coach/Backup contract다. `levelAwareMacroCandidateV0` 자체는 report-only로 구현됐지만 production 적용이나 user-level formula gate는 아직 닫지 않는다.
 2. `[OPEN_GATE]` candidate가 생겨도 user-level formula production implementation은 닫지 않는다. Records/Score/Coach/Backup contract와 human-eye profile cases를 먼저 붙인다.
 3. `[OPEN_GATE]` full Cartesian을 실제 전수 실행할지, owner-approved 대체 gate로 바꿀지 결정한다.
 
@@ -56,6 +56,16 @@
 - Covered formula layers are context, targetEnergy, protein, fat, carbohydrate, recentTrend, and score/Coach/snapshot.
 - The completion gate remains open for `user_level_profile_specific_macro_formula`; AZ is design readiness for the next candidate, not implementation.
 - Verification on 2026-06-04: targeted V8/Today bundle = 3 suites / 89 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 139 cases / failed 0.
+
+# v8.0-BA level-aware macro candidate v0 note
+
+- BA adds `levelAwareMacroCandidateV0` to `runV8ScenarioRunner()` as report-only candidate evidence.
+- BA builds `userLevelFormulaContext` from actual scenario inputs: goal, exercise profile, routine plan/session, derived profileSession, performance level, training evidence, body-composition reliability, recent14, recent28, activity workload, cardio load, and advanced tuning.
+- BA compares current production target/macros against a level-aware candidate across axis, human-review, pairwise, and targeted stress cases. It does not use only the 18 human-eye cases.
+- BA separates profile fuel policy review from target relief. Running/mixed fuel context can be recorded even when no target relief is needed.
+- BA keeps `productionFormulaChanged=false`, `candidateFormulaApproved=false`, `userLevelFormulaImplemented=false`, and `productionAutoApplyAllowedCount=0`.
+- The next work is not production application. The next work is Records/Score/Coach/Backup contracts for the candidate context, then expanded human-eye profile cases and Cartesian closure decision.
+- Verification on 2026-06-04: targeted V8/Today bundle = 3 suites / 90 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 140 cases / failed 0.
 
 # v8 manual continuation note
 
