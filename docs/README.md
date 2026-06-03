@@ -53,6 +53,15 @@
 - Current whole-V8 status is not complete. Candidate-v2 production application and post-wiring visual QA are closed, but `full_8_2_cartesian_execution`, `full_v8_completion`, and broad profile/routine/session human UX review remain open.
 - The next agent must not start a new micro-stage before rechecking current runner output, render audit, clean full-Cartesian campaign state, and the user-owned profile/routine/session paths.
 
+# v8.0-AY completion declaration gate lock note
+
+- AY is the fourth step of the manual V8 recovery plan discussed with the user.
+- `runV8ScenarioRunner()` now exposes `completionDeclarationGate` through `wholeStageEvidenceBoundaryAudit`.
+- Closed prerequisites are listed separately: candidate-v2 formula approval, active runtime candidate-v2 production macro application, post-wiring production visual QA, AT diet macro-policy recovery, and AW/AX profile routine/session code-path matrix.
+- Remaining open gates are also listed separately: broad profile/routine/session human UX review, user-level profile-specific macro formula implementation, full 8-2 Cartesian execution, and full V8 completion.
+- Passing AY means the app/report now blocks an over-broad V8 completion claim. It does not implement the user-level formula, run the full Cartesian product, or replace human UX review.
+- Verification on 2026-06-04: targeted V8/Today bundle = 3 suites / 88 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 138 cases / failed 0.
+
 # v8.0-AX exercise advanced toggle semantics recovery note
 
 - AX supersedes the earlier AW advanced-toggle interpretation. AW's matrix remains, but its expected behavior is now: advanced OFF exposes simple `REST / PUSH` only, and advanced ON exposes detailed profile routine/session choices.
