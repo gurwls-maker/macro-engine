@@ -1,5 +1,15 @@
 # 탄단지 다이어리 문서 읽는 순서
 
+# v8.0-AJ full Cartesian next-shard planner note
+
+- AJ adds `tools/render_audit/plan_v8_full_cartesian_shards.cjs`.
+- The planner reads a coverage ledger, finds uncovered ranges, and emits deterministic next execution ranges without claiming those ranges have already run.
+- It reports exact range commands and shard-index batch commands separately.
+- If a partially covered shard would be rerun by shard index, it reports `wouldRerunCaseCountIfUsingShardIndexes` and marks `exactRangeExecutionRequiredForNoDuplicateCoverage=true`.
+- Verification on 2026-06-03: clean ledger pilot with `--shard-size=8 --max-shards=4` planned shard indexes 1,2,3,4 / planned uncovered 32 / duplicate-if-batch 0; truncation probe with `--shard-size=100000 --max-shards=2` planned exact `8~100000` first / planned uncovered 199,992 / duplicate-if-batch 8 / exact range required true; `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; full internal suite = 99 suites / 1056 cases / failed 0.
+- `index.html` now reports scenario runner version `8.0-AJ`.
+- This is a planning tool only. It does not execute the planned shards or close `full_8_2_cartesian_execution` / `full_v8_completion`.
+
 # v8.0-AI full Cartesian shard coverage ledger note
 
 - AI adds `tools/render_audit/build_v8_full_cartesian_ledger.cjs`.
@@ -7,7 +17,7 @@
 - This prevents a limited pilot such as `--max-cases=8` from being read as coverage through the planned `endExclusive` boundary.
 - The ledger reports `gapCount`, `overlapCount`, `dirtySourceManifestCount`, `truncatedManifestCount`, `contiguousCoveredFromZero`, `uniqueExecutedCaseCount`, and `closureBlockers`.
 - `run_v8_full_cartesian_batch.cjs` now writes an ignored `coverage_ledger.json` checkpoint for each batch folder after shard analyzer validation.
-- `index.html` now reports scenario runner version `8.0-AI`.
+- At AI, `index.html` reported scenario runner version `8.0-AI`; AJ is now the current reported version.
 - Verification on 2026-06-03: `runV8ScenarioRunnerTests` = 1 suite / 26 cases / failed 0; `run_v8_full_cartesian_batch.cjs --shards=0,144 --shard-size=8 --max-cases=8 --label=ai_ledger_pilot` = 2 shards / decoded 16 / calculated 8 / constraint-only 8 / ledger unique 16 / gap 2 / dirty-source manifests 2 / fullCoverageCandidate false; post-commit clean-source rerun `--label=ai_clean_ledger_pilot` = ledger dirty-source manifests 0 / unique 16 / gap 2 / fullCoverageCandidate false; truncation probe with `--shard-size=100000 --max-cases=8` = ledger unique 8 / truncated manifests 1 / first gap starts at 8; contiguous probe with `--shards=0,1 --shard-size=8` = ledger unique 16 / overlap 0 / first gap starts at 16; full internal suite = 99 suites / 1056 cases / failed 0.
 - This is a checkpoint/gap-tracking tool only. It does not execute all `80,621,568,000` rows or close `full_8_2_cartesian_execution` / `full_v8_completion`.
 

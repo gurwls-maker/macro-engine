@@ -2150,6 +2150,35 @@ v8.0-AI에서는 AF 이후 남긴 다음 작업인 shard coverage ledger/checkpo
 - dirty-source manifest가 있으면 full closure blocker로 남긴다. dirty evidence를 폐기하지는 않지만, clean full-run evidence와 같은 등급으로 읽으면 안 된다.
 - AI는 `full_8_2_cartesian_execution` 또는 `full_v8_completion`을 닫지 않는다.
 
+## 11-34. 2026-06-03 v8.0-AJ full Cartesian next-shard planner 1차
+
+v8.0-AJ에서는 AI ledger를 바탕으로 다음에 실행할 shard/range를 결정적으로 뽑는 planner를 추가했다. 목적은 실행 완료 주장이 아니라, 여러 Codex가 각자 임의 shard를 고르거나 부분 실행된 shard를 완료로 오독하는 일을 줄이는 것이다.
+
+구현한 내용:
+
+- 새 도구 `tools/render_audit/plan_v8_full_cartesian_shards.cjs`를 추가했다.
+- planner schema는 `v8_full_cartesian_shard_plan_v1`이다.
+- `--ledger`로 기존 ledger 파일을 읽거나, `--dir`로 shard evidence folder를 주면 내부에서 `build_v8_full_cartesian_ledger.cjs --detail-limit=-1`를 실행해 전체 gap을 읽는다.
+- output은 `plannedRanges`와 `plannedShardIndexes`를 분리한다.
+- `plannedRanges`는 exact uncovered range다. 예: 기존에 0~8만 실행된 100,000-row shard는 `8~100000`이 exact range다.
+- `plannedShardIndexes`는 batch runner에 넘길 shard index다. 이 방식은 편하지만 부분 coverage가 있는 shard에서는 중복 재실행이 생길 수 있으므로 `wouldRerunCaseCountIfUsingShardIndexes`를 함께 보고한다.
+- code review 중 같은 shard 안에 여러 gap이 있는 경우 range별 중복량 합산이 과대계산될 수 있음을 발견했고, summary 중복량은 shard 단위로 묶어 계산하도록 보정했다.
+- exact range가 필요한 경우 `exactRangeExecutionRequiredForNoDuplicateCoverage=true`를 표시한다.
+- `runV8ScenarioRunner()` version은 `8.0-AJ`로 올라갔다.
+
+실행한 확인:
+
+- `node .\tools\render_audit\plan_v8_full_cartesian_shards.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_ai_clean_ledger_pilot --shard-size=8 --max-shards=4 --label=aj_plan_clean_pilot` → ledger gap 2 / dirty-source manifests 0 / planned ranges 4 / planned shard indexes 4 / planned uncovered 32 / duplicate-if-batch 0 / first planned range 8~16 / full execution closed false
+- `node .\tools\render_audit\plan_v8_full_cartesian_shards.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_ai_truncation_probe --shard-size=100000 --max-shards=2 --label=aj_plan_truncation_probe` → ledger gap 1 / dirty-source manifests 1 / truncated manifests 1 / planned ranges 2 / planned shard indexes 2 / planned uncovered 199,992 / duplicate-if-batch 8 / first planned exact range 8~100000 / exact range required true / full execution closed false
+- `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests` → 1 suite / 26 cases / failed 0
+- `node .\tools\render_audit\run_internal_tests.cjs --profile=full` → 99 suites / 1056 cases / failed 0
+
+판단:
+
+- AJ는 다음 실행 대상을 고르는 planner다. 계획된 range는 아직 실행된 evidence가 아니다.
+- batch shard index 명령은 편하지만 partial shard에서는 중복 재실행을 일으킬 수 있다. planner가 exact range command를 따로 내는 이유가 이것이다.
+- AJ는 `full_8_2_cartesian_execution` 또는 `full_v8_completion`을 닫지 않는다.
+
 ## 12. 검증 메모
 
 실행한 확인:
@@ -2598,6 +2627,14 @@ v8.0-AI에서는 AF 이후 남긴 다음 작업인 shard coverage ledger/checkpo
 - v8.0-AI scenario runner suite 1 suite / 26 cases / failed 0
 - 2026-06-03 v8.0-AI full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
 - v8.0-AI desktop full 99 suites / 1056 cases / failed 0
+- 2026-06-03 v8.0-AJ clean ledger planner 확인: `node .\tools\render_audit\plan_v8_full_cartesian_shards.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_ai_clean_ledger_pilot --shard-size=8 --max-shards=4 --label=aj_plan_clean_pilot`
+- v8.0-AJ clean ledger planner gap 2 / dirty-source manifests 0 / planned ranges 4 / planned shard indexes 4 / planned uncovered 32 / duplicate-if-batch 0 / first planned range 8~16 / full execution closed false
+- 2026-06-03 v8.0-AJ truncation planner 확인: `node .\tools\render_audit\plan_v8_full_cartesian_shards.cjs --dir=tools\render_audit\v8_full_cartesian_shards\batch_ai_truncation_probe --shard-size=100000 --max-shards=2 --label=aj_plan_truncation_probe`
+- v8.0-AJ truncation planner gap 1 / dirty-source manifests 1 / truncated manifests 1 / planned ranges 2 / planned shard indexes 2 / planned uncovered 199,992 / duplicate-if-batch 8 / first planned exact range 8~100000 / exact range required true / full execution closed false
+- 2026-06-03 v8.0-AJ scenario runner 확인: `node .\tools\render_audit\run_internal_tests.cjs --suite=runV8ScenarioRunnerTests`
+- v8.0-AJ scenario runner suite 1 suite / 26 cases / failed 0
+- 2026-06-03 v8.0-AJ full internal suite 확인: `node .\tools\render_audit\run_internal_tests.cjs --profile=full`
+- v8.0-AJ desktop full 99 suites / 1056 cases / failed 0
 - 2026-06-03 v8.0-T runtime mixed high-load probe 직접 확인:
   - production `targetCal=3283.4951111111113`
   - proposed candidate-v2 targetCal `3308.524266666667`
@@ -2648,6 +2685,7 @@ v8.0-AA production candidate-v2 target wiring 이후에는 active runtime target
 v8.0-AB post-wiring production visual QA 이후에는 `profileCandidateV2` payload와 55개 render audit capture로 AA 적용 케이스를 desktop/mobile Today/Records에서 검증했다. analyzer 기준 8개 post-wiring 캡처 모두 `selectedMacroBasis=profile_candidate_v2`, `productionTargetCalApplied=true`, `recentGateStatus=applied`를 통과했고, basis-open 화면에서 `프로필 목표 보정 29 kcal`, `주간 변화 보정 0.027 kg/주`가 확인됐다. 그러나 80,621,568,000개 full Cartesian 실행과 full V8 completion은 아직 open이다.
 v8.0-AH profile-owned visual QA evidence 재감사 이후에는 AB의 post-wiring capture가 단순히 derived `profileSession`만 맞춘 증거가 아니라 `exerciseProfile=mixed`, `routinePlan=mixed_balanced`, `routine=mixed_strength_cardio`를 함께 가진 사용자 소유 루틴/세션 증거인지 검사한다. 이것은 visual/runtime evidence 강화이며, full Cartesian 실행 완료나 full V8 completion이 아니다.
 v8.0-AI full Cartesian shard coverage ledger 이후에는 shard/batch evidence를 `executedEndExclusive` 기준으로만 병합해 gap/overlap/dirty/truncated를 분리한다. AI pilot은 unique executed 16, first gap 8~1152, dirty-source manifests 2, fullCoverageCandidate false를 보고했고, post-commit clean-source rerun은 같은 범위에서 dirty-source manifests 0을 보고했다. truncation probe는 shard-size 100000 / max-cases 8에서도 unique executed 8과 truncated manifests 1만 인정했다. contiguous probe에서는 0~8과 8~16을 overlap 없이 unique 16으로 병합했다. 따라서 full Cartesian 실행 완료나 full V8 completion이 아니다.
+v8.0-AJ full Cartesian next-shard planner 이후에는 ledger gap에서 다음 exact range와 shard-index batch 후보를 분리해 산출한다. clean pilot은 다음 4개 shard를 중복 없이 계획했고, truncation probe는 부분 실행된 shard 0에서 exact 8~100000 range와 shard-index 중복 8건을 표시했다. 계획은 실행 증거가 아니므로 full Cartesian 실행 완료나 full V8 completion이 아니다.
 v8.0-AC full Cartesian execution contract 이후에는 `fullCartesianExecutionContract`가 20축 product `80,621,568,000`, deterministic axis stride/index decode, pilot tuple decode, `100,000` row shard / `806,216` planned shard / final `68,000` row boundary를 report한다. 이것은 전수 실행 계약일 뿐 full Cartesian 실행 완료가 아니며, `full_8_2_cartesian_execution`과 `full_v8_completion`은 아직 open이다.
 v8.0-AD deterministic full Cartesian shard pilot 이후에는 `runV8FullCartesianShard()`와 `run_v8_full_cartesian_shard.cjs`가 bounded shard evidence를 생성한다. coherent pilot은 8건 계산, constraint pilot은 3건 constraint-only로 분리했다. 이것도 전체 806억 row 실행이 아니므로 `full_8_2_cartesian_execution`과 `full_v8_completion`은 아직 open이다.
 v8.0-AE shard manifest integrity 이후에는 shard evidence가 `v8_full_cartesian_shard_manifest_v1` schema, report/manifest hash, source hash, decoded accounting, calculation issue count, non-claim flags를 포함하고 analyzer로 재검증된다. analyzer 기준 2 manifests / failed 0이지만, 이것도 bounded evidence integrity일 뿐 전체 806억 row 실행 완료가 아니므로 `full_8_2_cartesian_execution`과 `full_v8_completion`은 아직 open이다.
