@@ -63,7 +63,7 @@
 
 1. `[DONE_CHECKED]` 현재 production 산식과 profile/session 입력 경로 재감사는 2026-06-04 수동 1단계에서 닫혔다. 이후 production 코드를 바꾸기 전에는 다시 확인한다.
 2. `[REPORT_ONLY_PRESENT_AUDIT_REINFORCED]` weekly-days-only 수준 판단을 대체할 `performanceContext` 근거 브리지는 현재 `index.html`의 `v8.0-BI_user_level_production_context_bridge_v0`로 이미 존재한다. 2026-06-04 보강으로 "좋은 체성분+낮은 주간 빈도", "낮은 체성분+높은 주간 빈도"처럼 현재 생산 `trainingBand`와 다차원 근거가 충돌하는 케이스를 `productionPathEvidence.levelConflictSignals`, `riskFlags`, `findings`에 report-only로 남기고 테스트로 잠갔다. production 산식은 이 단계에서 바꾸지 않는다.
-3. `[NEXT_AFTER_STEP_2_REINFORCEMENT]` 2단계에서 브리지 중복 구현 위험과 핵심 충돌 신호는 정리되었다. 다음 단계는 프로필별 세션/루틴 정밀화와 candidate 산식 비교지만, 시작 전에도 "기능이 존재하는가"가 아니라 "사용자 의도대로 깊이/넓이 있게 작동하는가"를 다시 확인한다.
+3. `[REPORT_ONLY_STEP_3_BOUNDARY_REINFORCED]` 3단계 프로필별 세션/루틴 정밀화는 `profileTrainingModelDesign`의 세션 모델에 `energyAccountingPolicy`와 `relativeStrainPolicy`를 추가해 보강했다. 운동 kcal은 측정 가능한 workload 입력이 책임지고, 운동수준/체감부담은 회복·fuel·설명·검토 신호로만 쓰며 targetCal을 단독으로 움직이지 않는다. production 산식은 아직 바꾸지 않았다. 다음 단계는 이 경계를 전제로 candidate 산식 비교와 충돌 감사를 진행하는 것이다.
 4. `[OPEN_GATE]` Records/Score/Coach/Backup contract와 human-eye profile cases를 붙이기 전에는 user-level formula production implementation을 닫지 않는다.
 5. `[OPEN_GATE]` full Cartesian을 실제 전수 실행할지, owner-approved 대체 gate로 바꿀지 결정한다.
 
@@ -127,11 +127,12 @@
 - Added `docs/v8_수준별산식_설계3_운동프로필별훈련모델_2026-06-04.txt`.
 - BC adds `profileTrainingModelDesign` to `runV8ScenarioRunner()` as report-only evidence before the level context/formula stages.
 - BC maps actual profile routine/session definitions into six training dimensions: `resistanceLoad`, `cardioLoad`, `recoveryNeed`, `fuelNeed`, `targetReliefRisk`, and `levelSignals`.
+- BJ extends the same report-only training model with `energyAccountingPolicy` and `relativeStrainPolicy`: measurable workload inputs own exercise kcal, while performance/strain context can inform recovery, fuel, explanation, and review signals without directly moving exercise kcal or targetCal.
 - BC keeps advanced OFF as a simple REST/PUSH user surface, preserves bodybuilding OFF xw `0.70`, and records non-bodybuilding OFF as simple visible training backed by each profile's default internal session.
 - BC explicitly treats REST as a shared rest session, not a bodybuilding fallback token. Running non-rest sessions remain cardio-owned even with `weightDuration=0`.
 - BC keeps `productionFormulaChanged=false`, `userLevelFormulaImplemented=false`, `standalonePerformanceUiApproved=false`, and full V8 completion open. Whole-stage boundary audit now has 22 checks.
 - The next design stage is level context design, not production formula wiring.
-- Verification on 2026-06-04: `runV8ScenarioRunnerTests` = 1 suite / 34 cases / failed 0; targeted V8/Today ownership bundle = 3 suites / 92 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 142 cases / failed 0.
+- Verification on 2026-06-04 after BJ boundary reinforcement: `runV8ScenarioRunnerTests` = 1 suite / 39 cases / failed 0; targeted V8/Today ownership bundle = 3 suites / 97 cases / failed 0. Earlier BC broad baselines remain historical evidence: core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 142 cases / failed 0.
 
 # v8.0-BD user-level context design note
 
