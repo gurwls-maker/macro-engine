@@ -134,6 +134,15 @@
 - The next design stage is level context design, not production formula wiring.
 - Verification on 2026-06-04 after BJ boundary reinforcement: `runV8ScenarioRunnerTests` = 1 suite / 39 cases / failed 0; targeted V8/Today ownership bundle = 3 suites / 97 cases / failed 0. Earlier BC broad baselines remain historical evidence: core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 142 cases / failed 0.
 
+# v8.0-BK energy/strain candidate collision audit note
+
+- BK is report-only. It does not change production targetCal, macro allocation, Records schema, Coach copy, or UI.
+- BK carries the BJ boundary through BD context, BE formula principles, BA candidate comparison, BH final audit, whole-stage evidence, and the completion declaration gate.
+- Exercise kcal remains owned by measurable workload inputs such as routine xw, weight duration, cardio type/time/speed/incline/MET. Performance level and relative strain may inform recovery, fuel, explanation, and review, but they cannot directly multiply exercise kcal or move targetCal alone.
+- Candidate reports now expose `energyStrainBoundaryPreservedCount`, `performanceLevelKcalMultiplierAllowedCount`, and `relativeStrainDirectTargetMoveAllowedCount` so future work can detect boundary drift before production formula work starts.
+- Verification on 2026-06-04 after BK reinforcement: `runV8ScenarioRunnerTests` = 1 suite / 39 cases / failed 0; targeted V8/Today ownership bundle = 3 suites / 97 cases / failed 0.
+- The next step remains candidate/formula comparison and production implementation planning under explicit approval, not automatic candidate application.
+
 # v8.0-BD user-level context design note
 
 - Added `docs/v8_수준별산식_설계4_수준별컨텍스트_2026-06-04.txt`.
