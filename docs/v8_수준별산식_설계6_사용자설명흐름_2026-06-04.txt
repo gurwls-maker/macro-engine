@@ -1,0 +1,186 @@
+# V8 수준별 산식 설계 6단계 - 사용자 설명 흐름
+
+작성일: 2026-06-04
+관련 stage: `v8.0-BF_user_level_formula_explanation_flow_design_v0`
+
+## 1. 이번 단계의 판단
+
+6단계는 산식 구현이나 문구 변경 단계가 아니다.
+
+이번 단계의 목적은 앞으로 수준별 산식이 production에 들어갈 때 사용자가 "왜 이 목표 칼로리 / 단백질 / 지방 / 탄수화물이 나왔는지" 이해할 수 있도록 설명 흐름을 먼저 설계하는 것이다.
+
+중요한 판단:
+
+- Score는 점수와 감점/근거를 설명한다.
+- Coach는 사용자가 다음에 뭘 하면 되는지 알려준다.
+- Records 상세는 해당 날짜에 저장된 계산 기준과 다시 계산될 preview를 보여준다.
+- goalSnapshot/signature는 나중에도 그 날짜 기준을 재현할 수 있게 보존한다.
+- recent trend와 target relief는 gate 상태에 따라 blocked/review/applied를 설명해야 하며 broad 자동 적용으로 말하면 안 된다.
+- backup/import는 Records snapshot 설명을 보존해야 하며 Today draft나 `uiState`를 formula truth로 내보내면 안 된다.
+
+이번 단계에서 닫은 것은 설명 흐름의 구조다.
+
+이번 단계에서 닫지 않은 것은 다음이다.
+
+- production 수준별 산식 구현
+- user-facing copy 실제 변경
+- Score/Coach 로직 변경
+- Records schema 변경
+- backup schema 변경
+- broad profile/routine/session human UX review
+- full 8-2 Cartesian execution
+- full V8 completion
+
+## 2. 실제 코드 경로에서 확인한 설명 표면
+
+이번 단계는 문서 그림만 따라가지 않고 실제 코드 경로를 다시 봤다.
+
+확인한 production/계약 경로:
+
+- Today summary: `renderTodayCalculationBasisSummary()`, `renderTodayQuickEditResultSummary()`, `renderMacroAllocationNote()`
+- Coach: `getDailyCoachSignals()`, `buildDailyCoachDecisions()`, `generateDailyCoachOutput()`
+- Score: `getDailyAdherenceScore()`, `getTodayScoreCardCopy()`, `buildMacroReason()`
+- Records detail: `renderRecordDetailBasisPreview()`, `renderRecordDetailGoalBasisEdit()`, `calculateRecordDetailGoalPreview()`
+- Snapshot/signature: `buildGoalSnapshotFromCurrentState()`, `GOAL_SNAPSHOT_SIGNATURE_KEYS`, `getGoalSnapshotSignature()`
+- Recent guard: `buildRecentContext()`, `getRecentContextCoachGuard()`, `getRecentContextCoachItems()`
+- Backup/import: `normalizeGoalSnapshot()`, `normalizeRecord()`, existing record payload contracts
+
+결론:
+
+현재 앱은 이미 여러 설명 표면을 갖고 있지만, 그 표면들이 수준별 산식의 이유 패킷을 어떻게 받아야 하는지는 아직 하나의 production 계약으로 닫히지 않았다. BF는 그 연결 구조를 report-only로 잠근다.
+
+## 3. BF 코드 계약
+
+`runV8ScenarioRunner()`에 `userLevelFormulaExplanationFlowDesign`을 추가했다.
+
+요약 값:
+
+```text
+reportOnly = true
+productionFormulaChanged = false
+candidateFormulaApproved = false
+userLevelFormulaImplemented = false
+implementationReady = false
+userFacingCopyChanged = false
+explanationFlowDesignReadyForScenarioVerificationDesign = true
+surfaceCount = 7
+packetFieldCount = 10
+flowStepCount = 8
+probeCount = 6
+recentTrendAutoApplyAllowed = false
+targetReliefAutoApplyAllowed = false
+fullV8CompletionClosed = false
+```
+
+7개 설명 표면:
+
+```text
+todayCalculationSummary
+todayCoachAction
+todayDietScoreEvidence
+recordsDetailBasisPreview
+recordsGoalSnapshotSignature
+recentContextGuardNotice
+backupImportRoundtrip
+```
+
+10개 reason packet field:
+
+```text
+calculationBasisLabel
+targetEnergyReason
+proteinReason
+fatReason
+carbohydrateReason
+trainingContextReason
+recordQualityReason
+targetReliefReason
+trendReviewReason
+snapshotSignatureReason
+```
+
+8개 설명 흐름 step:
+
+```text
+compute_authoritative_result
+build_user_reason_packet
+render_today_basis_and_macro_summary
+render_score_evidence
+render_coach_action
+persist_records_snapshot_and_detail_basis
+guard_recent_trend_and_target_relief_copy
+preserve_backup_import_roundtrip
+```
+
+## 4. 사용자 입장에서의 핵심 원칙
+
+사용자가 원하는 것은 내부 산식 label을 보는 것이 아니다.
+
+사용자에게 필요한 것은 다음이다.
+
+- 오늘 기준이 무엇인지
+- 왜 목표 칼로리가 그렇게 나왔는지
+- 왜 단백질/지방/탄수가 그렇게 배정됐는지
+- 오늘 운동 프로필/루틴/세션이 어떤 의미였는지
+- 최근 기록이 충분해서 반영되는지, 부족해서 보류되는지
+- target relief가 실제 적용됐는지, 검토만 되는지, 막혔는지
+- 기록을 나중에 봐도 당시 기준이 재현되는지
+
+그래서 BF는 내부 라벨 노출을 막는다.
+
+금지해야 할 user-facing 내부 라벨 예:
+
+```text
+candidate-v8
+profileCandidateV2
+recentContext
+windowFit
+contextFit
+recordConfidence
+selectedMacroBasis
+profileSession
+formulaAuthority
+targetReliefRisk
+```
+
+## 5. 단백질/탄수/운동 프로필 지적과의 연결
+
+BF는 단백질 g을 바꾸지 않는다.
+
+대신 다음 설명 원칙을 잠근다.
+
+- 일반 diet `2.0g/kg`는 현재 앱 production 정책으로 설명되어야 하며 외부근거 자체처럼 둔갑하면 안 된다.
+- `2.4g/kg`는 과거 후보/문서에 있었다는 이유로 일반 diet 기본값으로 설명하면 안 된다.
+- running session은 `weightDuration=0`이어도 rest로 설명하면 안 된다.
+- mixed/running fuel pressure가 있어도 protein/fat을 조용히 깎는 방식으로 설명하면 안 된다.
+- target relief가 적용된 경우에도 내부 candidate 이름이 아니라 "해당 운동/연료 요구 때문에 목표 기준이 조정됨" 같은 사용자 언어로 설명해야 한다.
+
+## 6. Completion boundary
+
+`wholeStageEvidenceBoundaryAudit`에 다음 check를 추가했다.
+
+```text
+user_level_formula_explanation_flow_design_not_formula_implementation
+```
+
+전체 boundary audit check count는 24에서 25가 되었다.
+
+completion gate의 `user_level_profile_specific_macro_formula`는 BF 증거를 보지만 여전히 open이다. 설명 흐름 설계는 production 산식 구현이 아니다.
+
+## 7. 다음 단계
+
+다음 단계는 7단계다.
+
+```text
+V8 level-formula design step 7 - scenario and verification design
+```
+
+7단계에서는 18개 눈검토 케이스와 전체 축 검증을 분리하고, full Cartesian을 실제로 돌릴지 또는 대체 gate를 둘지 판단해야 한다.
+
+## 8. Verification
+
+- `git diff --check` passed
+- `runV8ScenarioRunnerTests` = 1 suite / 37 cases / failed 0
+- targeted V8/Today ownership bundle = 3 suites / 95 cases / failed 0
+- core profile = 26 suites / 370 cases / failed 0
+- calibration profile = 14 suites / 145 cases / failed 0

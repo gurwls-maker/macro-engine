@@ -130,6 +130,24 @@
 - Current next step is step 6 user explanation flow design. Do not jump to production implementation until explanation, persistence, scenario/verification, and final design audit are closed.
 - BE is not a full formula implementation and must not be used to claim that the user-level profile-specific macro formula gate is closed.
 
+# v8.0-BF user-level formula explanation flow design note
+
+- Added `docs/v8_수준별산식_설계6_사용자설명흐름_2026-06-04.txt`.
+- BF adds `userLevelFormulaExplanationFlowDesign` to `runV8ScenarioRunner()` as report-only explanation-flow evidence.
+- BF maps formula reasons to seven user surfaces: Today calculation summary, Today Coach action, Today diet score evidence, Records detail basis preview, Records goalSnapshot signature, recent-context guard notice, and backup/import roundtrip.
+- BF keeps Score and Coach roles separated: Score explains evidence and component reasons; Coach recommends the next action.
+- BF blocks internal labels from user-facing copy, including `candidate-v8`, `profileCandidateV2`, `recentContext`, `windowFit`, `contextFit`, `recordConfidence`, `selectedMacroBasis`, `profileSession`, `formulaAuthority`, and `targetReliefRisk`.
+- BF keeps `productionFormulaChanged=false`, `candidateFormulaApproved=false`, `userLevelFormulaImplemented=false`, `userFacingCopyChanged=false`, and full V8 completion open. Whole-stage boundary audit now has 25 checks.
+- The next design stage is scenario and verification design, not production formula wiring.
+- Verification on 2026-06-04: `runV8ScenarioRunnerTests` = 1 suite / 37 cases / failed 0; targeted V8/Today ownership bundle = 3 suites / 95 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 145 cases / failed 0.
+
+# v8 manual continuation note after BF
+
+- Do not resume V8 through a long `/GOAL` run.
+- Before continuing after BF, read the six level-formula design docs in order, ending with `docs/v8_수준별산식_설계6_사용자설명흐름_2026-06-04.txt`.
+- Current next step is step 7 scenario and verification design.
+- BF is not production formula implementation and is not user-facing copy implementation. It only locks which explanation surfaces must carry future formula reasons.
+
 # v8.0-AY completion declaration gate lock note
 
 - AY is the fourth step of the manual V8 recovery plan discussed with the user.
