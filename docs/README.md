@@ -127,7 +127,7 @@
 
 - Do not resume V8 through a long `/GOAL` run.
 - Before continuing after BE, read the five level-formula design docs in order: step 1 truth map, step 2 input ownership, step 3 profile-specific training model, step 4 user-level context, step 5 formula principle.
-- Current next step is step 6 user explanation flow design. Do not jump to production implementation until explanation, persistence, scenario/verification, and final design audit are closed.
+- Historical BE next step was step 6 user explanation flow design. Do not jump to production implementation until explanation, persistence, scenario/verification, and final design audit are closed.
 - BE is not a full formula implementation and must not be used to claim that the user-level profile-specific macro formula gate is closed.
 
 # v8.0-BF user-level formula explanation flow design note
@@ -145,7 +145,7 @@
 
 - Do not resume V8 through a long `/GOAL` run.
 - Before continuing after BF, read the six level-formula design docs in order, ending with `docs/v8_수준별산식_설계6_사용자설명흐름_2026-06-04.txt`.
-- Current next step is step 7 scenario and verification design.
+- Historical BF next step was step 7 scenario and verification design.
 - BF is not production formula implementation and is not user-facing copy implementation. It only locks which explanation surfaces must carry future formula reasons.
 
 # v8.0-BG user-level formula scenario verification design note
@@ -155,7 +155,7 @@
 - BG separates eight verification layers: required-axis category sweep, 18 human-eye review cases, constrained pairwise stress, targeted residual stress, full Cartesian execution contract, bounded shard plan, production regression guard, and explanation-surface probes.
 - BG keeps the 18 human-eye cases separate from the 80,621,568,000-case full Cartesian product. The 18 cases are mandatory manual review cases, not a replacement for full-axis execution.
 - BG keeps `fullCartesianRun=false`, `full8_2CartesianExecutionClosed=false`, `ownerApprovedAlternativeGateAvailable=false`, and requires either full execution or an explicit owner-approved alternative gate before full V8 completion.
-- BG keeps `productionFormulaChanged=false`, `candidateFormulaApproved=false`, `userLevelFormulaImplemented=false`, `userFacingCopyChanged=false`, and full V8 completion open. Whole-stage boundary audit now has 26 checks.
+- BG keeps `productionFormulaChanged=false`, `candidateFormulaApproved=false`, `userLevelFormulaImplemented=false`, `userFacingCopyChanged=false`, and full V8 completion open. At the BG point, whole-stage boundary audit had 26 checks; after BH, see the current 27-check note above.
 - The next design stage is final design audit, not production formula wiring.
 - Verification on 2026-06-04: `runV8ScenarioRunnerTests` = 1 suite / 38 cases / failed 0; targeted V8/Today ownership bundle = 3 suites / 96 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 146 cases / failed 0.
 
@@ -163,8 +163,26 @@
 
 - Do not resume V8 through a long `/GOAL` run.
 - Before continuing after BG, read the seven level-formula design docs in order, ending with `docs/v8_수준별산식_설계7_시나리오검증_2026-06-04.txt`.
-- Current next step is step 8 final design audit.
+- Historical BG next step was step 8 final design audit. That step is now completed by BH; use the BH continuation note below for current work.
 - BG is not full Cartesian execution, not a candidate approval, not a production formula implementation, and not full V8 completion.
+
+# v8.0-BH user-level formula final design audit note
+
+- Added `docs/v8_수준별산식_설계8_최종설계감사_2026-06-04.txt`.
+- BH adds `userLevelFormulaFinalDesignAudit` to `runV8ScenarioRunner()` as report-only final design consistency evidence.
+- BH audits eight design steps: truth/current-state map, input ownership flow, profile training model, level context, formula principle, explanation flow, scenario verification, and final-audit boundary.
+- BH adds 11 consistency checks, including `profile_session_shortcut_blocked`, `performance_level_derived_not_selector`, `recent_target_relief_auto_apply_blocked`, `human_axis_cartesian_separated`, and `full_cartesian_gate_still_open`.
+- BH keeps `productionFormulaChanged=false`, `candidateFormulaApproved=false`, `userLevelFormulaImplemented=false`, `implementationReady=false`, `productionImplementationAllowed=false`, `fullCartesianRun=false`, `ownerApprovedAlternativeGateAvailable=false`, and full V8 completion open.
+- Whole-stage boundary audit now has 27 checks. The new check is `user_level_formula_final_design_audit_not_production_implementation`.
+- The next allowed work is production implementation planning or an owner-scoped implementation decision, not a broad `/GOAL` run and not a full V8 completion claim.
+- Verification on 2026-06-04: `runV8ScenarioRunnerTests` = 1 suite / 39 cases / failed 0; targeted V8/Today ownership bundle = 3 suites / 97 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 147 cases / failed 0.
+
+# v8 manual continuation note after BH
+
+- Do not resume V8 through a long `/GOAL` run.
+- Before continuing after BH, read the eight level-formula design docs in order, ending with `docs/v8_수준별산식_설계8_최종설계감사_2026-06-04.txt`.
+- Current next step is production implementation planning or owner-scoped implementation decision for the user-level formula.
+- BH is not production formula implementation, not user-facing copy/schema implementation, not full Cartesian execution, not broad human UX signoff, and not full V8 completion.
 
 # v8.0-AY completion declaration gate lock note
 
