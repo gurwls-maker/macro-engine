@@ -60,9 +60,13 @@
 
 다음 작업 우선순위:
 
-1. `[REPORT_ONLY]` BA 이후 다음 단계는 level-aware candidate의 Records/Score/Coach/Backup contract다. `levelAwareMacroCandidateV0` 자체는 report-only로 구현됐지만 production 적용이나 user-level formula gate는 아직 닫지 않는다.
-2. `[OPEN_GATE]` candidate가 생겨도 user-level formula production implementation은 닫지 않는다. Records/Score/Coach/Backup contract와 human-eye profile cases를 먼저 붙인다.
-3. `[OPEN_GATE]` full Cartesian을 실제 전수 실행할지, owner-approved 대체 gate로 바꿀지 결정한다.
+1. `[CURRENT_PRODUCTION_CHECK]` 현재 production 산식과 profile/session 입력 경로를 다시 감사한다.
+2. `[REPORT_ONLY]` weekly-days-only 수준 판단을 대체할 `performanceContext` 근거 브리지를 만든다. production 산식은 이 단계에서 바꾸지 않는다.
+3. `[REPORT_ONLY]` 프로필별 세션/루틴 정밀화와 candidate 산식 비교를 진행한다.
+4. `[OPEN_GATE]` Records/Score/Coach/Backup contract와 human-eye profile cases를 붙이기 전에는 user-level formula production implementation을 닫지 않는다.
+5. `[OPEN_GATE]` full Cartesian을 실제 전수 실행할지, owner-approved 대체 gate로 바꿀지 결정한다.
+
+기본 작업은 `/GOAL` 없이 통합문서의 `18-1. 7단계 실행 블록`을 순차 진행한다. `/GOAL`은 사용자가 명시적으로 원할 때만 한 단계 단위로 제한해서 쓴다. V8 전체 완료를 한 번에 맡기지 않는다.
 
 금지선:
 
