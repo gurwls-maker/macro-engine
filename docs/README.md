@@ -112,6 +112,24 @@
 - Current whole-V8 status is not complete. Candidate-v2 production application and post-wiring visual QA are closed, but `full_8_2_cartesian_execution`, `full_v8_completion`, and broad profile/routine/session human UX review remain open.
 - The next agent must not start a new micro-stage before rechecking current runner output, render audit, clean full-Cartesian campaign state, and the user-owned profile/routine/session paths.
 
+# v8.0-BE user-level formula principle design note
+
+- Added `docs/v8_수준별산식_설계5_산출식원칙_2026-06-04.txt`.
+- BE adds `userLevelFormulaPrincipleDesign` to `runV8ScenarioRunner()` as report-only formula-principle evidence.
+- BE fixes the future formula order: calculation basis -> target kcal baseline -> context authority -> explicit target-relief candidate check -> protein anchor -> fat protection -> carbohydrate remainder -> plausibility/allocation explanation -> recent-trend review -> explanation/snapshot persistence.
+- BE separates evidence buckets: external sports-nutrition evidence, external safety-boundary evidence, app production policy numbers, internal code contracts, and product experience policy.
+- BE explicitly blocks shortcut readings: protein cannot become a kcal gap filler; general diet `2.4g/kg` cannot return by habit; running/mixed carb needs cannot silently cut protected protein/fat; recent28 and target relief cannot auto-apply broad target changes.
+- BE keeps `productionFormulaChanged=false`, `candidateFormulaApproved=false`, `userLevelFormulaImplemented=false`, and full V8 completion open. Whole-stage boundary audit now has 24 checks.
+- The next design stage is user explanation flow design, not production formula wiring.
+- Verification on 2026-06-04: `runV8ScenarioRunnerTests` = 1 suite / 36 cases / failed 0; targeted V8/Today ownership bundle = 3 suites / 94 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 144 cases / failed 0.
+
+# v8 manual continuation note after BE
+
+- Do not resume V8 through a long `/GOAL` run.
+- Before continuing after BE, read the five level-formula design docs in order: step 1 truth map, step 2 input ownership, step 3 profile-specific training model, step 4 user-level context, step 5 formula principle.
+- Current next step is step 6 user explanation flow design. Do not jump to production implementation until explanation, persistence, scenario/verification, and final design audit are closed.
+- BE is not a full formula implementation and must not be used to claim that the user-level profile-specific macro formula gate is closed.
+
 # v8.0-AY completion declaration gate lock note
 
 - AY is the fourth step of the manual V8 recovery plan discussed with the user.

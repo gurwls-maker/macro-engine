@@ -1,0 +1,159 @@
+# V8 수준별 산식 설계 5단계 - 산출식 원칙
+
+작성일: 2026-06-04
+관련 stage: `v8.0-BE_user_level_formula_principle_design_v0`
+
+## 1. 이번 단계의 판단
+
+5단계는 production 산식을 바꾸는 단계가 아니다.
+
+이번 단계의 목적은 앞으로 수준별 산식을 production에 넣기 전에 반드시 지켜야 할 산출 순서와 근거 분리 원칙을 코드 계약으로 잠그는 것이다. 문서나 이전 후보식에 숫자가 있었다는 이유만으로 그대로 production에 넣지 않는다.
+
+이번 단계에서 닫은 것은 다음이다.
+
+- target kcal이 먼저 만들어지고 그 뒤에 단백질/지방/탄수가 배정되는 순서
+- 단백질이 남은 kcal을 채우는 gap filler가 아니라 먼저 고정되는 anchor라는 원칙
+- 지방 보호가 탄수화물 잔여 배정보다 먼저 온다는 원칙
+- 탄수화물은 단백질/지방 이후의 잔여 에너지이며, 운동 프로필 연료 요구가 불가능할 때는 silent 재배분이 아니라 target relief 후보/설명으로 올라가야 한다는 원칙
+- recent28 trend와 targetReliefRisk는 자동 targetCal 변경 근거가 아니라 review/gate 근거라는 원칙
+- 외부 스포츠영양 근거, 외부 안전 경계, 앱 production 정책 숫자, 내부 코드 계약, 사용자 경험 정책을 서로 다른 근거 버킷으로 분리하는 원칙
+
+이번 단계에서 닫지 않은 것은 다음이다.
+
+- 수준별 production 산식 구현
+- 새 외부 numeric evidence 확정
+- broad profile/routine/session human UX review
+- full 8-2 Cartesian execution
+- full V8 completion
+
+## 2. 실제 production 코드에서 다시 확인한 산식 순서
+
+이번 단계는 기존 코드를 실제로 다시 보고 작성했다.
+
+현재 production 흐름의 핵심은 다음이다.
+
+1. `buildGoalTargetRateContext()` 계열에서 target kcal이 먼저 만들어진다.
+2. `calculateMacroTargets()`는 `getProteinBasisWeight()`와 `GOALS[goal].proteinKg`를 통해 단백질을 먼저 잡는다.
+3. 단백질은 35% kcal cap을 가진다.
+4. `getFatTargetContext()`가 지방 목표/바닥/실용 상한을 잡는다.
+5. 탄수화물은 단백질과 지방 뒤의 남은 kcal로 계산된다.
+6. `applyPlausibilityLayer()`와 allocation info가 실제 배정 gap과 practical range를 설명해야 한다.
+7. `buildProfileCandidateV2ProductionWiring()`은 특정 승인/가드 통과 candidate-v2 경로에서만 target delta를 production에 적용할 수 있다.
+
+따라서 앞으로 수준별 산식이 들어가더라도 순서는 "목표 kcal -> 단백질 anchor -> 지방 보호 -> 탄수 잔여 -> plausibility/gap 설명 -> recent trend review"가 되어야 한다.
+
+## 3. BE 코드 계약
+
+`runV8ScenarioRunner()`에 `userLevelFormulaPrincipleDesign`을 추가했다.
+
+요약 값:
+
+```text
+reportOnly = true
+productionFormulaChanged = false
+candidateFormulaApproved = false
+userLevelFormulaImplemented = false
+implementationReady = false
+formulaPrincipleDesignReadyForScenarioAndExplanationDesign = true
+layerCount = 10
+orderStepCount = 10
+evidenceBucketCount = 5
+probeCount = 5
+recentTrendAutoApplyAllowed = false
+targetReliefAutoApplyAllowed = false
+fullV8CompletionClosed = false
+```
+
+10개 layer:
+
+```text
+basisContinuityGate
+energyTargetBaselineLayer
+contextAuthorityGate
+profileTargetReliefLayer
+proteinAnchorLayer
+fatProtectionLayer
+carbohydrateRemainderLayer
+plausibilityAndAllocationLayer
+recentTrendAdjustmentLayer
+explanationAndPersistenceLayer
+```
+
+10개 order step:
+
+```text
+lock_calculation_basis
+build_energy_target_baseline
+apply_context_authority_gate
+evaluate_target_relief_as_explicit_candidate
+select_protein_anchor
+select_fat_protection
+allocate_carbohydrate_remainder
+apply_plausibility_and_gap_explanation
+evaluate_recent_trend_review
+publish_explanation_snapshot_and_roundtrip
+```
+
+5개 evidence bucket:
+
+```text
+externalSportsNutritionEvidence
+externalSafetyBoundaryEvidence
+appProductionPolicyNumbers
+internalCodeContractEvidence
+productExperiencePolicy
+```
+
+## 4. 단백질 과다 문제와의 연결
+
+이번 단계는 단백질 gram을 새로 바꾸지 않는다.
+
+대신 다음 원칙을 확정한다.
+
+- 일반 diet production 단백질은 현재 AT 복구 이후 `2.0g/kg` 앱 production 정책이다.
+- `2.4g/kg`는 과거 report-only/후보식 맥락에서 보였다고 해서 일반 diet production 기본값으로 되살릴 수 없다.
+- 앞으로 사용자 수준별 산식에서 단백질을 조정하려면 외부 스포츠영양 근거, 체성분 신뢰도, 목표, 훈련 프로필, 기록 품질이 함께 맞아야 한다.
+- 단백질은 target kcal를 맞추기 위한 남은 칼로리 처리 수단이 아니다.
+
+즉 BE는 "단백질을 얼마나 줄일지"를 구현한 단계가 아니라, 다음 구현에서 단백질을 다루는 순서와 근거 자격을 잠근 단계다.
+
+## 5. Target relief와 recent trend
+
+이번 단계의 중요한 결론:
+
+- target relief는 세션 압력이 높다고 자동 적용하지 않는다.
+- running/mixed fuel pressure가 있더라도 protein/fat 보호를 조용히 깨지 않는다.
+- 현재 존재하는 scoped candidate-v2 production path는 인정한다. 다만 그것은 승인된 특정 후보/가드 통과 경로이지 broad user-level formula 구현이 아니다.
+- recent28 trend는 기록 품질, window fit, context fit, goal snapshot coverage 없이 자동 target delta로 쓰지 않는다.
+
+## 6. Completion boundary
+
+`wholeStageEvidenceBoundaryAudit`에 다음 check를 추가했다.
+
+```text
+user_level_formula_principle_design_not_formula_implementation
+```
+
+전체 boundary audit check count는 23에서 24가 되었다.
+
+completion gate의 `user_level_profile_specific_macro_formula`는 BE 증거를 보지만 여전히 open이다. 이게 중요하다. 산출식 원칙 설계가 끝났다는 말은 사용자 수준별 production 산식이 완성됐다는 뜻이 아니다.
+
+## 7. 다음 단계
+
+다음 단계는 6단계다.
+
+```text
+V8 level-formula design step 6 - user explanation flow design
+```
+
+6단계에서는 Today Coach, Score, Records detail/snapshot, backup/import roundtrip에서 사용자가 왜 이 kcal/단백질/지방/탄수가 나왔는지 이해할 수 있는 설명 흐름을 설계해야 한다.
+
+그 전에는 production 구현으로 넘어가지 않는다.
+
+## 8. Verification
+
+- `git diff --check` passed
+- `runV8ScenarioRunnerTests` = 1 suite / 36 cases / failed 0
+- targeted V8/Today ownership bundle = 3 suites / 94 cases / failed 0
+- core profile = 26 suites / 370 cases / failed 0
+- calibration profile = 14 suites / 144 cases / failed 0
