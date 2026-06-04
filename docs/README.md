@@ -148,6 +148,24 @@
 - Current next step is step 7 scenario and verification design.
 - BF is not production formula implementation and is not user-facing copy implementation. It only locks which explanation surfaces must carry future formula reasons.
 
+# v8.0-BG user-level formula scenario verification design note
+
+- Added `docs/v8_수준별산식_설계7_시나리오검증_2026-06-04.txt`.
+- BG adds `userLevelFormulaScenarioVerificationDesign` to `runV8ScenarioRunner()` as report-only scenario/verification evidence.
+- BG separates eight verification layers: required-axis category sweep, 18 human-eye review cases, constrained pairwise stress, targeted residual stress, full Cartesian execution contract, bounded shard plan, production regression guard, and explanation-surface probes.
+- BG keeps the 18 human-eye cases separate from the 80,621,568,000-case full Cartesian product. The 18 cases are mandatory manual review cases, not a replacement for full-axis execution.
+- BG keeps `fullCartesianRun=false`, `full8_2CartesianExecutionClosed=false`, `ownerApprovedAlternativeGateAvailable=false`, and requires either full execution or an explicit owner-approved alternative gate before full V8 completion.
+- BG keeps `productionFormulaChanged=false`, `candidateFormulaApproved=false`, `userLevelFormulaImplemented=false`, `userFacingCopyChanged=false`, and full V8 completion open. Whole-stage boundary audit now has 26 checks.
+- The next design stage is final design audit, not production formula wiring.
+- Verification on 2026-06-04: `runV8ScenarioRunnerTests` = 1 suite / 38 cases / failed 0; targeted V8/Today ownership bundle = 3 suites / 96 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 146 cases / failed 0.
+
+# v8 manual continuation note after BG
+
+- Do not resume V8 through a long `/GOAL` run.
+- Before continuing after BG, read the seven level-formula design docs in order, ending with `docs/v8_수준별산식_설계7_시나리오검증_2026-06-04.txt`.
+- Current next step is step 8 final design audit.
+- BG is not full Cartesian execution, not a candidate approval, not a production formula implementation, and not full V8 completion.
+
 # v8.0-AY completion declaration gate lock note
 
 - AY is the fourth step of the manual V8 recovery plan discussed with the user.

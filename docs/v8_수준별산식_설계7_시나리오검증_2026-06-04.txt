@@ -1,0 +1,149 @@
+# V8 수준별 산식 설계 7단계 - 시나리오 / 검증 설계
+
+작성일: 2026-06-04
+관련 stage: `v8.0-BG_user_level_formula_scenario_verification_design_v0`
+
+## 1. 이번 단계의 판단
+
+7단계는 full Cartesian 실행이나 production 산식 구현 단계가 아니다.
+
+이번 단계의 목적은 앞으로 수준별 산식이 production에 들어가기 전에 어떤 검증을 어떤 레이어로 봐야 하는지 고정하는 것이다. 특히 다음을 섞으면 안 된다.
+
+- 18개 human-eye 케이스
+- 8-2 필수축 category sweep
+- constrained pairwise stress
+- targeted residual stress
+- full Cartesian execution contract / shard tooling
+- production regression guard
+- 설명 표면 probe
+
+18개 눈검토 케이스는 사람이 반드시 봐야 하는 대표 사용자 흐름이다. 하지만 18개가 80,621,568,000개 조합을 대체한다는 뜻은 아니다.
+
+반대로 full Cartesian product는 여전히 open gate다. 지금 단계는 그 product를 실제로 돌렸다고 말하지 않는다. full Cartesian을 닫으려면 실제 실행하거나, 사용자가 승인한 명시적 대체 gate가 별도로 있어야 한다.
+
+## 2. 실제 runner 구조에서 확인한 검증 레이어
+
+확인한 코드 경로:
+
+- `buildV8RequiredAxisCoverageDefinitions()`
+- `buildV8HumanReviewScenarioDefinitions()`
+- `buildV8PairwiseTuples()`
+- `buildV8PairwiseStressReport()`
+- `buildV8TargetedStressDefinitions()`
+- `buildV8TargetedStressReport()`
+- `buildV8FullCartesianExecutionContract()`
+- `runV8FullCartesianShard()`
+- `buildV8HumanReviewNumericalApprovalReport()`
+- `buildV8UserLevelFormulaExplanationFlowDesignReport()`
+
+이 구조를 기준으로 BG는 8개 scenario verification layer를 잠근다.
+
+```text
+axisCategorySweep
+humanEyeReview18
+pairwiseStressCoverage
+targetedResidualStress
+fullCartesianExecutionContract
+boundedShardExecutionPlan
+productionRegressionGuard
+explanationSurfaceProbe
+```
+
+각 레이어의 의미:
+
+- `axisCategorySweep`: 필수축의 각 값이 최소 1회 등장하는지 확인한다. full cross-product가 아니다.
+- `humanEyeReview18`: 사용자가 눈으로 봐야 할 대표 18개 케이스다. 전체축 대체물이 아니다.
+- `pairwiseStressCoverage`: 유효한 축 쌍을 constrained covering array로 본다. full Cartesian이 아니다.
+- `targetedResidualStress`: pairwise/profile 잔여 위험을 계산 케이스와 constraint-only 제외 케이스로 분리한다.
+- `fullCartesianExecutionContract`: 80,621,568,000개 product와 shard/index 계약을 보존한다. 실행 완료가 아니다.
+- `boundedShardExecutionPlan`: bounded shard 도구가 있다는 증거다. 전체 shard 완료가 아니다.
+- `productionRegressionGuard`: `required_user_rest_diet_1913` 같은 기존 production 회귀 기준을 유지한다.
+- `explanationSurfaceProbe`: 숫자만 맞는 게 아니라 Today/Coach/Score/Records/snapshot/backup 설명 표면도 검증해야 한다.
+
+## 3. BG 코드 계약
+
+`runV8ScenarioRunner()`에 `userLevelFormulaScenarioVerificationDesign`을 추가했다.
+
+요약 값:
+
+```text
+reportOnly = true
+productionFormulaChanged = false
+candidateFormulaApproved = false
+userLevelFormulaImplemented = false
+implementationReady = false
+userFacingCopyChanged = false
+fullCartesianRun = false
+scenarioVerificationDesignReadyForFinalAudit = true
+scenarioLayerCount = 8
+verificationGateCount = 10
+axisCategoryCaseCount = 73
+humanReviewCaseCount = 18
+nominalFullCartesianCaseCount = 80,621,568,000
+fullCartesianClaimBlocked = true
+fullCartesianClosureRequiresExplicitDecision = true
+ownerApprovedAlternativeGateAvailable = false
+fullV8CompletionClosed = false
+```
+
+10개 verification gate:
+
+```text
+axis_count_boundary
+human_review_boundary
+pairwise_coverage_boundary
+targeted_constraint_boundary
+full_cartesian_claim_boundary
+full_cartesian_closure_decision
+production_regression_boundary
+explanation_surface_boundary
+candidate_approval_boundary
+final_audit_entry_boundary
+```
+
+## 4. 사용자 지적과의 연결
+
+이번 단계는 사용자가 지적한 두 가지 위험을 직접 막는다.
+
+첫째, 80,621,568,000개 조합을 18개 human-eye 케이스로 대체한다고 말하지 않는다. 18개는 human review surface이고, full Cartesian은 별도 gate다.
+
+둘째, constrained pairwise나 targeted stress를 full execution으로 둔갑시키지 않는다. pairwise는 유효한 축 쌍을 보는 레이어이고, targeted는 잔여 위험 큐다. 둘 다 유용하지만 full Cartesian 실행은 아니다.
+
+따라서 BG의 핵심 문장은 다음이다.
+
+```text
+18개는 사람이 볼 케이스다.
+axis category sweep은 필수축 값 커버리지다.
+pairwise/targeted는 압축 검증과 잔여 위험 큐다.
+full Cartesian은 아직 실행 또는 명시적 대체 gate가 필요한 open gate다.
+```
+
+## 5. Completion boundary
+
+`wholeStageEvidenceBoundaryAudit`에 다음 check를 추가했다.
+
+```text
+user_level_formula_scenario_verification_design_not_execution_or_formula_implementation
+```
+
+전체 boundary audit check count는 25에서 26이 되었다.
+
+completion gate의 `user_level_profile_specific_macro_formula`는 BG 증거를 보지만 여전히 open이다. 시나리오 / 검증 설계는 production 산식 구현이 아니며 full Cartesian 실행도 아니다.
+
+## 6. 다음 단계
+
+다음 단계는 8단계다.
+
+```text
+V8 level-formula design step 8 - final design audit
+```
+
+8단계에서는 1-7단계 문서, runner report, UI 흐름, 테스트 축이 서로 모순되는지 최종 검토해야 한다. 그 전에는 production 수준별 산식 구현으로 넘어가면 안 된다.
+
+## 7. Verification
+
+- `git diff --check` passed
+- `runV8ScenarioRunnerTests` = 1 suite / 38 cases / failed 0
+- targeted V8/Today ownership bundle = 3 suites / 96 cases / failed 0
+- core profile = 26 suites / 370 cases / failed 0
+- calibration profile = 14 suites / 146 cases / failed 0
