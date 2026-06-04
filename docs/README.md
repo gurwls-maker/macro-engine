@@ -13,6 +13,7 @@
 - 문서에 맞췄다는 이유만으로 완료라고 말하지 않는다.
 - 새 문제가 보이면 문서를 그대로 따르지 말고, 왜 다른 판단을 했는지 기록한다.
 - 다음 코덱스는 `기능이 생겼다`와 `사용자가 믿고 쓸 수 있다`를 반드시 구분한다.
+- 단계 통과 판정은 "구현됨"이 아니라 "의도대로 충분히 구현됨"이다. 코드에 필드/함수/화면이 생겼는지뿐 아니라, 사용자가 요구한 깊이와 넓이, 실제 사용자 설명 가능성, 관련 탭/기록/백업/코치/점수와의 연결성까지 본 뒤 통과시킨다.
 
 권장 읽기 순서:
 
@@ -60,13 +61,15 @@
 
 다음 작업 우선순위:
 
-1. `[CURRENT_PRODUCTION_CHECK]` 현재 production 산식과 profile/session 입력 경로를 다시 감사한다.
-2. `[REPORT_ONLY]` weekly-days-only 수준 판단을 대체할 `performanceContext` 근거 브리지를 만든다. production 산식은 이 단계에서 바꾸지 않는다.
-3. `[REPORT_ONLY]` 프로필별 세션/루틴 정밀화와 candidate 산식 비교를 진행한다.
+1. `[DONE_CHECKED]` 현재 production 산식과 profile/session 입력 경로 재감사는 2026-06-04 수동 1단계에서 닫혔다. 이후 production 코드를 바꾸기 전에는 다시 확인한다.
+2. `[REPORT_ONLY_PRESENT_AUDIT_REINFORCED]` weekly-days-only 수준 판단을 대체할 `performanceContext` 근거 브리지는 현재 `index.html`의 `v8.0-BI_user_level_production_context_bridge_v0`로 이미 존재한다. 2026-06-04 보강으로 "좋은 체성분+낮은 주간 빈도", "낮은 체성분+높은 주간 빈도"처럼 현재 생산 `trainingBand`와 다차원 근거가 충돌하는 케이스를 `productionPathEvidence.levelConflictSignals`, `riskFlags`, `findings`에 report-only로 남기고 테스트로 잠갔다. production 산식은 이 단계에서 바꾸지 않는다.
+3. `[NEXT_AFTER_STEP_2_REINFORCEMENT]` 2단계에서 브리지 중복 구현 위험과 핵심 충돌 신호는 정리되었다. 다음 단계는 프로필별 세션/루틴 정밀화와 candidate 산식 비교지만, 시작 전에도 "기능이 존재하는가"가 아니라 "사용자 의도대로 깊이/넓이 있게 작동하는가"를 다시 확인한다.
 4. `[OPEN_GATE]` Records/Score/Coach/Backup contract와 human-eye profile cases를 붙이기 전에는 user-level formula production implementation을 닫지 않는다.
 5. `[OPEN_GATE]` full Cartesian을 실제 전수 실행할지, owner-approved 대체 gate로 바꿀지 결정한다.
 
 기본 작업은 `/GOAL` 없이 통합문서의 `18-1. 7단계 실행 블록`을 순차 진행한다. `/GOAL`은 사용자가 명시적으로 원할 때만 한 단계 단위로 제한해서 쓴다. V8 전체 완료를 한 번에 맡기지 않는다.
+
+단계 시작 시 "문서와 실제 코드 상태가 다르다"는 것은 중단 조건이다. 단순히 다음 단계가 남아 있다는 이유만으로 충돌이라고 보지 않는다. 충돌은 문서가 미구현처럼 말하는데 코드에 이미 구현되어 있거나, 문서가 완료처럼 말하는데 실제 앱/테스트/렌더가 그렇지 않을 때만 선언한다.
 
 금지선:
 

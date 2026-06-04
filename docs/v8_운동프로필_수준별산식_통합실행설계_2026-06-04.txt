@@ -51,6 +51,28 @@
 
 마지막 단계까지 도달해야 "믿을 만하게 만들었다"고 말할 수 있다.
 
+### 0-1. 단계 통과 판정 방식
+
+각 단계의 통과 기준은 "구현됐는가"가 아니라 "의도대로 충분히 구현됐는가"다.
+
+다음은 통과가 아니다.
+
+- 코드에 함수나 필드가 생겼다.
+- 화면에 UI가 렌더된다.
+- 테스트가 특정 숫자만 통과한다.
+- report-only 결과가 runner에 붙었다.
+- 문서의 항목명이 코드에 등장한다.
+
+통과하려면 아래를 함께 확인한다.
+
+1. 깊이: 해당 기능이 사용자의 원래 의도를 충분히 반영하는가. 예를 들어 운동 수준 판단이면 주간 웨이트일수만 보지 않고 운동 프로필, 세션, 빈도, 시간, 강도, 유산소, 체성분 신뢰도, FFMI/LBM/골격근량 단서를 함께 본다.
+2. 넓이: Today, Records, 최근 흐름, InBody, 설정, 백업/복원, Coach, Score 중 영향을 받는 영역이 어긋나지 않는가.
+3. 설명 가능성: 사용자가 "왜 이 값/판단이 나왔는지" 물었을 때 내부 label이 아니라 사람 말로 설명 가능한가.
+4. 실제 사용자 관점: 기능이 단순히 생긴 게 아니라 해당 운동을 오래 한 사람도 앱을 끄지 않을 만큼 믿을 만한가.
+5. 회귀 위험: 기존 scoped production, 기록 snapshot, 기준갱신 signature, 테스트 기대값을 의도치 않게 깨지 않았는가.
+
+따라서 "이미 구현되어 있음"은 중복 구현을 막기 위한 상태 판정일 뿐, 품질 통과 판정이 아니다. 이미 존재하는 기능도 의도 적합성 감사에서 깊이/넓이/설명 가능성이 부족하면 보강하거나 재설계한다.
+
 ## 1. 문서 우선순위
 
 충돌이 생기면 아래 순서로 판단한다.
@@ -639,7 +661,7 @@ V8 수준별 산식은 한 번에 production으로 갈아엎지 않는다.
 4. 차이가 생긴 이유를 설명할 수 있는지 확인한다.
 5. 설명할 수 없는 차이는 production에 반영하지 않는다.
 
-특히 `performanceContext`, `profileEvidence`, `sessionModel`, `targetReliefCandidate`는 먼저 report-only로 붙인다.
+특히 `performanceContext`, `profileEvidence`, `sessionModel`, `targetReliefCandidate`는 먼저 report-only로 붙인다. 단, 이미 report-only로 존재하는 브리지는 재구현하지 않고 상태 확인/보강 대상으로 읽는다.
 
 ### 16-4. 예상 변화와 실제 변화 비교
 
@@ -780,7 +802,7 @@ V8 수준별 산식은 한 번에 production으로 갈아엎지 않는다.
 1. 현재 production 산식과 profile/session 입력 경로를 다시 감사한다.
 2. 프로필별 evidence schema를 정의한다.
 3. 프로필별 세션 model dimension을 코드/문서로 고정한다.
-4. `getTargetRateTrainingBand()` 같은 weekly-days-only 판단을 대체할 `performanceContext`를 report-only로 만든다.
+4. `getTargetRateTrainingBand()` 같은 weekly-days-only 판단을 대체할 `performanceContext`가 report-only로 붙어 있는지 확인하고, 없을 때만 만든다. 2026-06-04 현재는 `v8.0-BI_user_level_production_context_bridge_v0`로 존재한다.
 5. 기존 산식과 새 candidate를 비교한다.
 6. 단백질·지방·탄수·target relief 충돌을 검증한다.
 7. Records snapshot / Coach / Score / Backup 영향 범위를 붙인다.
@@ -801,14 +823,24 @@ V8 수준별 산식은 한 번에 production으로 갈아엎지 않는다.
 
 각 단계가 끝날 때마다 실제 앱/코드/렌더/테스트/문서를 다시 대조한다.
 
+2026-06-04 수동 진행 상태:
+
+- 1단계 현재 산식/프로필 입력 경로 재감사는 완료됐다.
+- 2단계 `performanceContext` report-only 브리지는 현재 `index.html`의 `v8.0-BI_user_level_production_context_bridge_v0`로 이미 존재한다.
+- 따라서 2단계는 새 구현이 아니라 의도 적합성 감사/필요 보강으로 진행한다. `performanceContext`, `profileEvidence`, `bodyCompositionContext`, `riskFlags`, 테스트 기대값, 사용자 설명 가능성이 원래 의도에 맞는지 확인하기 전에는 3단계로 넘어가지 않는다.
+- 2026-06-04 보강: 2단계 브리지에 `levelConflictSignals`를 추가했다. 현재 production `trainingBand`가 주간 웨이트일수에 크게 의존하는 상태에서 `좋은 체성분 + 낮은 주간 빈도`, `낮은 체성분 + 높은 주간 빈도`가 생기면 `productionBandEvidenceConflict`, `goodBodyCompositionLowFrequencyReview`, `lowBodyCompositionHighFrequencyReview`를 report-only로 남긴다. 이것은 production 산식 변경이 아니라 다음 단계 판단을 안전하게 하기 위한 설명/감사 증거다.
+- "다음 단계가 남아 있음" 자체는 충돌이 아니다. 충돌은 문서가 미구현처럼 말하는데 코드에 이미 구현되어 있거나, 문서가 완료처럼 말하는데 실제 앱/테스트/렌더가 그렇지 않을 때 선언한다.
+
 1. 현재 산식/프로필 입력 경로 재감사
    - production `calculateMacroTargets()`, `buildGoalTargetRateContext()`, `getTargetRateTrainingBand()`가 현재 사용자 입력을 어떻게 읽는지 확인한다.
    - Settings/Today/Records/Backup의 `exerciseProfile`, `routinePlan`, `routine`, `goalSnapshot`, 기준갱신 signature가 같은 책임 체계를 유지하는지 본다.
    - 아무 값도 바꾸지 않았는데 기준갱신이 뜨는 경우, 값을 바꿨다가 원상복구했는데 갱신이 남는 경우를 실제 렌더로 확인한다.
 
-2. `performanceContext` report-only 구현
+2. `performanceContext` report-only 상태 확인/보강
    - 주간 웨이트일수만으로 beginner/intermediate/advanced를 추정하는 구조를 그대로 믿지 않는다.
    - 운동 프로필, 세션, 주간 빈도, 운동 시간, 강도 보정, 유산소, 체성분 신뢰도, FFMI/LBM/골격근량 단서를 묶어 report-only 수준 판단 근거를 만든다.
+   - 현재 브리지는 이미 존재하므로 재구현하지 않는다. 대신 `performanceContext`, `profileEvidence`, `bodyCompositionContext`, `riskFlags`가 실제 사용자 설명에 충분한지 감사하고, 부족한 근거만 보강한다.
+   - 감사는 "필드가 있다"에서 멈추지 않는다. 사용자가 요구한 다차원 운동 수준 판단 의도, 즉 운동 프로필/세션/빈도/시간/강도/유산소/체성분/FFMI/LBM/골격근량 단서가 주간 웨이트일수 단독 판단을 실제로 대체할 만큼 잘 묶였는지 본다.
    - 이 단계는 production 산식을 바꾸지 않는다. 숫자 산출보다 "왜 이런 수준 판단을 했는지"를 추적 가능하게 만드는 것이 목적이다.
 
 3. 프로필별 세션/루틴 정밀화

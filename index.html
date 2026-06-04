@@ -63375,6 +63375,9 @@ Notes:
         preset: input.inbodyReliability === "expert_device" ? "expert" : "input_context"
       };
       const productionTrainingBand = getTargetRateTrainingBand(targetRateState, bridgeModeCfg);
+      const normalizedPerformanceLevel = derived.performanceLevel || normalizeV8LevelAwarePerformanceLevel(input);
+      const trainingEvidence = derived.trainingEvidence || resolveV8LevelAwareTrainingEvidence(input);
+      const bodyCompReliability = derived.bodyCompReliability || resolveV8LevelAwareBodyCompReliability(input);
       const nonWeeklyPerformanceSignals = {
         profileDeclared: !!input.exerciseProfile,
         profileSessionDeclared: !!input.profileSession,
@@ -63388,10 +63391,46 @@ Notes:
         recentContextKnown: ["sufficient", "insufficient"].includes(String(input.recent14 || ""))
       };
       const nonWeeklySignalCount = Object.values(nonWeeklyPerformanceSignals).filter(Boolean).length;
+      const skeletalRatio = Number.isFinite(skeletal) && weight > 0 ? skeletal / weight : null;
+      const bodyCompositionEvidenceUsable = !["none", "low"].includes(bodyCompReliability);
+      const highQualityBodyCompositionSignal = bodyCompositionEvidenceUsable && (
+        bodyFatBand === "very_lean"
+        || bodyFatBand === "lean"
+        || (Number.isFinite(ffmi) && ffmi >= 20.5)
+        || (Number.isFinite(skeletalRatio) && skeletalRatio >= 0.48)
+      );
+      const weakBodyCompositionSignal = bodyCompositionEvidenceUsable && (
+        bodyFatBand === "high"
+        || bodyFatBand === "very_high"
+        || (Number.isFinite(ffmi) && ffmi < 18)
+        || (Number.isFinite(skeletalRatio) && skeletalRatio < 0.40)
+      );
+      const goodBodyCompositionLowFrequency = weeklyTrainingDays <= 2 && highQualityBodyCompositionSignal;
+      const lowBodyCompositionHighFrequency = weeklyTrainingDays >= 5 && weakBodyCompositionSignal;
+      const productionBandConflictsWithPerformanceEvidence =
+        (productionTrainingBand === "beginner" && (["regular", "high"].includes(trainingEvidence) || highQualityBodyCompositionSignal))
+        || (productionTrainingBand === "advanced" && (normalizedPerformanceLevel === "low" || weakBodyCompositionSignal));
+      const levelConflictSignals = {
+        productionBandConflictsWithPerformanceEvidence,
+        goodBodyCompositionLowFrequency,
+        lowBodyCompositionHighFrequency,
+        productionTrainingBand,
+        normalizedPerformanceLevel,
+        trainingEvidence,
+        bodyCompReliability,
+        bodyFatBand,
+        ffmi: Number.isFinite(ffmi) ? ffmi : null,
+        skeletalRatio: Number.isFinite(skeletalRatio) ? skeletalRatio : null,
+        highQualityBodyCompositionSignal,
+        weakBodyCompositionSignal
+      };
       const weeklyDaysDominantBandRisk = weeklyTrainingDays > 0;
       const profileSessionModelNeedsHumanReview = true;
       const bridgeFindings = [
         ...(weeklyDaysDominantBandRisk ? ["production_target_rate_training_band_uses_weekly_training_days_as_dominant_signal"] : []),
+        ...(productionBandConflictsWithPerformanceEvidence ? ["production_training_band_conflicts_with_report_only_performance_evidence"] : []),
+        ...(goodBodyCompositionLowFrequency ? ["good_body_composition_low_frequency_needs_non_weekly_level_review"] : []),
+        ...(lowBodyCompositionHighFrequency ? ["low_body_composition_high_frequency_needs_non_frequency_level_review"] : []),
         "profile_specific_routine_session_model_requires_human_review_before_formula_authority",
         ...(nonWeeklySignalCount > 0 ? ["non_weekly_performance_and_body_composition_signals_collected_but_not_authoritative_for_training_band"] : []),
         ...(["running", "mixed", "strength", "powerbuilding"].includes(String(input.exerciseProfile || "")) ? ["non_bodybuilding_profile_session_precision_still_open"] : [])
@@ -63412,8 +63451,8 @@ Notes:
             : "no weekly training signal; training-band authority remains limited"
         },
         performanceContext: {
-          normalizedPerformanceLevel: derived.performanceLevel || normalizeV8LevelAwarePerformanceLevel(input),
-          trainingEvidence: derived.trainingEvidence || resolveV8LevelAwareTrainingEvidence(input),
+          normalizedPerformanceLevel,
+          trainingEvidence,
           weeklyTrainingDays,
           weightDuration,
           intensityOverride,
@@ -63421,12 +63460,13 @@ Notes:
           cardioType: input.cardioType || null,
           nonWeeklyPerformanceSignals,
           nonWeeklySignalCount,
+          levelConflictSignals,
           interpretation: nonWeeklySignalCount > 0
             ? "candidate can see richer evidence, but production target-rate band still cannot treat those signals as a closed user-level formula"
             : "candidate has little evidence beyond weekly frequency"
         },
         bodyCompositionContext: {
-          reliability: derived.bodyCompReliability || resolveV8LevelAwareBodyCompReliability(input),
+          reliability: bodyCompReliability,
           bodyFatPct: Number.isFinite(bodyFatPct) ? bodyFatPct : null,
           bodyFatBand,
           lbm,
@@ -63447,10 +63487,14 @@ Notes:
         },
         riskFlags: {
           weeklyTrainingDaysDominantTargetRateBand: weeklyDaysDominantBandRisk,
+          productionBandEvidenceConflict: productionBandConflictsWithPerformanceEvidence,
+          goodBodyCompositionLowFrequencyReview: goodBodyCompositionLowFrequency,
+          lowBodyCompositionHighFrequencyReview: lowBodyCompositionHighFrequency,
           bodyCompositionPerformanceJointAuthorityMissing: true,
           profileSessionModelNeedsHumanReview,
           productionFormulaStillUnchanged: true
         },
+        levelConflictSignals,
         findings: bridgeFindings
       };
     }
@@ -63793,6 +63837,9 @@ Notes:
         lowBodyCompReliabilityReviewCount: cases.filter(item => ["none", "low"].includes(item.userLevelFormulaContext.bodyCompReliability)).length,
         productionContextBridgeCount: cases.filter(item => item.userLevelFormulaContext?.productionPathEvidence?.stage === V8_USER_LEVEL_PRODUCTION_CONTEXT_BRIDGE_STAGE).length,
         weeklyTrainingDaysDominantTargetRateBandRiskCount: cases.filter(item => item.userLevelFormulaContext?.productionPathEvidence?.riskFlags?.weeklyTrainingDaysDominantTargetRateBand === true).length,
+        productionBandEvidenceConflictCount: cases.filter(item => item.userLevelFormulaContext?.productionPathEvidence?.riskFlags?.productionBandEvidenceConflict === true).length,
+        goodBodyCompositionLowFrequencyReviewCount: cases.filter(item => item.userLevelFormulaContext?.productionPathEvidence?.riskFlags?.goodBodyCompositionLowFrequencyReview === true).length,
+        lowBodyCompositionHighFrequencyReviewCount: cases.filter(item => item.userLevelFormulaContext?.productionPathEvidence?.riskFlags?.lowBodyCompositionHighFrequencyReview === true).length,
         bodyCompositionPerformanceJointAuthorityMissingCount: cases.filter(item => item.userLevelFormulaContext?.productionPathEvidence?.riskFlags?.bodyCompositionPerformanceJointAuthorityMissing === true).length,
         profileSessionModelNeedsHumanReviewCount: cases.filter(item => item.userLevelFormulaContext?.productionPathEvidence?.riskFlags?.profileSessionModelNeedsHumanReview === true).length,
         productionTargetRateTrainingBandSource: V8_PRODUCTION_TARGET_RATE_TRAINING_BAND_SOURCE,
@@ -67619,6 +67666,9 @@ Notes:
           assertTest(candidate.summary.contextCount === candidate.summary.caseCount, "BA candidate should build a context for every candidate case");
           assertTest(candidate.summary.productionContextBridgeCount === candidate.summary.caseCount, "BA candidate should attach production context bridge evidence to every case");
           assertTest(candidate.summary.weeklyTrainingDaysDominantTargetRateBandRiskCount > 0, "BI bridge should flag weekly-training-days-dominant target-rate risk");
+          assertTest(candidate.summary.productionBandEvidenceConflictCount > 0, "BI bridge should expose report-only conflicts between production band and richer level evidence");
+          assertTest(candidate.summary.goodBodyCompositionLowFrequencyReviewCount > 0, "BI bridge should expose good-body-composition low-frequency review cases");
+          assertTest(candidate.summary.lowBodyCompositionHighFrequencyReviewCount > 0, "BI bridge should expose low-body-composition high-frequency review cases");
           assertTest(candidate.summary.bodyCompositionPerformanceJointAuthorityMissingCount === candidate.summary.caseCount, "BI bridge should keep joint body-composition/performance authority open");
           assertTest(candidate.summary.profileSessionModelNeedsHumanReviewCount === candidate.summary.caseCount, "BI bridge should keep profile/session human review open for every case");
           assertTest(candidate.summary.productionTargetRateTrainingBandSource === V8_PRODUCTION_TARGET_RATE_TRAINING_BAND_SOURCE, "BI bridge should name the current production target-rate training-band source");
@@ -67649,6 +67699,25 @@ Notes:
           const lowReliabilityCase = candidate.cases.find(item => ["none", "low"].includes(item.userLevelFormulaContext.bodyCompReliability));
           assertTest(!!lowReliabilityCase, "BA candidate should include low/no body-composition reliability cases");
           assertTest(lowReliabilityCase.reviewSignals.includes("body_comp_reliability_dampening_review"), "low reliability cases should be marked for dampening review");
+          const goodBodyLowFrequencyCase = candidate.cases.find(item => item.caseId === "good_bodycomp_low_frequency");
+          assertTest(!!goodBodyLowFrequencyCase, "BA candidate should include the good-body-composition low-frequency human case");
+          assertTest(goodBodyLowFrequencyCase.userLevelFormulaContext.productionPathEvidence.productionTargetRateTrainingBand.currentBand === "beginner", "good body composition plus two weekly sessions should expose current production beginner band");
+          assertTest(goodBodyLowFrequencyCase.userLevelFormulaContext.performanceContext.trainingEvidence === "high", "good body composition low-frequency case should preserve high performance evidence");
+          assertTest(goodBodyLowFrequencyCase.userLevelFormulaContext.productionPathEvidence.levelConflictSignals.goodBodyCompositionLowFrequency === true, "good body composition low-frequency case should be flagged as a non-weekly level review");
+          assertTest(goodBodyLowFrequencyCase.userLevelFormulaContext.productionPathEvidence.riskFlags.productionBandEvidenceConflict === true, "good body composition low-frequency case should expose production-band evidence conflict");
+          assertIncludesAll(goodBodyLowFrequencyCase.userLevelFormulaContext.productionPathEvidence.findings.join(" "), [
+            "production_training_band_conflicts_with_report_only_performance_evidence",
+            "good_body_composition_low_frequency_needs_non_weekly_level_review"
+          ], "good body composition low-frequency case should name the intended bridge findings");
+          const lowBodyHighFrequencyCase = candidate.cases.find(item => item.caseId === "low_bodycomp_high_frequency");
+          assertTest(!!lowBodyHighFrequencyCase, "BA candidate should include the low-body-composition high-frequency human case");
+          assertTest(lowBodyHighFrequencyCase.userLevelFormulaContext.productionPathEvidence.productionTargetRateTrainingBand.currentBand === "advanced", "low body composition plus high frequency should expose current production advanced band");
+          assertTest(lowBodyHighFrequencyCase.userLevelFormulaContext.productionPathEvidence.levelConflictSignals.lowBodyCompositionHighFrequency === true, "low body composition high-frequency case should be flagged as a non-frequency level review");
+          assertTest(lowBodyHighFrequencyCase.userLevelFormulaContext.productionPathEvidence.riskFlags.productionBandEvidenceConflict === true, "low body composition high-frequency case should expose production-band evidence conflict");
+          assertIncludesAll(lowBodyHighFrequencyCase.userLevelFormulaContext.productionPathEvidence.findings.join(" "), [
+            "production_training_band_conflicts_with_report_only_performance_evidence",
+            "low_body_composition_high_frequency_needs_non_frequency_level_review"
+          ], "low body composition high-frequency case should name the intended bridge findings");
           assertTest(report.summary.levelAwareMacroCandidateV0.productionAutoApplyAllowedCount === 0, "top-level BA summary should preserve no automatic production apply");
           assertTest(findInvalidCalibrationNumber(candidate).length === 0, "BA candidate should not contain NaN or Infinity");
         }));
