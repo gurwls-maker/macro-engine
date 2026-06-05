@@ -89,6 +89,14 @@
 - 18개 human-review, pairwise/targeted stress, render audit, shard pilot, clean campaign 일부 실행을 80,621,568,000개 full Cartesian 실행으로 말하지 않는다.
 - 문서 기준이 실제 사용자 경로와 충돌하면 문서를 고쳐야 하며, 기준 통과를 위해 사용자 경로를 우회하지 않는다.
 
+# 2026-06-06 수행능력 입력/운동 프로필 표시명 메모
+
+- 수행능력 입력은 매일 입력하는 값이 아니라, 선택적으로 한 번 입력하거나 기록에서 추론하는 근거로 둔다.
+- `performanceLevel`은 여전히 사용자-facing selector가 아니다. 회복, 연료, 설명, 검토 신호로 쓸 수 있지만 운동 kcal 배율이나 targetCal 직접 이동 근거가 되면 안 된다.
+- 내부 key `strength`는 백업/테스트/과거 기록 호환을 위해 유지한다.
+- 사용자 표시명은 `스트렝스`가 아니라 `파워리프팅`으로 정리한다.
+- 다음 단계는 프로필별 세션/루틴 이름, 기본 시간, 기본 강도, 휴식/디로드 의미가 실제 운동 사용자에게 납득되는지 검증하는 것이다.
+
 # v8.0-AZ user-level formula precision design note
 
 - AZ adds `userLevelFormulaPrecisionDesign` to `runV8ScenarioRunner()` as report-only design evidence.
