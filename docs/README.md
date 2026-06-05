@@ -686,3 +686,16 @@
 8. 현재 `index.html` 구현
 
 구현이 더 좋아 보여도 제품 성격과 충돌하면 구현을 합리화하지 않는다. 반대로 기준문서가 낡았고 현재 앱 구조가 더 타당하면, 문서를 먼저 갱신하고 그 이유를 남긴다.
+
+## 5. 최신 V8 진행 경계
+
+### v8.0-BL 본단계5 Records / Coach / Score / Backup 연결 계약
+
+- BL은 `runV8ScenarioRunner()`에 `levelAwareMacroCandidateContract`를 추가한 report-only 계약이다.
+- 계약 범위는 BA 후보가 Records snapshot/signature, Records 상세 기준, Score 근거, Coach 행동, Backup/import roundtrip, Recent context guard, user-facing 내부 label 차단과 어긋나지 않는지 확인하는 것이다.
+- 정상 기준은 `contractCount=8`, `closedContractCount=8`, `missingContractCount=0`, `findingCount=0`이다.
+- BL은 production 산식, user-facing copy, Score/Coach runtime, Records schema, Backup schema를 바꾸지 않는다.
+- whole-stage evidence boundary audit는 BL이 추가되어 28개 check를 본다.
+- BL 통과는 본단계5 완료 의미이며, 수준별 산식 production 적용 완료가 아니다.
+- 다음 작업은 본단계6 `렌더/시나리오/테스트 검증`이다. 렌더와 실제 시나리오에서 깨지면 문서를 합리화하지 말고 코드/설계/문서 중 어디가 틀렸는지 재판단한다.
+- 2026-06-05 검증: `runV8ScenarioRunnerTests` 1 suite / 40 cases / failed 0, `runV8ScenarioRunnerTests,runTodayCalculationOwnershipTests,runTodayQuickEditTests` 3 suites / 98 cases / failed 0.
