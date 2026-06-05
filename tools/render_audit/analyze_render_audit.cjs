@@ -19,6 +19,7 @@ const REQUIRED_MOBILE_CAPTURES = Object.freeze([
   "45_mobile_records_info_edit_modal",
   "46_mobile_records_meal_add_modal",
   "47_mobile_inbody_records_link",
+  "47b_mobile_inbody_change",
   "48_mobile_settings_data_lower",
   "52_mobile_today_profile_candidate_v2_applied",
   "53_mobile_today_profile_candidate_v2_quick_open",
