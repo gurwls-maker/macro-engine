@@ -16,6 +16,19 @@ const currentAuditDate = new Date(Date.now() - new Date().getTimezoneOffset() * 
   .toISOString()
   .slice(0, 10);
 
+function clearGeneratedAuditFiles(dir, allowedExtensions) {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const fullPath = path.join(dir, entry.name);
+    if (allowedExtensions.has(path.extname(entry.name).toLowerCase())) fs.unlinkSync(fullPath);
+  }
+}
+
+clearGeneratedAuditFiles(pageDir, new Set([".html"]));
+clearGeneratedAuditFiles(shotDir, new Set([".png"]));
+if (fs.existsSync(path.join(auditDir, "manifest.json"))) fs.unlinkSync(path.join(auditDir, "manifest.json"));
+
 fs.mkdirSync(pageDir, { recursive: true });
 fs.mkdirSync(shotDir, { recursive: true });
 fs.mkdirSync(debugDir, { recursive: true });

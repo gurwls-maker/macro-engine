@@ -283,3 +283,75 @@ v8 소단계8-10 대조표
 소단계11 종료 조건:
 - 4번 "100%에 가깝다" 기준을 모두 만족한다.
 - 만족하지 못한 항목은 완료라고 하지 않고, 후속 후보 또는 레거시 유지로 명시한다.
+
+────────────────────────
+8. 소단계11 완료 대조 루프 (2026-06-05)
+────────────────────────
+
+1. Today 기록 시작 기본 노출
+- 판정: 닫힘.
+- `기록 시작하기`는 더 이상 `상세 기록 / 간단 기록 / 식단 건너뛰기` 3분기 선택지를 열지 않는다.
+- 현재 기본 경로는 식사별 탄수화물·단백질·지방을 입력하는 상세 식사 폼이다.
+- 빈 식사 상태의 Today CTA와 과거 `data-record-start-step` 요청 모두 상세 식사 폼으로만 귀결되도록 테스트한다.
+
+2. Today simple 신규 저장 경로
+- 판정: 닫힘.
+- `saveTodayRecordStartSimple` 신규 생성 경로와 전역 export는 제거한다.
+- 새 Today 기록 시작에서 `recordMode: "simple"`을 새로 만들 수 없어야 한다.
+- 단, 과거 저장 기록의 `recordMode: "simple"`은 최근 흐름·백업·기록 해석용 데이터로 유지한다.
+
+3. Today weight_only / skip 신규 저장 경로
+- 판정: 닫힘.
+- `saveTodayRecordStartSkip` 신규 생성 경로와 전역 export는 제거한다.
+- 새 Today 기록 시작에서 `recordMode: "weight_only"`을 새로 만들 수 없어야 한다.
+- 체중·메모 기능은 삭제가 아니라 Records의 `체중·메모 수정` 책임으로 이동한 것으로 본다.
+- 단, 과거 저장 기록의 `recordMode: "weight_only"`은 최근 흐름·백업·기록 해석용 데이터로 유지한다.
+
+4. Today old choice DOM / CSS / 테스트
+- 판정: 닫힘.
+- `todayRecordStartChoices`, `todayRecordStartSimple`, `todayRecordStartSkip`, `record-start-card`, `record-start-choice-grid`는 현재 렌더 DOM에 존재하지 않아야 한다.
+- 기존 선택지 카드를 정상으로 잠그던 테스트는 삭제하고, 현재는 old DOM과 old 저장 함수가 없음을 검증한다.
+
+5. Records 작업공간
+- 판정: 닫힘.
+- Records의 사용자 기본 작업공간은 `날짜 선택 / 식사 추가 / 체중·메모 수정` 중심이다.
+- `체중만 기록 / 간단 기록 / 상세 기록`은 신규 선택지처럼 노출되면 안 된다.
+- 내부 `recordModeChips` 계열 호환 DOM은 과거 기록 요약·테스트·백업 호환을 위한 레거시 유지 대상으로 분류한다.
+
+6. Recent Flow
+- 판정: 소단계11 기준 닫힘, 품질 고도화는 본단계 5로 유지.
+- Recent는 과거 simple/weight_only 데이터를 분석 해상도 판단에 쓸 수 있으므로 내부 용어 자체는 유지한다.
+- 사용자에게 신규 기록 방식 선택지처럼 보이는 경로는 없어야 한다.
+- 부족 데이터/분석 품질 문구의 더 깊은 산식 감사는 멈춰둔 v8 본단계 5의 책임이다.
+
+7. InBody
+- 판정: 렌더 감사 공백 닫힘.
+- desktop/mobile에서 InBody 상단, 분석 탭, 변화 탭, 기록 연결 흐름을 캡처한다.
+- 소단계11은 InBody 정보구조를 새로 바꾸는 단계가 아니라, 기록 모드 잔존 정리 후 렌더 감사 공백을 닫는 단계다.
+
+8. Settings
+- 판정: 렌더 감사 공백 닫힘.
+- desktop/mobile에서 Settings 상단, 펼침 그룹, 데이터 관리 하단, 백업 preview/복원 conflict 모달을 캡처한다.
+- 백업/복원 의미 검증은 별도 데이터 관리 단계의 책임으로 남긴다.
+
+9. 렌더 감사 산출물
+- 판정: 닫힘.
+- `tools/render_audit/capture_render_audit.cjs`는 실행 시 이전 `.png`, `.html`, `manifest.json`을 지우고 새 캡처 세트만 남긴다.
+- 오래된 캡처가 현재 감사 기준과 섞이는 문제를 방지한다.
+
+10. 문서 충돌
+- 판정: 닫힘.
+- `docs/앱-문구-기준.txt`와 `docs/캔버스_updated.txt`는 Today 기록 시작을 상세 식사 중심으로 설명한다.
+- old 3분기 문구는 "현재 UI 기준"이 아니라 금지/레거시/과거 기록 해석 맥락으로만 남을 수 있다.
+
+11. 최종 검증 조건
+- script syntax가 통과해야 한다.
+- desktop internal tests가 통과해야 한다.
+- mobile internal tests가 통과해야 한다.
+- render audit capture/analyze가 통과해야 한다.
+- 핵심 스크린샷은 Today desktop/modal, Today mobile/modal, Records, Recent, InBody analysis/change, Settings data modal을 직접 눈으로 확인한다.
+
+12. 남은 것과 남기지 않는 것
+- 남기는 것: 과거 기록/백업/흐름 분석을 위한 내부 `recordMode` 값.
+- 남기지 않는 것: 새 사용자가 Today에서 고르는 `간단 기록 / 식단 건너뛰기 / 체중만 기록` 선택지.
+- 후속 후보: v8 본단계 5 산식·시나리오 감사, Recent 부족 데이터 문구의 더 깊은 품질 고도화, Settings 백업/복원 의미 검증.
