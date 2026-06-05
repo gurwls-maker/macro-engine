@@ -20,10 +20,11 @@
 1. `docs/개발정책.txt`
 2. `docs/내가-바라는-앱의-성격.txt`
 3. `docs/v8_운동프로필_수준별산식_통합실행설계_2026-06-04.txt`
-4. `index.html`의 실제 production 경로
-5. `docs/v8_현재산식_기준갱신_감사_2026-06-02.txt`
-6. `docs/v8_1단계_복구감사_2026-06-03.txt`
-7. 필요한 경우에만 `docs/archive/v8_report_only_design_20260604/`의 과거 설계 원문
+4. `docs/v8_외부근거_매크로_정책표_2026-06-05.txt`
+5. `index.html`의 실제 production 경로
+6. `docs/v8_현재산식_기준갱신_감사_2026-06-02.txt`
+7. `docs/v8_1단계_복구감사_2026-06-03.txt`
+8. 필요한 경우에만 `docs/archive/v8_report_only_design_20260604/`의 과거 설계 원문
 
 ## 1. 기존 stage note 지도 (v8.0-AU 문서 계층 정리)
 

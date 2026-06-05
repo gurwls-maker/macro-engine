@@ -1,0 +1,564 @@
+# V8 외부근거 기반 매크로 정책표
+
+작성일: 2026-06-05
+상태: production 산식 변경 전 정책 기준 / 구현 전 근거표
+대상: 수준별 x 목표별 매크로 산식 재설계
+
+## 0. 이 문서의 역할
+
+이 문서는 앱 산식을 바로 바꾸는 구현 문서가 아니다.
+
+이 문서는 다음 구현자가 "단백질은 몇 g/kg으로 할까", "지방은 어디까지 낮춰도 되나", "남는 칼로리는 탄수로 몰아도 되나" 같은 결정을 감으로 하지 않도록 만드는 외부근거 기반 정책표다.
+
+중요한 점:
+
+- 외부근거는 대부분 정확한 단일값이 아니라 범위로 제시한다.
+- 따라서 이 문서의 "앱 정책값"은 외부근거 범위 안에서 앱이 선택한 제품 정책값이다.
+- 제품 정책값은 외부근거를 벗어나면 안 된다.
+- 외부근거가 범위를 제시하지 않는 영역은 제품 판단을 명시하고, 그 판단이 근거값처럼 보이지 않게 분리한다.
+- 이 표가 생겼다고 수준별 산식 구현이 완료된 것은 아니다.
+
+## 1. 근거 신뢰도 계층
+
+### 1순위: Academy / Dietitians of Canada / ACSM 공동 포지션페이퍼
+
+문서:
+
+- Nutrition and Athletic Performance: Position of Dietitians of Canada, the Academy of Nutrition and Dietetics and the American College of Sports Medicine, 2016.
+- URL: https://www.dietitians.ca/DietitiansOfCanada/media/Documents/Resources/noap-position-paper.pdf
+
+이 문서를 1순위로 두는 이유:
+
+- 운동인/선수 영양을 다룬 공식 공동 포지션페이퍼다.
+- 탄수화물, 단백질, 지방, 에너지 가용성, 훈련 주기화를 한 문서에서 다룬다.
+- 특정 다이어트 유행이나 보디빌딩 한 종목만 보는 문서가 아니다.
+- 우리 앱의 기본 성격인 "운동하는 사람의 체성분·식단 계산"에 가장 넓게 적용된다.
+
+이 문서에서 가져올 것:
+
+- 운동량별 탄수화물 범위: 3-5, 5-7, 6-10, 8-12 g/kg/day
+- 대부분 운동인의 단백질 범위: 1.2-2.0 g/kg/day
+- 감량 또는 저에너지 상태에서는 단백질을 더 높게 둘 수 있다는 방향
+- 대부분 운동인의 지방 범위: 20-35% kcal
+- 영양 목표는 훈련 세션과 주기에 따라 달라져야 한다는 원칙
+- 에너지 가용성이 너무 낮아지면 건강과 수행에 문제가 생길 수 있다는 원칙
+
+### 2순위: ISSN Protein and Exercise Position Stand
+
+문서:
+
+- International Society of Sports Nutrition Position Stand: protein and exercise, 2017.
+- URL: https://link.springer.com/article/10.1186/s12970-017-0177-8
+
+이 문서를 2순위로 두는 이유:
+
+- 단백질만 놓고는 1순위 문서보다 더 깊게 다룬다.
+- 일반 운동인, 저항운동, 에너지 제한 상황의 단백질 판단에 유용하다.
+- 단, 지방과 탄수 전체 정책을 한 번에 제공하지 않으므로 전체 매크로 기준의 최상위는 아니다.
+
+이 문서에서 가져올 것:
+
+- 대부분 운동인의 단백질 기본 범위: 1.4-2.0 g/kg/day
+- 저항운동과 저에너지 상황에서 단백질을 높게 둘 수 있다는 근거
+- 단백질을 높이더라도 endurance 성격에서는 탄수 부족을 만들면 안 된다는 경계
+
+### 3순위: ISSN Diets and Body Composition Position Stand
+
+문서:
+
+- International Society of Sports Nutrition Position Stand: diets and body composition, 2017.
+- URL: https://link.springer.com/article/10.1186/s12970-017-0174-y
+
+이 문서를 3순위로 두는 이유:
+
+- 감량, 증량, 체성분 변화라는 앱의 핵심 목적과 직접 맞닿아 있다.
+- 체지방이 높을수록 더 적극적인 감량이 가능하고, lean한 사람일수록 느린 감량이 제지방 보존에 유리하다는 방향을 준다.
+- 감량 중 lean resistance-trained 사용자에게 높은 단백질이 필요할 수 있다는 예외를 제공한다.
+
+이 문서에서 가져올 것:
+
+- 지방 감량은 지속적인 칼로리 적자가 핵심이다.
+- 제지방 증가는 지속적인 칼로리 흑자와 저항운동 수요가 핵심이다.
+- lean resistance-trained 감량자는 2.3-3.1 g/kg FFM 단백질이 필요할 수 있다.
+- 체성분 측정법에는 한계가 있으므로 InBody 신뢰도를 무시하면 안 된다.
+
+### 4순위: Natural Bodybuilding Contest Preparation Review
+
+문서:
+
+- Evidence-based recommendations for natural bodybuilding contest preparation: nutrition and supplementation, Helms, Aragon, Fitschen, 2014.
+- URL: https://link.springer.com/article/10.1186/1550-2783-11-20
+
+이 문서를 4순위로 두는 이유:
+
+- 보디빌딩 감량, 특히 lean하고 저항운동을 많이 하는 사용자의 예외를 매우 구체적으로 다룬다.
+- 그러나 경기 준비라는 특수 상황이므로 일반 diet 기본값으로 쓰면 안 된다.
+
+이 문서에서 가져올 것:
+
+- natural bodybuilder contest prep에서는 0.5-1.0%/week 감량이 근육 보존에 유리한 범위로 제시된다.
+- 많은 bodybuilder가 2.3-3.1 g/kg LBM 단백질, 15-30% kcal 지방, 나머지 탄수 구조에 잘 반응할 수 있다.
+- lean할수록, 적자가 클수록, LBM 보존이 중요할수록 단백질 범위의 높은 쪽이 필요할 수 있다.
+- strength/bodybuilding 계열 탄수는 대략 4-7 g/kg 범위가 언급되지만, contest prep에서는 높은 쪽을 항상 달성하기 어렵다.
+
+### 일반 성인 안전 울타리: NASEM / IOM AMDR
+
+문서:
+
+- National Academies Dietary Reference Intakes / AMDR summary.
+- URL: https://www.nationalacademies.org/read/27957/chapter/5
+- 참고 검색 결과: National Academies AMDR table values.
+
+이 근거의 역할:
+
+- 스포츠 퍼포먼스 기준이 아니라 일반 성인의 건강 범위다.
+- 따라서 운동인 탄수화물 g/kg 기준을 덮어쓰는 기준으로 쓰지 않는다.
+- 대신 비운동 사용자, 입력 부족 사용자, 산식 sanity check에 사용한다.
+
+사용할 범위:
+
+- 탄수화물: 45-65% kcal
+- 단백질: 10-35% kcal
+- 지방: 20-35% kcal
+
+## 2. 근거 충돌 처리 원칙
+
+1. 한 문서가 탄수화물, 단백질, 지방을 모두 다루면 그 문서를 먼저 쓴다.
+2. 특정 영양소만 더 깊게 다루는 문서는 "보완 근거"로 쓴다.
+3. 보완 근거가 최상위 근거의 일반 원칙과 충돌하면, 적용 범위를 좁힌다.
+4. 경기 준비, lean cut, 초고강도 endurance 같은 특수 문서를 일반 기본값으로 쓰지 않는다.
+5. 지방 15-20% 같은 값은 일반 diet 기본값이 아니라 contest-like 예외다.
+6. 단백질이 높다는 근거가 있어도, 그 때문에 지방 보호선이나 탄수 연료가 무너진다면 경고를 띄운다.
+7. 모든 매크로를 동시에 만족할 수 없으면 숫자를 억지로 끼워 맞추지 말고 "목표 강도 재검토" 또는 "연료 부족"을 후보로 띄운다.
+8. 기록이 부족한 사용자의 목표 칼로리를 자동으로 크게 바꾸지 않는다.
+
+### 2-1. 근거별 사용 범위 고정
+
+| 근거 | 앱에서 쓸 범위 | 앱에서 쓰면 안 되는 범위 |
+| --- | --- | --- |
+| Academy / Dietitians of Canada / ACSM | 운동인 전체의 탄수·단백질·지방 기본 범위, 운동부하별 탄수 충분성, 지방 20-35% 울타리 | 보디빌딩 대회 준비 수준의 고단백/저지방 예외를 자동 결정하는 근거로 쓰지 않는다. |
+| ISSN Protein | 운동인 단백질 1.4-2.0 g/kg 기본 범위, 저에너지·저항운동 상황의 상단 보정 | 탄수·지방 전체 정책을 대체하지 않는다. endurance 사용자에게 고단백을 우선 적용하지 않는다. |
+| ISSN Diets and Body Composition | 감량/증량의 에너지 적자·흑자 원칙, 높은 체지방과 lean 사용자의 감량 강도 차이, lean resistance-trained 고단백 예외 | 모든 사용자에게 2.3-3.1 g/kg FFM을 적용하지 않는다. |
+| Helms / Aragon / Fitschen | lean natural bodybuilder의 contest-like cut 예외 | 일반 diet, 일반 cut, bulk, maintain 기본값으로 쓰지 않는다. |
+| NASEM / IOM AMDR | 일반 성인 sanity check, 비운동/입력부족 사용자 안전 울타리 | 운동부하별 g/kg 탄수 기준을 덮어쓰지 않는다. |
+
+이 표의 핵심은 "더 구체적인 근거"와 "더 높은 근거"를 헷갈리지 않는 것이다. Helms는 lean contest prep에는 매우 구체적이지만, 일반 사용자 전체에는 최상위 근거가 아니다.
+
+## 3. 산식 공통 원칙
+
+### 3-1. 계산 순서
+
+권장 순서:
+
+1. 유지칼로리 산출
+2. 목표별 rate 적용
+3. 목표 칼로리 산출
+4. 단백질 anchor 결정
+5. 지방 보호선 결정
+6. 탄수화물은 남은 칼로리로 배정
+7. 탄수화물이 훈련 부하 대비 너무 낮은지 검사
+8. 단백질·지방·탄수가 동시에 불가능하면 target relief 후보 또는 설명문 출력
+
+### 3-2. 단백질은 남는 칼로리 채우기 용도가 아니다
+
+기존 문제:
+
+- 일반 diet에서 단백질을 2.0 g/kg 또는 과거 2.4 g/kg으로 고정하면 감량 칼로리가 낮은 사용자에게 단백질이 과하게 커질 수 있다.
+- 단백질이 커지면 지방 또는 탄수화물이 과도하게 줄어든다.
+- 사용자는 "왜 다이어트인데 단백질 180g이 나오지?"라고 느낄 수 있다.
+
+개정 원칙:
+
+- 단백질은 목표, 체지방률, 운동수준, 저항운동 여부, 에너지 적자 강도, LBM 신뢰도에 따라 선택한다.
+- 일반 diet의 기본값을 무조건 2.0 g/kg으로 고정하지 않는다.
+- 2.0 g/kg은 운동인·저항운동·감량·LBM 보존 필요가 분명한 경우의 상단 기본값이다.
+- lean advanced cut에서는 BW 기준보다 FFM/LBM 기준이 더 적절할 수 있다.
+
+### 3-3. 지방은 최소 보호선이 있다
+
+기본 원칙:
+
+- 일반적으로 지방은 20-35% kcal 안에 둔다.
+- 감량 중에도 20% 아래는 일반 기본값이 아니다.
+- 15-20%는 natural bodybuilding contest prep 같은 특수 예외로만 허용한다.
+- 지방을 너무 낮추는 방식으로 단백질이나 탄수를 억지로 맞추면 안 된다.
+
+### 3-4. 탄수화물은 운동 연료다
+
+기본 원칙:
+
+- 탄수화물은 남는 칼로리를 받는 항목이지만, 단순 찌꺼기 값이 아니다.
+- 운동량과 세션 성격에 따라 충분성 검사를 해야 한다.
+- endurance/running/mixed high-load는 탄수 부족 경고가 더 중요하다.
+- bodybuilding/strength에서도 훈련량이 높으면 탄수 부족은 수행 저하로 이어질 수 있다.
+
+## 4. 목표별 기본 정책표
+
+아래 값은 "앱 정책값"이다.
+
+외부근거가 범위로 말한 것을 앱이 실제 계산에 쓰기 위해 고른 값이며, 구현 전 scenario audit으로 다시 검증해야 한다.
+
+| 목표 | rate 정책 | 단백질 정책 | 지방 정책 | 탄수 정책 | 근거/판단 |
+| --- | --- | --- | --- | --- | --- |
+| maintain | 0%/week | 일반 1.4-1.8 g/kg, 저항운동/고훈련 1.6-2.0 g/kg | 25-30% 기본, 20-35% 허용 | 훈련 부하별 3-10 g/kg 충분성 검사 | 1순위 ACSM/DC/Academy + ISSN protein |
+| diet | -0.25~-0.75%/week | 일반 1.6-1.8 g/kg, 저항운동/lean 1.8-2.0 g/kg | 22-30%, 최소 20% 보호 | 나머지 탄수, 운동일이면 3 g/kg 미만 경고 검토 | 감량은 적자가 핵심이지만 protein overfill 금지 |
+| cut | -0.5~-1.0%/week, lean advanced는 -0.25~-0.5 | 저항운동 1.8-2.2 g/kg BW 또는 lean contest-like 2.3-3.1 g/kg FFM | 20-25%, contest-like 예외 15-20 | 나머지 탄수, 훈련 부하 대비 부족 시 경고 | Helms/ISSN 예외 근거를 좁게 사용 |
+| recomp | -0.1~0% 또는 highBF 초보 -0.25% | 1.6-2.0 g/kg | 25-30% | 훈련 부하별 충분성 검사 | 체중보다 체성분/기록 안정 우선 |
+| lean_bulk | +0.1~+0.25%/week | 1.6-1.8 g/kg, 상한 2.0 | 25-30% | 남는 칼로리 대부분 탄수 | surplus는 훈련 수요 지원이 목적, protein fill 금지 |
+| bulk | +0.25~+0.5%/week | 1.6-1.8 g/kg, 상한 2.0 | 25-35% | 남는 칼로리 대부분 탄수 | 직접 rate 근거는 약하므로 지방증가 방지 제품정책 |
+
+### 목표별 rate 해석
+
+- 외부근거는 감량 rate에 대해서는 상대적으로 더 구체적이다.
+- 증량 rate는 감량만큼 공식 단일근거가 강하지 않다.
+- 따라서 lean_bulk/bulk rate는 "외부근거가 딱 이 숫자를 말한다"가 아니라 "칼로리 흑자가 필요하되 과도한 지방 증가를 피한다"는 ISSN body composition 원칙을 앱 정책으로 좁힌 값이다.
+
+### 4-1. 목표 x 수준 단백질 정책표
+
+아래 표는 향후 구현에서 가장 먼저 잠가야 할 정책표다. 표의 값은 "처음부터 이 숫자를 무조건 박는다"가 아니라, 목표와 수준이 주어졌을 때 앱이 고를 수 있는 기본 선택 범위다.
+
+| 사용자 수준/상태 | maintain | diet | cut | recomp | lean_bulk | bulk |
+| --- | --- | --- | --- | --- | --- | --- |
+| 입력 부족 / 운동 거의 없음 | 1.2-1.5 g/kg | 1.4-1.6 g/kg | cut 자동 권장 금지, diet로 안내 | 1.4-1.6 g/kg | lean_bulk 자동 권장 금지 | bulk 자동 권장 금지 |
+| 초급 저항운동 | 1.4-1.7 | 1.6-1.8 | 1.7-1.9 | 1.6-1.8 | 1.6-1.8 | 1.6-1.8 |
+| 일반 운동인 | 1.5-1.8 | 1.7-1.9 | 1.8-2.0 | 1.7-1.9 | 1.6-1.8 | 1.6-1.8 |
+| 숙련 저항운동 | 1.6-2.0 | 1.8-2.0 | 1.9-2.2 BW 또는 2.3-2.7 FFM | 1.8-2.0 | 1.6-1.9 | 1.6-1.9 |
+| lean advanced / contest-like | 1.8-2.0 | 1.9-2.1 또는 FFM 검토 | 2.3-3.1 FFM 예외 후보 | 1.8-2.0 | 1.6-1.8 | bulk보다 lean_bulk 권장 |
+| highBF / obese | BW 기준 고단백 금지, LBM/보정체중 기준 1.4-1.7 | LBM/보정체중 기준 1.5-1.8 | 일반 cut보다 diet 우선, LBM/보정체중 기준 | 1.5-1.8 | 자동 권장 금지 | 자동 권장 금지 |
+| endurance 중심 | 1.4-1.7 | 1.5-1.8 | 1.6-1.9, 탄수 부족 우선 검사 | 1.5-1.8 | 1.5-1.7 | 1.5-1.7 |
+| strength / powerbuilding | 1.6-2.0 | 1.8-2.0 | 1.9-2.2 또는 FFM 검토 | 1.8-2.0 | 1.6-1.9 | 1.6-1.9 |
+
+구현 해석:
+
+- `diet`에서 2.0 g/kg은 "운동인·저항운동·lean·감량 중 근육 보존 필요"가 뚜렷할 때의 상단값이다.
+- `diet` 일반값은 1.7-1.9 g/kg 쪽이 더 자연스럽다.
+- `cut`은 단순히 diet보다 단백질을 더 높이는 목표가 아니다. lean 여부, 적자 강도, 저항운동 수준이 같이 확인되어야 한다.
+- `bulk`와 `lean_bulk`는 protein을 높이는 목표가 아니다. 흑자 칼로리는 대부분 탄수와 일부 지방으로 훈련 수행을 받쳐야 한다.
+- highBF 사용자는 실제 체중에 2.0 g/kg 이상을 곱하는 방식이 가장 위험하다. 이 경우 단백질 basis부터 LBM/FFM/보정체중으로 바꿔야 한다.
+
+### 4-2. 목표 x 수준 지방 정책표
+
+| 사용자 수준/상태 | maintain | diet | cut | recomp | lean_bulk | bulk |
+| --- | --- | --- | --- | --- | --- | --- |
+| 입력 부족 / 초급 | 25-30% | 25-30% | 자동 cut 금지 | 25-30% | 25-30% | 25-35% |
+| 일반 운동인 | 25-30% | 22-28% | 20-25% | 25-30% | 25-30% | 25-35% |
+| 숙련 저항운동 | 25-30% | 22-28% | 20-25% | 25-30% | 25-30% | 25-35% |
+| lean contest-like | 25-30% | 20-25% | 15-20% 예외 후보, 기본은 20% 이상 | 25-30% | 25-30% | 권장 낮음 |
+| endurance/high-carb | 20-30% | 20-25% | 20-25% | 20-30% | 20-30% | 25-30% |
+| highBF/obese | 25-30% | 25-30% | 22-28% | 25-30% | 자동 권장 금지 | 자동 권장 금지 |
+
+지방 정책의 우선순위:
+
+1. 일반 기본값은 20% 아래로 내려가지 않는다.
+2. 15-20%는 contest-like lean cut 예외로만 허용한다.
+3. 지방을 낮춰서 protein upper bound를 맞추는 것은 금지한다.
+4. 지방을 낮춰서 탄수 band를 맞출 수는 있지만, 20% 아래로 내려가면 target relief 또는 목표 강도 재검토가 먼저다.
+
+### 4-3. 목표 x 수준 탄수 정책표
+
+탄수는 목표별 단일값보다 운동부하별 충분성 검사가 더 중요하다. 따라서 구현은 "남은 칼로리 = 탄수"로 계산하되, 아래 band와 충돌하면 경고 또는 목표 강도 재검토를 띄운다.
+
+| 훈련/사용자 상태 | 유지/증량 기준 | 감량 기준 | 구현 판정 |
+| --- | --- | --- | --- |
+| 휴식일 / 낮은 활동 | 3 g/kg 미만도 가능 | 2-3 g/kg도 가능 | 경고보다 중립 안내 우선 |
+| 웨이트 60분 전후 | 3-5 g/kg 기대 | 2.5-4 g/kg이면 허용, 낮으면 fuel note | 단백질 상단 때문에 탄수가 눌렸는지 검사 |
+| 고볼륨 bodybuilding / mixed | 5-7 g/kg 기대 | 3-5 g/kg 미만이면 fuel pressure | target relief 후보 |
+| endurance 1-3시간 | 6-10 g/kg 기대 | 감량 중에도 낮으면 강한 fuel warning | protein을 높여 탄수 부족을 만들면 안 됨 |
+| 매우 높은 endurance | 8-12 g/kg | 앱 기본 산식으로 자동 해결하지 않음 | 별도 목표/전문가 안내 |
+
+탄수 정책에서 가장 중요한 결론:
+
+- 탄수는 "남은 칼로리 찌꺼기"가 맞지만, 사용자에게는 "운동 연료 충분성"으로 설명해야 한다.
+- 단백질을 줄여서라도 탄수를 올릴지, 목표 칼로리를 완화할지는 conflict flag를 보고 결정한다.
+- endurance profile은 단백질 상단보다 탄수 부족 경고가 먼저다.
+
+### 4-4. 목표 x 수준 rate 정책표
+
+| 목표 | 일반 사용자 | highBF/obese | lean/advanced | endurance/high-load |
+| --- | --- | --- | --- | --- |
+| maintain | 0 | 0 | 0 | 0 |
+| diet | -0.25~-0.5%/week 기본 | -0.5~-0.75% 가능 | -0.25~-0.5 우선 | 훈련 연료 부족이면 완화 |
+| cut | -0.5~-0.75 | -0.5~-1.0 가능하나 건강/기록 경계 | -0.25~-0.5 우선, contest-like만 예외 | 고부하이면 cut보다 diet 안내 가능 |
+| recomp | 0 또는 -0.1 | -0.1~-0.25 가능 | 0 중심 | 0 중심 |
+| lean_bulk | +0.1~+0.25 | 자동 권장 금지 | +0.1~+0.2 | 훈련량 높으면 +0.2~+0.25 |
+| bulk | +0.25~+0.5 | 자동 권장 금지 | lean_bulk 우선 | +0.25 이상은 체지방 증가 경고 |
+
+rate 정책은 외부근거가 "정확한 앱 목표값"으로 주는 영역이 아니다. 특히 증량 rate는 감량보다 근거가 약하므로, 앱은 보수적인 제품 정책으로 시작하고 최근 28일 추세와 기록 품질로 조정 후보를 제안해야 한다.
+
+## 5. 수준별 보정 정책표
+
+수준은 주간 운동일수만으로 결정하지 않는다.
+
+수준 판단에 함께 쓰는 신호:
+
+- 운동 프로필: bodybuilding / powerbuilding / strength / running / mixed
+- 세션 종류와 실제 운동시간
+- 운동강도 슬라이더
+- 체성분: 체지방률, LBM, 골격근량, FFMI
+- InBody 신뢰도: 전문 InBody / 가정용 InBody / 직접입력 / 없음
+- 최근 기록 품질: 식사 기록, 체중 기록, 목표 snapshot
+- 가능하면 수행능력 입력: 주요 중량, 러닝 페이스 등
+
+| 수준/상태 | 단백질 보정 | 지방 보정 | 탄수 보정 | rate 보정 | 주의 |
+| --- | --- | --- | --- | --- | --- |
+| 초급/입력 부족 | 1.4-1.6 또는 저항운동이면 1.6-1.8 | 25-30% | 낮은~중간 부하 기준 | 과격한 자동변경 금지 | 데이터 부족이면 보수적 설명 |
+| 일반 운동인 | 1.6-1.8 | 25-30% | 세션 부하별 3-7 g/kg 검사 | 목표별 중간값 | 앱의 기본 사용자층 |
+| 숙련 저항운동 | 1.6-2.0 | 22-30% | bodybuilding/strength도 훈련량 높으면 탄수 경고 | 감량은 너무 빠르게 잡지 않음 | 단백질 상단은 deficit/lean 여부 필요 |
+| lean advanced cut | 2.0 g/kg BW 이상 또는 2.3-3.1 g/kg FFM 후보 | 20-25, 예외 15-20 | 탄수 부족 가능성을 명시 | -0.25~-0.5 우선 | contest prep 예외를 일반화하지 않음 |
+| highBF/obese | 실제 체중 x 높은 protein 금지, LBM 또는 보정체중 기준 | 25-30% | 탄수는 남은 kcal | 더 큰 deficit 가능하지만 기록/건강 경계 필요 | 단백질 g/kg BW를 그대로 쓰면 과대 가능 |
+| endurance/high-cardio | 1.4-1.7 중심 | 20-30% | 5-10 g/kg까지 중요 | deficit가 수행을 망치면 경고 | 단백질보다 탄수 충분성이 더 중요할 수 있음 |
+| strength/powerbuilding | 1.6-2.0 | 25-30% | 세션 volume이 낮으면 3-5, 높으면 5-7 검사 | lean하면 천천히 | 중량 신호와 체성분을 같이 봐야 함 |
+
+## 6. 탄수화물 충분성 기준
+
+1순위 ACSM/DC/Academy 기준을 앱에 맞게 해석한다.
+
+| 훈련 부하 | 외부근거 범위 | 앱 해석 |
+| --- | --- | --- |
+| 낮음 / skill / low intensity | 3-5 g/kg/day | 휴식일 또는 낮은 웨이트/낮은 유산소 기준 |
+| 중간 / 약 1시간 운동 | 5-7 g/kg/day | 일반 훈련일, 웨이트 60분 또는 mixed 보통 |
+| 높음 / 1-3시간 중고강도 | 6-10 g/kg/day | endurance, mixed high, 고볼륨 bodybuilding |
+| 매우 높음 / 4-5시간 이상 | 8-12 g/kg/day | 우리 앱 기본 계산에서는 거의 예외, 경고/별도 안내 |
+
+앱 적용:
+
+- 감량 중에는 이 범위를 항상 다 채우기 어렵다.
+- 따라서 이 범위는 "강제 목표"가 아니라 "수행 연료 충분성 검사"로 쓴다.
+- 탄수화물이 부하 대비 낮으면 target relief, carb-low warning, training fuel note를 생성한다.
+- 단백질이나 지방 보호선을 깨면서 탄수 범위를 맞추지 않는다.
+
+## 7. 단백질 정책 세부표
+
+| 상황 | 단백질 범위 | 기본 선택 | basis | 근거 |
+| --- | --- | --- | --- | --- |
+| 입력 부족 / 일반 유지 | 1.4-1.6 | 1.5 | BW 또는 보정체중 | ISSN 1.4-2.0의 낮은 쪽 |
+| 일반 저항운동 유지 | 1.6-1.8 | 1.7 | BW | ISSN + ACSM |
+| 일반 diet | 1.6-1.9 | 1.8 | BW, highBF는 보정체중/LBM | 과단백 방지 |
+| diet + 저항운동 + lean | 1.8-2.0 | 1.9 또는 2.0 | BW 또는 FFM | ACSM energy restriction, ISSN |
+| cut + 숙련/lean | 2.0-2.2 BW 또는 2.3-3.1 FFM | 2.0 BW 또는 2.3 FFM부터 | FFM 우선 | ISSN body comp + Helms |
+| recomp | 1.6-2.0 | 1.8 | BW | 저항운동 적응/보존 |
+| lean_bulk/bulk | 1.6-1.8, 상한 2.0 | 1.7 | BW | surplus에서는 protein fill 불필요 |
+| endurance 중심 | 1.4-1.7 | 1.5-1.6 | BW | 단백질보다 탄수 충분성 우선 |
+
+### 기존 2.0g/kg diet 정책과의 관계
+
+기존 2.0 g/kg diet 정책의 의도:
+
+- 감량 중 근손실을 줄이기 위해 단백질을 높게 잡는다.
+- 사용자가 저항운동을 하고 체성분 개선을 목표로 한다는 앱 성격에 맞춘다.
+- 과거 2.4 g/kg 과대 문제를 낮추기 위한 복구값이었다.
+
+개정 판단:
+
+- 2.0 g/kg은 완전히 틀린 값이 아니다.
+- 다만 모든 diet 사용자에게 무조건 적용하면 일부 사용자에게 과하다.
+- 특히 target kcal이 낮거나, highBF 사용자가 실제 체중 기준으로 계산되거나, 휴식일 탄수/지방이 눌리는 경우 문제가 된다.
+- 따라서 2.0은 "상단 기본값"이고, 일반 diet는 1.6-1.9 사이에서 컨텍스트로 고른다.
+
+### 7-1. 현재 앱에서 발견된 단백질 과다 의심값 판정
+
+사용자가 지적한 예시:
+
+- target kcal 약 1,913 kcal
+- 단백질 약 180.5 g
+- 체중 약 74-75 kg 기준 약 2.4 g/kg BW
+
+정책표 기준 판정:
+
+- 이 값은 일반 `diet` 기본값으로는 높다.
+- 이 값이 정당화되려면 `lean advanced`, `contest-like cut`, 강한 저항운동, 높은 LBM 보존 필요, 낮은 체지방률, 높은 기록 신뢰도가 함께 있어야 한다.
+- 일반 diet / 휴식일 / 탄수·지방이 눌리는 상황에서 이 값이 나오면 `protein_overfill_risk`로 잡아야 한다.
+- 이 경우 구현은 단백질을 "상단값부터 박고 나머지를 배분"하면 안 된다. 단백질을 정책 범위 중간값으로 낮춘 뒤 지방 보호선과 탄수 연료를 다시 확인해야 한다.
+
+## 8. 지방 정책 세부표
+
+| 상황 | 지방 범위 | 기본 선택 | 근거 |
+| --- | --- | --- | --- |
+| 유지 / 일반 | 25-30% | 27% | ACSM fat 20-35 |
+| diet | 22-30% | 25% | 감량 중 보호선 유지 |
+| cut | 20-25% | 22% | deficit 확보 + 보호선 |
+| contest-like lean cut 예외 | 15-20% 허용 | 18% 이상 우선 | Helms 예외, 일반화 금지 |
+| recomp | 25-30% | 27% | 안정성 우선 |
+| lean_bulk/bulk | 25-35% | 28-30% | surplus에서 너무 낮출 필요 없음 |
+| endurance/high-carb | 20-25% | 22-25% | 탄수 공간 확보, 단 20% 아래 금지 |
+
+## 9. 목표별 매크로 산출 예시 정책
+
+아래는 구현자가 사용할 의사결정 예시다.
+
+### diet 예시
+
+1. 목표 rate를 체지방률과 최근 추세로 -0.25~-0.75% 사이에서 선택한다.
+2. 단백질은 일반 1.8 g/kg, 저항운동+lean이면 1.9-2.0 g/kg, highBF면 보정체중 또는 LBM 기준으로 낮춘다.
+3. 지방은 25% 전후로 둔다.
+4. 남은 칼로리를 탄수화물로 둔다.
+5. 훈련일 탄수가 3 g/kg보다 낮거나 사용자의 운동부하에 비해 낮으면 경고/target relief 후보를 띄운다.
+
+### cut 예시
+
+1. cut은 diet보다 명확한 감량 목표다.
+2. lean advanced라면 rate를 오히려 느리게 잡는다.
+3. 단백질은 FFM/LBM 기준 후보를 열되, 일반 사용자에게 contest prep 상단을 자동 적용하지 않는다.
+4. 지방은 20%를 기본 보호선으로 둔다.
+5. 탄수 부족이 반복되면 "현재 cut 강도가 훈련 연료를 압박한다"고 설명한다.
+
+### lean_bulk/bulk 예시
+
+1. 칼로리 surplus를 만든다.
+2. 단백질은 1.6-1.8 g/kg이면 충분한 기본값으로 본다.
+3. surplus 칼로리를 단백질로 채우지 않는다.
+4. 지방은 25-35% 안에서 안정적으로 둔다.
+5. 남는 칼로리는 탄수로 보내 훈련 수행을 지원한다.
+
+## 10. 구현 계약
+
+향후 코드 구현 시 필요한 구조:
+
+```text
+macroPolicy = {
+  goal,
+  userLevel,
+  profile,
+  protein: {
+    evidenceRange,
+    appDefault,
+    basis,
+    reason,
+    sourceTier
+  },
+  fat: {
+    evidenceRangePct,
+    appDefaultPct,
+    minPct,
+    exceptionAllowed,
+    reason,
+    sourceTier
+  },
+  carb: {
+    evidenceBandGkg,
+    computedRemainder,
+    adequacyStatus,
+    reason,
+    sourceTier
+  },
+  conflicts: []
+}
+```
+
+### 10-1. 산식 구현 결정 순서
+
+구현자는 아래 순서를 지켜야 한다.
+
+1. `goal`과 `profile/session`으로 목표 rate 후보를 고른다.
+2. 유지칼로리에서 rate를 적용해 `targetCal` 후보를 만든다.
+3. `bodyFat`, `LBM`, `InBody 신뢰도`, `exerciseProfile`, `trainingEvidence`로 단백질 basis를 고른다.
+4. 단백질은 해당 목표 x 수준표의 중간값에서 시작한다.
+5. `cut`, `lean advanced`, `highBF`, `endurance` 같은 조건이 있으면 상단/하단으로 이동한다.
+6. 지방은 목표 x 수준표의 기본값에서 시작하되 20% 아래로 자동 하락하지 않는다.
+7. 남은 칼로리를 탄수화물로 배정한다.
+8. 탄수화물이 운동부하별 band와 충돌하는지 본다.
+9. 충돌하면 바로 숫자를 억지 조정하지 말고 `conflicts`를 만든다.
+10. conflict가 있는 값은 Today/Coach/Records에서 사용자에게 설명 가능해야 한다.
+
+### 10-2. 충돌 해결 우선순위
+
+충돌 해결 우선순위는 아래와 같다.
+
+1. 단백질이 상단값이라 탄수/지방을 누르면, 먼저 단백질을 해당 상황의 중간값 또는 하단값으로 내릴 수 있는지 본다.
+2. 지방이 20% 아래로 내려가면 일반 사용자에게는 target relief를 먼저 검토한다.
+3. 탄수가 훈련부하 대비 낮으면 "운동일 연료 부족"으로 표시한다.
+4. 세 매크로가 모두 맞지 않으면 목표 강도 또는 rate를 완화하는 후보를 만든다.
+5. 사용자의 최근 기록이 부족하면 자동 적용하지 않고 "검토 후보"로 둔다.
+
+필수 conflict flag:
+
+- `protein_overfill_risk`: 단백질 때문에 탄수/지방이 눌림
+- `fat_below_general_floor`: 지방이 20% 미만
+- `carb_below_training_band`: 훈련 부하 대비 탄수 부족
+- `target_too_aggressive_for_lean_user`: lean 사용자에게 감량 속도 과함
+- `high_bf_actual_weight_protein_inflation`: highBF 사용자의 실제 체중 기준 단백질 과대
+- `insufficient_record_evidence`: 기록 부족으로 자동 조정 위험
+- `inbody_reliability_limited`: 가정용/직접입력 체성분으로 과도한 조정 위험
+
+## 11. 시나리오 감사 필수 목록
+
+이 정책표를 코드에 넣기 전과 넣은 후 모두 아래를 돌린다.
+
+### 사용자 유형
+
+- 마른데 근육 적은 사람
+- 마른데 근육 많은 사람
+- 일반 체형 일반 운동인
+- 근육 많고 체지방 낮은 보디빌딩 사용자
+- 근육 많고 체지방 높은 파워빌딩/스트렝스 사용자
+- 근육 적고 체지방 높은 사용자
+- 초고도비만 사용자
+- 러닝 중심 사용자
+- mixed 사용자
+- 여성 사용자
+- 기록 부족 사용자
+- 가정용 InBody 사용자
+- 전문 InBody 사용자
+
+### 목표
+
+- diet
+- cut
+- recomp
+- maintain
+- lean_bulk
+- bulk
+
+### 날짜 상황
+
+- 휴식일
+- 낮은 웨이트일
+- 고볼륨 웨이트일
+- 유산소 중심일
+- mixed 고부하일
+- 운동강도 슬라이더 낮음/기본/높음
+- 주간 웨이트일수 낮음/중간/높음
+
+### 확인해야 할 것
+
+- target kcal이 말이 되는가
+- protein이 과하지 않은가
+- fat이 20% 아래로 떨어졌는가
+- carb가 운동부하 대비 너무 낮은가
+- 남은 kcal을 protein으로 채우지 않았는가
+- 기록 snapshot과 Today 현재 기준이 불필요하게 충돌하지 않는가
+- Coach 문구가 숫자와 같은 말을 하는가
+- Records/Recent/InBody/Settings와 설명이 충돌하지 않는가
+
+## 12. 구현 금지선
+
+다음은 금지한다.
+
+- "외부근거가 단백질 2.0을 허용한다"는 이유로 모든 diet를 2.0에 고정한다.
+- "Helms가 2.3-3.1 FFM을 말한다"는 이유로 일반 감량 사용자에게 contest prep 단백질을 적용한다.
+- "fat 15%도 문헌에 있다"는 이유로 일반 diet 지방을 15%로 낮춘다.
+- "탄수는 남는 칼로리"라는 이유로 endurance 사용자의 탄수 부족을 무시한다.
+- highBF 사용자의 실제 체중에 높은 g/kg protein을 그대로 곱한다.
+- 주간 운동일수만으로 초급/중급/고급을 결정한다.
+- candidate runner 통과를 production 산식 완성으로 말한다.
+
+## 13. 다음 구현 단계
+
+다음 단계는 바로 production 산식 적용이 아니다.
+
+권장 순서:
+
+1. 이 정책표를 코드 상수 또는 runner policy object로 옮긴다.
+2. 현재 production 산식과 policy table을 비교하는 report-only runner를 만든다.
+3. 사용자 유형 x 목표 x 운동상황 시나리오에서 protein/fat/carb conflict를 출력한다.
+4. 사용자에게 말이 되는 시나리오부터 production candidate를 만든다.
+5. Today/Records/Recent/Coach/Backup snapshot 계약을 같이 확인한다.
+6. 렌더와 실제 입력 흐름을 확인한 뒤 production 적용 여부를 결정한다.
+
+## 14. 참고 URL
+
+- Academy / Dietitians of Canada / ACSM, Nutrition and Athletic Performance: https://www.dietitians.ca/DietitiansOfCanada/media/Documents/Resources/noap-position-paper.pdf
+- ISSN Protein and Exercise: https://link.springer.com/article/10.1186/s12970-017-0177-8
+- ISSN Diets and Body Composition: https://link.springer.com/article/10.1186/s12970-017-0174-y
+- Helms, Aragon, Fitschen, Natural Bodybuilding Contest Preparation: https://link.springer.com/article/10.1186/1550-2783-11-20
+- National Academies AMDR report: https://www.nationalacademies.org/read/27957/chapter/5
