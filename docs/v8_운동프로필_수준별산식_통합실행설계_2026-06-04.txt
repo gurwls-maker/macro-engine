@@ -1021,3 +1021,44 @@ BL 통과가 의미하지 않는 것:
 
 - `runV8ScenarioRunnerTests` 1 suite / 40 cases / failed 0.
 - `runV8ScenarioRunnerTests,runTodayCalculationOwnershipTests,runTodayQuickEditTests` 3 suites / 98 cases / failed 0.
+
+## 23. 2026-06-05 BM 본단계6 렌더 / 시나리오 / 테스트 검증 경계 메모
+
+BM은 본단계 6의 report-only 검증 경계다. production 산식 변경, user-facing 문구 변경, 식단 점수 로직 변경, Coach 런타임 변경, Records schema 변경, Backup schema 변경이 아니다.
+
+본단계 6의 완료 조건은 "후보 산식이 실제로 적용되었다"가 아니라 "본단계 5에서 닫은 BL 연결 계약이 렌더/시나리오/테스트 검증 경계에서도 과장 없이 유지된다"이다.
+
+닫힌 검증:
+
+- `source_contract_closed`: BL source contract가 닫힌 상태에서만 BM이 시작된다.
+- `scenario_layers_separated`: BG의 human-eye, axis sweep, pairwise stress, targeted stress, full Cartesian gate 분리가 유지된다.
+- `records_score_coach_backup_scenarios_covered`: Records / Score / Coach / Backup 연결 시나리오가 BL/BF 계약으로 덮인다.
+- `post_wiring_render_evidence_acknowledged`: 기존 AB/AH post-wiring render evidence를 screenshot evidence로 인정하되, full UX review로 오해하지 않는다.
+- `render_audit_scope_separated`: render audit는 broad human UX review, full Cartesian 실행, production 구현, full V8 completion과 분리된다.
+- `full_cartesian_claim_blocked`: full Cartesian 실행은 여전히 열려 있으며, BM이 80B 전체 실행을 대체하지 않는다.
+- `production_boundary_preserved`: BM은 production formula, user-facing copy, score/Coach logic, Records schema, Backup schema를 변경하지 않는다.
+- `full_completion_blocked`: full V8 completion은 닫히지 않는다.
+- `external_render_rerun_required`: runner report는 실제 screenshot command 실행을 내장하지 않으므로, fresh 렌더 확인은 별도 명령으로 수행해야 한다.
+
+`runV8ScenarioRunner()`에는 `levelAwareRenderScenarioValidation`이 추가되었다. 이 report의 정상 기준은 `validationCount=9`, `closedValidationCount=9`, `findingCount=0`, `missingValidationCount=0`이다.
+
+completion declaration gate와 whole-stage audit도 BM 근거를 보게 되었다. whole-stage evidence boundary audit check count는 28에서 29로 올라간다.
+
+2026-06-05 실제 검증:
+
+- `node .\tools\render_audit\run_internal_tests.cjs --profile=core --suite=runV8ScenarioRunnerTests,runTodayCalculationOwnershipTests,runTodayQuickEditTests`: 3 suites / 99 cases / failed 0
+- `node .\tools\render_audit\run_internal_tests.cjs --profile=core`: 26 suites / 371 cases / failed 0
+- `node .\tools\render_audit\capture_render_audit.cjs`: fresh screenshots 66 captures
+- `node .\tools\render_audit\analyze_render_audit.cjs`: captureCount 66, desktop 42, mobile 24, requiredMobile 24, postWiringProfileCandidate 8, profileRoutineOwnership 10, failed 0
+- 첫 `capture_render_audit`는 240초 timeout으로 중단되었고, 600초 timeout 재실행에서 통과했다. 따라서 최종 근거는 두 번째 fresh capture/analyze 결과만 사용한다.
+
+BM 통과가 의미하지 않는 것:
+
+- 수준별 산식 production 구현 완료가 아니다.
+- full V8 completion이 아니다.
+- full Cartesian 실행이 아니다.
+- broad human UX review 완료가 아니다.
+- Records/Score/Coach/Backup 화면 문구가 실제로 바뀐 것이 아니다.
+- runner 내부에서 최신 screenshot capture를 직접 실행했다는 뜻이 아니다.
+
+다음 단계는 본단계 7 `승인 범위 production 적용`이다. 본단계 7에서는 승인된 변경 범위만 production에 반영해야 하며, full Cartesian 실행/대체 gate와 broad human UX review를 본단계 7 완료로 합리화하면 안 된다.

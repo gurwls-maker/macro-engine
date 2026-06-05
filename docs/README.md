@@ -699,3 +699,15 @@
 - BL 통과는 본단계5 완료 의미이며, 수준별 산식 production 적용 완료가 아니다.
 - 다음 작업은 본단계6 `렌더/시나리오/테스트 검증`이다. 렌더와 실제 시나리오에서 깨지면 문서를 합리화하지 말고 코드/설계/문서 중 어디가 틀렸는지 재판단한다.
 - 2026-06-05 검증: `runV8ScenarioRunnerTests` 1 suite / 40 cases / failed 0, `runV8ScenarioRunnerTests,runTodayCalculationOwnershipTests,runTodayQuickEditTests` 3 suites / 98 cases / failed 0.
+
+### v8.0-BM 본단계6 렌더 / 시나리오 / 테스트 검증 경계
+
+- BM은 `runV8ScenarioRunner()`에 `levelAwareRenderScenarioValidation`을 추가한 report-only 검증 경계다.
+- 검증 범위는 BL 계약, BG 시나리오 레이어 분리, Records/Score/Coach/Backup 연결 시나리오, 기존 post-wiring render evidence, full Cartesian 미실행 경계, production 미적용 경계를 함께 확인하는 것이다.
+- 정상 기준은 `validationCount=9`, `closedValidationCount=9`, `missingValidationCount=0`, `findingCount=0`이다.
+- BM은 production 산식, user-facing copy, Score/Coach runtime, Records schema, Backup schema를 바꾸지 않는다.
+- BM은 runner 내부에서 실제 screenshot capture를 실행했다고 주장하지 않는다. 실제 렌더 최신성은 별도 `capture_render_audit` / `analyze_render_audit` 명령으로 확인해야 한다.
+- whole-stage evidence boundary audit는 BM이 추가되어 29개 check를 본다.
+- 2026-06-05 검증: `runV8ScenarioRunnerTests`, `runTodayCalculationOwnershipTests`, `runTodayQuickEditTests` targeted 99 cases 통과, core profile 371 cases 통과, fresh render audit 66 captures / failed 0 통과.
+- BM 통과는 본단계6 완료 의미이며, 수준별 산식 production 적용 완료나 full V8 completion이 아니다.
+- 다음 작업은 본단계7 `승인 범위 production 적용`이다. 이 단계에서는 승인된 범위만 production에 반영해야 하며, full Cartesian 실행/대체 gate와 broad human UX review는 여전히 별도 판단 대상이다.
