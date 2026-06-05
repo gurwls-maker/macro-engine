@@ -712,3 +712,12 @@
 - 2026-06-05 검증: `runV8ScenarioRunnerTests`, `runTodayCalculationOwnershipTests`, `runTodayQuickEditTests` targeted 99 cases 통과, core profile 371 cases 통과, fresh render audit 66 captures / failed 0 통과.
 - BM 통과는 본단계6 완료 의미이며, 수준별 산식 production 적용 완료나 full V8 completion이 아니다.
 - 다음 작업은 본단계7 `승인 범위 production 적용`이다. 이 단계에서는 승인된 범위만 production에 반영해야 하며, full Cartesian 실행/대체 gate와 broad human UX review는 여전히 별도 판단 대상이다.
+
+### v8.0-BN 외부근거 매크로 정책표 비교 러너
+
+- BN은 `docs/v8_외부근거_매크로_정책표_2026-06-05.txt`의 단백질·지방·탄수 정책을 `EXTERNAL_MACRO_POLICY_TABLE` 코드 상수와 `runExternalMacroPolicyComparison()`으로 옮긴 report-only 비교 단계다.
+- BN은 production targetCal, production macro allocation, Records schema, Coach copy, UI를 바꾸지 않는다.
+- 비교 러너는 현재 production 산식 결과를 외부근거 정책표와 대조해 `protein_overfill_before_fat_cut`, `carb_below_training_band`, `fat_floor_used_for_carb_pressure`, `fat_floor_used_without_reason`, `fat_below_general_floor`, `target_relief_preferred_over_fat_cut` 같은 충돌 신호를 리포트한다.
+- 이 단계의 의미는 “수준별 × 목표별 매크로 정책이 production에 적용됐다”가 아니라 “production에 적용하기 전에 무엇을 고쳐야 하는지 자동으로 볼 수 있는 대조표가 생겼다”이다.
+- 2026-06-05 검증: `runExternalMacroPolicyComparisonTests` 5개 케이스 통과, `--profile=calibration` 15개 suite / 154개 case / failed 0 통과.
+- 다음 작업은 BN 리포트 결과를 기준으로 production 후보를 좁히는 것이다. 후보는 단백질 기본값, 지방 선택 사유, 탄수 잔여 배분, 20% 미만 지방 대신 목표 완화가 필요한 케이스를 함께 판단해야 한다.
