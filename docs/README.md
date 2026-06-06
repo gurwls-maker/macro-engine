@@ -771,14 +771,14 @@
 - 두 기준은 production targetCal을 새로 만들지 않는다. 사용자가 보는 목표 칼로리는 동일하고, 선택 기준은 탄단지 배분과 g/kg 상태 문구/비교 설명만 바꾼다.
 - 활동량 기준의 `referenceTargetCal`은 "활동량 기준이 참고로 본 목표"이며, production targetCal과 분리해서 둔다. 이 값을 사용자 목표 칼로리로 덮어쓰면 안 된다.
 - 선택 기준은 `selectedMacroBasis`/`macroBasis` 같은 localStorage, Records, Backup schema 필드로 저장하지 않는다. 기준 선택은 현재 화면의 비교 보기다.
-- BQ는 production formula, UI, user-facing copy, Records schema, Backup schema를 바꾸지 않는다.
-- 2026-06-06 감사 결과: BQ는 통과가 아니라 blocker를 발견했다. `buildDualBasisProduction()` 단계에서는 guide/activity가 같은 authoritative targetCal을 공유하지만, 그 뒤 `profile_candidate_v2` scoped production wiring이 현재 선택된 기준의 탄단지를 읽으면서 일부 시나리오에서 최종 `calculate().targetCal`이 86~136kcal 움직인다.
+- BQ 자체는 production formula, UI, user-facing copy, Records schema, Backup schema를 바꾸지 않는 감사다.
+- 2026-06-06 BQ 감사에서 blocker가 발견됐다. `buildDualBasisProduction()` 단계에서는 guide/activity가 같은 authoritative targetCal을 공유하지만, 그 뒤 `profile_candidate_v2` scoped production wiring이 현재 선택된 기준의 탄단지를 읽으면서 일부 시나리오에서 최종 `calculate().targetCal`이 86~136kcal 움직였다.
 - 이 문제를 무시하면 사용자가 `가이드 기준`과 `활동량 기준` 토글을 누르는 것만으로 목표 칼로리가 달라지는 앱처럼 보인다. 이 토글은 비교/해석 축이지 목표 칼로리 엔진 선택지가 아니다.
-- 따라서 BQ는 `guideActivityBasisRoleSplitClosed=false`, `targetCalPreserved=false`, `findingCount>0` 상태로 남긴다. 테스트도 이 blocker를 통과로 숨기지 않고 `basis_toggle_changes_target_cal` 발견 여부를 검증한다.
-- whole-stage evidence boundary audit는 BQ가 추가되어 32개 check를 보며, 현재는 BQ check 1개가 의도적으로 미통과다. 이것은 테스트 실패가 아니라 다음 단계로 넘겨야 할 실제 산식 충돌 증거다.
-- 삭제된 단계는 없다. 추가된 단계는 BQ와 후속 BR이다. BP의 다음 작업인 `guide_activity_basis_role_split_audit_before_formula_application`은 이제 `profile_candidate_basis_invariant_target_policy_before_formula_application`으로 이어진다.
-- BR에서 우선 검토할 방향은 `profile_candidate_v2`의 target relief를 guide/activity 선택과 무관한 단일 canonical 기준으로 계산한 뒤, 그 목표 칼로리 안에서 guide/activity 탄단지 배분을 다시 나누는 것이다. 앱 완성도 기준으로는 candidate-v2를 단순 report-only로 되돌리는 것보다 이 방향이 더 자연스럽다.
-- BR을 닫기 전까지 production 산식 반영 여부 결정 단계(`profile_formula_application_decision_after_guide_activity_basis_role_split`)로 넘어가면 안 된다.
+- 2026-06-06 BR에서 이 blocker를 닫았다. `profile_candidate_v2`의 target relief 입력은 이제 UI에서 선택된 guide/activity basis가 아니라 canonical guide policy basis와 `dualBasis.authoritativeTargetCal`을 사용한다. UI 선택값은 비교 표시와 macro allocation 보기로만 남긴다.
+- 현재 정상 기준은 `guideActivityBasisRoleSplitClosed=true`, `targetCalPreserved=true`, `findingCount=0`이다. 테스트도 더 이상 `basis_toggle_changes_target_cal`을 정상으로 보지 않고, guide/activity 토글이 targetCal을 보존하면서 macro 차이만 만드는지 검증한다.
+- whole-stage evidence boundary audit는 32개 check를 보며, BR 이후 BQ check도 통과한다. 단, 이것은 full V8 completion이 아니라 guide/activity target-policy 누수가 닫혔다는 뜻이다.
+- 삭제된 단계는 없다. 추가된 단계는 BQ와 BR이다. BP의 다음 작업인 `guide_activity_basis_role_split_audit_before_formula_application`은 BQ/BR을 거쳐 `profile_formula_application_decision_after_guide_activity_basis_role_split`로 이어진다.
+- 다음 단계에서 production 산식 반영 여부를 결정할 때도 이 원칙은 유지한다. `가이드 기준/활동량 기준`은 서로 다른 목표 칼로리 엔진이 아니라 같은 목표 안에서 탄단지 배분과 설명을 비교하는 축이다.
 
 ### v8.0-BN 외부근거 매크로 정책표 비교 러너
 
