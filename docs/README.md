@@ -788,3 +788,12 @@
 - 이 단계의 의미는 “수준별 × 목표별 매크로 정책이 production에 적용됐다”가 아니라 “production에 적용하기 전에 무엇을 고쳐야 하는지 자동으로 볼 수 있는 대조표가 생겼다”이다.
 - 2026-06-05 검증: `runExternalMacroPolicyComparisonTests` 5개 케이스 통과, `--profile=calibration` 15개 suite / 154개 case / failed 0 통과.
 - 다음 작업은 BN 리포트 결과를 기준으로 production 후보를 좁히는 것이다. 후보는 단백질 기본값, 지방 선택 사유, 탄수 잔여 배분, 20% 미만 지방 대신 목표 완화가 필요한 케이스를 함께 판단해야 한다.
+
+### v8.0-BS 산식 반영 의사결정 gate
+
+- BS는 BQ/BR 이후의 `profile_formula_application_decision_after_guide_activity_basis_role_split`를 닫는 단계다. 단, production 산식 적용 단계가 아니라 외부근거 정책표를 본단계 gate에 연결하는 report-only 의사결정 단계다.
+- BS는 `runV8ScenarioRunner()` 안에 `profileFormulaApplicationDecision`를 추가해 BN의 외부근거 매크로 정책표 비교 결과를 본단계 완료/미완료 판단에 포함한다. 이렇게 해야 외부근거 표가 별도 러너로만 남아 "구현된 것처럼" 오해되는 일을 막을 수 있다.
+- 정상 기준은 `decisionClosed=true`, `externalPolicyGoalCoverageClosed=true`, `exactUserProteinFatPressureCaught=true`, `directProductionApplicationAllowed=false`, `productionCandidateWiringRequired=true`, `findingCount=0`이다.
+- `exactUserProteinFatPressureCaught`는 사용자가 직접 문제 제기했던 다이어트 1,913kcal / 체중 74.65kg / 단백질 180.5g / 탄수 196.3g / 지방 45.1g 케이스를 회귀 조건으로 둔다. 이 케이스는 `protein_overfill_before_fat_cut`와 `carb_below_training_band`를 반드시 잡아야 한다.
+- BS의 결론은 "현재 production 산식이 외부근거에 맞으므로 바로 적용 가능"이 아니다. 결론은 "가이드/활동량 기준 누수는 닫혔지만, 현재 production에는 외부근거 충돌이 남아 있으므로 외부근거 기반 production 후보 배선을 다음 단계에서 해야 한다"이다.
+- 추가된 단계는 BS다. 삭제된 단계는 없다. 수정된 다음 단계는 `profile_formula_application_decision_after_guide_activity_basis_role_split`에서 `external_macro_policy_production_candidate_wiring_after_application_decision`로 바뀐다.
