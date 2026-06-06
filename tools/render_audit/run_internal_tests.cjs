@@ -134,7 +134,8 @@ const testProfiles = {
     "runGoalMacroPrincipleReviewTests",
     "runGoalMacroDualBasisReviewTests",
     "runExternalMacroPolicyComparisonTests",
-    "runExternalMacroProductionCandidateWiringTests"
+    "runExternalMacroProductionCandidateWiringTests",
+    "runExternalMacroActiveApplicationDecisionTests"
   ],
   mobile: [
   "runMobileRegressionQaTests",

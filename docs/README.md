@@ -808,3 +808,13 @@
 - 정상 기준은 `candidateWiringClosed=true`, `sourceDecisionClosed=true`, `goalCoverageClosed=true`, `sameTargetCalClosed=true`, `macroKcalClosed=true`, `candidateBoundaryClosed=true`, `userPainResolved=true`, `findingCount=0`이다.
 - 추가된 단계는 BT다. 삭제된 단계는 없다. 수정된 다음 단계는 `external_macro_policy_production_candidate_wiring_after_application_decision`에서 `external_macro_policy_active_formula_application_decision_after_candidate_wiring`로 바뀐다.
 - 2026-06-06 검증: `runExternalMacroProductionCandidateWiringTests`, `runV8ScenarioRunnerTests`, `runExternalMacroPolicyComparisonTests` targeted 3 suite / 55 cases / failed 0 통과; calibration profile 16 suite / 163 cases / failed 0 통과; `runV8ScenarioRunnerTests`, `runTodayCalculationOwnershipTests`, `runTodayQuickEditTests` targeted 3 suite / 104 cases / failed 0 통과.
+
+### v8.0-BU 외부근거 매크로 active 적용 결정
+
+- BU는 BT가 요구한 다음 단계인 `external_macro_policy_active_formula_application_decision_after_candidate_wiring`를 닫는 단계다. 결론은 “후보 산식이 준비되지 않았다”가 아니라 “후보는 숫자로 준비됐지만, 한 벌짜리 후보를 그대로 production에 꽂으면 `가이드 기준/활동량 기준`의 역할이 무너진다”이다.
+- 이 결정은 안전이나 개발 편의 때문에 미루는 것이 아니다. 앱 완성도 기준으로 보면 `가이드 기준/활동량 기준`은 같은 목표 칼로리 안에서 서로 다른 탄단지 배분과 설명을 비교하는 축이어야 한다. 따라서 외부근거 후보 산식은 active 적용 전에 두 기준에 각각 어떻게 배치될지 먼저 정의되어야 한다.
+- BU는 `externalMacroActiveApplicationDecision` 리포트를 추가해 `candidateNumericallyReadyForMapping=true`, `sameCandidateDirectApplicationRejected=true`, `guideActivityBasisMappingRequired=true`, `scoreCoachRecordsExplanationMappingRequired=true`를 정상 기준으로 둔다.
+- 여기서 `candidateNumericallyReadyForMapping=true`는 후보가 목표 kcal를 보존하고, 탄단지 kcal 합계를 닫고, 단백질/지방 외부근거 경계를 깨지 않는다는 뜻이다. `introducedConflictCount`, `candidateReviewRequiredCount`, `targetReliefRecommendedCount`처럼 비교표에 남는 항목은 실패가 아니라 다음 단계에서 `가이드 기준/활동량 기준`별 설명과 사용자 문구로 풀어야 할 매핑 과제다.
+- BU는 production targetCal, Today/Records 탄단지 표시값, Score, Coach, Records schema, Backup schema를 바꾸지 않는다. 정상값은 `productionFormulaChanged=false`, `activeProductionApplied=false`, `candidateFormulaApproved=false`, `directActiveApplicationAllowed=false`다.
+- 다음 단계는 `external_macro_policy_guide_activity_basis_mapping_before_active_application`이다. 여기서는 외부근거 후보를 `가이드 기준`과 `활동량 기준`에 각각 어떻게 배치할지, Today/Records/Score/Coach 설명문이 무엇을 말해야 하는지, target relief가 필요한 케이스를 어떻게 사용자에게 보여줄지 닫아야 한다.
+- 추가된 단계는 BU다. 삭제된 단계는 없다. 수정된 다음 단계는 `external_macro_policy_active_formula_application_decision_after_candidate_wiring`에서 `external_macro_policy_guide_activity_basis_mapping_before_active_application`로 바뀐다.
