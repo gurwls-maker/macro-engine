@@ -752,6 +752,17 @@
 - whole-stage evidence boundary audit는 BO가 추가되어 30개 check를 본다.
 - 단계 삭제는 없다. 단계 추가는 BO이며, 다음 단계는 `profile_session_numeric_scenario_validation_before_formula_application`으로 수정한다.
 
+### v8.0-BP 프로필/세션 숫자 시나리오 검증
+
+- BP는 `runV8ScenarioRunner()`에 `profileSessionNumericScenarioValidation`을 추가한 report-only 검증이다.
+- 검증 범위는 모든 운동 프로필의 루틴/세션 기본 `xw`, 기본 웨이트 시간, 유산소 기본값, REST 0 처리, 러닝의 유산소 소유권, 혼합형의 저항/유산소 부하 경계다.
+- 정상 기준은 `findingCount=0`, `profileCoverageClosed=true`, `profileRestCoverageClosed=true`, `sessionOwnershipClosed=true`, `restDefaultsClosed=true`, `runningCardioOwned=true`, `resistanceSessionsHaveLoad=true`, `mixedHybridBoundsClosed=true`, `defaultBoundsClosed=true`다.
+- BP는 production targetCal, production macro allocation, Records schema, Coach copy, UI, 기본 시간, 기본 xw, 유산소 기본값을 바꾸지 않는다.
+- BP 통과는 “현재 앱의 프로필/세션 숫자 기본값이 산식에 들어가기 전 구조적으로 모순이 없다”는 의미이지, “그 숫자를 production 산식에 적용해도 된다”는 의미가 아니다.
+- whole-stage evidence boundary audit는 BP가 추가되어 31개 check를 본다.
+- 삭제된 단계는 없다. 추가된 단계는 BP이며, BO의 다음 작업인 `profile_session_numeric_scenario_validation_before_formula_application`은 `guide_activity_basis_role_split_audit_before_formula_application`으로 이어진다.
+- 다음 작업은 가이드 기준/활동량 기준의 역할 분리 감사다. 두 기준이 같은 숫자 정책을 공유할 수 있더라도 사용자에게 다르게 설명되고 다르게 비교되어야 하므로, 숫자 검증 통과만으로 두 기준 양립을 승인하면 안 된다.
+
 ### v8.0-BN 외부근거 매크로 정책표 비교 러너
 
 - BN은 `docs/v8_외부근거_매크로_정책표_2026-06-05.txt`의 단백질·지방·탄수 정책을 `EXTERNAL_MACRO_POLICY_TABLE` 코드 상수와 `runExternalMacroPolicyComparison()`으로 옮긴 report-only 비교 단계다.
