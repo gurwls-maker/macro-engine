@@ -95,7 +95,7 @@
 - `performanceLevel`은 여전히 사용자-facing selector가 아니다. 회복, 연료, 설명, 검토 신호로 쓸 수 있지만 운동 kcal 배율이나 targetCal 직접 이동 근거가 되면 안 된다.
 - 내부 key `strength`는 백업/테스트/과거 기록 호환을 위해 유지한다.
 - 사용자 표시명은 `스트렝스`가 아니라 `파워리프팅`으로 정리한다.
-- 다음 단계는 프로필별 세션/루틴 이름, 기본 시간, 기본 강도, 휴식/디로드 의미가 실제 운동 사용자에게 납득되는지 검증하는 것이다.
+- 다음 단계는 BO 이후 프로필별 세션/루틴 기본 시간, 기본 강도, xw, 휴식/디로드 의미를 실제 숫자 시나리오로 검증하는 것이다. 프로필/세션 용어가 정리됐다는 것과 그 숫자가 production 산식에 적절하다는 것은 별개다.
 
 # 2026-06-06 프로필별 세션/루틴 사용자-facing 정밀화 메모
 
@@ -106,6 +106,17 @@
 - 혼합 프로필의 `회복 혼합`은 역할이 흐리므로 `회복 유산소`로 정리했다.
 - 이번 단계는 production macro formula, 기본 시간, 기본 xw를 바꾸지 않는다. 숫자 기본값은 다음 시나리오 검증에서 targetCal, Records snapshot, Coach/Score 변화와 함께 판단한다.
 - 단계 삭제/추가는 없다. 다만 현재 단계의 산출물은 "세션 용어/의미 정리"이고, 다음 단계는 "입력 피로도, 프로필별 세션 정확도, 산식 반영 범위 재검토"로 이어진다.
+
+# 2026-06-06 BO 수행능력 입력 피로도 / 산식 반영 범위 감사 메모
+
+- BO는 report-only 감사다. production targetCal, macro allocation, Records schema, Coach copy, UI, 기본 운동시간, 기본 xw를 바꾸지 않는다.
+- 수행능력은 매일 묻지 않는다. 사용자가 원할 때 한 번 넣는 선택 근거이거나, 기록에서 추론되는 보조 근거다.
+- 새 필수 입력은 0개다. 수행근거가 없다는 이유로 초급자, 낮은 신뢰도, 낮은 targetCal로 벌점 처리하지 않는다.
+- `performanceLevel`이나 relative strain은 운동 kcal 배율 또는 targetCal 직접 이동 근거가 아니다. 운동 kcal은 루틴 xw/웨이트 시간과 유산소 종류/시간/속도/경사/MET처럼 측정 가능한 workload 입력이 책임진다.
+- 수행능력은 회복 필요, fuel 필요, Coach 설명, 시나리오 감사, 추후 target relief 검토 신호로만 쓴다.
+- 가이드 기준/활동량 기준은 유지한다. 다만 두 기준의 역할 차이는 별도 감사가 필요하고, 같은 정책을 그대로 복붙해 양립한다고 주장하면 안 된다.
+- 단계 변경: 삭제 없음. 추가: `v8.0-BO performance input fatigue/formula scope audit`. 수정: BM 이후 바로 production 적용 판단으로 가지 않고 `profile_session_numeric_scenario_validation_before_formula_application`을 먼저 수행한다.
+- 이유: 입력 피로도와 산식 반영 범위를 닫지 않으면 수준별 산식이 daily performance form, standalone level selector, kcal multiplier, targetCal shortcut로 오해될 수 있다.
 
 # v8.0-AZ user-level formula precision design note
 
@@ -729,7 +740,17 @@
 - whole-stage evidence boundary audit는 BM이 추가되어 29개 check를 본다.
 - 2026-06-05 검증: `runV8ScenarioRunnerTests`, `runTodayCalculationOwnershipTests`, `runTodayQuickEditTests` targeted 99 cases 통과, core profile 371 cases 통과, fresh render audit 66 captures / failed 0 통과.
 - BM 통과는 본단계6 완료 의미이며, 수준별 산식 production 적용 완료나 full V8 completion이 아니다.
-- 다음 작업은 본단계7 `승인 범위 production 적용`이다. 이 단계에서는 승인된 범위만 production에 반영해야 하며, full Cartesian 실행/대체 gate와 broad human UX review는 여전히 별도 판단 대상이다.
+- 다음 작업은 BO `수행능력 입력 피로도 / 산식 반영 범위 감사`다. BM 이후 곧바로 production 적용으로 가지 않고, 입력 부담과 산식 반영 범위를 먼저 닫는다.
+
+### v8.0-BO 수행능력 입력 피로도 / 산식 반영 범위 감사
+
+- BO는 `runV8ScenarioRunner()`에 `performanceInputFatigueFormulaScopeAudit`을 추가한 report-only 감사다.
+- 정상 기준은 `findingCount=0`, `requiredNewFieldCount=0`, `dailyPerformanceInputApproved=false`, `standalonePerformanceSelectorApproved=false`, `missingEvidencePenaltyAllowed=false`다.
+- 수행근거는 선택 입력/기록 추론 근거로만 허용한다. 없다고 해서 사용자 수준을 깎거나 targetCal을 낮추지 않는다.
+- `performanceLevel`과 relative strain은 운동 kcal 배율, targetCal 직접 이동, production formula 승인 근거가 아니다.
+- 운동 kcal 책임은 측정 가능한 workload 입력에 남긴다. 프로필/세션/수행능력은 회복, fuel, Coach 설명, 시나리오 감사, 추후 target relief 검토 신호로 쓴다.
+- whole-stage evidence boundary audit는 BO가 추가되어 30개 check를 본다.
+- 단계 삭제는 없다. 단계 추가는 BO이며, 다음 단계는 `profile_session_numeric_scenario_validation_before_formula_application`으로 수정한다.
 
 ### v8.0-BN 외부근거 매크로 정책표 비교 러너
 
