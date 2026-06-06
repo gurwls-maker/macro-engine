@@ -797,3 +797,14 @@
 - `exactUserProteinFatPressureCaught`는 사용자가 직접 문제 제기했던 다이어트 1,913kcal / 체중 74.65kg / 단백질 180.5g / 탄수 196.3g / 지방 45.1g 케이스를 회귀 조건으로 둔다. 이 케이스는 `protein_overfill_before_fat_cut`와 `carb_below_training_band`를 반드시 잡아야 한다.
 - BS의 결론은 "현재 production 산식이 외부근거에 맞으므로 바로 적용 가능"이 아니다. 결론은 "가이드/활동량 기준 누수는 닫혔지만, 현재 production에는 외부근거 충돌이 남아 있으므로 외부근거 기반 production 후보 배선을 다음 단계에서 해야 한다"이다.
 - 추가된 단계는 BS다. 삭제된 단계는 없다. 수정된 다음 단계는 `profile_formula_application_decision_after_guide_activity_basis_role_split`에서 `external_macro_policy_production_candidate_wiring_after_application_decision`로 바뀐다.
+
+### v8.0-BT 외부근거 매크로 production 후보 배선
+
+- BT는 BS가 요구한 다음 단계인 `external_macro_policy_production_candidate_wiring_after_application_decision`를 닫는 report-only 후보 배선 단계다.
+- 이 단계는 `EXTERNAL_MACRO_POLICY_TABLE`을 `runExternalMacroProductionCandidateWiring()`과 `externalMacroProductionCandidateWiring` 리포트에 연결한다. 즉, 외부근거 정책표를 기준으로 단백질·지방·탄수 후보값을 계산하고 기존 production 산식과 비교할 수 있게 만든다.
+- BT는 production targetCal을 바꾸지 않는다. 목표 칼로리는 그대로 두고, 단백질은 목표/사용자 맥락별 외부근거 범위 안에서 정하고, 지방은 일반 하한 20%를 깨지 않으며, 남은 칼로리는 탄수화물로 닫는다. targetCal 안에서 정책 범위를 지키기 어려운 케이스는 몰래 지방을 더 낮추는 대신 `targetReliefRecommended`로 표시한다.
+- BT는 Today/Records에 보이는 실제 매크로 숫자를 아직 바꾸지 않는다. `productionFormulaChanged=false`, `activeProductionApplied=false`, `candidateFormulaApproved=false`, `productionImplementationAllowed=false`가 정상값이다.
+- 사용자가 문제 제기했던 다이어트 1,913kcal / 체중 74.65kg / 단백질 180.5g / 탄수 196.3g / 지방 45.1g 케이스는 현재 production 비교에서는 `protein_overfill_before_fat_cut`와 `carb_below_training_band`를 유지하지만, BT 후보에서는 같은 targetCal 안에서 단백질을 약 1.8g/kg 범위로 낮추고 지방 20% 이상, 탄수 훈련 하한을 만족하도록 재배분되어야 한다.
+- 정상 기준은 `candidateWiringClosed=true`, `sourceDecisionClosed=true`, `goalCoverageClosed=true`, `sameTargetCalClosed=true`, `macroKcalClosed=true`, `candidateBoundaryClosed=true`, `userPainResolved=true`, `findingCount=0`이다.
+- 추가된 단계는 BT다. 삭제된 단계는 없다. 수정된 다음 단계는 `external_macro_policy_production_candidate_wiring_after_application_decision`에서 `external_macro_policy_active_formula_application_decision_after_candidate_wiring`로 바뀐다.
+- 2026-06-06 검증: `runExternalMacroProductionCandidateWiringTests`, `runV8ScenarioRunnerTests`, `runExternalMacroPolicyComparisonTests` targeted 3 suite / 55 cases / failed 0 통과; calibration profile 16 suite / 163 cases / failed 0 통과; `runV8ScenarioRunnerTests`, `runTodayCalculationOwnershipTests`, `runTodayQuickEditTests` targeted 3 suite / 104 cases / failed 0 통과.

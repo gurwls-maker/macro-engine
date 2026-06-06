@@ -133,7 +133,8 @@ const testProfiles = {
     "runTargetMacroJointExpandedScanTests",
     "runGoalMacroPrincipleReviewTests",
     "runGoalMacroDualBasisReviewTests",
-    "runExternalMacroPolicyComparisonTests"
+    "runExternalMacroPolicyComparisonTests",
+    "runExternalMacroProductionCandidateWiringTests"
   ],
   mobile: [
   "runMobileRegressionQaTests",
