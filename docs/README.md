@@ -830,3 +830,15 @@
 - 정상 기준은 `reportOnly=true`, `productionFormulaChanged=false`, `activeProductionApplied=false`, `candidateFormulaApproved=false`, `guideDefaultDisplayClosed=true`, `activityReferenceDisplayClosed=true`, `sameAuthoritativeTargetPreserved=true`, `selectedBasisStorageBlocked=true`, `energyAvailabilityFloorWorkloadCaseCaptured=true`, `findingCount=0`이다.
 - 추가된 단계는 BV다. 삭제된 단계는 없다. 수정된 다음 단계는 `external_macro_policy_guide_activity_basis_mapping_before_active_application`에서 `activity_work_energy_availability_floor_policy_before_active_macro_application`로 바뀐다.
 - 다음 단계에서는 고업무/고부하일에도 목표를 그대로 둘지, 목표 완화/경고/설명/코치 문구 중 무엇을 기본 UX로 둘지 결정한다. 이 결정 전에는 외부근거 매크로 후보를 production에 적용하지 않는다.
+
+### v8.0-BW 업무/활동량 에너지 하한 정책
+
+- BW는 BV가 남긴 질문인 “업무유형이 힘들어졌는데 왜 목표 칼로리는 그대로인가”를 닫는 report-only 정책 단계다. 이 단계도 production 산식과 사용자 화면 숫자를 아직 바꾸지 않는다.
+- 결론은 목표 칼로리를 자동으로 올리지 않는 쪽이다. `가이드 기준` 목표는 하나의 권위 목표로 유지하고, 업무유형/활동량 변화는 오늘 소비 기준과 결손 압박을 설명하는 데 사용한다.
+- 이유는 에너지 가용성 하한이 걸린 다이어트 케이스에서 업무유형을 바꿀 때마다 저장 목표를 자동으로 바꾸면 앱이 “목표를 따라가라”와 “오늘 많이 움직였으니 목표를 바꾸라”를 동시에 말하게 되기 때문이다.
+- 2026-06-12 오너 사례 기준: 목표 1,907kcal, 앉아서 일함 소비 기준 2,173kcal, 고강도 현장 소비 기준 2,284kcal다. 고강도 현장에서는 목표와 소비 기준 차이가 377kcal, 약 16.5%로 커지지만 자동 완화 대상은 아니고 `notice_explain_keep_target`으로 분류한다.
+- 사용자에게는 “목표가 안 바뀐 이유”를 설명해야 한다. Today 목표 카드/오늘의 코치/Records 스냅샷/점수/최근 흐름은 고부하일 압박을 설명할 수 있어야 하며, 반복되거나 더 큰 결손이면 별도 검토 대상으로 올릴 수 있다.
+- 자동 목표 완화는 금지한다. 단, 사용자가 명시적으로 검토하거나 반복 패턴이 누적된 경우 “검토 필요”로 보여주는 것은 허용한다.
+- 정상 기준은 `reportOnly=true`, `productionFormulaChanged=false`, `activeProductionApplied=false`, `candidateFormulaApproved=false`, `productionImplementationAllowed=false`, `policyClosed=true`, `singleAuthoritativeTargetPreserved=true`, `workTypeChangesBurnNotStoredTarget=true`, `automaticTargetReliefBlocked=true`, `explicitReliefReviewAllowed=true`, `floorBoundHighWorkExplained=true`, `findingCount=0`이다.
+- 추가된 단계는 BW다. 삭제된 단계는 없다. 수정된 다음 단계는 `activity_work_energy_availability_floor_policy_before_active_macro_application`에서 `external_macro_policy_active_application_after_activity_work_floor_policy`로 바뀐다.
+- 다음 단계에서는 이 정책을 전제로 외부근거 매크로 후보를 실제 적용할지 판단한다. 단, 적용하더라도 `가이드 기준`과 `활동량 기준`이 두 개의 목표 칼로리 엔진처럼 갈라지면 안 된다.
