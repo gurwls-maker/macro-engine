@@ -327,6 +327,16 @@
 - 사용자가 선택 기준을 바꿔 저장된 기록 스냅샷과 현재 탄단지가 달라지면 기준갱신이 떠야 한다. 사용자가 갱신을 누르면 식사와 공복 체중, 메모는 그대로 두고 당시 목표/당시 계산 기준 스냅샷만 현재 기준으로 바꾼다.
 - 다음 단계는 `activity_work_burn_coefficients_scenario_validation_before_next_formula_scope`다. 목표 칼로리와 오늘 소비 기준의 역할 분리는 닫혔지만, 업무유형/활동량 계수의 크기 자체가 모든 사용자 유형에서 적절한지는 아직 별도 시나리오 검증 대상이다.
 
+## v8.0-CB activity/work burn coefficient scenario validation note
+
+- CB는 CA 다음 단계의 `activity_work_burn_coefficients_scenario_validation_before_next_formula_scope`를 닫기 위한 리포트 전용 검증으로 시작했지만, 현재는 blocker를 발견한 상태로 gate를 계속 열어 둔다.
+- 생산 목표칼로리 산식과 탄단지 배분 산식은 바꾸지 않는다. 이 단계의 목적은 현재 활동량/업무유형 계수의 역할과 크기가 다음 산식 범위로 넘어갈 만큼 일관적인지 확인하는 것이다.
+- 검증 범위는 `앉아서 일함`과 `고강도 현장` 두 끝값 비교만으로는 부족하다. 활동량 4단계(`sedentary`, `moderate`, `active`, `very_active`)와 업무유형 5단계(`office`, `mixed`, `active`, `field`, `heavy_field`)의 전체 20조합을 본다.
+- 현재 계수 크기만 보면 활동량은 큰 생활축(+0.08 계수 단계), 업무유형은 보조 업무부하축(office에서 heavy_field까지 +0.06), 업무 보정은 미세조정(최대 ±0.012)으로 보인다. 따라서 활동량과 업무유형 둘 중 하나만 검증하면 충분하지 않다.
+- 오너형 다이어트/휴식일 사례에서는 에너지 가용성 하한 때문에 업무유형을 바꿔도 목표칼로리는 1,907kcal로 같고 오늘 소비 기준만 오른다. 이 케이스만 보면 현재 의도와 일치한다.
+- 전체 20조합에서는 충돌이 발견됐다. `moderate`, `active`, `very_active` 활동량 행에서는 업무유형이 무거워질수록 목표칼로리까지 같이 움직인다. 이는 “업무유형은 오늘 소비 압박을 설명하되 목표 자동 완화 장치로 쓰지 않는다”는 의도와 충돌한다.
+- 다음 단계는 `next_formula_scope_after_activity_work_burn_coefficient_validation`가 아니라, 업무유형을 목표 산식에서 분리할지 또는 업무유형도 목표에 반영하는 정책으로 명시할지 먼저 결정하는 재판단 단계다.
+
 # v8.0-AT diet production macro policy recovery note
 
 - AT updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AT`.
