@@ -308,6 +308,15 @@
 - 예전 문구인 "총에너지", "운동량이 큰 날에는 활동량 기준이 더 높게 나올 수 있습니다"는 사용자에게 별도 목표 엔진처럼 읽힐 수 있어 표시와 테스트 기준에서 제외한다.
 - 다음 단계는 `guide_activity_render_scenario_regression_after_display_copy_fix`다. 이 단계에서는 실제 렌더 시나리오에서 업무유형/운동부하/선택 기준 전환이 목표·소비·탄단지·코치 문구를 자연스럽게 연결하는지 확인한다.
 
+## v8.0-BZ guide/activity render scenario regression note
+
+- BZ는 BY 이후 단계인 `guide_activity_render_scenario_regression_after_display_copy_fix`를 닫는 실제 렌더 회귀 검증 단계다.
+- 실제 화면 검증 중 Today 빠른 숫자 입력이 하단 계산 요약만 갱신하고, 상단 `오늘 목표 섭취량` 카드에는 이전 목표/탄단지 값이 남는 문제가 확인됐다. 예: 유산소 30분 상태에서 0분으로 바꾸면 요약은 1,907kcal인데 목표 섭취량 카드는 2,172kcal로 남을 수 있었다.
+- 수정 방향은 전체 앱을 매 입력마다 새로 그리는 방식이 아니라, Today 빠른 입력이 바뀔 때 사용자가 같은 화면에서 보는 목표 섭취량·남은량·식사점수·코치 카드까지 같은 계산 결과로 같이 갱신하는 방식이다. 슬라이더 입력의 접힘 방지 구조는 유지한다.
+- 렌더 확인: 다이어트/휴식/유산소 없음 기준에서 `앉아서 일함`과 `고강도 현장`은 목표 1,907kcal를 공유하고, 오늘 소비 기준만 2,152kcal → 2,262kcal로 바뀐다. 이는 현재 의도인 “목표 칼로리는 똑같고, 활동·업무·운동 부담은 비교한다”와 일치한다.
+- 렌더 확인: 유산소 30분·5km/h·8% 상태에서는 목표 2,172kcal, 유산소 시간을 0으로 바꾸면 목표 1,907kcal로 내려오며, 목표 섭취량 카드와 하단 계산 요약이 같은 값을 표시한다.
+- 검증: `run_internal_tests.cjs` full profile 104 suites / 1107 cases / failed 0. Edge headless actual render scenario passed.
+
 # v8.0-AT diet production macro policy recovery note
 
 - AT updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AT`.
