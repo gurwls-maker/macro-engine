@@ -44,6 +44,7 @@
 - `[DO_NOT_CLAIM_COMPLETE]` `/GOAL` 방식의 장시간 자동 진행은 더 이상 기준 작업 방식으로 쓰지 않는다. 이후 V8은 수동으로 작게 범위를 잡고, 각 단계가 실제 앱 동작 개선인지 report-only 증거인지 먼저 분류한 뒤 진행한다.
 - `[CURRENT_PRODUCTION]` 문서정리는 v8.0-AV에서 다음 작업 진입을 막지 않는 수준으로 닫는다. 남은 문서 수정은 새 구현/감사 중 발견되는 충돌을 해당 단계에서 갱신하는 방식으로 처리한다.
 - `[CURRENT_PRODUCTION]` v8.0-BX 이후 실제 Today/Records production 탄단지 배분은 외부근거 매크로 정책을 적용한다. 일반 diet의 실제 선택 단백질은 대략 `1.8g/kg`이며, `2.0g/kg`은 guide/reference 범위 안에서 계속 보일 수 있지만 active 기본값이나 칼로리 빈칸 채우기 수단으로 쓰지 않는다. target kcal은 유지하고, 단백질·지방을 정책 범위 안에서 먼저 잡은 뒤 남은 kcal을 탄수화물로 닫는다.
+- `[CURRENT_PRODUCTION]` v8.0-CA 이후 `가이드 기준/활동량 기준` 선택값은 Today 남은 양, 식단 점수, Coach, Records 기준갱신까지 같은 선택 탄단지로 연결된다. 단, 목표 칼로리 엔진은 하나이며 `selectedMacroBasis` 같은 UI 상태는 Records/backup schema에 저장하지 않는다.
 - `[SCOPED_PRODUCTION]` candidate-v2는 active runtime target-delta case에서 production target/macro에 적용될 수 있고, AA/AB/AH 계열에서 대표 visual/runtime evidence가 닫혔다.
 - `[REPORT_ONLY]` candidate-v0/v1/v2 비교, macroAudit, pairwise, targeted stress, human-review numerical gate, full Cartesian tooling의 상당 부분은 여전히 증거/검토 레이어다.
 - `[OPEN_GATE]` full 8-2 Cartesian execution, full V8 completion, broad profile/routine/session human UX review는 open이다.
@@ -316,6 +317,15 @@
 - 렌더 확인: 다이어트/휴식/유산소 없음 기준에서 `앉아서 일함`과 `고강도 현장`은 목표 1,907kcal를 공유하고, 오늘 소비 기준만 2,152kcal → 2,262kcal로 바뀐다. 이는 현재 의도인 “목표 칼로리는 똑같고, 활동·업무·운동 부담은 비교한다”와 일치한다.
 - 렌더 확인: 유산소 30분·5km/h·8% 상태에서는 목표 2,172kcal, 유산소 시간을 0으로 바꾸면 목표 1,907kcal로 내려오며, 목표 섭취량 카드와 하단 계산 요약이 같은 값을 표시한다.
 - 검증: `run_internal_tests.cjs` full profile 104 suites / 1107 cases / failed 0. Edge headless actual render scenario passed.
+
+## v8.0-CA guide/activity Records Score Coach connection regression note
+
+- CA는 BZ 이후 단계인 `guide_activity_records_score_coach_connection_regression_after_render_fix`를 닫는 연결 회귀 잠금 단계다.
+- production 목표 칼로리 산식과 외부근거 매크로 정책은 변경하지 않는다. 이번 단계의 목적은 새 산식을 추가하는 것이 아니라, 이미 적용된 BX/BY/BZ 결과가 실제 사용자 흐름에서 끊기지 않는지 잠그는 것이다.
+- `가이드 기준/활동량 기준` 토글은 같은 목표 칼로리 안에서 탄단지 배분을 바꿔 보여준다. Today 남은 양, 오늘 식단 점수, Coach, Records 기준갱신은 모두 현재 선택된 탄단지 결과를 기준으로 본다.
+- Records에는 `selectedMacroBasis`, `uiState`, `referenceTargetCal` 같은 비교 UI 상태를 저장하지 않는다. 저장되는 것은 사용자가 확인한 당시의 목표 kcal, 단백질, 탄수화물, 지방 결과값이다.
+- 사용자가 선택 기준을 바꿔 저장된 기록 스냅샷과 현재 탄단지가 달라지면 기준갱신이 떠야 한다. 사용자가 갱신을 누르면 식사와 공복 체중, 메모는 그대로 두고 당시 목표/당시 계산 기준 스냅샷만 현재 기준으로 바꾼다.
+- 다음 단계는 `activity_work_burn_coefficients_scenario_validation_before_next_formula_scope`다. 목표 칼로리와 오늘 소비 기준의 역할 분리는 닫혔지만, 업무유형/활동량 계수의 크기 자체가 모든 사용자 유형에서 적절한지는 아직 별도 시나리오 검증 대상이다.
 
 # v8.0-AT diet production macro policy recovery note
 
