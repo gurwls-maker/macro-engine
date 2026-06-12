@@ -818,3 +818,15 @@
 - BU는 production targetCal, Today/Records 탄단지 표시값, Score, Coach, Records schema, Backup schema를 바꾸지 않는다. 정상값은 `productionFormulaChanged=false`, `activeProductionApplied=false`, `candidateFormulaApproved=false`, `directActiveApplicationAllowed=false`다.
 - 다음 단계는 `external_macro_policy_guide_activity_basis_mapping_before_active_application`이다. 여기서는 외부근거 후보를 `가이드 기준`과 `활동량 기준`에 각각 어떻게 배치할지, Today/Records/Score/Coach 설명문이 무엇을 말해야 하는지, target relief가 필요한 케이스를 어떻게 사용자에게 보여줄지 닫아야 한다.
 - 추가된 단계는 BU다. 삭제된 단계는 없다. 수정된 다음 단계는 `external_macro_policy_active_formula_application_decision_after_candidate_wiring`에서 `external_macro_policy_guide_activity_basis_mapping_before_active_application`로 바뀐다.
+
+### v8.0-BV 외부근거 매크로 가이드/활동량 기준 매핑
+
+- BV는 BU가 요구한 다음 단계인 `external_macro_policy_guide_activity_basis_mapping_before_active_application`를 닫는 report-only 단계다. 이 단계는 외부근거 후보 산식을 production에 적용하지 않는다.
+- `가이드 기준`은 사용자가 기본으로 따라갈 권장 목표와 탄단지 배분을 보여주는 권위 기준이다. 앱의 목표 칼로리, 기록 스냅샷, 코치/점수 기준은 이 축을 기본 설명으로 삼는다.
+- `활동량 기준`은 오늘 입력한 활동량, 업무유형, 웨이트, 유산소가 목표 대비 얼마나 큰 부담인지 보여주는 참고 축이다. 두 번째 목표 칼로리 엔진이 아니며, 사용자가 토글을 눌렀다는 이유만으로 저장된 목표를 덮어쓰면 안 된다.
+- 두 기준은 같은 목표를 바라보되 역할이 다르다. `가이드 기준`은 "오늘 무엇을 따라갈지"를 말하고, `활동량 기준`은 "오늘 활동을 그대로 반영하면 부담이 얼마나 커지는지"를 말한다. 따라서 두 기준은 숫자가 다르게 보일 수 있어도 저장 기준은 하나여야 한다.
+- 2026-06-12 오너 사례를 기준 케이스로 남긴다. 다이어트/휴식일/체중 74.96kg/체지방량 11.39kg/LBM 63.57kg에서 에너지 가용성 하한 30kcal/kg LBM은 약 1,907kcal다. 업무유형을 `앉아서 일함`에서 `고강도 현장`으로 바꾸면 오늘 소비 기준은 약 2,173kcal에서 2,284kcal로 오르지만 목표 칼로리는 1,907kcal에 고정된다.
+- 위 사례는 저장/렌더 버그가 아니다. 현재 산식에서는 에너지 가용성 하한선이 다이어트 목표를 고정하고, 업무유형 증가는 목표 칼로리보다 오늘 소비 기준과 결손 규모를 더 크게 움직인다. 다만 사용자 입장에서는 "업무가 힘들어졌는데 왜 목표는 그대로인가"로 보일 수 있으므로 별도 정책 결정이 필요하다.
+- 정상 기준은 `reportOnly=true`, `productionFormulaChanged=false`, `activeProductionApplied=false`, `candidateFormulaApproved=false`, `guideDefaultDisplayClosed=true`, `activityReferenceDisplayClosed=true`, `sameAuthoritativeTargetPreserved=true`, `selectedBasisStorageBlocked=true`, `energyAvailabilityFloorWorkloadCaseCaptured=true`, `findingCount=0`이다.
+- 추가된 단계는 BV다. 삭제된 단계는 없다. 수정된 다음 단계는 `external_macro_policy_guide_activity_basis_mapping_before_active_application`에서 `activity_work_energy_availability_floor_policy_before_active_macro_application`로 바뀐다.
+- 다음 단계에서는 고업무/고부하일에도 목표를 그대로 둘지, 목표 완화/경고/설명/코치 문구 중 무엇을 기본 UX로 둘지 결정한다. 이 결정 전에는 외부근거 매크로 후보를 production에 적용하지 않는다.
