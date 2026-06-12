@@ -43,7 +43,7 @@
 
 - `[DO_NOT_CLAIM_COMPLETE]` `/GOAL` 방식의 장시간 자동 진행은 더 이상 기준 작업 방식으로 쓰지 않는다. 이후 V8은 수동으로 작게 범위를 잡고, 각 단계가 실제 앱 동작 개선인지 report-only 증거인지 먼저 분류한 뒤 진행한다.
 - `[CURRENT_PRODUCTION]` 문서정리는 v8.0-AV에서 다음 작업 진입을 막지 않는 수준으로 닫는다. 남은 문서 수정은 새 구현/감사 중 발견되는 충돌을 해당 단계에서 갱신하는 방식으로 처리한다.
-- `[CURRENT_PRODUCTION]` v8.0-AT 이후 일반 diet protein은 `2.0g/kg` 기준이다. `GOALS.diet.proteinKg`와 dual-basis diet protein range가 이 기준을 사용하며, target kcal은 유지하고 줄어든 protein kcal은 carbs로 재배분한다.
+- `[CURRENT_PRODUCTION]` v8.0-BX 이후 실제 Today/Records production 탄단지 배분은 외부근거 매크로 정책을 적용한다. 일반 diet의 실제 선택 단백질은 대략 `1.8g/kg`이며, `2.0g/kg`은 guide/reference 범위 안에서 계속 보일 수 있지만 active 기본값이나 칼로리 빈칸 채우기 수단으로 쓰지 않는다. target kcal은 유지하고, 단백질·지방을 정책 범위 안에서 먼저 잡은 뒤 남은 kcal을 탄수화물로 닫는다.
 - `[SCOPED_PRODUCTION]` candidate-v2는 active runtime target-delta case에서 production target/macro에 적용될 수 있고, AA/AB/AH 계열에서 대표 visual/runtime evidence가 닫혔다.
 - `[REPORT_ONLY]` candidate-v0/v1/v2 비교, macroAudit, pairwise, targeted stress, human-review numerical gate, full Cartesian tooling의 상당 부분은 여전히 증거/검토 레이어다.
 - `[OPEN_GATE]` full 8-2 Cartesian execution, full V8 completion, broad profile/routine/session human UX review는 open이다.
@@ -289,11 +289,21 @@
 - The deleted GOAL resume file is intentional. V8 continuation should be manual and bounded.
 - Next implementation/review work should move to the existing 3단계: profile/routine/session broad human UX review matrix plus user-level formula scope design. Candidate-v2 wording hardening is treated as a preflight inside that work, not as a reason to restart long automatic staging.
 
+# v8.0-BX external macro active production application note
+
+- BX는 BW 이후 단계인 `external_macro_policy_active_application_after_activity_work_floor_policy`를 닫는 production 적용 단계다.
+- 이제 외부근거 매크로 정책은 report-only 비교표가 아니라 실제 Today/Records 계산값에 적용된다. 단, 목표 칼로리 자체는 바꾸지 않는다.
+- 일반 diet 기준 예시: required 1913 rest-day regression은 약 `1913.3kcal / protein 135.4g / carbs 223.4g / fat 53.1g`로 계산된다. 단백질은 약 `1.8g/kg`, 지방은 약 `25% kcal`이며, 남는 검토 신호는 `carb_below_guide_min`이다.
+- guide/activity 기준은 두 개의 목표 칼로리 엔진이 아니다. 둘은 같은 authoritative targetCal을 공유하고, 탄단지 배분/설명/비교 역할만 다르게 가져간다.
+- 활동량 기준은 기존 선택 기준에서 더 높은 지방 배분을 이미 갖고 있던 경우 그 지방 배분을 보존할 수 있다. 이는 활동량 기준을 별도 목표로 저장한다는 뜻이 아니라, 같은 목표 kcal 안에서 활동량 축의 부담 해석을 잃지 않기 위한 배분 규칙이다.
+- 다음 단계는 `guide_activity_display_role_regression_after_external_macro_application`이다. 외부근거 정책이 production에 들어왔으므로, Today 카드/Records snapshot/Score/Coach에서 `가이드 기준`과 `활동량 기준`의 사용자 설명이 다시 어긋나지 않는지 렌더와 문구를 확인해야 한다.
+- 2026-06-12 검증: `runMacroCalibrationTests`, `runV8ScenarioRunnerTests`, `runActivityWorkEnergyAvailabilityFloorPolicyTests`, `runTargetMacroProductionPolicyTests`, `--profile=calibration` 통과.
+
 # v8.0-AT diet production macro policy recovery note
 
 - AT updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AT`.
-- Production diet protein now defaults to `2.0g/kg` in both `GOALS.diet.proteinKg` and the dual-basis diet guide/activity range. The target kcal is preserved; kcal released from the old `2.4g/kg` protein default is reallocated to carbs inside the same target.
-- Required 1913 diet regression now returns about `1913.3kcal / protein 150.4166g / carbs 226.377g / fat 45.125g`, `protein=2.0g/kg`, and no longer carries `protein_bodyweight_above_general_issn_range`, `diet_default_near_2_4g_bodyweight_requires_candidate_review`, or `carb_below_guide_min`.
+- AT 당시에는 production diet protein을 `2.0g/kg`으로 복구했다. 이 기록은 historical note다. v8.0-BX 이후 active production 배분은 외부근거 매크로 정책이 supersede하며, 일반 diet 실제 선택 단백질은 대략 `1.8g/kg`이다.
+- AT 당시 required 1913 diet regression은 약 `1913.3kcal / protein 150.4166g / carbs 226.377g / fat 45.125g`였다. v8.0-BX 이후 현재 회귀값은 약 `1913.3kcal / protein 135.4g / carbs 223.4g / fat 53.1g`이며, 남는 검토 신호는 `carb_below_guide_min`이다.
 - Candidate-v0 remains report-only. After AT it no longer reduces the required diet case because production already uses the general ISSN cap.
 - Candidate-v2 protein guard legacy-conflict counts are now `0`; that is a consequence of production range recovery, not a new broad candidate-v2 approval.
 - Verification on 2026-06-03: `runV8ScenarioRunnerTests`, `runTargetMacroProductionPolicyTests`, and `runDualBasisProductionTests` = 3 suites / 43 cases / failed 0; `runModeGoldenCalculationTests` = 1 suite / 8 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 137 cases / failed 0.
