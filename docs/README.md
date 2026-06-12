@@ -299,6 +299,15 @@
 - 다음 단계는 `guide_activity_display_role_regression_after_external_macro_application`이다. 외부근거 정책이 production에 들어왔으므로, Today 카드/Records snapshot/Score/Coach에서 `가이드 기준`과 `활동량 기준`의 사용자 설명이 다시 어긋나지 않는지 렌더와 문구를 확인해야 한다.
 - 2026-06-12 검증: `runMacroCalibrationTests`, `runV8ScenarioRunnerTests`, `runActivityWorkEnergyAvailabilityFloorPolicyTests`, `runTargetMacroProductionPolicyTests`, `--profile=calibration` 통과.
 
+## v8.0-BY guide/activity display role regression note
+
+- BY는 BX 이후 단계인 `guide_activity_display_role_regression_after_external_macro_application`를 닫는 표시/문구 회귀 정리 단계다.
+- production 목표 칼로리 산식은 변경하지 않는다. 이번 변경은 사용자가 `가이드 기준`과 `활동량 기준`을 두 개의 목표 칼로리 엔진으로 오해하지 않도록 Today 카드의 설명과 회귀 테스트를 정리하는 작업이다.
+- Today 목표 카드의 `?` 도움말은 이제 "목표 칼로리는 똑같습니다"를 먼저 말하고, `가이드 기준`은 기본으로 따라갈 탄단지, `활동량 기준`은 활동·업무·운동 부담을 같은 목표 안에서 비교하는 탄단지라고 설명한다.
+- `오늘 소비 기준` 보조 문구는 목표가 아니라 활동·업무·운동 소비 기준임을 드러내도록 바뀐다. 업무유형을 바꾸면 소비 기준은 움직일 수 있지만, 저장 목표가 자동으로 바뀐다는 뜻은 아니다.
+- 예전 문구인 "총에너지", "운동량이 큰 날에는 활동량 기준이 더 높게 나올 수 있습니다"는 사용자에게 별도 목표 엔진처럼 읽힐 수 있어 표시와 테스트 기준에서 제외한다.
+- 다음 단계는 `guide_activity_render_scenario_regression_after_display_copy_fix`다. 이 단계에서는 실제 렌더 시나리오에서 업무유형/운동부하/선택 기준 전환이 목표·소비·탄단지·코치 문구를 자연스럽게 연결하는지 확인한다.
+
 # v8.0-AT diet production macro policy recovery note
 
 - AT updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AT`.
