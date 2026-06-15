@@ -4,6 +4,8 @@
 
 현재 V8 운동 프로필·수준별 산식 작업의 우선 기준은 `docs/v8_운동프로필_수준별산식_통합실행설계_2026-06-04.txt`다.
 
+단, 2026-06-15 이후 TDEE/목표칼로리 판단은 `docs/v8_CC이후_TDEE_시간소유권_설계_2026-06-15.txt`를 함께 먼저 읽는다. CC/BY/BZ/CA에 남아 있는 "목표 칼로리는 똑같습니다", "업무유형은 오늘 소비 기준만 바꾸고 목표칼로리는 바꾸지 않는다"는 문장은 최신 최종 기준이 아니라 재판단 대상이다.
+
 이 통합문서는 기존 `v8_수준별산식_설계1~8`, `v8_수준별산식_초정밀설계_2026-06-04.txt`, `v8_운동프로필_산식_정밀설계.txt`의 유효한 내용을 흡수한 후속 구현 기준이다. 기존 문서들은 `docs/archive/v8_report_only_design_20260604/`로 이동했으며, 현재 기준이 아니라 historical/report-only 근거 확인용이다.
 
 가장 중요한 운영 원칙:
@@ -20,11 +22,12 @@
 1. `docs/개발정책.txt`
 2. `docs/내가-바라는-앱의-성격.txt`
 3. `docs/v8_운동프로필_수준별산식_통합실행설계_2026-06-04.txt`
-4. `docs/v8_외부근거_매크로_정책표_2026-06-05.txt`
-5. `index.html`의 실제 production 경로
-6. `docs/v8_현재산식_기준갱신_감사_2026-06-02.txt`
-7. `docs/v8_1단계_복구감사_2026-06-03.txt`
-8. 필요한 경우에만 `docs/archive/v8_report_only_design_20260604/`의 과거 설계 원문
+4. `docs/v8_CC이후_TDEE_시간소유권_설계_2026-06-15.txt`
+5. `docs/v8_외부근거_매크로_정책표_2026-06-05.txt`
+6. `index.html`의 실제 production 경로
+7. `docs/v8_현재산식_기준갱신_감사_2026-06-02.txt`
+8. `docs/v8_1단계_복구감사_2026-06-03.txt`
+9. 필요한 경우에만 `docs/archive/v8_report_only_design_20260604/`의 과거 설계 원문
 
 ## 1. 기존 stage note 지도 (v8.0-AU 문서 계층 정리)
 
@@ -283,6 +286,14 @@
 - Current code fact captured by AX: non-bodybuilding advanced OFF still shows only simple `REST / PUSH`, but a simple training day applies that profile's default training session internally for calculation defaults such as xw, weight duration, and cardio defaults. Detailed non-bodybuilding routine/session selection is advanced-ON behavior.
 - AX documents the future user-level formula input scope (`performanceLevel`, body-composition reliability, recent record coverage, trend) but does not implement that formula and does not close broad human visual review, full Cartesian execution, or full V8 completion.
 - Verification on 2026-06-03: `runTodayCalculationOwnershipTests`, `runTodayQuickEditTests`, `runV8ScenarioRunnerTests` = 3 suites / 88 cases / failed 0; core profile = 26 suites / 370 cases / failed 0; calibration profile = 14 suites / 138 cases / failed 0.
+
+# 2026-06-15 CC 이후 TDEE 시간 소유권 재판단
+
+- CC/BY/BZ/CA에 남아 있는 "목표 칼로리는 똑같습니다", "업무유형은 오늘 소비 기준만 바꾸고 목표칼로리는 바꾸지 않는다"는 결론은 현재 최종 기준이 아니라 재판단 대상으로 둔다.
+- CC 이후 대화 기준의 새 핵심은 `BMR + 업무 + 운동 + 생활활동 + 수면/휴식`을 중복 없이 나누고, 실제 하루 소비량 변화가 목표칼로리에 반영될 수 있게 만드는 것이다.
+- 막아야 하는 것은 업무/활동 반영 자체가 아니라 업무·운동·생활활동이 같은 시간을 중복 계산하는 문제다.
+- 따라서 다음 산식 작업은 기존 guide/activity 문구 보강이 아니라 `v8_CC이후_TDEE_시간소유권_설계_2026-06-15.txt`를 기준으로 report-only 시간 소유권 TDEE 후보를 먼저 만든 뒤 진행한다.
+- 이 메모는 아래의 과거 v8.0-BY/BZ/CA/CC 기록을 삭제하지 않고, 최신 재판단 기준으로 상단에 둔다.
 
 # v8.0-AV docs cleanup completion note
 
