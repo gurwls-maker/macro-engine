@@ -337,6 +337,15 @@
 - 전체 20조합에서는 충돌이 발견됐다. `moderate`, `active`, `very_active` 활동량 행에서는 업무유형이 무거워질수록 목표칼로리까지 같이 움직인다. 이는 “업무유형은 오늘 소비 압박을 설명하되 목표 자동 완화 장치로 쓰지 않는다”는 의도와 충돌한다.
 - 다음 단계는 `next_formula_scope_after_activity_work_burn_coefficient_validation`가 아니라, 업무유형을 목표 산식에서 분리할지 또는 업무유형도 목표에 반영하는 정책으로 명시할지 먼저 결정하는 재판단 단계다.
 
+## v8.0-CC activity/work target formula decoupling note
+
+- CC는 CB에서 발견한 blocker를 닫기 위한 실제 산식 반영 단계다.
+- `totalBurn`은 계속 활동량, 업무유형, 업무 보정, 주간 웨이트 보정, 오늘 웨이트, 유산소, EPOC를 모두 포함한다. 이 값은 사용자가 보는 "오늘 소비 기준 / 업무 부하 압력"이다.
+- `targetTotalBurn`은 목표칼로리 산출용 기준선이다. 활동량과 운동 요소는 포함하지만, 업무유형과 업무 보정은 제외한다. 따라서 `앉아서 일함`에서 `고강도 현장`으로 바꿔도 목표칼로리가 자동으로 완화되거나 올라가지 않는다.
+- 외부 생리학 경계: 에너지 가용성은 섭취량에서 운동 소모량을 뺀 값을 제지방량으로 나누는 개념이므로, 업무유형 NEAT를 목표 하한 자동 완화 근거로 쓰지 않는다. 업무 부하는 Coach/Today에서 오늘 부담으로 설명한다.
+- 4개 활동량 x 5개 업무유형 전체 20조합과 업무 보정 edge case는 계속 검증해야 한다. 이번 결함은 floor-bound owner 2개 비교만으로는 잡히지 않았기 때문이다.
+- 가이드 기준/활동량 기준은 여전히 하나의 권위 목표를 공유한다. 둘의 차이는 표시와 설명의 역할이지, 별도 목표 엔진이 아니다.
+
 # v8.0-AT diet production macro policy recovery note
 
 - AT updates `index.html` and `runV8ScenarioRunner()` to version `8.0-AT`.
