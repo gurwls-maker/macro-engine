@@ -134,6 +134,7 @@ const testProfiles = {
     "runGoalMacroPrincipleReviewTests",
     "runGoalMacroDualBasisReviewTests",
     "runExternalMacroPolicyComparisonTests",
+    "runExerciseManagementMacroScenarioTests",
     "runExternalMacroProductionCandidateWiringTests",
     "runExternalMacroActiveApplicationDecisionTests",
     "runExternalMacroGuideActivityBasisMappingTests",
