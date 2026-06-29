@@ -60,6 +60,12 @@ configurePortableNodePath();
 const { chromium } = require("playwright");
 
 const d = day => `2026-05-${String(day).padStart(2, "0")}`;
+function shiftIsoDate(dateString, offsetDays) {
+  const date = new Date(`${dateString}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+const auditDate = offsetDays => shiftIsoDate(currentAuditDate, offsetDays);
 const meal = (id, label, carbs, protein, fat, memo = "", extras = {}) => ({
   id,
   mealLabel: label,
@@ -465,8 +471,66 @@ const richRecords = [
   }
 ];
 
+function makeRecentEnoughRecords(dayCount = 28) {
+  return Array.from({ length: dayCount }, (_, index) => {
+    const date = auditDate(-(dayCount - 1 - index));
+    const trainingDay = index % 4 !== 0;
+    const highFatDay = index % 9 === 4;
+    const alcoholDay = index % 11 === 6;
+    const targetCal = trainingDay ? 2280 : 2050;
+    const meals = [
+      meal(`recent-${index}-breakfast`, "아침", 52 + (index % 5), 28, 11, "audit seed", { date, time: "08:10" }),
+      meal(`recent-${index}-lunch`, "점심", 86, 42, highFatDay ? 34 : 18, "audit seed", { date, time: "12:30", otherKcal: highFatDay ? 160 : 0 }),
+      meal(`recent-${index}-dinner`, "저녁", trainingDay ? 94 : 56, 46, alcoholDay ? 24 : 16, "audit seed", { date, time: "19:20", alcoholKcal: alcoholDay ? 240 : 0 })
+    ];
+    return {
+      date,
+      recordMode: "detailed",
+      weight: Number((74.9 - index * 0.025).toFixed(2)),
+      note: highFatDay ? "기타 칼로리 높은 날" : alcoholDay ? "술 기록 포함" : "Recent enough audit seed",
+      adherencePercent: Math.max(72, 92 - (index % 7) * 2),
+      adherenceSource: "auto",
+      adherenceScoringVersion: "v6.1_alcohol_penalty_v2",
+      goalSnapshot: snap({
+        targetCal,
+        protein: 145,
+        carbs: trainingDay ? 285 : 220,
+        fat: trainingDay ? 64 : 58,
+        routine: trainingDay ? "PUSH" : "REST",
+        weightDuration: trainingDay ? 65 : 0,
+        cardioDuration: trainingDay ? 20 : 0
+      }),
+      snapshotSource: "saved_at_entry",
+      meals
+    };
+  });
+}
+
+const recentEnoughTodayDraft = {
+  [currentAuditDate]: {
+    ...todayDraft[today],
+    calculationWeight: 74.2,
+    skeletalMuscle: 36.1,
+    bodyFatMass: 11.2,
+    bodyFatPercent: 15.1
+  }
+};
+
 const payloads = {
   empty: { settings: baseSettings, records: [], inbodyRecords, todayDrafts: todayDraft },
+  recentEnough: {
+    settings: baseSettings,
+    records: makeRecentEnoughRecords(28),
+    inbodyRecords,
+    todayDrafts: recentEnoughTodayDraft,
+    cardioPresets: {
+      items: [{ id: "recent-walk-default", name: "Recent audit walk", cardioType: "treadmill_walk", cardioDuration: 25, cardioSpeed: 5.4, cardioIncline: 5, isDefault: true, createdAt: `${currentAuditDate}T00:00:00.000Z` }],
+      defaultId: "recent-walk-default"
+    },
+    mealTemplates: {
+      items: [{ id: "recent-template", name: "Recent audit meal", meal: meal("recent-template-meal", "간식", 28, 25, 5, "Recent audit template", { date: currentAuditDate }), isFavorite: true }]
+    }
+  },
   rich: {
     settings: baseSettings,
     records: richRecords,
@@ -556,10 +620,11 @@ const captures = [
   ["17_desktop_records_meal_add_modal", "rich", "tabRecordsMealAddModal", 1280, 900],
   ["18_desktop_records_meals_expanded", "rich", "tabRecordsMealsExpanded", 1280, 900],
   ["19_desktop_records_meal_edit_modal", "rich", "tabRecordsMealEditModal", 1280, 900],
-  ["21_desktop_recent_3d", "rich", "tabWeekly3", 1280, 900],
-  ["22_desktop_recent_7d", "rich", "tabWeekly", 1280, 900],
-  ["23_desktop_recent_14d", "rich", "tabWeekly14", 1280, 900],
-  ["24_desktop_recent_28d", "rich", "tabWeekly28", 1280, 900],
+  ["20_desktop_recent_empty", "empty", "tabWeekly", 1280, 900],
+  ["21_desktop_recent_enough_3d", "recentEnough", "tabWeekly3", 1280, 900],
+  ["22_desktop_recent_enough_7d", "recentEnough", "tabWeekly", 1280, 900],
+  ["23_desktop_recent_enough_14d", "recentEnough", "tabWeekly14", 1280, 900],
+  ["24_desktop_recent_enough_28d", "recentEnough", "tabWeekly28", 1280, 900],
   ["25_desktop_inbody_top", "rich", "tabInbody", 1280, 900],
   ["26_desktop_inbody_analysis", "rich", "tabInbodyAnalysis", 1280, 900],
   ["26b_desktop_inbody_change", "rich", "tabInbodyChange", 1280, 900],
@@ -575,7 +640,10 @@ const captures = [
   ["35_mobile_today_record_detailed", "rich", "todayRecordDetailed", 390, 900],
   ["36_mobile_records", "rich", "tabRecords", 390, 900],
   ["37_mobile_records_meal_edit", "rich", "tabRecordsMealEditModal", 390, 900],
-  ["38_mobile_recent", "rich", "tabWeekly", 390, 900],
+  ["38_mobile_recent_empty", "empty", "tabWeekly", 390, 900],
+  ["38b_mobile_recent_enough_7d", "recentEnough", "tabWeekly", 390, 900],
+  ["38c_mobile_recent_enough_14d", "recentEnough", "tabWeekly14", 390, 900],
+  ["38d_mobile_recent_enough_28d", "recentEnough", "tabWeekly28", 390, 900],
   ["39_mobile_inbody", "rich", "tabInbody", 390, 900],
   ["40_mobile_settings", "rich", "tabSettings", 390, 900],
   ["41_mobile_settings_groups_open", "rich", "tabSettingsOpenGroups", 390, 900],
@@ -722,6 +790,9 @@ async function getRuntimeMeta(page) {
         ? buildRecentContextFn(result, { records: [] })
         : null;
       const gate = recentContext?.profileCandidateV2TargetDeltaGate || {};
+      const activeRecentRangeButton = document.querySelector(".recent-flow-range-btn.active");
+      const recentFlowChartWrap = document.querySelector(".recent-flow-chart-wrap");
+      const recentFlowChartRect = recentFlowChartWrap?.getBoundingClientRect();
       return {
         appFrameFound: true,
         calculateFound: true,
@@ -749,6 +820,12 @@ async function getRuntimeMeta(page) {
         recentGateStatus: gate.status || null,
         recentGateTargetDeltaApplied: gate.targetDeltaApplied === true,
         recentGateCanApplyAutomatically: gate.canApplyAutomatically === true,
+        recentFlowActiveRangeDays: Number(activeRecentRangeButton?.getAttribute("data-recent-flow-range")) || null,
+        recentFlowChartBarCount: document.querySelectorAll(".recent-flow-chart-bar").length,
+        recentFlowChartDateLabelCount: document.querySelectorAll(".recent-flow-chart-date-label").length,
+        recentFlowChartEmpty: !!document.querySelector(".recent-flow-chart-empty"),
+        recentFlowHorizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
+        recentFlowChartWrapHeight: recentFlowChartRect ? Math.round(recentFlowChartRect.height) : null,
         todayProfileSelectHidden: document.getElementById("todayQuickExerciseProfile")?.closest(".field")?.classList.contains("hidden") === true,
         todayRoutineProfileLabelText: document.getElementById("todayQuickRoutineProfileLabel")?.textContent?.trim() || null,
         todayRoutinePlanDisabled: document.getElementById("todayQuickRoutinePlan")?.disabled === true,

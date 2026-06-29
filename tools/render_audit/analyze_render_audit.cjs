@@ -10,7 +10,10 @@ const REQUIRED_MOBILE_CAPTURES = Object.freeze([
   "35_mobile_today_record_detailed",
   "36_mobile_records",
   "37_mobile_records_meal_edit",
-  "38_mobile_recent",
+  "38_mobile_recent_empty",
+  "38b_mobile_recent_enough_7d",
+  "38c_mobile_recent_enough_14d",
+  "38d_mobile_recent_enough_28d",
   "39_mobile_inbody",
   "40_mobile_settings",
   "41_mobile_settings_groups_open",
@@ -49,6 +52,17 @@ const REQUIRED_DESKTOP_CAPTURE_PREFIXES = Object.freeze([
   "60_desktop_today_profile_routine_running",
   "61_desktop_today_profile_routine_mixed"
 ]);
+
+const REQUIRED_RECENT_STATE_CAPTURES = Object.freeze({
+  "20_desktop_recent_empty": { state: "empty", range: 7 },
+  "22_desktop_recent_enough_7d": { state: "enough", range: 7, minBars: 7 },
+  "23_desktop_recent_enough_14d": { state: "enough", range: 14, minBars: 14 },
+  "24_desktop_recent_enough_28d": { state: "enough", range: 28, minBars: 28 },
+  "38_mobile_recent_empty": { state: "empty", range: 7, mobile: true },
+  "38b_mobile_recent_enough_7d": { state: "enough", range: 7, minBars: 7, mobile: true },
+  "38c_mobile_recent_enough_14d": { state: "enough", range: 14, minBars: 14, mobile: true },
+  "38d_mobile_recent_enough_28d": { state: "enough", range: 28, minBars: 28, mobile: true }
+});
 
 const POST_WIRING_PROFILE_CANDIDATE_CAPTURES = Object.freeze([
   "49_desktop_today_profile_candidate_v2_applied",
@@ -338,6 +352,32 @@ function analyzeManifest(){
       if (!value) failures.push(`${name}:post-wiring-runtime:${key}`);
     });
   });
+  Object.entries(REQUIRED_RECENT_STATE_CAPTURES).forEach(([name, expected]) => {
+    const capture = captures.find(item => item.name === name);
+    if (!capture) {
+      failures.push(`missing-recent-state:${name}`);
+      return;
+    }
+    const runtime = capture.runtime || {};
+    const runtimeChecks = {
+      appFrameFound: runtime.appFrameFound === true,
+      calculateFound: runtime.calculateFound === true,
+      activeRange: runtime.recentFlowActiveRangeDays === expected.range,
+      noHorizontalOverflow: expected.mobile ? runtime.recentFlowHorizontalOverflow === false : true
+    };
+    if (expected.state === "empty") {
+      runtimeChecks.emptyChart = runtime.recentFlowChartEmpty === true;
+      runtimeChecks.noBars = Number(runtime.recentFlowChartBarCount || 0) === 0;
+    } else {
+      runtimeChecks.enoughChart = runtime.recentFlowChartEmpty === false;
+      runtimeChecks.minBars = Number(runtime.recentFlowChartBarCount || 0) >= expected.minBars;
+      runtimeChecks.readableDateLabels = Number(runtime.recentFlowChartDateLabelCount || 0) >= 2 && Number(runtime.recentFlowChartDateLabelCount || 0) <= 8;
+      runtimeChecks.mobileChartHeight = !expected.mobile || Number(runtime.recentFlowChartWrapHeight || 0) >= 250;
+    }
+    Object.entries(runtimeChecks).forEach(([key, value]) => {
+      if (!value) failures.push(`${name}:recent-state:${key}`);
+    });
+  });
   Object.entries(PROFILE_ROUTINE_OWNERSHIP_CAPTURES).forEach(([name, expected]) => {
     const capture = captures.find(item => item.name === name);
     if (!capture) {
@@ -431,6 +471,7 @@ if (require.main === module) {
 module.exports = {
   REQUIRED_MOBILE_CAPTURES,
   REQUIRED_DESKTOP_CAPTURE_PREFIXES,
+  REQUIRED_RECENT_STATE_CAPTURES,
   parsePngStats,
   analyzeManifest
 };

@@ -77,6 +77,9 @@ const testProfiles = {
     "runTodayQuickEditTests",
     "runRecordEditCalculationBasisTests",
     "runRecordDetailBodyCompositionPrecisionTests",
+    "runBackupWarningVisibilityTests",
+    "runRecentRenderAuditSeedTests",
+    "runRecentMobileChartReadabilityTests",
     "runSmartRestoreImportTests",
     "runDataManagementBackupTests",
     "runDualBasisProductionTests"
@@ -101,6 +104,7 @@ const testProfiles = {
     "runMealEntryConsistencyTests",
     "runSmartRestoreImportTests",
     "runBackupRestoreConflictPreviewTests",
+    "runBackupWarningVisibilityTests",
     "runDataManagementBackupTests",
     "runFullBackupMealsRestoreTests",
     "runInBodyRecordApplyTests",
@@ -129,7 +133,9 @@ const testProfiles = {
     "runUserFacingForbiddenCopyTests",
     "runUserFacingCopyPolishTests",
     "runTodayCoachCopyPolishTests",
-    "runRecentFlowCopyPolishTests"
+    "runRecentFlowCopyPolishTests",
+    "runRecentRenderAuditSeedTests",
+    "runRecentMobileChartReadabilityTests"
   ],
   calibration: [
     "runMacroCalibrationTests",
@@ -161,6 +167,9 @@ const testProfiles = {
   "runMealEntryConsistencyTests",
   "runSmartRestoreImportTests",
   "runBackupRestoreConflictPreviewTests",
+  "runBackupWarningVisibilityTests",
+  "runRecentRenderAuditSeedTests",
+  "runRecentMobileChartReadabilityTests",
   "runFullBackupMealsRestoreTests",
   "runStitchSettingsShellTests",
   "runStitchRecordsShellTests",
