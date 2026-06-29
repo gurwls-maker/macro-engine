@@ -66,6 +66,7 @@ const testProfiles = {
     "runTodayCalculationOwnershipTests",
     "runTodayQuickEditTests",
     "runRecordEditCalculationBasisTests",
+    "runRecordDetailBodyCompositionPrecisionTests",
     "runSmartRestoreImportTests",
     "runDataManagementBackupTests",
     "runDualBasisProductionTests"
@@ -82,6 +83,7 @@ const testProfiles = {
     "runTodayCalculationOwnershipTests",
     "runTodayQuickEditTests",
     "runRecordEditCalculationBasisTests",
+    "runRecordDetailBodyCompositionPrecisionTests",
     "runRecordTodayAutoWeeklyCountTests",
     "runRecordWeightTodayApplyPromptTests",
     "runRecordsInlineEditTests",
