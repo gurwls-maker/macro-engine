@@ -70,6 +70,7 @@ const testProfiles = {
   smoke: [
     "runRecordMigrationTests",
     "runMealRecordTests",
+    "runMealEntryConsistencyTests",
     "runTodayConsumptionTests",
     "runTodayBalanceTests",
     "runTodayCalculationOwnershipTests",
@@ -97,6 +98,7 @@ const testProfiles = {
     "runRecordWeightTodayApplyPromptTests",
     "runRecordsInlineEditTests",
     "runSharedMealSurfaceTests",
+    "runMealEntryConsistencyTests",
     "runSmartRestoreImportTests",
     "runBackupRestoreConflictPreviewTests",
     "runDataManagementBackupTests",
@@ -156,6 +158,7 @@ const testProfiles = {
   "runMobileBottomNavSafetyTests",
   "runRecordsInBodySettingsCopyDietTests",
   "runAlcoholKcalCalculatorTests",
+  "runMealEntryConsistencyTests",
   "runSmartRestoreImportTests",
   "runBackupRestoreConflictPreviewTests",
   "runFullBackupMealsRestoreTests",
