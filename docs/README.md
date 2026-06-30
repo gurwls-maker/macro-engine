@@ -4,22 +4,26 @@
 
 ## 먼저 읽을 문서
 
-1. `00_현재작업기준_2026-06-16.txt`
+1. `99_v8.1_takeover_audit_2026-06-30.md`
+   - v8.0 final 이후 인수인계 감사 문서다.
+   - 실제 동작 판단은 `v8.0` tag가 가리키는 HEAD 코드와 테스트가 우선이고, 이 문서는 다음 작업 착수 전 위험 분류와 금지선 판단에 쓴다.
+
+2. `00_현재작업기준_2026-06-16.txt`
    - 현재 작업에서 우선해야 할 앱 방향, 산식 방향, UI/문구 원칙을 담는다.
    - 코드 수정 전 이 문서를 먼저 확인한다.
 
-2. `02_대화의도_근거표_2026-06-16.txt`
+3. `02_대화의도_근거표_2026-06-16.txt`
    - 최근 대화에서 확정된 의도를 정리한 근거표다.
-   - 문서끼리 충돌하면 이 문서와 최신 대화 의도를 우선한다.
+   - `00_현재작업기준`과 충돌하면 최신 대화 의도와 이 문서의 의도 근거를 우선 검토한다.
 
-3. 작업 주제별 참고 문서
+4. 작업 주제별 참고 문서
    - `v8_운동여부_코드영향감사_2026-06-15.txt`
    - `v8_CC이후_TDEE_시간소유권_설계_2026-06-15.txt`
    - `v8_외부근거_매크로_정책표_2026-06-05.txt`
    - `v8_운동프로필_수준별산식_통합실행설계_2026-06-04.txt`
    - `# 2026 ACSM 근력운동 가이드 한국어 해설판.txt`
 
-4. 문구를 바꿀 때만 읽을 문서
+5. 문구를 바꿀 때만 읽을 문서
    - `앱-문구-기준.txt`
 
 ## 충돌 판단 순서
@@ -27,10 +31,11 @@
 1. 최신 대화 의도
 2. 현재 git HEAD의 실제 `index.html`, 브라우저 화면, 테스트 결과
 3. 현재 앱에서 실제로 자연스러운 동작
-4. `00_현재작업기준_2026-06-16.txt`
+4. `99_v8.1_takeover_audit_2026-06-30.md`의 위험 분류와 금지선
 5. `02_대화의도_근거표_2026-06-16.txt`
-6. 주제별 참고 문서
-7. 오래된 구현 또는 테스트
+6. `00_현재작업기준_2026-06-16.txt`
+7. 주제별 참고 문서
+8. 오래된 구현 또는 테스트
 
 기준문서는 개발을 돕기 위한 도구다. 문서가 현재 앱 의도와 어긋나면 문서를 고친다.
 
@@ -39,6 +44,14 @@
 v8 RC6에서는 문서를 코드에 맞춘다. 오래된 C4.8, M2, mode, Stitch, backup 계획이 현재 화면이나 테스트와 충돌하면 현재 HEAD와 최신 release gate 결과를 우선한다.
 
 RC6 문서 sync는 새 기능 구현 단계가 아니다. 산식, 저장 구조, backup schema, smart restore, Records 저장 구조, Today/Records/Recent/InBody/Settings Shell UI를 문서 때문에 되돌리지 않는다.
+
+## 테스트와 render audit 주의
+
+현재 repo에는 `package.json`과 lockfile이 없다. Node.js, Playwright, 브라우저 channel 의존성은 실행 환경에 따라 달라질 수 있으므로, 개발환경 재현성 정리는 별도 작업으로 다룬다. 문서 보정 커밋에 `package.json` 도입을 섞지 않는다.
+
+`tools/render_audit/_debug/`, `manifest.json`, screenshots, pages 같은 render audit 산출물은 generated/ignored 증거물이다. render audit analyze 결과는 같은 source 시점에서 생성된 capture와 manifest일 때만 현재 UI 증거로 인정한다. source가 바뀐 뒤에는 analyze만 다시 읽지 말고 capture부터 다시 실행한다.
+
+full exported browser tests와 render audit capture는 release gate 성격이다. 작은 docs correction에서는 `git diff --check`, 변경 파일 확인, 필요 시 smoke 선택 실행을 우선한다.
 
 ## 작업 기록 관리
 
