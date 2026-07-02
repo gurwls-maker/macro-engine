@@ -6,6 +6,31 @@
 
 ## Commands
 
+새 환경에서는 먼저 dependency를 설치합니다.
+
+```powershell
+npm ci
+npm run setup:browsers
+```
+
+일반 QA는 npm scripts를 우선 사용합니다.
+
+```powershell
+npm run test:profiles
+npm run test:smoke
+npm run test:core
+npm run test:ui
+npm run test:mobile
+npm run test:calibration
+npm run test:full
+npm run test:daily-coach
+npm run test:macro-policy
+npm run audit:render:capture
+npm run audit:render:analyze
+```
+
+아래 raw node 명령은 npm script를 우회해야 할 때만 사용합니다.
+
 ```powershell
 node .\tools\render_audit\run_internal_tests.cjs
 node .\tools\render_audit\run_internal_tests.cjs --mobile

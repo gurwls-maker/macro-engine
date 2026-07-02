@@ -9,7 +9,7 @@
    - 실제 동작 판단은 `v8.0` tag가 가리키는 HEAD 코드와 테스트가 우선이고, 이 문서는 다음 작업 착수 전 위험 분류와 금지선 판단에 쓴다.
 
 2. `98_v8.1_dev_environment_reproducibility_decision_2026-07-02.md`
-   - 개발환경 재현성, Playwright 의존성, render audit 증거 기준, package 도입 판단 기준을 정리한다.
+   - 개발환경 재현성, Playwright 의존성, npm scripts, render audit 증거 기준을 정리한다.
    - 앱 구현 작업 전에 현재 테스트 실행 환경이 충분한지 확인할 때 읽는다.
 
 3. `00_현재작업기준_2026-06-16.txt`
@@ -52,7 +52,9 @@ RC6 문서 sync는 새 기능 구현 단계가 아니다. 산식, 저장 구조,
 
 ## 테스트와 render audit 주의
 
-현재 repo에는 `package.json`과 lockfile이 없다. Node.js, Playwright, 브라우저 channel 의존성은 실행 환경에 따라 달라질 수 있으므로, 개발환경 재현성 정리는 별도 작업으로 다룬다. 문서 보정 커밋에 `package.json` 도입을 섞지 않는다.
+현재 repo에는 `package.json`과 `package-lock.json`이 있다. 새 컴퓨터에서는 먼저 `npm ci`를 실행하고, bundled Chromium이 필요하면 `npm run setup:browsers`를 실행한다.
+
+기본 QA 진입점은 npm scripts다. 예: `npm run test:smoke`, `npm run test:ui`, `npm run test:mobile`, `npm run test:core`, `npm run test:calibration`.
 
 `tools/render_audit/_debug/`, `manifest.json`, screenshots, pages 같은 render audit 산출물은 generated/ignored 증거물이다. render audit analyze 결과는 같은 source 시점에서 생성된 capture와 manifest일 때만 현재 UI 증거로 인정한다. source가 바뀐 뒤에는 analyze만 다시 읽지 말고 capture부터 다시 실행한다.
 
