@@ -119,6 +119,7 @@ const testProfiles = {
     "runInBodyTodayFillTests",
     "runInBodySaveTodayApplyChoiceTests",
     "runDualBasisProductionTests",
+    "runMacroRangeReportOnlyHelperTests",
     "runTargetMacroProductionPolicyTests",
     "runMacroAllocationExplanationTests",
     "runDailyCoachRecentContextTests"

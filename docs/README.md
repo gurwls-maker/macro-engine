@@ -50,6 +50,9 @@
    - `v8.2_macro_range_report_only_helper_design_2026-07-03.md`
      - macro range를 production에 적용하기 전 current fixed target과 range candidate를 나란히 비교할 report-only helper의 input/output, guard, sample matrix, impossible state, 테스트 후보를 설계한 문서다.
      - 현재 구현 지시서가 아니며, `macroRangeContract`는 저장 schema가 아니라 transient debug/report-only output 후보로만 다룬다.
+   - `v8.2_macro_range_report_only_helper_implementation_2026-07-03.md`
+     - report-only helper skeleton과 guard tests를 실제 코드에 추가한 구현 기록이다.
+     - `index.html` 변경은 있지만 production 산식, score, `goalSnapshot`, backup/restore, Recent, Today UI, DailyCoach에는 연결하지 않는다.
    - `v8.2_onboarding_start_flow_note_2026-07-03.md`
      - 첫 실행 UX, Settings 기본값 초기화, Today 첫 계산 진입을 다루는 온보딩 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 UX 설계 감사가 필요하다.
