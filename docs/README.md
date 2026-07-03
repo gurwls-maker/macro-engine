@@ -93,6 +93,10 @@
    - `v8.2_macro_range_recent_mixed_basis_tests_implementation_2026-07-03.md`
      - `runMacroRangeRecentMixedBasisDesignTests` 구현 기록이다.
      - suite 내부 test-local detector로 fixed/range/invalid/unsupported/component-ineligible basis를 분류하고, production Recent counts와 DailyCoach output은 변경하지 않는다.
+   - `v8.2_macro_range_storage_compatibility_checkpoint_2026-07-03.md`
+     - macro range storage/schema 진입 전 중간점검 문서다.
+     - report-only helper, score candidate, snapshot, normalizer simulation, signature, backup/restore, Recent mixed-basis 테스트가 무엇을 고정했고 무엇을 아직 증명하지 않았는지 분리한다.
+     - `macroRangeContract` 저장, `macroRangeBasisSignature` 저장, backup/restore schema, Recent aggregation, score version, production macro range는 계속 금지한다.
    - `v8.2_onboarding_start_flow_note_2026-07-03.md`
      - 첫 실행 UX, Settings 기본값 초기화, Today 첫 계산 진입을 다루는 온보딩 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 UX 설계 감사가 필요하다.
