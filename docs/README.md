@@ -44,6 +44,9 @@
    - `v8.2_macro_range_rebalance_feasibility_audit_2026-07-03.md`
      - macro range 후보를 현재 코드의 target macro, score, Records snapshot, Recent, backup 관점에서 대조한 사전 감사 문서다.
      - 결론은 copy-only 부족 / 즉시 구현 금지 / v8.2 macro-policy 설계 선행이다.
+   - `v8.2_macro_range_policy_design_2026-07-03.md`
+     - macro range 후보의 외부 근거 계층, 앱 정책값, 사용자-facing 계약, score version, Records snapshot, Recent, backup/restore 호환 기준을 분리한 정책/데이터 계약 설계 문서다.
+     - 현재 구현 지시서가 아니며, `fatMin/fatMax` 같은 최소 필드 도입으로 구색만 맞추는 방식은 금지한다. 다음 단계는 report-only helper 설계 또는 외부 검수다.
    - `v8.2_onboarding_start_flow_note_2026-07-03.md`
      - 첫 실행 UX, Settings 기본값 초기화, Today 첫 계산 진입을 다루는 온보딩 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 UX 설계 감사가 필요하다.
