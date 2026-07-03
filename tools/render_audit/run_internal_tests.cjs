@@ -123,6 +123,7 @@ const testProfiles = {
     "runMacroRangeScoreCandidateReportOnlyTests",
     "runMacroRangeSnapshotCompatibilityDesignTests",
     "runMacroRangeExplicitNormalizerSimulationDesignTests",
+    "runMacroRangeSignatureDecisionDesignTests",
     "runTargetMacroProductionPolicyTests",
     "runMacroAllocationExplanationTests",
     "runDailyCoachRecentContextTests"

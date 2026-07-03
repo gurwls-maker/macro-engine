@@ -78,6 +78,9 @@
    - `v8.2_macro_range_signature_include_exclude_decision_design_2026-07-03.md`
      - future `macroRangeContract`를 signature에 포함할지, 제외할지, 별도 basis signature로 분리할지 판단하기 위한 docs-only 설계 문서다.
      - `GOAL_SNAPSHOT_SIGNATURE_KEYS`, `getGoalSnapshotSignature`, Records 무변경 저장, backup/restore, Recent, score, UI는 변경하지 않는다.
+   - `v8.2_macro_range_signature_decision_tests_implementation_2026-07-03.md`
+     - `runMacroRangeSignatureDecisionDesignTests` 구현 기록이다.
+     - include / exclude / separate basis signature 후보를 suite 내부 test-local helper로 비교하고, production signature와 Records 무변경 저장 로직은 변경하지 않는다.
    - `v8.2_onboarding_start_flow_note_2026-07-03.md`
      - 첫 실행 UX, Settings 기본값 초기화, Today 첫 계산 진입을 다루는 온보딩 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 UX 설계 감사가 필요하다.
