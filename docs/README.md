@@ -35,6 +35,9 @@
    - `앱-문구-기준.txt`
 
 7. 후속 후보 문서
+   - `95_v8.1_post_copy_help_priorities_2026-07-03.md`
+     - v8.1 copy/help 종료 이후 후속 후보 우선순위와 다음 audit 진입 기준을 정리한다.
+     - macro range, onboarding, 남은 저위험 copy, 위험 action copy 재오픈 조건을 같은 표에서 분리한다.
    - `v8.2_macro_range_rebalance_note_2026-07-02.md`
      - 고정 매크로 목표를 범위 기반 재배분/점수 구조로 바꾸는 제품 정책/산식/점수/저장 해석 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 사전 감사가 필요하다.
