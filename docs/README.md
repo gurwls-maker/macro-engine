@@ -56,6 +56,9 @@
    - `v8.2_macro_range_score_candidate_report_only_design_2026-07-03.md`
      - fixed score와 range score candidate를 나란히 비교하기 위한 report-only score 후보 설계 문서다.
      - 현재 구현 지시서가 아니며, `getDailyAdherenceScore`, `ADHERENCE_SCORING_VERSION`, Records/Recent/backup/Today UI에는 연결하지 않는다.
+   - `v8.2_macro_range_score_candidate_report_only_implementation_2026-07-03.md`
+     - range score candidate report-only helper 구현 기록이다.
+     - `candidateScorePreview`는 아직 `null`이며, fixed score가 계속 source of truth다.
    - `v8.2_onboarding_start_flow_note_2026-07-03.md`
      - 첫 실행 UX, Settings 기본값 초기화, Today 첫 계산 진입을 다루는 온보딩 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 UX 설계 감사가 필요하다.
