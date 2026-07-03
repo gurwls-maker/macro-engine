@@ -41,6 +41,9 @@
    - `v8.2_macro_range_rebalance_note_2026-07-02.md`
      - 고정 매크로 목표를 범위 기반 재배분/점수 구조로 바꾸는 제품 정책/산식/점수/저장 해석 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 사전 감사가 필요하다.
+   - `v8.2_macro_range_rebalance_feasibility_audit_2026-07-03.md`
+     - macro range 후보를 현재 코드의 target macro, score, Records snapshot, Recent, backup 관점에서 대조한 사전 감사 문서다.
+     - 결론은 copy-only 부족 / 즉시 구현 금지 / v8.2 macro-policy 설계 선행이다.
    - `v8.2_onboarding_start_flow_note_2026-07-03.md`
      - 첫 실행 UX, Settings 기본값 초기화, Today 첫 계산 진입을 다루는 온보딩 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 UX 설계 감사가 필요하다.
