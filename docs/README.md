@@ -106,6 +106,9 @@
    - `v8.2_macro_range_contract_normalizer_design_2026-07-03.md`
      - future `macroRangeContract` production normalizer가 필요해질 경우의 입력, 출력, valid/invalid/unsupported 처리, fixed snapshot survival rule을 정리한 docs-only 설계 문서다.
      - production normalizer 구현, `normalizeGoalSnapshot` 연결, `macroRangeContract` 저장, backup/restore schema, Recent aggregation, score version 변경은 계속 금지한다.
+   - `v8.2_macro_range_contract_normalizer_tests_implementation_2026-07-03.md`
+     - `runMacroRangeContractNormalizerDesignTests` 구현 기록이다.
+     - suite 내부 test-local helper로 absent/valid/invalid/unsupported 후보와 no-impact guard를 검증하고, production normalizer와 storage/schema는 열지 않는다.
    - `v8.2_onboarding_start_flow_note_2026-07-03.md`
      - 첫 실행 UX, Settings 기본값 초기화, Today 첫 계산 진입을 다루는 온보딩 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 UX 설계 감사가 필요하다.
