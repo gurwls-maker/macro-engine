@@ -87,6 +87,9 @@
    - `v8.2_macro_range_backup_restore_fixture_tests_implementation_2026-07-03.md`
      - `runMacroRangeBackupRestoreFixtureDesignTests` 구현 기록이다.
      - old fixed basis 보존, current unknown range field no-leak, smart restore keep/replace/meals basis 차이를 테스트로 고정하고, backup schema와 restore policy는 변경하지 않는다.
+   - `v8.2_macro_range_recent_mixed_basis_handling_design_2026-07-03.md`
+     - future range basis가 저장 가능한 후보로 승격될 때 Recent가 old fixed basis와 new range basis를 조용히 같은 component count로 섞지 않도록 mixed-basis 감지와 처리 후보를 정리한 docs-only 설계 문서다.
+     - 현재 Recent aggregation, UI, DailyCoach, score, backup/restore는 변경하지 않는다.
    - `v8.2_onboarding_start_flow_note_2026-07-03.md`
      - 첫 실행 UX, Settings 기본값 초기화, Today 첫 계산 진입을 다루는 온보딩 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 UX 설계 감사가 필요하다.
