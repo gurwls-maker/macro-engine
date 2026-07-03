@@ -81,6 +81,9 @@
    - `v8.2_macro_range_signature_decision_tests_implementation_2026-07-03.md`
      - `runMacroRangeSignatureDecisionDesignTests` 구현 기록이다.
      - include / exclude / separate basis signature 후보를 suite 내부 test-local helper로 비교하고, production signature와 Records 무변경 저장 로직은 변경하지 않는다.
+   - `v8.2_macro_range_backup_restore_old_new_fixture_design_2026-07-03.md`
+     - macro range 후보가 future known contract로 승격될 때 full backup, records-only import, smart restore keep/replace/meals가 old fixed basis와 new range basis를 어떻게 다뤄야 하는지 fixture와 assertion을 정리한 docs-only 설계 문서다.
+     - backup schema, restore policy, conflict preview, Recent, score, UI는 변경하지 않는다.
    - `v8.2_onboarding_start_flow_note_2026-07-03.md`
      - 첫 실행 UX, Settings 기본값 초기화, Today 첫 계산 진입을 다루는 온보딩 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 UX 설계 감사가 필요하다.
