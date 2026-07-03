@@ -100,6 +100,9 @@
    - `v8.2_macro_range_contract_storage_design_2026-07-03.md`
      - known `macroRangeContract`를 저장 가능한 후보로 다루기 전, 후보 shape와 storage decision, normalizer/signature/backup/Recent/score 영향표를 정리한 docs-only 설계 문서다.
      - production schema 구현, `goalSnapshot` field 추가, `macroRangeContract` 저장, `macroRangeBasisSignature` 저장, backup payload field 추가, Recent aggregation 변경은 계속 금지한다.
+   - `v8.2_macro_range_phase_gate_closeout_2026-07-03.md`
+     - macro range report-only / test-local / storage-design phase gate를 닫는 closeout 문서다.
+     - 현재 phase는 완료 가능하지만 production storage/schema, score version, Recent aggregation, UI, DailyCoach, production macro range 구현은 계속 금지한다.
    - `v8.2_onboarding_start_flow_note_2026-07-03.md`
      - 첫 실행 UX, Settings 기본값 초기화, Today 첫 계산 진입을 다루는 온보딩 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 UX 설계 감사가 필요하다.
