@@ -65,6 +65,10 @@
    - `v8.2_macro_range_snapshot_compatibility_test_design_2026-07-03.md`
      - snapshot compatibility를 실제 테스트로 열기 전 fixture, assertion, failure mode, false positive 방지 기준을 정리한 test design 문서다.
      - schema 구현 없이 old/new basis 혼합 방지와 no-leak guard를 먼저 증명하는 것을 목표로 둔다.
+   - `v8.2_macro_range_snapshot_compatibility_design_tests_implementation_2026-07-03.md`
+     - `runMacroRangeSnapshotCompatibilityDesignTests` 구현 기록이다.
+     - 현재 fixed snapshot 계약, unknown range field pruning, backup/restore no-leak, smart restore meals-only local snapshot basis, Recent fixed-basis aggregation, scoring version unchanged를 테스트로 고정한다.
+     - production schema, normalizer, backup/restore policy, Recent range-aware logic, score version, UI는 변경하지 않는다.
    - `v8.2_onboarding_start_flow_note_2026-07-03.md`
      - 첫 실행 UX, Settings 기본값 초기화, Today 첫 계산 진입을 다루는 온보딩 후보 메모다.
      - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 UX 설계 감사가 필요하다.
