@@ -59,6 +59,9 @@
    - `v8.2_macro_range_score_candidate_report_only_implementation_2026-07-03.md`
      - range score candidate report-only helper 구현 기록이다.
      - `candidateScorePreview`는 아직 `null`이며, fixed score가 계속 source of truth다.
+   - `v8.2_macro_range_score_severity_policy_design_2026-07-03.md`
+     - `candidateScorePreview`와 `scoreDeltaPreview`를 숫자로 만들기 전에 닫아야 할 severity / weight / data quality / old-record policy decision을 정리한 docs-only 설계 문서다.
+     - production score, `getDailyAdherenceScore`, `ADHERENCE_SCORING_VERSION`, storage/schema, Recent, UI, DailyCoach는 변경하지 않는다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
