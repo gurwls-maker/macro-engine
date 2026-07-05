@@ -98,6 +98,10 @@
      - Records latest-policy current source of truth 보정 문서다.
      - `저장값 변경 금지 != 재계산 금지`를 명시하고, sufficient detailed old fixed Records는 latest-policy preview eligibility 후보가 될 수 있다고 정리한다.
      - simple / weight_only / snapshotless / insufficient Records는 numeric preview 대상이 아니며, candidateScorePreview, pointsPreview, scoreDeltaPreview, production score, storage/schema, Recent, UI, DailyCoach는 변경하지 않는다.
+   - `v8.2_macro_range_score_records_latest_policy_tests_implementation_2026-07-05.md`
+     - `runMacroRangeScoreRecordsLatestPolicyCorrectionTests` 구현 기록이다.
+     - old fixed Records automatic exclusion 제거, sufficient detailed old fixed Records preview eligibility, simple / weight_only / snapshotless / insufficient 제외, saved adherencePercent / adherenceScoringVersion no-overwrite, backup / Recent / UI / DailyCoach no-impact guard를 테스트로 고정한다.
+     - numeric helper, candidateScorePreview, pointsPreview, scoreDeltaPreview, production score, storage/schema, Recent, UI, DailyCoach, production macro range는 변경하지 않는다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
