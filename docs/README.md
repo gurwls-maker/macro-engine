@@ -129,6 +129,9 @@
    - `v8.2_macro_range_score_report_only_numeric_preview_phase_closeout_2026-07-05.md`
      - report-only numeric preview 라인의 phase closeout / readiness checkpoint 문서다.
      - `testLocalNumericPreview` nested-only, consumer no-leak, macro-policy/core registration coverage까지 닫되, production `candidateScorePreview`, `pointsPreview`, `scoreDeltaPreview`, score/storage/UI/DailyCoach/Recent gate는 아직 열지 않는다고 정리한다.
+   - `v8.2_macro_range_score_storage_separation_decision_2026-07-05.md`
+     - score 후보와 storage 후보를 분리하는 docs-only decision 문서다.
+     - future `candidateScorePreview`는 열리더라도 기본적으로 transient preview이며, record / goalSnapshot / backup 저장 계약은 별도 score persistence gate 없이는 계속 닫는다고 정리한다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
