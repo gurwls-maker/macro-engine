@@ -121,6 +121,7 @@ const testProfiles = {
     "runDualBasisProductionTests",
     "runMacroRangeReportOnlyHelperTests",
     "runMacroRangeScoreCandidateReportOnlyTests",
+    "runMacroRangeScoreSeverityPolicyDesignTests",
     "runMacroRangeSnapshotCompatibilityDesignTests",
     "runMacroRangeExplicitNormalizerSimulationDesignTests",
     "runMacroRangeContractNormalizerDesignTests",
