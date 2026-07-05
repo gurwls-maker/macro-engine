@@ -124,6 +124,7 @@
    - `v8.2_macro_range_score_report_only_numeric_preview_consumer_no_leak_tests_implementation_2026-07-05.md`
      - `runMacroRangeScoreReportOnlyNumericPreviewConsumerNoLeakTests` 구현 기록이다.
      - leaky raw record/snapshot, backup/restore, Recent, fixed score, DailyCoach, UI, Records state, promoted consumer payload를 test-only로 검증해 `testLocalNumericPreview`가 production consumer로 새지 않도록 고정한다.
+     - `test:macro-policy`와 `tools/render_audit` core profile에 등록하고, 이전부터 `test:macro-policy`에만 있던 targetCal / modeFree policy suite도 core profile 등록 누락을 보강한다.
      - production consumer 연결, storage/schema, Recent aggregation, UI, DailyCoach, candidateScorePreview / pointsPreview / scoreDeltaPreview 숫자화는 계속 금지한다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
