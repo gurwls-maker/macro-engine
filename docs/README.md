@@ -78,6 +78,10 @@
      - `candidateScorePreview` 숫자화 전에 weight / severity 방향을 penalty-only docs-only 정책으로 정리한 문서다.
      - kcal/protein anchor lane, fat/carbExchange range evidence lane, dataQuality eligibility lane을 분리하고, inside_recommended / exchange_explained는 보너스가 아니라고 고정한다.
      - candidateScorePreview, component pointsPreview, scoreDeltaPreview, production score, storage/schema, Recent, UI, DailyCoach, production macro range는 변경하지 않는다.
+   - `v8.2_macro_range_score_weight_severity_decision_tests_implementation_2026-07-05.md`
+     - `runMacroRangeScoreWeightSeverityDecisionDesignTests` 구현 기록이다.
+     - anchor / range evidence / eligibility lane, blocked / strong / material / observation / neutral severity lane, no-bonus, candidateScorePreview null, component pointsPreview null, scoreDeltaPreview null, backup / Recent / UI / DailyCoach no-impact guard를 테스트로 고정한다.
+     - production score, storage/schema, Recent aggregation, UI, DailyCoach, production macro range는 변경하지 않는다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
