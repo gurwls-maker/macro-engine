@@ -121,6 +121,10 @@
    - `v8.2_macro_range_score_report_only_numeric_preview_consumer_no_leak_audit_2026-07-05.md`
      - `testLocalNumericPreview`가 report-only output에 실제로 붙은 뒤 backup / restore, normalizer, Recent, DailyCoach, UI, Records state, fixed score 소비자가 이를 잘못 읽지 않도록 consumer/no-leak map을 정리한 docs-only 감사 문서다.
      - 다음 안전 후보는 `runMacroRangeScoreReportOnlyNumericPreviewConsumerNoLeakTests` test-only guard이며, production consumer 연결, storage/schema, Recent aggregation, UI, DailyCoach, candidateScorePreview / pointsPreview / scoreDeltaPreview 숫자화는 계속 금지한다.
+   - `v8.2_macro_range_score_report_only_numeric_preview_consumer_no_leak_tests_implementation_2026-07-05.md`
+     - `runMacroRangeScoreReportOnlyNumericPreviewConsumerNoLeakTests` 구현 기록이다.
+     - leaky raw record/snapshot, backup/restore, Recent, fixed score, DailyCoach, UI, Records state, promoted consumer payload를 test-only로 검증해 `testLocalNumericPreview`가 production consumer로 새지 않도록 고정한다.
+     - production consumer 연결, storage/schema, Recent aggregation, UI, DailyCoach, candidateScorePreview / pointsPreview / scoreDeltaPreview 숫자화는 계속 금지한다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
