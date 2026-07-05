@@ -118,6 +118,9 @@
    - `v8.2_macro_range_score_report_only_numeric_preview_entry_implementation_2026-07-05.md`
      - `buildMacroRangeScoreCandidateReportOnly()` output에 `testLocalNumericPreview` nested object를 실제로 붙인 제한 구현 기록이다.
      - 숫자는 nested test-local field에만 존재하며 production-facing `candidateScorePreview`, component `pointsPreview`, `scoreDeltaPreview`, storage/schema, Recent, UI, DailyCoach는 계속 닫혀 있다.
+   - `v8.2_macro_range_score_report_only_numeric_preview_consumer_no_leak_audit_2026-07-05.md`
+     - `testLocalNumericPreview`가 report-only output에 실제로 붙은 뒤 backup / restore, normalizer, Recent, DailyCoach, UI, Records state, fixed score 소비자가 이를 잘못 읽지 않도록 consumer/no-leak map을 정리한 docs-only 감사 문서다.
+     - 다음 안전 후보는 `runMacroRangeScoreReportOnlyNumericPreviewConsumerNoLeakTests` test-only guard이며, production consumer 연결, storage/schema, Recent aggregation, UI, DailyCoach, candidateScorePreview / pointsPreview / scoreDeltaPreview 숫자화는 계속 금지한다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
