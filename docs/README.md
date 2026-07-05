@@ -111,6 +111,10 @@
      - test-local numeric output을 report-only object에 넣을 수 있는지 판단하는 docs-only 결정 문서다.
      - 결론은 조건부 허용이며, 숫자는 `testLocalNumericPreview` nested object 안에만 둘 수 있고 `candidateScorePreview`, `pointsPreview`, `scoreDeltaPreview` production-facing field는 계속 null로 둔다.
      - production score, storage/schema, backup, Recent, UI, DailyCoach, production macro range는 변경하지 않는다.
+   - `v8.2_macro_range_score_report_only_numeric_preview_entry_tests_implementation_2026-07-05.md`
+     - `runMacroRangeScoreReportOnlyNumericPreviewEntryDecisionTests` 구현 기록이다.
+     - `testLocalNumericPreview` nested-only, blocked record nested null, production-facing numeric promotion reject, backup / Recent / UI / DailyCoach no-impact guard를 테스트로 고정한다.
+     - candidateScorePreview, pointsPreview, scoreDeltaPreview, production score, storage/schema, Recent, UI, DailyCoach, production macro range는 변경하지 않는다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
