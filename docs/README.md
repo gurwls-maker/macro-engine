@@ -90,6 +90,10 @@
      - `runMacroRangeScoreRecordsBasisVersionDecisionTests` 구현 기록이다.
      - old fixed Records fixed basis, unknown range field prune, future range-basis Records not-current, candidate score version naming 분리, preview null, backup / Recent / UI / DailyCoach no-impact guard를 테스트로 고정한다.
      - production score, storage/schema, Recent aggregation, UI, DailyCoach, production macro range는 변경하지 않는다.
+   - `v8.2_macro_range_score_test_local_numeric_helper_entry_decision_2026-07-05.md`
+     - test-local numeric helper를 열기 전 입구 조건을 정리한 docs-only 결정 문서다.
+     - 첫 숫자 후보는 production-facing `candidateScorePreview`, component `pointsPreview`, `scoreDeltaPreview`가 아니라 test-local 전용 output에만 존재해야 한다고 닫는다.
+     - production score, storage/schema, Recent aggregation, UI, DailyCoach, production macro range는 변경하지 않는다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
