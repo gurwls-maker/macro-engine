@@ -66,6 +66,10 @@
      - `runMacroRangeScoreSeverityPolicyDesignTests` 구현 기록이다.
      - score severity policy design의 `candidateScorePreview` null, `scoreDeltaPreview` null, component `pointsPreview` null, old fixed Records no-reinterpret, backup / Recent / UI / DailyCoach no-impact guard를 테스트로 고정한다.
      - production score, storage/schema, Recent aggregation, UI, DailyCoach, production macro range는 변경하지 않는다.
+   - `v8.2_macro_range_score_numeric_preview_gate_design_2026-07-05.md`
+     - `candidateScorePreview`, component `pointsPreview`, `scoreDeltaPreview`를 숫자로 만들기 전에 닫아야 할 scope / weight / severity / data quality / old Records / no-leak gate를 정리한 docs-only 설계 문서다.
+     - 현재 결론은 숫자화 readiness 없음이며, 다음에 열 수 있는 것은 numeric preview gate를 보호하는 test-only guard까지다.
+     - production score, storage/schema, Recent aggregation, UI, DailyCoach, production macro range는 변경하지 않는다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
