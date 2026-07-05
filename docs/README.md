@@ -64,7 +64,7 @@
      - production score, `getDailyAdherenceScore`, `ADHERENCE_SCORING_VERSION`, storage/schema, Recent, UI, DailyCoach는 변경하지 않는다.
    - `v8.2_macro_range_score_severity_policy_tests_implementation_2026-07-05.md`
      - `runMacroRangeScoreSeverityPolicyDesignTests` 구현 기록이다.
-     - score severity policy design의 `candidateScorePreview` null, `scoreDeltaPreview` null, component `pointsPreview` null, old fixed Records no-reinterpret, backup / Recent / UI / DailyCoach no-impact guard를 테스트로 고정한다.
+     - score severity policy design의 `candidateScorePreview` null, `scoreDeltaPreview` null, component `pointsPreview` null, old fixed Records 저장값 no-mutation, backup / Recent / UI / DailyCoach no-impact guard를 테스트로 고정한다.
      - production score, storage/schema, Recent aggregation, UI, DailyCoach, production macro range는 변경하지 않는다.
    - `v8.2_macro_range_score_numeric_preview_gate_design_2026-07-05.md`
      - `candidateScorePreview`, component `pointsPreview`, `scoreDeltaPreview`를 숫자로 만들기 전에 닫아야 할 scope / weight / severity / data quality / old Records / no-leak gate를 정리한 docs-only 설계 문서다.
@@ -72,7 +72,7 @@
      - production score, storage/schema, Recent aggregation, UI, DailyCoach, production macro range는 변경하지 않는다.
    - `v8.2_macro_range_score_numeric_preview_gate_tests_implementation_2026-07-05.md`
      - `runMacroRangeScoreNumericPreviewGateDesignTests` 구현 기록이다.
-     - Gate A-F inventory closed, `candidateScorePreview` null, component `pointsPreview` null, `scoreDeltaPreview` null, full-day candidate no numeric preview, old fixed Records no-reinterpret, backup / Recent / UI / DailyCoach no-impact guard를 테스트로 고정한다.
+     - Gate A-F inventory closed, `candidateScorePreview` null, component `pointsPreview` null, `scoreDeltaPreview` null, full-day candidate no numeric preview, old fixed Records 저장값 no-mutation, backup / Recent / UI / DailyCoach no-impact guard를 테스트로 고정한다.
      - production score, storage/schema, Recent aggregation, UI, DailyCoach, production macro range는 변경하지 않는다.
    - `v8.2_macro_range_score_numeric_preview_weight_severity_decision_2026-07-05.md`
      - `candidateScorePreview` 숫자화 전에 weight / severity 방향을 penalty-only docs-only 정책으로 정리한 문서다.
@@ -84,16 +84,20 @@
      - production score, storage/schema, Recent aggregation, UI, DailyCoach, production macro range는 변경하지 않는다.
    - `v8.2_macro_range_score_records_basis_version_decision_2026-07-05.md`
      - `candidateScorePreview` 숫자화 전 old/new Records score basis와 candidate score version naming을 한 문서에서 닫는 docs-only 결정 문서다.
-     - old fixed Records는 fixed score basis로 유지하고, future candidate score version은 `ADHERENCE_SCORING_VERSION`과 분리된 test-local preview 이름으로만 예약한다.
+     - old fixed Records의 stored/raw score basis는 fixed로 유지하고, future candidate score version은 `ADHERENCE_SCORING_VERSION`과 분리된 test-local preview 이름으로만 예약한다.
      - candidateScorePreview, component pointsPreview, scoreDeltaPreview, production score, storage/schema, Recent, UI, DailyCoach, production macro range는 변경하지 않는다.
    - `v8.2_macro_range_score_records_basis_version_tests_implementation_2026-07-05.md`
      - `runMacroRangeScoreRecordsBasisVersionDecisionTests` 구현 기록이다.
-     - old fixed Records fixed basis, unknown range field prune, future range-basis Records not-current, candidate score version naming 분리, preview null, backup / Recent / UI / DailyCoach no-impact guard를 테스트로 고정한다.
+     - old fixed Records stored/raw fixed basis, unknown range field prune, future range-basis Records not-current, candidate score version naming 분리, preview null, backup / Recent / UI / DailyCoach no-impact guard를 테스트로 고정한다.
      - production score, storage/schema, Recent aggregation, UI, DailyCoach, production macro range는 변경하지 않는다.
    - `v8.2_macro_range_score_test_local_numeric_helper_entry_decision_2026-07-05.md`
      - test-local numeric helper를 열기 전 입구 조건을 정리한 docs-only 결정 문서다.
      - 첫 숫자 후보는 production-facing `candidateScorePreview`, component `pointsPreview`, `scoreDeltaPreview`가 아니라 test-local 전용 output에만 존재해야 한다고 닫는다.
      - production score, storage/schema, Recent aggregation, UI, DailyCoach, production macro range는 변경하지 않는다.
+   - `v8.2_macro_range_score_records_latest_policy_correction_2026-07-05.md`
+     - Records latest-policy current source of truth 보정 문서다.
+     - `저장값 변경 금지 != 재계산 금지`를 명시하고, sufficient detailed old fixed Records는 latest-policy preview eligibility 후보가 될 수 있다고 정리한다.
+     - simple / weight_only / snapshotless / insufficient Records는 numeric preview 대상이 아니며, candidateScorePreview, pointsPreview, scoreDeltaPreview, production score, storage/schema, Recent, UI, DailyCoach는 변경하지 않는다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
