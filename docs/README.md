@@ -107,6 +107,10 @@
      - 숫자를 production-facing `candidateScorePreview`, `pointsPreview`, `scoreDeltaPreview`가 아니라 `testLocalCandidateScorePreview`와 `testLocalComponentPoints`에만 계산하는 test-only helper로 연다.
      - full_day_candidate와 sufficient detailed old fixed Records만 숫자 후보이며, simple / weight_only / snapshotless / insufficient Records는 null/blocked로 유지한다.
      - production score, storage/schema, Recent, UI, DailyCoach, production macro range는 변경하지 않는다.
+   - `v8.2_macro_range_score_report_only_numeric_preview_entry_decision_2026-07-05.md`
+     - test-local numeric output을 report-only object에 넣을 수 있는지 판단하는 docs-only 결정 문서다.
+     - 결론은 조건부 허용이며, 숫자는 `testLocalNumericPreview` nested object 안에만 둘 수 있고 `candidateScorePreview`, `pointsPreview`, `scoreDeltaPreview` production-facing field는 계속 null로 둔다.
+     - production score, storage/schema, backup, Recent, UI, DailyCoach, production macro range는 변경하지 않는다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
