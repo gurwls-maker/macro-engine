@@ -126,6 +126,7 @@ const testProfiles = {
     "runMacroRangeScoreWeightSeverityDecisionDesignTests",
     "runMacroRangeScoreRecordsBasisVersionDecisionTests",
     "runMacroRangeScoreRecordsLatestPolicyCorrectionTests",
+    "runMacroRangeScoreTestLocalNumericHelperTests",
     "runMacroRangeSnapshotCompatibilityDesignTests",
     "runMacroRangeExplicitNormalizerSimulationDesignTests",
     "runMacroRangeContractNormalizerDesignTests",
