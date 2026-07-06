@@ -158,6 +158,10 @@
    - `v8.2_macro_range_score_delta_preview_policy_test_design_2026-07-06.md`
      - future `scoreDeltaPreview` policy를 테스트로 고정하기 전에 필요한 fixture, assertion, no-leak 금지선을 정리한 docs-only test design 문서다.
      - `comparison.scoreDeltaPreview`는 계속 null이며, candidate null이면 delta null, component `pointsPreview` null이면 delta null, old fixed Records no-mutation, storage / backup / Recent / UI / DailyCoach no-leak, promoted payload rejection을 future suite 기준으로 닫는다.
+   - `v8.2_macro_range_score_delta_preview_policy_tests_implementation_2026-07-06.md`
+     - `runMacroRangeScoreDeltaPreviewPolicyDecisionTests` 구현 기록이다.
+     - candidate null delta null, unapproved numeric payload delta null, blocked dataQuality sentinel delta 금지, old fixed Records no-mutation, promoted scoreDeltaPreview payload rejection, backup / Recent / UI / DailyCoach no-impact를 test-only로 고정한다.
+     - `window` export, `test:macro-policy`, `tools/render_audit` core profile에 등록하며, production score, storage/schema, UI, Recent, DailyCoach, `candidateScorePreview` / `pointsPreview` / `scoreDeltaPreview` 숫자화는 계속 금지한다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
