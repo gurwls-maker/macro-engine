@@ -175,6 +175,10 @@
      - `runMacroRangeComponentPointsPreviewNumericFormulaDecisionTests` 구현 기록이다.
      - formula identity, component/status별 exact expected value, positive/fractional/blocked sentinel/dataQuality sentinel rejection, old fixed Records no-mutation, backup / Recent / UI / DailyCoach no-impact를 test-only로 고정한다.
      - `window` export, `test:macro-policy`, `tools/render_audit` core profile에 등록하며, production `pointsPreview`, `candidateScorePreview`, `scoreDeltaPreview`, storage/schema, UI, Recent, DailyCoach 연결은 계속 금지한다.
+   - `v8.2_macro_range_candidate_score_preview_sum_clamp_rounding_decision_2026-07-06.md`
+     - future transient `candidateScorePreview`가 숫자로 열릴 때 사용할 sum / clamp / rounding 후보를 정리한 docs-only decision 문서다.
+     - `candidateScorePreview = clamp(100 + sum(kcal/protein/fat/carbExchange pointsPreview), 0, 100)` 후보로 닫되, `dataQuality`는 합산 제외하고 fractional input은 반올림하지 않고 invalid로 막는다.
+     - production `candidateScorePreview`, `comparison.candidateScorePreview`, `scoreDeltaPreview`, storage/schema, backup, Recent, UI, DailyCoach 연결은 계속 별도 gate로 남긴다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
