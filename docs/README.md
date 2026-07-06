@@ -213,12 +213,18 @@
      - `getDailyAdherenceScore` replacement와 `ADHERENCE_SCORING_VERSION = "v8.2_macro_range_score_v1"` bump는 같은 implementation gate에서 열어야 하며, formula switch와 version bump를 분리하지 않는다고 결정한다.
      - production score는 component contribution 기반 formula를 사용하고, 저장 계약은 기존 `adherencePercent` / `adherenceScoringVersion`을 유지하며, `pointsPreview` / `candidateScorePreview` / `scoreDeltaPreview` 저장 field는 열지 않는다.
      - `componentScores` fixed-ratio 의존성, separate alcohol penalty 제거/재정의, Today / Records / DailyCoach consumer alignment를 implementation risk로 명시하고, 다음 본류를 implementation test design docs-only로 둔다.
-   - `v8.2_macro_range_production_score_implementation_test_design_2026-07-06.md`
-     - future `runMacroRangeProductionScoreImplementationDecisionTests`와 기존 suite 갱신 범위를 정리한 docs-only test design 문서다.
-     - exact score fixtures, `getDailyAdherenceScore` returned shape, `ADHERENCE_SCORING_VERSION` bump, Records save/update, Today / Records / DailyCoach alignment, `componentScores` compatibility, alcohol no-separate-score-penalty, backup no preview leak를 assertion 기준으로 닫는다.
-     - `runAdherenceScoringTests`, `runDailyCoachTestCases`, `runMacroRangeProductionScoreTransitionDecisionTests`, generic scoring-version literal guard 갱신 계획을 명시한다.
-     - 다음 본류는 실제 range-aware production score implementation이며, `scoreDeltaPreview`, preview saved fields, storage/schema expansion, old fixed hidden recompute는 계속 보류한다.
-   - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
+  - `v8.2_macro_range_production_score_implementation_test_design_2026-07-06.md`
+    - future `runMacroRangeProductionScoreImplementationDecisionTests`와 기존 suite 갱신 범위를 정리한 docs-only test design 문서다.
+    - exact score fixtures, `getDailyAdherenceScore` returned shape, `ADHERENCE_SCORING_VERSION` bump, Records save/update, Today / Records / DailyCoach alignment, `componentScores` compatibility, alcohol no-separate-score-penalty, backup no preview leak를 assertion 기준으로 닫는다.
+    - `runAdherenceScoringTests`, `runDailyCoachTestCases`, `runMacroRangeProductionScoreTransitionDecisionTests`, generic scoring-version literal guard 갱신 계획을 명시한다.
+    - 다음 본류는 실제 range-aware production score implementation이며, `scoreDeltaPreview`, preview saved fields, storage/schema expansion, old fixed hidden recompute는 계속 보류한다.
+  - `v8.2_macro_range_production_score_implementation_2026-07-06.md`
+    - range-aware production score implementation 기록이다.
+    - `ADHERENCE_SCORING_VERSION`을 `v8.2_macro_range_score_v1`로 bump하고, `getDailyAdherenceScore`를 component contribution 기반 formula `clamp(100 + kcal + protein + fat + carbExchange, 0, 100)`로 교체한다.
+    - `LEGACY_FIXED_ADHERENCE_SCORING_VERSION`을 분리해 old fixed fixture basis를 유지하고, new detailed auto Records는 기존 `adherencePercent` / `adherenceScoringVersion` 계약으로 v8.2 score를 저장한다.
+    - `componentScores` fixed-ratio source와 separate `alcoholImpactPenalty` 후처리 감산을 production score source에서 제거하고, alcohol은 kcal contribution과 DailyCoach signal로만 다룬다.
+    - 신규 `runMacroRangeProductionScoreImplementationDecisionTests`를 `window`, `test:macro-policy`, `tools/render_audit` core profile에 등록하며, `scoreDeltaPreview`, preview saved fields, storage/schema expansion, old fixed hidden recompute는 계속 보류한다.
+  - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
    - `v8.2_macro_range_snapshot_compatibility_test_design_2026-07-03.md`
