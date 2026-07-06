@@ -187,6 +187,10 @@
      - `runMacroRangeCandidateScorePreviewSumClampRoundingDecisionTests` 구현 기록이다.
      - formula identity, source component inventory, `dataQuality` 합산 제외, exact sum table, lower clamp, positive/fractional/non-finite input rejection, fixed-score fallback rejection, test-local promotion rejection, old fixed Records no-mutation, backup / Recent / UI / DailyCoach no-impact를 test-only로 고정한다.
      - `window` export, `test:macro-policy`, `tools/render_audit` core profile에 등록하며, production `candidateScorePreview`, `comparison.candidateScorePreview`, `scoreDeltaPreview`, storage/schema, UI, Recent, DailyCoach 연결은 계속 금지한다.
+   - `v8.2_macro_range_score_delta_preview_numeric_formula_decision_2026-07-06.md`
+     - future transient `scoreDeltaPreview`가 숫자로 열릴 때 사용할 formula / sign / rounding 후보를 정리한 docs-only decision 문서다.
+     - `scoreDeltaPreview = candidateScorePreview - fixedScoreSummary.score` 후보로 닫고, positive는 candidate preview가 fixed production score보다 높음, negative는 낮음으로 해석하되 UI copy / DailyCoach action 의미는 별도 gate로 남긴다.
+     - rounding은 identity / no-op integer, 별도 delta clamp는 없고 fractional / out-of-range / blocked input은 null 또는 violation으로 막으며, storage/schema, backup, Recent, UI, DailyCoach 연결은 계속 금지한다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
