@@ -145,6 +145,9 @@
      - `runMacroRangeComponentPointsPreviewNumericPolicyDesignTests` 구현 기록이다.
      - component lane / severity lane / blocked dataQuality / neutral no-bonus / old fixed Records no-mutation / promoted payload rejection / backup, Recent, UI, DailyCoach no-impact를 test-only로 고정한다.
      - `window` export, `test:macro-policy`, `tools/render_audit` core profile에 등록하며, production score, storage/schema, UI, Recent, DailyCoach, `candidateScorePreview` / `pointsPreview` / `scoreDeltaPreview` 숫자화는 계속 금지한다.
+   - `v8.2_macro_range_candidate_score_preview_numeric_policy_test_design_2026-07-06.md`
+     - future `candidateScorePreview` numeric policy를 구현하기 전에 필요한 test-only guard의 fixture, assertion, no-leak 금지선을 정리한 docs-only test design 문서다.
+     - `testLocalNumericPreview.testLocalCandidateScorePreview`는 nested test-local evidence로만 유지하고, `rangeScoreCandidateSummary.candidateScorePreview`, `comparison.candidateScorePreview`, `scoreDeltaPreview`, component `pointsPreview`, storage / backup / Recent / UI / DailyCoach 연결은 계속 닫는다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
