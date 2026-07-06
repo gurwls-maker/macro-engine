@@ -187,6 +187,11 @@
      - `runMacroRangeCandidateScorePreviewSumClampRoundingDecisionTests` 구현 기록이다.
      - formula identity, source component inventory, `dataQuality` 합산 제외, exact sum table, lower clamp, positive/fractional/non-finite input rejection, fixed-score fallback rejection, test-local promotion rejection, old fixed Records no-mutation, backup / Recent / UI / DailyCoach no-impact를 test-only로 고정한다.
      - `window` export, `test:macro-policy`, `tools/render_audit` core profile에 등록하며, production `candidateScorePreview`, `comparison.candidateScorePreview`, `scoreDeltaPreview`, storage/schema, UI, Recent, DailyCoach 연결은 계속 금지한다.
+   - `v8.2_macro_range_scoring_direction_realignment_decision_2026-07-06.md`
+     - v8.2 macro range score 흐름을 `scoreDeltaPreview` 비교 확장이 아니라 fixed target score를 range-aware production score로 전환하는 본류로 재정렬하는 docs-only decision 문서다.
+     - component `pointsPreview` formula와 `candidateScorePreview = clamp(100 + sum(kcal/protein/fat/carbExchange pointsPreview), 0, 100)` 후보는 새 score 본체 후보로 유지한다.
+     - `scoreDeltaPreview`는 production 필수 경로가 아니라 optional audit / migration impact / debug comparison 도구로 재분류하며, numeric formula test design / implementation / UI / Recent / DailyCoach / storage 연결은 보류한다.
+     - old fixed Records no-mutation은 영구 제품 요구가 아니라 production 전 안전 가드로 재정의하고, 다음 본류는 `ADHERENCE_SCORING_VERSION` bump / `getDailyAdherenceScore` relation / new Records scoring policy를 포함한 production score transition decision으로 돌린다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
