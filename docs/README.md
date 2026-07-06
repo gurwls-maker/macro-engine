@@ -198,6 +198,11 @@
      - `candidateScorePreview = clamp(100 + sum(kcal/protein/fat/carbExchange pointsPreview), 0, 100)` formula는 production score formula source 후보로 승격하되, production 저장/표시 field는 기존 `adherencePercent` / `adherenceScoringVersion` 계약을 우선 사용한다.
      - component `pointsPreview`는 저장/노출 field로 열지 않고 내부 contribution / debug evidence 후보로만 두며, `scoreDeltaPreview`는 optional audit-only / non-blocking으로 유지한다.
      - initial transition은 new Records forward-only를 기본값으로 두고, old local Records는 no silent mutation을 유지하되 production blocker로 부풀리지 않는다. 다음 본류는 production range-aware score transition test design docs-only다.
+   - `v8.2_macro_range_production_score_transition_test_design_2026-07-06.md`
+     - future `runMacroRangeProductionScoreTransitionDecisionTests`가 `v8.2_macro_range_score_v1` production score transition을 어떻게 고정해야 하는지 정리한 docs-only test design 문서다.
+     - exact score fixtures, blocked/null fixtures, version bump assertions, `getDailyAdherenceScore` replacement contract, new Records forward-only scoring, old fixed no silent mutation, backup / Recent / UI / DailyCoach no-leak을 suite 기준으로 닫는다.
+     - `pointsPreview`와 `candidateScorePreview`는 저장/노출 field로 열지 않고, `scoreDeltaPreview`는 optional audit-only / non-blocking으로 유지한다.
+     - 이번 문서는 suite 구현/등록, production score 구현, `ADHERENCE_SCORING_VERSION` 변경, storage/schema, Recent, UI, DailyCoach 변경을 열지 않는다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
