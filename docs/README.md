@@ -203,6 +203,11 @@
      - exact score fixtures, blocked/null fixtures, version bump assertions, `getDailyAdherenceScore` replacement contract, new Records forward-only scoring, old fixed no silent mutation, backup / Recent / UI / DailyCoach no-leak을 suite 기준으로 닫는다.
      - `pointsPreview`와 `candidateScorePreview`는 저장/노출 field로 열지 않고, `scoreDeltaPreview`는 optional audit-only / non-blocking으로 유지한다.
      - 이번 문서는 suite 구현/등록, production score 구현, `ADHERENCE_SCORING_VERSION` 변경, storage/schema, Recent, UI, DailyCoach 변경을 열지 않는다.
+   - `v8.2_macro_range_production_score_transition_tests_implementation_2026-07-06.md`
+     - `runMacroRangeProductionScoreTransitionDecisionTests` test-only suite 구현 기록이다.
+     - suite는 exact score fixtures, product behavior fixtures, blocked/null policy, invalid numeric input rejection, future `v8.2_macro_range_score_v1` target, `getDailyAdherenceScore` future-only guard, new Records forward-only contract, old fixed no silent mutation / non-blocking, backup / Recent / UI / DailyCoach preview no-leak을 12 cases로 고정한다.
+     - `window` export, `package.json` `test:macro-policy`, `tools/render_audit` core profile에 등록한다.
+     - production score 구현, `ADHERENCE_SCORING_VERSION` 변경, `getDailyAdherenceScore` 교체, storage/schema, Recent/UI/DailyCoach 연결, `scoreDeltaPreview` numeric line은 열지 않는다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
