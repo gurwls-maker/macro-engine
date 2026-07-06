@@ -183,6 +183,10 @@
      - future `candidateScorePreview` sum / clamp / rounding formula를 테스트로 고정하기 전에 필요한 fixture, exact sum assertion, invalid input rejection, no-leak 금지선을 정리한 docs-only test design 문서다.
      - source component inventory, `dataQuality` 합산 제외, exact sum table, lower clamp boundary, upper clamp defensive-only, positive/fractional/fixed-score fallback/test-local promotion rejection을 future suite 기준으로 닫는다.
      - 다음 test-only suite 후보는 `runMacroRangeCandidateScorePreviewSumClampRoundingDecisionTests`이며, 구현 단계에서는 `window` export, `test:macro-policy`, `tools/render_audit` core profile 등록을 함께 확인해야 한다.
+   - `v8.2_macro_range_candidate_score_preview_sum_clamp_rounding_tests_implementation_2026-07-06.md`
+     - `runMacroRangeCandidateScorePreviewSumClampRoundingDecisionTests` 구현 기록이다.
+     - formula identity, source component inventory, `dataQuality` 합산 제외, exact sum table, lower clamp, positive/fractional/non-finite input rejection, fixed-score fallback rejection, test-local promotion rejection, old fixed Records no-mutation, backup / Recent / UI / DailyCoach no-impact를 test-only로 고정한다.
+     - `window` export, `test:macro-policy`, `tools/render_audit` core profile에 등록하며, production `candidateScorePreview`, `comparison.candidateScorePreview`, `scoreDeltaPreview`, storage/schema, UI, Recent, DailyCoach 연결은 계속 금지한다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
