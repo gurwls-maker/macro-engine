@@ -165,6 +165,9 @@
    - `v8.2_macro_range_score_preview_guard_phase_closeout_2026-07-06.md`
      - component `pointsPreview`, `candidateScorePreview`, `scoreDeltaPreview` guard 라인을 묶어 닫는 phase closeout / readiness checkpoint 문서다.
      - production-facing preview field 이름과 허용 위치는 제한됐지만 숫자화, score formula, storage/schema, Recent, UI, DailyCoach, production score readiness는 아직 열리지 않았다고 정리한다.
+   - `v8.2_macro_range_component_points_preview_numeric_formula_decision_2026-07-06.md`
+     - future transient component `pointsPreview`가 숫자로 열릴 때 사용할 component-local formula 후보를 정리한 docs-only decision 문서다.
+     - non-positive integer contribution, positive bonus 금지, dataQuality null-only, blocked/unresolved null 유지로 닫고, candidateScorePreview 합산 / scoreDeltaPreview / storage / UI / Recent / DailyCoach 연결은 별도 gate로 남긴다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
