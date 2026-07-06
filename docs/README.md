@@ -138,6 +138,9 @@
    - `v8.2_macro_range_component_points_preview_shape_decision_2026-07-05.md`
      - future component `pointsPreview` field의 이름, 위치, nullability, status/reasonIds, blocked behavior, visibility 기본값을 정리한 docs-only decision 문서다.
      - 허용 위치는 `rangeScoreCandidateSummary.componentPreviews.<component>.pointsPreview` 후보로 제한하고, 기본값은 null이며 numeric value, storage, backup, Recent, UI, DailyCoach, scoreDelta는 별도 gate로 남긴다.
+   - `v8.2_macro_range_component_points_preview_numeric_policy_test_design_2026-07-06.md`
+     - future component `pointsPreview` numeric policy를 구현하기 전에 필요한 test-only guard의 fixture, assertion, no-leak 금지선을 정리한 docs-only test design 문서다.
+     - `pointsPreview`, `candidateScorePreview`, `scoreDeltaPreview`는 계속 null이며, dataQuality null-only, neutral no-bonus, old fixed Records no-overwrite, storage / backup / Recent / UI / DailyCoach no-leak을 유지한다.
    - `v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md`
      - macro range 후보가 나중에 저장 가능한 contract로 승격될 때 `goalSnapshot`, backup/restore, Recent, score basis를 깨지 않도록 정리한 compatibility 설계 문서다.
      - 현재 unknown snapshot field는 보존되지 않으므로, future range field는 explicit normalizer와 roundtrip 테스트 없이 열지 않는다.
