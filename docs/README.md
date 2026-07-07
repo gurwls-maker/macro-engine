@@ -47,7 +47,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 47f9e00 구현을 유지하되, v8.2 fixed-point transition helper를 historical guard로 격하한 regression cleanup 기록이다.
   - `scoringContext.weightSource`, `totalBurnSource`, `tdeeAvailable`을 추가해 body weight / TDEE fallback이 숨어 보이지 않게 했다.
   - v8.3 scoring correctness는 `runMacroRangeContinuousScoringTests`가 담당하고, transition suite의 fixed table은 production target이 아니라고 닫는다.
-  - docs archive/link review는 이 regression audit 이후 별도 docs-only branch에서 처리한다.
+  - docs archive/link review는 `docs/archive/v8.2_macro_range/README.md`와 docs-policy guard로 완료됐다.
+
+- `v8.3_score_distribution_tuning_audit_2026-07-07.md`
+  - 현재 v8.3 anchor continuous score가 실제 샘플 분포에서 너무 관대하거나 가혹한지 본 docs-only audit 문서다.
+  - Baseline, TDEE overload, Alcohol, Fat, Protein, Carb/exercise, Mixed stress, Data/null 그룹을 샘플링했다.
+  - FAIL은 없고, TDEE 2.0 / fat upper 3.0x / alcohol 112g-140g / UNKNOWN high carb / missing TDEE source visibility를 WATCH 후보로 남긴다.
+  - anchor 값, `index.html`, UI/storage/schema, scoreDeltaPreview, old records migration은 변경하지 않는다.
 
 ## legacy / 참고 문서
 
