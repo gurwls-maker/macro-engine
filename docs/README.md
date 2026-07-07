@@ -78,6 +78,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 산식, source visibility helper, 사용자 문구, storage/schema, scoreDeltaPreview, old records migration은 변경하지 않는다.
   - `npm test`, `npm run test:core`, `npm run test:ui`가 Today source visibility warning 회귀를 잡는 것을 목표로 한다.
 
+- `current_truth_legacy_doc_role_review_2026-07-07.md`
+  - root legacy/reference 문서 8개의 현재 역할을 분류한 docs-only review 문서다.
+  - `00_현재작업기준`, `02_대화의도`, `v8_*` 기준문서, ACSM 해설, 앱 문구 기준을 KEEP_CURRENT_REFERENCE / ABSORBED_INTO_CURRENT_TRUTH / EXTERNAL_REFERENCE_ONLY / COPY_REFERENCE_ONLY / HISTORICAL_REFERENCE / REVIEW_BEFORE_MOVE로 나눈다.
+  - 실제 파일명 변경, 폴더 이동, archive 처리, `index.html` reference 수정, 산식/UI/storage/schema 변경은 하지 않는다.
+  - 다음 본류는 legacy reference routing/consolidation decision docs-only다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
@@ -91,12 +97,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
    - 앱 구현 작업 전에 현재 테스트 실행 환경이 충분한지 확인할 때 읽는다.
 
 3. `00_현재작업기준_2026-06-16.txt`
-   - 현재 작업에서 우선해야 할 앱 방향, 산식 방향, UI/문구 원칙을 담는다.
-   - 코드 수정 전 이 문서를 먼저 확인한다.
+   - 과거 최상위 작업 기준이지만 지금은 current truth보다 우선하지 않는 legacy/reference 문서다.
+   - 역할 판단은 `current_truth_legacy_doc_role_review_2026-07-07.md`와 `00_current_truth/04_document_status_index.txt`를 먼저 따른다.
 
 4. `02_대화의도_근거표_2026-06-16.txt`
-   - 최근 대화에서 확정된 의도를 정리한 근거표다.
-   - `00_현재작업기준`과 충돌하면 최신 대화 의도와 이 문서의 의도 근거를 우선 검토한다.
+   - 과거 대화 의도 ledger다.
+   - 최신 사용자 의도와 `00_current_truth` 라우팅을 우선하고, 이 문서는 근거 확인용으로만 읽는다.
 
 5. 작업 주제별 참고 문서
    - `v8_운동여부_코드영향감사_2026-06-15.txt`
@@ -104,6 +110,7 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
    - `v8_외부근거_매크로_정책표_2026-06-05.txt`
    - `v8_운동프로필_수준별산식_통합실행설계_2026-06-04.txt`
    - `# 2026 ACSM 근력운동 가이드 한국어 해설판.txt`
+   - 이 문서들은 무조건 archive할 대상도, 무조건 current truth도 아니다. 세부 역할은 `current_truth_legacy_doc_role_review_2026-07-07.md`의 분류를 따른다.
 
 6. 문구를 바꿀 때만 읽을 문서
    - `96_v8.1_copy_help_closeout_2026-07-03.md`
