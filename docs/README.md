@@ -61,6 +61,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - missing TDEE 100점 가능성은 anchor tuning이 아니라 source visibility / scoring availability 정책 문제로 분리한다.
   - 다음 본류는 `v8.3 score source visibility decision docs-only`다.
 
+- `v8.3_score_source_visibility_decision_2026-07-07.md`
+  - missing TDEE / `targetProteinFallback` / `trainingContext:unknown` / alcohol derive source / stored score source를 분류한 docs-only decision 문서다.
+  - full macro + missing TDEE는 score를 null로 막지 않고, `tdeeAvailable:false`와 `totalBurnSource:"missing"`을 source warning 구현 대상으로 둔다.
+  - `targetProteinFallback`은 inferred weight source warning 대상이며, no meals / one meal / insufficient / snapshotless / range missing은 계속 null/blocked다.
+  - 다음 본류는 `v8.3 source visibility implementation`이고, storage/schema/scoreDeltaPreview/old records migration은 계속 열지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
