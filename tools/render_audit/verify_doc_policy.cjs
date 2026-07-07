@@ -62,6 +62,10 @@ if (failures.length === 0) {
   const readme = read("docs/README.md");
   const agents = read("AGENTS.md");
   const readmeHead = readme.slice(0, 2000);
+  const readFirstImplementationBlocked = /v8\.3 implementation:\s*blocked/i.test(readFirst);
+  const statusImplementationBlocked = /v8\.3 implementation:\s*blocked/i.test(statusIndex);
+  const readFirstImplementationAccepted = /v8\.3 (?:continuous scoring )?implementation:\s*(accepted|active|implemented|closed)/i.test(readFirst);
+  const statusImplementationAccepted = /v8\.3 (?:continuous scoring )?implementation:\s*(accepted|active|implemented|closed)/i.test(statusIndex);
 
   const requiredReadmeRoutes = [
     "00_current_truth/00_READ_FIRST.txt",
@@ -86,7 +90,6 @@ if (failures.length === 0) {
   const readFirstRequirements = [
     "MANDATORY PRE-READ",
     "REQUIRED_NEXT_GATES",
-    "v8.3 implementation: blocked",
     "docs-policy preflight: active",
     "scoreDeltaPreview는 optional audit-only",
     "exercise bonus",
@@ -113,7 +116,6 @@ if (failures.length === 0) {
 
   const statusRequirements = [
     "REQUIRED_NEXT_GATES",
-    "v8.3 implementation: blocked",
     "SUPERSEDE",
     "HISTORICAL",
     "KEEP",
@@ -122,6 +124,13 @@ if (failures.length === 0) {
   ];
   for (const text of statusRequirements) {
     if (!statusIndex.includes(text)) fail(`04_document_status_index missing: ${text}`);
+  }
+
+  if (!readFirstImplementationBlocked && !readFirstImplementationAccepted) {
+    fail("00_READ_FIRST missing v8.3 implementation gate state");
+  }
+  if (!statusImplementationBlocked && !statusImplementationAccepted) {
+    fail("04_document_status_index missing v8.3 implementation gate state");
   }
 
   const preambleRequirements = [
@@ -290,9 +299,7 @@ if (failures.length === 0) {
     }
   }
 
-  const implementationGatePending =
-    /v8\.3 implementation:\s*blocked/i.test(readFirst) ||
-    /v8\.3 implementation:\s*blocked/i.test(statusIndex);
+  const implementationGatePending = readFirstImplementationBlocked || statusImplementationBlocked;
 
   if (implementationGatePending && exists("index.html")) {
     const indexHtml = read("index.html");
