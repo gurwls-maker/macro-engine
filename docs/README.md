@@ -55,6 +55,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - FAIL은 없고, TDEE 2.0 / fat upper 3.0x / alcohol 112g-140g / UNKNOWN high carb / missing TDEE source visibility를 WATCH 후보로 남긴다.
   - anchor 값, `index.html`, UI/storage/schema, scoreDeltaPreview, old records migration은 변경하지 않는다.
 
+- `v8.3_score_distribution_tuning_decision_2026-07-07.md`
+  - score distribution audit의 WATCH 후보를 다음 행동으로 분류한 docs-only decision 문서다.
+  - 즉시 score tuning implementation은 열지 않고, TDEE/fat은 curve steepness 후보, alcohol은 copy/product tone 후보, UNKNOWN carb는 context-policy 후보로 둔다.
+  - missing TDEE 100점 가능성은 anchor tuning이 아니라 source visibility / scoring availability 정책 문제로 분리한다.
+  - 다음 본류는 `v8.3 score source visibility decision docs-only`다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
