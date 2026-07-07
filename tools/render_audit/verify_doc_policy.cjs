@@ -176,7 +176,7 @@ if (failures.length === 0) {
     }
   }
 
-  function lineContext(text, index) {
+  function lineInfo(text, index) {
     const lines = text.split(/\n/);
     let runningIndex = 0;
     let lineNumber = 0;
@@ -189,21 +189,50 @@ if (failures.length === 0) {
       runningIndex = nextIndex;
     }
 
-    const start = Math.max(0, lineNumber - 6);
-    const end = Math.min(lines.length, lineNumber + 3);
-    return lines.slice(start, end).join("\n");
+    return {
+      line: lines[lineNumber] || "",
+      lineNumber,
+      lines,
+    };
   }
 
-  function isNegativeContext(context) {
-    return /(실패 조건|금지|폐기|아님|아니라|않|허용하지|쓰면 안|사용 금지|재개 금지|본류 아님|부활 금지|금지선|거부|차단|not|no\b|must not|do not|without|forbidden|ban|banned|supersede|historical|legacy|deprecated|reject|rejected|failure condition|block|blocked|optional audit-only)/i.test(context);
+  function isSameLineNegative(line) {
+    return /(금지|폐기|아님|아니라|않|허용하지|쓰면 안|사용 금지|재개 금지|본류 아님|부활 금지|금지선|거부|차단|not|no\b|must not|do not|without|forbidden|ban|banned|supersede|historical|legacy|deprecated|reject|rejected|failure condition|block|blocked|optional audit-only)/i.test(line);
+  }
+
+  function hasNearbySectionHeader(lines, lineNumber, pattern) {
+    for (let i = lineNumber - 1, distance = 0; i >= 0 && distance < 12; i -= 1, distance += 1) {
+      const line = lines[i] || "";
+      if (!line.trim()) continue;
+      if (/^#{1,6}\s/.test(line)) return false;
+      if (pattern.test(line)) return true;
+    }
+    return false;
+  }
+
+  function isForbiddenPreambleLine(lines, lineNumber) {
+    return hasNearbySectionHeader(lines, lineNumber, /FORBIDDEN WITHOUT EXPLICIT SUPERSEDING DECISION/i);
+  }
+
+  function isNegativeSectionBullet(lines, lineNumber, line) {
+    if (!/^\s*-\s+/.test(line)) return false;
+    return hasNearbySectionHeader(
+      lines,
+      lineNumber,
+      /^(실패 조건|폐기|금지선|FORBIDDEN WITHOUT EXPLICIT SUPERSEDING DECISION|.*하지 않는다\.?)\s*:?\s*$/i
+    );
+  }
+
+  function isAllowedForbiddenMention(text, index) {
+    const { line, lineNumber, lines } = lineInfo(text, index);
+    return isSameLineNegative(line) || isForbiddenPreambleLine(lines, lineNumber) || isNegativeSectionBullet(lines, lineNumber, line);
   }
 
   function hasForbiddenUse(text, pattern) {
     const matches = text.matchAll(pattern);
     for (const match of matches) {
       const index = match.index || 0;
-      const context = lineContext(text, index);
-      if (!isNegativeContext(context)) {
+      if (!isAllowedForbiddenMention(text, index)) {
         return true;
       }
     }
@@ -224,31 +253,31 @@ if (failures.length === 0) {
       message: "fixed penalty table must not be the production body",
     },
     {
-      pattern: /score cap[\s\S]{0,80}(allowed|production|허용|정책|쓴다|사용한다|적용)/gi,
+      pattern: /score cap[^\n]{0,80}(allowed|production|허용|정책|쓴다|사용한다|적용)/gi,
       message: "intermediate score cap must not be allowed as v8.3 production policy",
     },
     {
-      pattern: /hard zero threshold[\s\S]{0,80}(primary policy|production|허용|정책|쓴다|사용한다|적용)/gi,
+      pattern: /hard zero threshold[^\n]{0,80}(primary policy|production|허용|정책|쓴다|사용한다|적용)/gi,
       message: "hard zero threshold must not become the primary v8.3 scoring policy",
     },
     {
-      pattern: /exercise bonus[\s\S]{0,80}(appl|allowed|true|yes|허용|적용|사용|finalScore)/gi,
+      pattern: /exercise bonus[^\n]{0,80}(appl|allowed|true|yes|허용|적용|사용|finalScore)/gi,
       message: "exercise bonus must not be allowed",
     },
     {
-      pattern: /운동\s*보너스[\s\S]{0,80}(허용|적용|사용|finalScore|최종 점수)/gi,
+      pattern: /운동\s*보너스[^\n]{0,80}(허용|적용|사용|finalScore|최종 점수)/gi,
       message: "운동 보너스 must not be allowed",
     },
     {
-      pattern: /v6\.1\s+alcoholImpactPenalty[\s\S]{0,100}(restore|reuse|부활|재사용|되살린다|사용한다|후처리)/gi,
+      pattern: /v6\.1\s+alcoholImpactPenalty[^\n]{0,100}(restore|reuse|부활|재사용|되살린다|사용한다|후처리)/gi,
       message: "v6.1 alcoholImpactPenalty post-score subtraction must not be revived",
     },
     {
-      pattern: /alcoholImpactPenalty[\s\S]{0,80}(restore|reuse)/gi,
+      pattern: /alcoholImpactPenalty[^\n]{0,80}(restore|reuse)/gi,
       message: "alcoholImpactPenalty post-score subtraction must not be restored",
     },
     {
-      pattern: /scoreDeltaPreview[\s\S]{0,80}(mainline|본류|재개|허용|allowed)/gi,
+      pattern: /scoreDeltaPreview[^\n]{0,80}(mainline|본류|재개|허용|allowed)/gi,
       message: "scoreDeltaPreview must not be revived as mainline",
     },
   ];
