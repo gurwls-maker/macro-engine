@@ -164,6 +164,8 @@ if (failures.length === 0) {
     const normalized = rel(file);
     if (!/^v8\.3_.*\.(md|txt)$/.test(name)) return false;
     if (normalized.includes("docs/00_current_truth/_source/")) return false;
+    if (normalized.includes("docs/00_current_truth/templates/")) return false;
+    if (normalized.includes("docs/archive/")) return false;
     return true;
   });
 
@@ -174,12 +176,26 @@ if (failures.length === 0) {
     }
   }
 
+  function lineContext(text, index) {
+    const lineStart = text.lastIndexOf("\n", index) + 1;
+    const lineEndIndex = text.indexOf("\n", index);
+    const lineEnd = lineEndIndex === -1 ? text.length : lineEndIndex;
+    const previousLineStart = text.lastIndexOf("\n", Math.max(0, lineStart - 2)) + 1;
+    const nextLineEndIndex = text.indexOf("\n", lineEnd + 1);
+    const nextLineEnd = nextLineEndIndex === -1 ? text.length : nextLineEndIndex;
+    return text.slice(previousLineStart, nextLineEnd);
+  }
+
+  function isNegativeContext(context) {
+    return /(금지|폐기|아님|않|허용하지|쓰면 안|사용 금지|재개 금지|본류 아님|부활 금지|금지선|거부|차단|not|no\b|must not|do not|without|forbidden|ban|banned|supersede|historical|legacy|deprecated|reject|rejected|block|blocked|optional audit-only)/i.test(context);
+  }
+
   function hasForbiddenUse(text, pattern) {
     const matches = text.matchAll(pattern);
     for (const match of matches) {
       const index = match.index || 0;
-      const context = text.slice(Math.max(0, index - 120), Math.min(text.length, index + 160));
-      if (!/(금지|폐기|아님|않|not|must not|FORBIDDEN|forbidden|supersede|SUPERSEDE)/i.test(context)) {
+      const context = lineContext(text, index);
+      if (!isNegativeContext(context)) {
         return true;
       }
     }
@@ -188,16 +204,44 @@ if (failures.length === 0) {
 
   const forbiddenChecks = [
     {
-      pattern: /exercise bonus\s*[:=]\s*(allowed|true|yes|허용)/gi,
+      pattern: /high\s*=\s*-10/gi,
+      message: "fixed high = -10 penalty must not return as v8.3 production formula",
+    },
+    {
+      pattern: /severe\s*=\s*-16/gi,
+      message: "fixed severe = -16 penalty must not return as v8.3 production formula",
+    },
+    {
+      pattern: /fixed penalty\s+production\s+body/gi,
+      message: "fixed penalty table must not be the production body",
+    },
+    {
+      pattern: /score cap[\s\S]{0,80}(allowed|production|허용|정책|쓴다|사용한다|적용)/gi,
+      message: "intermediate score cap must not be allowed as v8.3 production policy",
+    },
+    {
+      pattern: /hard zero threshold[\s\S]{0,80}(primary policy|production|허용|정책|쓴다|사용한다|적용)/gi,
+      message: "hard zero threshold must not become the primary v8.3 scoring policy",
+    },
+    {
+      pattern: /exercise bonus[\s\S]{0,80}(appl|allowed|true|yes|허용|적용|사용|finalScore)/gi,
       message: "exercise bonus must not be allowed",
     },
     {
-      pattern: /scoreDeltaPreview\s*(mainline|본류)\s*[:=]\s*(allowed|true|yes|허용|재개)/gi,
-      message: "scoreDeltaPreview must not be revived as mainline",
+      pattern: /운동\s*보너스[\s\S]{0,80}(허용|적용|사용|finalScore|최종 점수)/gi,
+      message: "운동 보너스 must not be allowed",
     },
     {
-      pattern: /v6\.1\s+alcoholImpactPenalty[\s\S]{0,80}(restore|reuse|부활|재사용|되살린다|사용한다)/gi,
+      pattern: /v6\.1\s+alcoholImpactPenalty[\s\S]{0,100}(restore|reuse|부활|재사용|되살린다|사용한다|후처리)/gi,
       message: "v6.1 alcoholImpactPenalty post-score subtraction must not be revived",
+    },
+    {
+      pattern: /alcoholImpactPenalty[\s\S]{0,80}(restore|reuse)/gi,
+      message: "alcoholImpactPenalty post-score subtraction must not be restored",
+    },
+    {
+      pattern: /scoreDeltaPreview[\s\S]{0,80}(mainline|본류|재개|허용|allowed)/gi,
+      message: "scoreDeltaPreview must not be revived as mainline",
     },
   ];
 
@@ -206,6 +250,38 @@ if (failures.length === 0) {
   for (const [file, text] of policyDocsToCheck) {
     for (const check of forbiddenChecks) {
       if (hasForbiddenUse(text, check.pattern)) fail(`${check.message}: ${file}`);
+    }
+  }
+
+  const implementationGatePending =
+    readFirst.includes("v8.3 implementation: blocked until fixture direction table + test design are closed") ||
+    statusIndex.includes("v8.3 implementation: blocked until fixture direction table + test design are closed");
+
+  if (implementationGatePending && exists("index.html")) {
+    const indexHtml = read("index.html");
+    const implementationSignals = [
+      {
+        label: "v8.3 ADHERENCE_SCORING_VERSION signal",
+        patterns: [/v8\.3/i, /ADHERENCE_SCORING_VERSION/],
+      },
+      {
+        label: "v8.3 macro scoring signal",
+        patterns: [/v8\.3/i, /macro scoring/i],
+      },
+      {
+        label: "anchor-based continuous scoring implementation signal",
+        patterns: [/anchor-based continuous/i, /scoring implementation/i],
+      },
+      {
+        label: "v8.3 anchor-based continuous macro scoring identifier",
+        patterns: [/v8\.3_anchor_based_continuous_macro_scoring/i],
+      },
+    ];
+
+    for (const signal of implementationSignals) {
+      if (signal.patterns.every((pattern) => pattern.test(indexHtml))) {
+        fail(`v8.3 implementation appears before REQUIRED_NEXT_GATES are closed: ${signal.label}`);
+      }
     }
   }
 }
