@@ -73,6 +73,11 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 사용자 화면에는 `TDEE`, `scoringContext`, `penalty`, `anchor`, `curve`, `source visibility`, `targetProteinFallback` 같은 내부 용어를 노출하지 않는다.
   - stored current-version auto score는 hidden recompute하지 않고, null/blocked gate, storage/schema, backup/Recent, scoreDeltaPreview, old records migration은 계속 열지 않는다.
 
+- `v8.3_source_visibility_qa_profile_hardening_2026-07-07.md`
+  - source visibility UI regression이 full profile 전용으로 남지 않도록 `runAdherenceUiTests`를 smoke/core/ui profile에 등록한 QA hardening 기록이다.
+  - 산식, source visibility helper, 사용자 문구, storage/schema, scoreDeltaPreview, old records migration은 변경하지 않는다.
+  - `npm test`, `npm run test:core`, `npm run test:ui`가 Today source visibility warning 회귀를 잡는 것을 목표로 한다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
