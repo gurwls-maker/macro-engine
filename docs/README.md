@@ -67,6 +67,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - `targetProteinFallback`은 inferred weight source warning 대상이며, no meals / one meal / insufficient / snapshotless / range missing은 계속 null/blocked다.
   - 다음 본류는 `v8.3 source visibility implementation`이고, storage/schema/scoreDeltaPreview/old records migration은 계속 열지 않는다.
 
+- `v8.3_source_visibility_implementation_2026-07-07.md`
+  - v8.3 source visibility decision을 Today live score surface에 구현한 기록이다.
+  - missing total burn / `targetProteinFallback`은 score penalty나 tuning이 아니라 사용자 해석 참고 문구로 표시한다.
+  - 사용자 화면에는 `TDEE`, `scoringContext`, `penalty`, `anchor`, `curve`, `source visibility`, `targetProteinFallback` 같은 내부 용어를 노출하지 않는다.
+  - stored current-version auto score는 hidden recompute하지 않고, null/blocked gate, storage/schema, backup/Recent, scoreDeltaPreview, old records migration은 계속 열지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
