@@ -82,7 +82,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - root legacy/reference 문서 8개의 현재 역할을 분류한 docs-only review 문서다.
   - `00_현재작업기준`, `02_대화의도`, `v8_*` 기준문서, ACSM 해설, 앱 문구 기준을 KEEP_CURRENT_REFERENCE / ABSORBED_INTO_CURRENT_TRUTH / EXTERNAL_REFERENCE_ONLY / COPY_REFERENCE_ONLY / HISTORICAL_REFERENCE / REVIEW_BEFORE_MOVE로 나눈다.
   - 실제 파일명 변경, 폴더 이동, archive 처리, `index.html` reference 수정, 산식/UI/storage/schema 변경은 하지 않는다.
-  - 다음 본류는 legacy reference routing/consolidation decision docs-only다.
+  - 후속 routing/consolidation decision은 `legacy_reference_routing_consolidation_decision_2026-07-08.md`로 닫혔다.
+
+- `legacy_reference_routing_consolidation_decision_2026-07-08.md`
+  - root legacy/reference 문서 8개의 실제 move 전 destination map을 닫은 docs-only decision 문서다.
+  - Option B reference folder split을 선택하고 `docs/references/product`, `docs/references/external`, `docs/references/copy`, `docs/references/historical` 구조를 다음 실제 routing target으로 둔다.
+  - README 충돌 판단 순서는 current truth / status index를 legacy 00/02보다 우선하도록 정리한다.
+  - 실제 파일 이동, rename, `index.html` reference update, docs-policy guard implementation, 산식/UI/storage/schema 변경은 다음 implementation 브랜치로 분리한다.
 
 ## legacy / 참고 문서
 
@@ -133,14 +139,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 ## 충돌 판단 순서
 
 1. 최신 대화 의도
-2. 현재 git HEAD의 실제 `index.html`, 브라우저 화면, 테스트 결과
-3. 현재 앱에서 실제로 자연스러운 동작
-4. `99_v8.1_takeover_audit_2026-06-30.md`의 위험 분류와 금지선
-5. `98_v8.1_dev_environment_reproducibility_decision_2026-07-02.md`의 QA/환경 재현성 기준
-6. `02_대화의도_근거표_2026-06-16.txt`
-7. `00_현재작업기준_2026-06-16.txt`
-8. 주제별 참고 문서
-9. 오래된 구현 또는 테스트
+2. `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`
+3. 현재 git HEAD의 실제 `index.html`, 브라우저 화면, 테스트 결과
+4. 현재 앱에서 실제로 자연스러운 동작
+5. status index에서 KEEP_CURRENT_REFERENCE / EXTERNAL_REFERENCE_ONLY / COPY_REFERENCE_ONLY로 분류된 topic reference
+6. historical/archive 문서
+7. 오래된 구현 또는 테스트
 
 기준문서는 개발을 돕기 위한 도구다. 문서가 현재 앱 의도와 어긋나면 문서를 고친다.
 
