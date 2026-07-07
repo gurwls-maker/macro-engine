@@ -43,6 +43,7 @@ const requiredFiles = [
   "docs/00_current_truth/04_document_status_index.txt",
   "docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt",
   "docs/00_current_truth/templates/new_doc_preamble.txt",
+  "docs/archive/v8.2_macro_range/README.md",
   "docs/README.md",
   "AGENTS.md",
 ];
@@ -59,6 +60,7 @@ if (failures.length === 0) {
   const statusIndex = read("docs/00_current_truth/04_document_status_index.txt");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
+  const v82ArchiveReadme = read("docs/archive/v8.2_macro_range/README.md");
   const readme = read("docs/README.md");
   const agents = read("AGENTS.md");
   const readmeHead = readme.slice(0, 2000);
@@ -72,6 +74,7 @@ if (failures.length === 0) {
     "00_current_truth/02_macro_range_current_truth.txt",
     "00_current_truth/04_document_status_index.txt",
     "v8.2_macro_range_*",
+    "archive/v8.2_macro_range/README.md",
   ];
   for (const route of requiredReadmeRoutes) {
     if (!readmeHead.includes(route)) fail(`README top routing missing: ${route}`);
@@ -116,6 +119,7 @@ if (failures.length === 0) {
 
   const statusRequirements = [
     "REQUIRED_NEXT_GATES",
+    "docs/archive/v8.2_macro_range/README.md",
     "SUPERSEDE",
     "HISTORICAL",
     "KEEP",
@@ -147,7 +151,8 @@ if (failures.length === 0) {
     "docs/00_current_truth/00_READ_FIRST.txt",
     "docs/00_current_truth/02_macro_range_current_truth.txt",
     "docs/00_current_truth/04_document_status_index.txt",
-    "v8.3 scoring implementation은 fixture direction table과 test design이 닫히기 전까지 시작하지 않는다",
+    "docs/archive/v8.2_macro_range/",
+    "v8.3 scoring implementation은 현재 `v8.3_anchor_continuous_macro_score_v1`로 구현된 상태",
     "v6.1 alcoholImpactPenalty",
   ];
   for (const text of agentsRequirements) {
@@ -155,6 +160,39 @@ if (failures.length === 0) {
   }
 
   const allDocs = walk(docsDir);
+  const rootV82Docs = fs
+    .readdirSync(docsDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^v8\.2_macro_range_.*\.md$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+
+  if (rootV82Docs.length) {
+    fail(`v8.2 macro range docs must live under docs/archive/v8.2_macro_range, found root docs: ${rootV82Docs.join(", ")}`);
+  }
+
+  const v82ArchiveDir = path.join(docsDir, "archive", "v8.2_macro_range");
+  const archivedV82Docs = fs
+    .readdirSync(v82ArchiveDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /^v8\.2_macro_range_.*\.md$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+
+  if (archivedV82Docs.length < 65) {
+    fail(`expected at least 65 archived v8.2 macro range docs, found ${archivedV82Docs.length}`);
+  }
+
+  const archiveReadmeRequirements = [
+    "historical archive",
+    "docs/00_current_truth/00_READ_FIRST.txt",
+    "docs/00_current_truth/04_document_status_index.txt",
+    "fixed `high = -10`, `severe = -16`",
+    "scoreDeltaPreview",
+    "root `docs/`에 새 `v8.2_macro_range_*.md` 문서가 생기면 docs-policy 실패",
+  ];
+  for (const text of archiveReadmeRequirements) {
+    if (!v82ArchiveReadme.includes(text)) fail(`v8.2 archive README missing: ${text}`);
+  }
+
   const v82Docs = allDocs
     .filter((file) => /^v8\.2_macro_range_.*\.md$/.test(path.basename(file)))
     .map((file) => path.basename(file))
@@ -166,6 +204,10 @@ if (failures.length === 0) {
 
   for (const name of v82Docs) {
     if (!statusIndex.includes(name)) fail(`v8.2 doc missing from status index: ${name}`);
+  }
+  for (const name of archivedV82Docs) {
+    const archivePath = `docs/archive/v8.2_macro_range/${name}`;
+    if (!statusIndex.includes(archivePath)) fail(`archived v8.2 doc path missing from status index: ${archivePath}`);
   }
 
   const v83Docs = allDocs.filter((file) => {
