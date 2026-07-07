@@ -1,5 +1,19 @@
 # 탄단지 다이어리 문서 안내
 
+## 최우선 라우팅
+
+macro range / scoring / nutrition / exercise 관련 작업은 반드시 아래 문서를 먼저 읽는다.
+
+1. `00_current_truth/00_READ_FIRST.txt`
+2. `00_current_truth/02_macro_range_current_truth.txt`
+3. `00_current_truth/04_document_status_index.txt`
+
+`v8.2_macro_range_*` 문서는 직접 따라가지 않는다. 먼저 `00_current_truth/04_document_status_index.txt`에서 KEEP / SUPERSEDE / HISTORICAL / REVIEW 상태를 확인한다.
+
+`00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt`는 current truth 본문이 아니라 source ledger / 상세 원장이다. 최신 작업 기준은 `00_READ_FIRST`와 `02_macro_range_current_truth`가 우선한다.
+
+새 v8.3 macro/scoring/nutrition/exercise 문서를 만들 때는 `00_current_truth/templates/new_doc_preamble.txt`의 mandatory pre-read block을 포함해야 한다.
+
 이 폴더의 문서는 “앱이 지금 어떤 방향으로 가야 하는지”를 빠르게 확인하기 위한 기준이다. 오래된 결정 기록은 Git 이력으로 충분하므로, 현재 판단에 직접 쓰이지 않는 문서는 남기지 않는다.
 
 ## 먼저 읽을 문서
