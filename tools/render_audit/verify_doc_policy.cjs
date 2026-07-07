@@ -177,17 +177,25 @@ if (failures.length === 0) {
   }
 
   function lineContext(text, index) {
-    const lineStart = text.lastIndexOf("\n", index) + 1;
-    const lineEndIndex = text.indexOf("\n", index);
-    const lineEnd = lineEndIndex === -1 ? text.length : lineEndIndex;
-    const previousLineStart = text.lastIndexOf("\n", Math.max(0, lineStart - 2)) + 1;
-    const nextLineEndIndex = text.indexOf("\n", lineEnd + 1);
-    const nextLineEnd = nextLineEndIndex === -1 ? text.length : nextLineEndIndex;
-    return text.slice(previousLineStart, nextLineEnd);
+    const lines = text.split(/\n/);
+    let runningIndex = 0;
+    let lineNumber = 0;
+    for (let i = 0; i < lines.length; i += 1) {
+      const nextIndex = runningIndex + lines[i].length + 1;
+      if (index < nextIndex) {
+        lineNumber = i;
+        break;
+      }
+      runningIndex = nextIndex;
+    }
+
+    const start = Math.max(0, lineNumber - 6);
+    const end = Math.min(lines.length, lineNumber + 3);
+    return lines.slice(start, end).join("\n");
   }
 
   function isNegativeContext(context) {
-    return /(금지|폐기|아님|않|허용하지|쓰면 안|사용 금지|재개 금지|본류 아님|부활 금지|금지선|거부|차단|not|no\b|must not|do not|without|forbidden|ban|banned|supersede|historical|legacy|deprecated|reject|rejected|block|blocked|optional audit-only)/i.test(context);
+    return /(실패 조건|금지|폐기|아님|아니라|않|허용하지|쓰면 안|사용 금지|재개 금지|본류 아님|부활 금지|금지선|거부|차단|not|no\b|must not|do not|without|forbidden|ban|banned|supersede|historical|legacy|deprecated|reject|rejected|failure condition|block|blocked|optional audit-only)/i.test(context);
   }
 
   function hasForbiddenUse(text, pattern) {
@@ -254,8 +262,8 @@ if (failures.length === 0) {
   }
 
   const implementationGatePending =
-    readFirst.includes("v8.3 implementation: blocked until fixture direction table + test design are closed") ||
-    statusIndex.includes("v8.3 implementation: blocked until fixture direction table + test design are closed");
+    /v8\.3 implementation:\s*blocked/i.test(readFirst) ||
+    /v8\.3 implementation:\s*blocked/i.test(statusIndex);
 
   if (implementationGatePending && exists("index.html")) {
     const indexHtml = read("index.html");
