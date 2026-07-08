@@ -156,6 +156,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - UI-only display cap은 계속 폐기하고, 문제는 target/scoring shared policy implementation으로 해결해야 한다고 닫는다.
   - 다음 본류는 v8.3 target/scoring alignment implementation이며, merge/tag instruction과 stabilization/tag readiness update는 이 incident가 닫힐 때까지 보류한다.
 
+- `v8.3_target_scoring_alignment_implementation_2026-07-08.md`
+  - target/scoring alignment incident를 닫는 implementation log다.
+  - `getV83TargetAlignedMacroRanges`로 target generator, scoring range, macro card range가 같은 boundary를 보게 했다.
+  - Today 목표 자동 조정 옵션을 추가해 탄수화물/지방 target이 같은 kcal 안에서 교환되도록 했고, 3일/7일 반복 고탄수/고지방 trend limiter를 붙였다.
+  - high-volume carb anchor는 flat no-penalty permission이 아니라 target-centered curve context로 유지한다.
+  - 다음 본류는 target/scoring alignment QA closeout이며, merge/tag 재개는 closeout과 smoke check 이후 판단한다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
