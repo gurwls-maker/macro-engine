@@ -106,6 +106,11 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - static QA와 full test profile을 통과한 상태를 기록하되, score tuning / UI / storage / scoreDelta / old records migration은 열지 않는다.
   - 다음 본류는 score distribution WATCH 후보를 실제 tuning readiness decision으로 재검토하는 것이다.
 
+- `v8.3_score_watch_tuning_readiness_decision_2026-07-08.md`
+  - score distribution audit의 WATCH 후보 W01~W06을 다시 본 docs-only decision 문서다.
+  - 즉시 score tuning implementation은 열지 않고, TDEE/fat/UNKNOWN carb는 회귀 테스트 보강 후보, alcohol tone은 DailyCoach/copy 후보, missing TDEE는 source visibility로 resolved 처리한다.
+  - 다음 본류는 v8.3 WATCH 후보 회귀 테스트 보강이며, anchor 값/UI/storage/schema/scoreDelta/old records migration은 열지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
