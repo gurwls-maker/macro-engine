@@ -51,6 +51,7 @@ const requiredFiles = [
   "docs/v8.3_target_scoring_alignment_incident_decision_2026-07-08.md",
   "docs/v8.3_target_scoring_alignment_implementation_2026-07-08.md",
   "docs/v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md",
+  "docs/v8.3_stabilization_tag_readiness_checkpoint_update_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
 ];
@@ -96,6 +97,7 @@ if (failures.length === 0) {
   const targetScoringIncident = read("docs/v8.3_target_scoring_alignment_incident_decision_2026-07-08.md");
   const targetScoringImplementation = read("docs/v8.3_target_scoring_alignment_implementation_2026-07-08.md");
   const targetScoringQaCloseout = read("docs/v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md");
+  const stabilizationTagReadinessUpdate = read("docs/v8.3_stabilization_tag_readiness_checkpoint_update_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
   const v82ArchiveReadme = read("docs/archive/v8.2_macro_range/README.md");
@@ -172,6 +174,8 @@ if (failures.length === 0) {
     "v8.3 target/scoring alignment incident: release-blocker",
     "v8.3 target/scoring alignment implementation: implemented",
     "v8.3 target/scoring alignment QA closeout: closed",
+    "v8.3 stabilization/tag readiness checkpoint update: closed",
+    "v8.3 merge/tag instruction: held until explicit user instruction",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -210,12 +214,23 @@ if (failures.length === 0) {
     "release-blocker",
     "v8.3 target/scoring alignment implementation",
     "target/scoring alignment QA closeout",
+    "v8.3 stabilization/tag readiness checkpoint update",
+    "tag-ready candidate after checkpoint update",
     "continuous recency-weighted excess pressure",
     "automatic training load interpolation",
     "target/scoring alignment release-blocker 기준",
   ];
   for (const text of statusRequirements) {
     if (!statusIndex.includes(text)) fail(`04_document_status_index missing: ${text}`);
+  }
+
+  const staleReadinessPhrases = [
+    "v8.3 stabilization/tag readiness checkpoint update: pending after target/scoring alignment QA closeout",
+    "v8.3 merge/tag instruction: held until stabilization/tag readiness checkpoint update and user instruction",
+  ];
+  for (const text of staleReadinessPhrases) {
+    if (readFirst.includes(text)) fail(`00_READ_FIRST still has stale readiness gate text: ${text}`);
+    if (statusIndex.includes(text)) fail(`04_document_status_index still has stale readiness gate text: ${text}`);
   }
 
   const targetScoringIncidentRequirements = [
@@ -240,10 +255,12 @@ if (failures.length === 0) {
     "v8.3_target_scoring_alignment_incident_decision_2026-07-08.md",
     "v8.3_target_scoring_alignment_implementation_2026-07-08.md",
     "v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md",
+    "v8.3_stabilization_tag_readiness_checkpoint_update_2026-07-09.md",
     "release blocker",
     "score `83.712`",
     "target/scoring alignment implementation",
     "target/scoring alignment QA closeout",
+    "tag-ready candidate after checkpoint update",
   ];
   for (const text of readmeIncidentRequirements) {
     if (!readme.includes(text)) fail(`README missing target/scoring incident routing: ${text}`);
@@ -277,6 +294,25 @@ if (failures.length === 0) {
   ];
   for (const text of targetScoringQaCloseoutRequirements) {
     if (!targetScoringQaCloseout.includes(text)) fail(`target/scoring QA closeout missing: ${text}`);
+  }
+
+  const stabilizationTagReadinessUpdateRequirements = [
+    "docs-only stabilization/tag readiness checkpoint update",
+    "GPT1/GPT2",
+    "ca09860",
+    "target/scoring alignment release blocker: closed",
+    "persistent setting surface",
+    "adaptiveMacroTargetsEnabled",
+    "continuous_recency_weighted_excess",
+    "continuous_training_load_interpolation",
+    "tag-ready candidate after checkpoint update",
+    "merge/tag instruction: still held until user instruction",
+    "이 문서는 tag를 만들지 않는다",
+    "이 문서는 merge를 실행하지 않는다",
+    "이 문서는 push를 실행하지 않는다",
+  ];
+  for (const text of stabilizationTagReadinessUpdateRequirements) {
+    if (!stabilizationTagReadinessUpdate.includes(text)) fail(`stabilization/tag readiness update missing: ${text}`);
   }
 
   if (!readFirstImplementationBlocked && !readFirstImplementationAccepted) {
