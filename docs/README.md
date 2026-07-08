@@ -116,6 +116,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - TDEE rawScore post-clamp, fat excess, alcohol amount, unknown carb context, training context no alcohol discount를 보강했고, missing TDEE source visibility는 existing guard로 already-covered 처리한다.
   - 다음 본류는 v8.3 DailyCoach/copy tone decision이며, anchor 값/UI/storage/schema/scoreDelta/old records migration은 열지 않는다.
 
+- `v8.3_dailycoach_copy_tone_decision_2026-07-08.md`
+  - WATCH 이후 남은 alcohol/carb/training 사용자-facing tone을 C01~C06 matrix로 닫은 docs-only decision 문서다.
+  - 현재 DailyCoach 구현은 alcohol risk를 숨기지 않고 training context를 alcohol 면제권으로 쓰지 않는 방향이라 유지한다.
+  - 다음 본류는 DailyCoach/copy implementation이 아니라 v8.3 DailyCoach/copy regression test hardening이다.
+  - score tuning, UI/storage/schema, scoreDeltaPreview, old records migration은 열지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
