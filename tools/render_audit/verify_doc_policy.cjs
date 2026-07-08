@@ -52,6 +52,7 @@ const requiredFiles = [
   "docs/v8.3_target_scoring_alignment_implementation_2026-07-08.md",
   "docs/v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md",
   "docs/v8.3_stabilization_tag_readiness_checkpoint_update_2026-07-09.md",
+  "docs/v8.3_post_tag_release_closeout_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
 ];
@@ -98,6 +99,7 @@ if (failures.length === 0) {
   const targetScoringImplementation = read("docs/v8.3_target_scoring_alignment_implementation_2026-07-08.md");
   const targetScoringQaCloseout = read("docs/v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md");
   const stabilizationTagReadinessUpdate = read("docs/v8.3_stabilization_tag_readiness_checkpoint_update_2026-07-09.md");
+  const postTagReleaseCloseout = read("docs/v8.3_post_tag_release_closeout_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
   const v82ArchiveReadme = read("docs/archive/v8.2_macro_range/README.md");
@@ -175,7 +177,9 @@ if (failures.length === 0) {
     "v8.3 target/scoring alignment implementation: implemented",
     "v8.3 target/scoring alignment QA closeout: closed",
     "v8.3 stabilization/tag readiness checkpoint update: closed",
-    "v8.3 merge/tag instruction: held until explicit user instruction",
+    "v8.3 merge/tag instruction: completed",
+    "v8.3 post-tag release closeout: closed",
+    "post-v8.3 backlog triage / v8.3.1 planning: next candidate",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -216,6 +220,8 @@ if (failures.length === 0) {
     "target/scoring alignment QA closeout",
     "v8.3 stabilization/tag readiness checkpoint update",
     "tag-ready candidate after checkpoint update",
+    "v8.3 post-tag release closeout",
+    "post-v8.3 backlog triage / v8.3.1 planning",
     "continuous recency-weighted excess pressure",
     "automatic training load interpolation",
     "target/scoring alignment release-blocker 기준",
@@ -227,6 +233,7 @@ if (failures.length === 0) {
   const staleReadinessPhrases = [
     "v8.3 stabilization/tag readiness checkpoint update: pending after target/scoring alignment QA closeout",
     "v8.3 merge/tag instruction: held until stabilization/tag readiness checkpoint update and user instruction",
+    "v8.3 merge/tag instruction: held until explicit user instruction",
   ];
   for (const text of staleReadinessPhrases) {
     if (readFirst.includes(text)) fail(`00_READ_FIRST still has stale readiness gate text: ${text}`);
@@ -256,11 +263,14 @@ if (failures.length === 0) {
     "v8.3_target_scoring_alignment_implementation_2026-07-08.md",
     "v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md",
     "v8.3_stabilization_tag_readiness_checkpoint_update_2026-07-09.md",
+    "v8.3_post_tag_release_closeout_2026-07-09.md",
     "release blocker",
     "score `83.712`",
     "target/scoring alignment implementation",
     "target/scoring alignment QA closeout",
     "tag-ready candidate after checkpoint update",
+    "annotated tag `v8.3`",
+    "post-v8.3 deferred",
   ];
   for (const text of readmeIncidentRequirements) {
     if (!readme.includes(text)) fail(`README missing target/scoring incident routing: ${text}`);
@@ -313,6 +323,26 @@ if (failures.length === 0) {
   ];
   for (const text of stabilizationTagReadinessUpdateRequirements) {
     if (!stabilizationTagReadinessUpdate.includes(text)) fail(`stabilization/tag readiness update missing: ${text}`);
+  }
+
+  const postTagReleaseCloseoutRequirements = [
+    "docs-only post-tag release closeout",
+    "source branch: codex/v8.3-stabilization-tag-readiness-checkpoint-update",
+    "merge commit: 0333d9c",
+    "tag name: v8.3",
+    "tag type: annotated tag",
+    "tag target commit: 0333d9c",
+    "remote v8.3 peeled target: 0333d9c",
+    "source branch tag 전 검증",
+    "merge 후 master 검증",
+    "anchor continuous macro scoring",
+    "target/scoring alignment",
+    "post-v8.3 deferred",
+    "tag 재생성/이동 금지",
+    "post-v8.3 backlog triage 또는 v8.3.1 planning",
+  ];
+  for (const text of postTagReleaseCloseoutRequirements) {
+    if (!postTagReleaseCloseout.includes(text)) fail(`post-tag release closeout missing: ${text}`);
   }
 
   if (!readFirstImplementationBlocked && !readFirstImplementationAccepted) {

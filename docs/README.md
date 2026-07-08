@@ -178,6 +178,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 결론은 tag-ready candidate after checkpoint update다. 단, 실제 merge/tag/push는 사용자 명시 지시 전까지 보류한다.
   - score tuning, broad UI redesign, tooltip/glossary, storage/schema, scoreDeltaPreview, old records migration은 별도 future gate다.
 
+- `v8.3_post_tag_release_closeout_2026-07-09.md`
+  - v8.3 merge/tag 이후 release state를 닫은 docs-only post-tag closeout이다.
+  - `master` no-ff merge commit `0333d9c`에 annotated tag `v8.3`을 생성/push했고, remote master와 tag peeled target도 `0333d9c`로 확인했다.
+  - v8.3 included scope는 anchor continuous macro scoring, target/scoring alignment, Today macro card range display, source visibility, DailyCoach/copy guard, WATCH guard, legacy/reference routing, app display v8.3 alignment, docs-policy/test profile hardening이다.
+  - post-v8.3 deferred 항목은 score tuning, DailyCoach/copy rewrite, tooltip/glossary, kcal/alcohol range display, UI/storage/schema, scoreDeltaPreview optional audit, old records migration/reset, package version policy다.
+  - 다음 후보는 post-v8.3 backlog triage 또는 v8.3.1 planning이며, v8.3 tag를 다시 만들거나 옮기지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
