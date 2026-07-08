@@ -143,6 +143,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - copy test가 AI스럽거나 낡은 문구를 고정하면 앱 문구를 테스트에 맞추기보다 test expectation 갱신도 허용한다고 닫는다.
   - 다음 본류는 v8.3 macro card range display implementation이며, score formula/UI redesign/storage/schema/scoreDelta/old records migration은 열지 않는다.
 
+- `v8.3_macro_card_range_display_implementation_2026-07-08.md`
+  - Today macro card에 탄수화물/단백질/지방 compact range chip과 range-aware 상태 문구를 좁게 구현한 implementation log다.
+  - raw v8.3 no-penalty anchor를 UI range로 그대로 노출하지 않고, target-based display sanity band를 함께 적용한다.
+  - kcal/alcohol/tooltip/DailyCoach rewrite/Records/Recent/storage/schema/scoreDelta/old records migration은 열지 않는다.
+  - `오늘 해석 범위`, `회복재료`, 내부 산식 용어가 Today macro card에 나오지 않도록 UI/copy regression을 보강한다.
+  - 다음 본류는 v8.3 stabilization/tag readiness checkpoint update 또는 addendum이다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
