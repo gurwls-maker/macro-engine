@@ -129,6 +129,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - DailyCoach production copy, priority, score anchor 값, UI/storage/schema, scoreDeltaPreview, old records migration은 변경하지 않는다.
   - 다음 본류는 새 copy 구현이 아니라 v8.3 stabilization/tag readiness checkpoint다.
 
+- `v8.3_stabilization_tag_readiness_checkpoint_2026-07-08.md`
+  - v8.3 scoring implementation block을 release/tag 후보로 볼 수 있는지 점검한 docs-only checkpoint다.
+  - 산식 구현, source visibility, reference routing, app display alignment, WATCH regression, DailyCoach/copy regression, docs-policy, test profile coverage를 한 묶음으로 검산한다.
+  - 결론은 `tag-ready after PR merge`이며, 실제 tag 생성은 이번 문서에서 하지 않는다.
+  - score tuning, DailyCoach/copy rewrite, UI/storage/schema, scoreDeltaPreview, old records migration은 별도 future gate로 남긴다.
+  - 다음 본류는 사용자 결정이 필요한 v8.3 merge/tag instruction이다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
