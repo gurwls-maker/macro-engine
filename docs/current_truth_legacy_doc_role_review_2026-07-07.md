@@ -8,7 +8,7 @@ READ RESULT
 - current_truth_version: 2026-07-07-v1
 - source_ledger_checked: yes - docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt
 - superseded_docs_checked: yes - v8.2 macro docs status checked through docs/00_current_truth/04_document_status_index.txt and docs/archive/v8.2_macro_range/README.md
-- external_anchor_checked: yes - docs/v8_외부근거_매크로_정책표_2026-06-05.txt and docs/# 2026 ACSM 근력운동 가이드 한국어 해설판.txt
+- external_anchor_checked: yes - docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt and docs/references/external/acsm_resistance_training_guide_ko_2026.txt
 - source_visibility_checked: yes - docs/v8.3_source_visibility_implementation_2026-07-07.md and docs/v8.3_source_visibility_qa_profile_hardening_2026-07-07.md
 
 DOCUMENT ROLE
@@ -37,6 +37,11 @@ score formula 변경: 없음
 UI/storage/schema 변경: 없음
 scoreDeltaPreview 재개: 없음
 old records migration/recompute/reset: 없음
+
+FOLLOW-UP STATUS
+- 2026-07-08 legacy reference routing implementation completed.
+- The 8 reviewed root legacy/reference files now live under `docs/references/product`, `docs/references/external`, `docs/references/copy`, and `docs/references/historical`.
+- This review remains the historical role analysis; current paths and guard state are tracked in `docs/00_current_truth/04_document_status_index.txt`.
 
 ## 1. 목적
 
@@ -96,14 +101,14 @@ v8.3 current truth, v8.2 archive routing, source visibility implementation, sour
 확인한 root legacy/reference 문서:
 
 ```text
-docs/00_현재작업기준_2026-06-16.txt
-docs/02_대화의도_근거표_2026-06-16.txt
-docs/v8_외부근거_매크로_정책표_2026-06-05.txt
-docs/v8_CC이후_TDEE_시간소유권_설계_2026-06-15.txt
-docs/v8_운동여부_코드영향감사_2026-06-15.txt
-docs/v8_운동프로필_수준별산식_통합실행설계_2026-06-04.txt
-docs/# 2026 ACSM 근력운동 가이드 한국어 해설판.txt
-docs/앱-문구-기준.txt
+docs/references/product/legacy_product_working_criteria_2026-06-16.txt
+docs/references/product/legacy_user_intent_ledger_2026-06-16.txt
+docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt
+docs/references/product/tdee_time_ownership_design_2026-06-15.txt
+docs/references/product/exercise_mode_code_impact_audit_2026-06-15.txt
+docs/references/historical/exercise_profile_formula_historical_map_2026-06-04.txt
+docs/references/external/acsm_resistance_training_guide_ko_2026.txt
+docs/references/copy/app_copy_guidelines.txt
 ```
 
 확인한 라우팅 상태:
@@ -117,7 +122,7 @@ tools/render_audit/verify_doc_policy.cjs: docs-policy guard 있음
 ```
 
 코드 참조 상태:
-- `index.html`은 ACSM 텍스트와 `docs/v8_외부근거_매크로_정책표_2026-06-05.txt`를 일부 reference로 언급한다.
+- `index.html`은 ACSM 텍스트와 `docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt`를 일부 reference로 언급한다.
 - root legacy filename을 바로 옮기면 링크/reference가 끊길 수 있으므로 이번에는 move/rename하지 않는다.
 - v8.2 macro range 문서는 root docs에 없고 archive 아래에서만 보관된다.
 
@@ -133,7 +138,7 @@ tools/render_audit/verify_doc_policy.cjs: docs-policy guard 있음
 
 ## 6. 문서별 판단
 
-### docs/00_현재작업기준_2026-06-16.txt
+### docs/references/product/legacy_product_working_criteria_2026-06-16.txt
 
 현재 역할:
 - 과거 최상위 작업 기준.
@@ -163,7 +168,7 @@ tools/render_audit/verify_doc_policy.cjs: docs-policy guard 있음
 - 다음 consolidation decision에서 `product_current_truth` 또는 `legacy_intent_reference`로 흡수할 항목을 분리한다.
 - v8.3 scoring formula 지시서처럼 직접 읽지 못하게 README와 status index에서 격하 상태를 유지한다.
 
-### docs/02_대화의도_근거표_2026-06-16.txt
+### docs/references/product/legacy_user_intent_ledger_2026-06-16.txt
 
 현재 역할:
 - 당시 사용자 의도 ledger.
@@ -190,7 +195,7 @@ tools/render_audit/verify_doc_policy.cjs: docs-policy guard 있음
 - 지금 move/rename하지 않는다.
 - 다음 consolidation decision에서 `intent_ledger` 성격으로 격하하거나 current truth에 이미 흡수된 항목을 제거하는 방향을 검토한다.
 
-### docs/v8_외부근거_매크로_정책표_2026-06-05.txt
+### docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt
 
 현재 역할:
 - macro target/reference range external evidence inventory.
@@ -218,7 +223,7 @@ tools/render_audit/verify_doc_policy.cjs: docs-policy guard 있음
 - 다음 consolidation decision에서 `external_anchor_inventory`로 분리할지, `references/` 아래로 이동할지 결정한다.
 - 이동 전 코드/문서 reference를 함께 갱신해야 한다.
 
-### docs/v8_CC이후_TDEE_시간소유권_설계_2026-06-15.txt
+### docs/references/product/tdee_time_ownership_design_2026-06-15.txt
 
 현재 역할:
 - TDEE time ownership / activity ownership 설계 reference.
@@ -243,7 +248,7 @@ tools/render_audit/verify_doc_policy.cjs: docs-policy guard 있음
 - 지금 move/rename하지 않는다.
 - TDEE/source ownership reference로 유지하되, 다음 consolidation decision에서 obsolete toggle/report-only 단락을 archive하거나 current truth에 흡수한다.
 
-### docs/v8_운동여부_코드영향감사_2026-06-15.txt
+### docs/references/product/exercise_mode_code_impact_audit_2026-06-15.txt
 
 현재 역할:
 - exercise top mode 도입 전/중 코드 영향 감사 문서.
@@ -268,7 +273,7 @@ tools/render_audit/verify_doc_policy.cjs: docs-policy guard 있음
 - 지금 move/rename하지 않는다.
 - 다음 consolidation decision에서 exercise mode reference와 historical audit 부분을 분리한다.
 
-### docs/v8_운동프로필_수준별산식_통합실행설계_2026-06-04.txt
+### docs/references/historical/exercise_profile_formula_historical_map_2026-06-04.txt
 
 현재 역할:
 - 운동 프로필/수준별 산식 논의의 historical/report-only map.
@@ -297,7 +302,7 @@ tools/render_audit/verify_doc_policy.cjs: docs-policy guard 있음
 - 다음 consolidation decision에서 historical/report-only map으로 더 강하게 격하하거나 archive/reference 폴더 이동을 검토한다.
 - 산식 구현 지시로 직접 사용하지 않는다는 warning을 routing 문서에 유지한다.
 
-### docs/# 2026 ACSM 근력운동 가이드 한국어 해설판.txt
+### docs/references/external/acsm_resistance_training_guide_ko_2026.txt
 
 현재 역할:
 - 2026 ACSM resistance training guideline 한국어 해설 reference.
@@ -323,7 +328,7 @@ tools/render_audit/verify_doc_policy.cjs: docs-policy guard 있음
 - 지금 move/rename하지 않는다.
 - 다음 consolidation decision에서 `external_references/` 또는 `exercise_reference/`로 분리할지 검토한다.
 
-### docs/앱-문구-기준.txt
+### docs/references/copy/app_copy_guidelines.txt
 
 현재 역할:
 - 사용자-facing copy/style 기준.
@@ -382,29 +387,28 @@ tools/render_audit/verify_doc_policy.cjs: docs-policy guard 있음
 
 ## 8. 다음 gate
 
-이번 review는 실제 통폐합이 아니라 통폐합 전 역할 판정이다.
+이번 review는 실제 통폐합이 아니라 통폐합 전 역할 판정이었다.
 
-다음 gate는 다음 이름으로 유지한다.
+후속 gate는 2026-07-08 routing implementation으로 닫혔다.
 
 ```text
-legacy reference routing/consolidation decision: pending before actual move/rename/archive of root legacy docs
+legacy reference routing/consolidation decision: closed by docs/legacy_reference_routing_consolidation_decision_2026-07-08.md
+legacy reference routing implementation: implemented by docs/references/* routing and docs-policy guard
 ```
 
-그 gate에서 결정해야 할 것:
-- `00_현재작업기준`과 `02_대화의도`를 current truth에 흡수한 뒤 archive할지, intent/reference ledger로 유지할지.
-- `v8_외부근거_매크로_정책표`를 external anchor inventory로 분리할지.
-- `# 2026 ACSM...`를 external exercise reference folder로 이동할지.
-- TDEE/source ownership 문서를 current truth에 흡수할지 reference로 둘지.
-- 운동 프로필 historical map을 archive로 이동할지.
-- copy 기준 문서를 copy reference 폴더로 분리할지.
-- move/rename 전에 `index.html`, README, docs-policy reference를 함께 갱신할지.
+닫힌 것:
+- legacy product criteria와 user intent ledger는 `docs/references/product/`로 이동.
+- macro external anchor table과 ACSM reference는 `docs/references/external/`로 이동.
+- app copy guidelines는 `docs/references/copy/`로 이동.
+- exercise profile formula map은 `docs/references/historical/`로 이동.
+- `index.html`, README, status index, source ledger, docs-policy reference가 새 경로를 기준으로 갱신됨.
 
 다음에 바로 들어가면 안 되는 것:
 - score tuning implementation.
 - broad UI/storage/schema.
 - scoreDeltaPreview.
 - old records migration/recompute/reset.
-- legacy docs 대량 이동.
+- app display version alignment는 별도 decision으로 다룬다.
 
 ## 9. 결과로그 기준
 
@@ -413,8 +417,8 @@ legacy reference routing/consolidation decision: pending before actual move/rena
 ```text
 내 판단:
 - legacy root docs role review는 닫힘.
-- 실제 move/rename/archive는 아직 하지 않음.
-- 다음은 legacy reference routing/consolidation decision docs-only.
+- 실제 move/rename/archive는 후속 implementation에서 완료됨.
+- 다음은 app display version alignment decision 또는 필요 시 external anchor inventory split.
 
 최소로 제한한 것:
 - docs-only.

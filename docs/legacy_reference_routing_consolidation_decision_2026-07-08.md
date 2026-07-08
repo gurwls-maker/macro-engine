@@ -8,7 +8,7 @@ READ RESULT
 - current_truth_version: 2026-07-07-v1
 - source_ledger_checked: yes - docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt
 - superseded_docs_checked: yes - v8.2 macro archive routing checked through docs/archive/v8.2_macro_range/README.md and status index
-- external_anchor_checked: yes - docs/v8_외부근거_매크로_정책표_2026-06-05.txt and docs/# 2026 ACSM 근력운동 가이드 한국어 해설판.txt
+- external_anchor_checked: yes - docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt and docs/references/external/acsm_resistance_training_guide_ko_2026.txt
 - legacy_role_review_checked: yes - docs/current_truth_legacy_doc_role_review_2026-07-07.md
 - source_visibility_checked: yes - docs/v8.3_source_visibility_implementation_2026-07-07.md and docs/v8.3_source_visibility_qa_profile_hardening_2026-07-07.md
 
@@ -39,6 +39,12 @@ score formula 변경: 없음
 UI/storage/schema 변경: 없음
 scoreDeltaPreview 재개: 없음
 old records migration/recompute/reset: 없음
+
+FOLLOW-UP STATUS
+- 2026-07-08 legacy reference routing implementation completed.
+- The destination map in this decision has been applied under `docs/references/*`.
+- `index.html`, active README/status/source-ledger references, and docs-policy guards now use the routed paths.
+- The app display/header version remains `v8.0` and is a separate alignment gate.
 
 ## 1. 목적
 
@@ -79,14 +85,14 @@ Option C(archive 중심 정리)는 과하다.
 root docs에 8개 legacy/reference 문서가 모두 존재한다.
 
 ```text
-docs/00_현재작업기준_2026-06-16.txt
-docs/02_대화의도_근거표_2026-06-16.txt
-docs/v8_외부근거_매크로_정책표_2026-06-05.txt
-docs/v8_CC이후_TDEE_시간소유권_설계_2026-06-15.txt
-docs/v8_운동여부_코드영향감사_2026-06-15.txt
-docs/v8_운동프로필_수준별산식_통합실행설계_2026-06-04.txt
-docs/# 2026 ACSM 근력운동 가이드 한국어 해설판.txt
-docs/앱-문구-기준.txt
+docs/references/product/legacy_product_working_criteria_2026-06-16.txt
+docs/references/product/legacy_user_intent_ledger_2026-06-16.txt
+docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt
+docs/references/product/tdee_time_ownership_design_2026-06-15.txt
+docs/references/product/exercise_mode_code_impact_audit_2026-06-15.txt
+docs/references/historical/exercise_profile_formula_historical_map_2026-06-04.txt
+docs/references/external/acsm_resistance_training_guide_ko_2026.txt
+docs/references/copy/app_copy_guidelines.txt
 ```
 
 v8.2 macro archive 상태:
@@ -97,7 +103,7 @@ docs/archive/v8.2_macro_range/v8.2_macro_range_*.md: 65
 ```
 
 직접 reference 확인:
-- `index.html`은 `docs/v8_외부근거_매크로_정책표_2026-06-05.txt`를 문자열로 언급한다.
+- `index.html`은 `docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt`를 문자열로 언급한다.
 - `index.html`에는 ACSM 관련 코드/테스트 문자열이 많지만, `docs/# 2026 ACSM...` 파일 경로를 직접 가리키지는 않는다.
 - `docs/README.md`는 8개 문서를 legacy/reference 목록으로 직접 언급한다.
 - `docs/README.md`의 충돌 판단 순서에는 아직 `02_대화의도_근거표_2026-06-16.txt`, `00_현재작업기준_2026-06-16.txt`가 높은 순위처럼 남아 있다.
@@ -137,14 +143,14 @@ docs/references/historical/README.md
 
 | file | current role | recommended routing | recommended destination | current truth absorption needed? | reference link update needed? | docs-policy guard needed? | move now? | move next? | reason |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `docs/00_현재작업기준_2026-06-16.txt` | legacy product criteria / old top-level basis | product reference | `docs/references/product/legacy_product_working_criteria_2026-06-16.txt` | partial yes | yes | yes | no | yes | 핵심 원칙은 current truth에 흡수됐지만 TDEE, UI, Records, copy 방향 reference 가치가 있다. root에 두면 최상위 기준처럼 보인다. |
-| `docs/02_대화의도_근거표_2026-06-16.txt` | legacy user intent ledger | product reference | `docs/references/product/legacy_user_intent_ledger_2026-06-16.txt` | partial yes | yes | yes | no | yes | 최신 사용자 의도 우선 원칙은 유지하되 이 파일 자체는 current truth router가 아니다. |
-| `docs/v8_외부근거_매크로_정책표_2026-06-05.txt` | macro external evidence / old app policy table | external reference | `docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt` | yes, future anchor inventory | yes, includes index.html | yes | no | yes | 외부근거는 계속 필요하지만 hard cutoff/fixed policy table처럼 읽히면 위험하다. 코드 문자열 갱신이 필요하므로 이번에는 이동하지 않는다. |
-| `docs/v8_CC이후_TDEE_시간소유권_설계_2026-06-15.txt` | TDEE/source ownership design reference | product reference | `docs/references/product/tdee_time_ownership_design_2026-06-15.txt` | partial yes | yes | yes | no | yes | TDEE time ownership은 현재도 핵심 reference다. 다만 old guide/activity wording은 historical로 읽어야 한다. |
-| `docs/v8_운동여부_코드영향감사_2026-06-15.txt` | exercise top mode impact audit | product reference | `docs/references/product/exercise_mode_code_impact_audit_2026-06-15.txt` | partial yes | yes | yes | no | yes | exercise mode와 stored/effective separation은 유지 가치가 있다. old implementation audit으로 직접 구현 지시하면 안 된다. |
-| `docs/v8_운동프로필_수준별산식_통합실행설계_2026-06-04.txt` | historical/report-only exercise profile formula map | historical reference | `docs/references/historical/exercise_profile_formula_historical_map_2026-06-04.txt` | no, only selected guard if needed | yes | yes | no | yes | 파일 상단부터 현재 구현 지시서가 아니라고 명시한다. root에 두면 산식 지시처럼 보일 수 있다. |
-| `docs/# 2026 ACSM 근력운동 가이드 한국어 해설판.txt` | external exercise evidence explanation | external reference | `docs/references/external/acsm_resistance_training_guide_ko_2026.txt` | yes, future external anchor inventory | yes | yes | no | yes | 외부근거 reference로 유지하되 파일명 앞 `#`는 shell/markdown에서 불편하므로 다음 move 때 rename한다. |
-| `docs/앱-문구-기준.txt` | user-facing copy guideline | copy reference | `docs/references/copy/app_copy_guidelines.txt` | no, only routing summary if needed | yes | yes | no | yes | scoring formula 기준이 아니라 copy 기준이다. copy reference로 분리해야 오독이 줄어든다. |
+| `docs/references/product/legacy_product_working_criteria_2026-06-16.txt` | legacy product criteria / old top-level basis | product reference | `docs/references/product/legacy_product_working_criteria_2026-06-16.txt` | partial yes | yes | yes | no | yes | 핵심 원칙은 current truth에 흡수됐지만 TDEE, UI, Records, copy 방향 reference 가치가 있다. root에 두면 최상위 기준처럼 보인다. |
+| `docs/references/product/legacy_user_intent_ledger_2026-06-16.txt` | legacy user intent ledger | product reference | `docs/references/product/legacy_user_intent_ledger_2026-06-16.txt` | partial yes | yes | yes | no | yes | 최신 사용자 의도 우선 원칙은 유지하되 이 파일 자체는 current truth router가 아니다. |
+| `docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt` | macro external evidence / old app policy table | external reference | `docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt` | yes, future anchor inventory | yes, includes index.html | yes | no | yes | 외부근거는 계속 필요하지만 hard cutoff/fixed policy table처럼 읽히면 위험하다. 코드 문자열 갱신이 필요하므로 이번에는 이동하지 않는다. |
+| `docs/references/product/tdee_time_ownership_design_2026-06-15.txt` | TDEE/source ownership design reference | product reference | `docs/references/product/tdee_time_ownership_design_2026-06-15.txt` | partial yes | yes | yes | no | yes | TDEE time ownership은 현재도 핵심 reference다. 다만 old guide/activity wording은 historical로 읽어야 한다. |
+| `docs/references/product/exercise_mode_code_impact_audit_2026-06-15.txt` | exercise top mode impact audit | product reference | `docs/references/product/exercise_mode_code_impact_audit_2026-06-15.txt` | partial yes | yes | yes | no | yes | exercise mode와 stored/effective separation은 유지 가치가 있다. old implementation audit으로 직접 구현 지시하면 안 된다. |
+| `docs/references/historical/exercise_profile_formula_historical_map_2026-06-04.txt` | historical/report-only exercise profile formula map | historical reference | `docs/references/historical/exercise_profile_formula_historical_map_2026-06-04.txt` | no, only selected guard if needed | yes | yes | no | yes | 파일 상단부터 현재 구현 지시서가 아니라고 명시한다. root에 두면 산식 지시처럼 보일 수 있다. |
+| `docs/references/external/acsm_resistance_training_guide_ko_2026.txt` | external exercise evidence explanation | external reference | `docs/references/external/acsm_resistance_training_guide_ko_2026.txt` | yes, future external anchor inventory | yes | yes | no | yes | 외부근거 reference로 유지하되 파일명 앞 `#`는 shell/markdown에서 불편하므로 다음 move 때 rename한다. |
+| `docs/references/copy/app_copy_guidelines.txt` | user-facing copy guideline | copy reference | `docs/references/copy/app_copy_guidelines.txt` | no, only routing summary if needed | yes | yes | no | yes | scoring formula 기준이 아니라 copy 기준이다. copy reference로 분리해야 오독이 줄어든다. |
 
 ## 6. README 충돌 판단 순서 decision
 
@@ -198,7 +204,7 @@ docs/references/historical/README.md
   - `docs/references/historical/exercise_profile_formula_historical_map_2026-06-04.txt`
 - `docs/references/product/README.md`, `docs/references/external/README.md`, `docs/references/copy/README.md`, `docs/references/historical/README.md`가 없으면 실패.
 - `docs/README.md`와 `docs/00_current_truth/04_document_status_index.txt`가 새 reference 경로를 가리키지 않으면 실패.
-- `index.html`이 old `docs/v8_외부근거_매크로_정책표_2026-06-05.txt` 경로를 계속 가리키면 실패.
+- `index.html`이 old `docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt` 경로를 계속 가리키면 실패.
 
 이 guard는 실제 move와 같은 브랜치에서 열어야 한다. 먼저 guard만 추가하면 현재 root legacy 문서 때문에 즉시 실패한다.
 
@@ -217,7 +223,7 @@ docs/references/historical/README.md
 - 각 references folder README 작성.
 - active README와 status index를 새 경로로 갱신.
 - source ledger/current review의 old path reference를 최소 갱신하거나, old path가 historical quote임을 명확히 한다.
-- `index.html`의 `docs/v8_외부근거_매크로_정책표_2026-06-05.txt` 문자열을 새 external reference path로 갱신.
+- `index.html`의 `docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt` 문자열을 새 external reference path로 갱신.
 - `verify_doc_policy.cjs`에 root legacy docs 재생성 방지와 destination existence guard를 추가.
 
 다음 브랜치에서 하지 말 것:
@@ -292,22 +298,23 @@ docs/references/historical/README.md
 
 ## 12. 결과로그 기준
 
-결과로그에는 다음을 남긴다.
+이 decision 문서 자체는 실제 move 전 기준이다. 후속 implementation 결과로그에는 다음을 남긴다.
 
 ```text
 내 판단:
 - 선택 option: Option B reference folder split.
-- 이번 브랜치: docs-only decision.
-- 실제 move/rename/archive: 아직 없음.
-- 다음 본류: legacy reference routing implementation.
+- 이번 implementation: reference folder split applied.
+- 실제 move/rename/archive: 완료.
+- 다음 본류: app display version alignment decision 또는 필요 시 external anchor inventory split.
 
 최소로 제한한 것:
-- no index.html / no package.json / no tools/render_audit.
+- index.html은 external reference path 문자열 갱신만 허용.
+- no package.json / no scoring formula / no app display version alignment.
 - no scoring / no UI / no storage / no migration.
 
 전체로 결정한 것:
 - 8개 legacy 문서별 recommended destination.
 - README 충돌 판단 순서 처리 방향.
 - docs-policy guard 설계.
-- 다음 실제 move 브랜치 범위.
+- actual routing implementation 범위.
 ```

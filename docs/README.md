@@ -86,9 +86,9 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 
 - `legacy_reference_routing_consolidation_decision_2026-07-08.md`
   - root legacy/reference 문서 8개의 실제 move 전 destination map을 닫은 docs-only decision 문서다.
-  - Option B reference folder split을 선택하고 `docs/references/product`, `docs/references/external`, `docs/references/copy`, `docs/references/historical` 구조를 다음 실제 routing target으로 둔다.
+  - Option B reference folder split을 선택했고, 실제 routing implementation은 `docs/references/product`, `docs/references/external`, `docs/references/copy`, `docs/references/historical` 구조로 적용됐다.
   - README 충돌 판단 순서는 current truth / status index를 legacy 00/02보다 우선하도록 정리한다.
-  - 실제 파일 이동, rename, `index.html` reference update, docs-policy guard implementation, 산식/UI/storage/schema 변경은 다음 implementation 브랜치로 분리한다.
+  - 산식/UI/storage/schema 변경과 app display version alignment는 여전히 별도 gate다.
 
 ## legacy / 참고 문서
 
@@ -102,28 +102,28 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
    - 개발환경 재현성, Playwright 의존성, npm scripts, render audit 증거 기준을 정리한다.
    - 앱 구현 작업 전에 현재 테스트 실행 환경이 충분한지 확인할 때 읽는다.
 
-3. `00_현재작업기준_2026-06-16.txt`
+3. `references/product/legacy_product_working_criteria_2026-06-16.txt`
    - 과거 최상위 작업 기준이지만 지금은 current truth보다 우선하지 않는 legacy/reference 문서다.
    - 역할 판단은 `current_truth_legacy_doc_role_review_2026-07-07.md`와 `00_current_truth/04_document_status_index.txt`를 먼저 따른다.
 
-4. `02_대화의도_근거표_2026-06-16.txt`
+4. `references/product/legacy_user_intent_ledger_2026-06-16.txt`
    - 과거 대화 의도 ledger다.
    - 최신 사용자 의도와 `00_current_truth` 라우팅을 우선하고, 이 문서는 근거 확인용으로만 읽는다.
 
 5. 작업 주제별 참고 문서
-   - `v8_운동여부_코드영향감사_2026-06-15.txt`
-   - `v8_CC이후_TDEE_시간소유권_설계_2026-06-15.txt`
-   - `v8_외부근거_매크로_정책표_2026-06-05.txt`
-   - `v8_운동프로필_수준별산식_통합실행설계_2026-06-04.txt`
-   - `# 2026 ACSM 근력운동 가이드 한국어 해설판.txt`
-   - 이 문서들은 무조건 archive할 대상도, 무조건 current truth도 아니다. 세부 역할은 `current_truth_legacy_doc_role_review_2026-07-07.md`의 분류를 따른다.
+   - `references/product/exercise_mode_code_impact_audit_2026-06-15.txt`
+   - `references/product/tdee_time_ownership_design_2026-06-15.txt`
+   - `references/external/macro_external_anchor_policy_table_2026-06-05.txt`
+   - `references/external/acsm_resistance_training_guide_ko_2026.txt`
+   - `references/historical/exercise_profile_formula_historical_map_2026-06-04.txt`
+   - 이 문서들은 current truth가 아니라 role-specific reference다. 세부 역할은 각 `references/*/README.md`와 `current_truth_legacy_doc_role_review_2026-07-07.md`를 따른다.
 
 6. 문구를 바꿀 때만 읽을 문서
    - `96_v8.1_copy_help_closeout_2026-07-03.md`
      - v8.1 copy/help 종료 판단을 요약한 closeout 문서다.
    - `97_v8.1_copy_help_inventory_2026-07-02.md`
      - v8.1 copy/help 구현, 감사, 종료 후보 판단의 상세 근거를 누적한 기준 문서다.
-   - `앱-문구-기준.txt`
+   - `references/copy/app_copy_guidelines.txt`
 
 7. v8.2 macro range archive
    - `archive/v8.2_macro_range/README.md`

@@ -44,11 +44,43 @@ const requiredFiles = [
   "docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt",
   "docs/00_current_truth/templates/new_doc_preamble.txt",
   "docs/archive/v8.2_macro_range/README.md",
+  "docs/references/product/README.md",
+  "docs/references/external/README.md",
+  "docs/references/copy/README.md",
+  "docs/references/historical/README.md",
   "docs/README.md",
   "AGENTS.md",
 ];
 
 for (const file of requiredFiles) requireFile(file);
+
+const legacyRootDocs = [
+  "docs/00_현재작업기준_2026-06-16.txt",
+  "docs/02_대화의도_근거표_2026-06-16.txt",
+  "docs/v8_외부근거_매크로_정책표_2026-06-05.txt",
+  "docs/v8_CC이후_TDEE_시간소유권_설계_2026-06-15.txt",
+  "docs/v8_운동여부_코드영향감사_2026-06-15.txt",
+  "docs/v8_운동프로필_수준별산식_통합실행설계_2026-06-04.txt",
+  "docs/# 2026 ACSM 근력운동 가이드 한국어 해설판.txt",
+  "docs/앱-문구-기준.txt",
+];
+
+for (const file of legacyRootDocs) {
+  if (exists(file)) fail(`legacy reference doc must live under docs/references, not root docs: ${file}`);
+}
+
+const routedReferenceFiles = [
+  "docs/references/product/legacy_product_working_criteria_2026-06-16.txt",
+  "docs/references/product/legacy_user_intent_ledger_2026-06-16.txt",
+  "docs/references/product/tdee_time_ownership_design_2026-06-15.txt",
+  "docs/references/product/exercise_mode_code_impact_audit_2026-06-15.txt",
+  "docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt",
+  "docs/references/external/acsm_resistance_training_guide_ko_2026.txt",
+  "docs/references/copy/app_copy_guidelines.txt",
+  "docs/references/historical/exercise_profile_formula_historical_map_2026-06-04.txt",
+];
+
+for (const file of routedReferenceFiles) requireFile(file);
 
 if (exists("docs/00_current_truth/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt")) {
   fail("master plan source ledger must live under docs/00_current_truth/_source, not current_truth root");
@@ -78,6 +110,43 @@ if (failures.length === 0) {
   ];
   for (const route of requiredReadmeRoutes) {
     if (!readmeHead.includes(route)) fail(`README top routing missing: ${route}`);
+  }
+
+  const routedReferenceRoutingRequirements = [
+    "docs/references/product/legacy_product_working_criteria_2026-06-16.txt",
+    "docs/references/product/legacy_user_intent_ledger_2026-06-16.txt",
+    "docs/references/product/tdee_time_ownership_design_2026-06-15.txt",
+    "docs/references/product/exercise_mode_code_impact_audit_2026-06-15.txt",
+    "docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt",
+    "docs/references/external/acsm_resistance_training_guide_ko_2026.txt",
+    "docs/references/copy/app_copy_guidelines.txt",
+    "docs/references/historical/exercise_profile_formula_historical_map_2026-06-04.txt",
+  ];
+
+  for (const route of routedReferenceRoutingRequirements) {
+    if (!readme.includes(route.replace(/^docs\//, "")) && !readme.includes(route)) {
+      fail(`README missing routed legacy reference path: ${route}`);
+    }
+    if (!statusIndex.includes(route)) {
+      fail(`status index missing routed legacy reference path: ${route}`);
+    }
+  }
+
+  for (const legacyPath of legacyRootDocs) {
+    if (readme.includes(legacyPath)) fail(`README still points at legacy root path: ${legacyPath}`);
+    if (statusIndex.includes(legacyPath)) fail(`status index still points at legacy root path: ${legacyPath}`);
+  }
+
+  if (exists("index.html")) {
+    const indexHtml = read("index.html");
+    const oldExternalReferencePath = "docs/v8_외부근거_매크로_정책표_2026-06-05.txt";
+    const newExternalReferencePath = "docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt";
+    if (indexHtml.includes(oldExternalReferencePath)) {
+      fail(`index.html still points at old external macro reference path: ${oldExternalReferencePath}`);
+    }
+    if (!indexHtml.includes(newExternalReferencePath)) {
+      fail(`index.html missing routed external macro reference path: ${newExternalReferencePath}`);
+    }
   }
 
   const sourceLedgerRequirements = [

@@ -1,0 +1,1187 @@
+# V8 운동 프로필·수준별 산식 통합 실행설계
+
+작성일: 2026-06-04
+상태: historical/report-only map + 후속 검토 참고. v8.0 final 기준의 현재 구현 지시서가 아니다.
+브랜치 기준: `codex/v8-formula-audit`
+
+2026-06-30 v8.1 인수인계 감사 이후에는 이 문서를 그대로 구현 지시로 쓰지 않는다. 실제 동작 판단은 `v8.0` tag가 가리키는 HEAD 코드, 현재 렌더, 통과한 테스트가 우선이다. 이 문서는 운동 프로필/수준별 산식 논의의 historical context, report-only 경계, 후속 검토 후보를 찾는 map으로만 읽는다.
+
+이 문서는 기존 `v8_수준별산식_설계1~8`, `v8_수준별산식_초정밀설계_2026-06-04.txt`, `v8_운동프로필_산식_정밀설계.txt`에서 당시 유효하다고 판단한 내용을 통합한 2026-06-04 기준의 참고 문서다.
+
+기존 1~8 원문은 report-only 단계 기록이라 현재 기준처럼 읽히는 위험이 컸고, 2026-06-16 문서 정리에서 삭제했다.
+필요하면 Git 이력에서만 복구한다.
+
+## 0. 가장 중요한 운영 원칙
+
+이 문서는 정답지가 아니다.
+
+이 문서는 다음 코덱스가 생각을 멈추지 않도록 만드는 작업헌장이다.
+
+기준문서가 있어도 다음 상황에서는 문서를 그대로 따르지 않는다.
+
+- 실제 앱 렌더와 문서가 다를 때
+- 사용자 행동 흐름이 문서보다 더 자연스러운 방향을 보여줄 때
+- 산식 결과가 생리학적으로 이상하거나 설명이 불가능할 때
+- 테스트는 통과하지만 화면·기록·백업·코치 문구 중 하나가 어색할 때
+- 구현 중 새 충돌, 새 위험, 새 좋은 방향이 발견될 때
+- 이전 코덱스가 "완료"라고 썼지만 실제로는 report-only, scoped production, QA 부족 상태일 때
+
+이 경우의 처리 규칙:
+
+1. 현재 문서를 절대 기준으로 삼지 않는다.
+2. 실제 코드, 실제 렌더, 실제 사용자 입력 흐름을 다시 확인한다.
+3. 문제가 더 좋은 방향을 요구하면 문서와 다르게 구현할 수 있다.
+4. 단, 왜 문서와 달라졌는지 코드 주석이나 문서의 결정 로그에 남긴다.
+5. "문서에 맞췄다"는 이유만으로 성공이라고 말하지 않는다.
+
+금지 표현:
+
+- "기준문서대로 했으므로 완료"
+- "테스트가 통과했으므로 완료"
+- "기능이 생겼으므로 완성"
+- "대표 케이스가 통과했으므로 모든 유형에서 안전"
+- "report-only candidate가 좋으므로 production 적용 가능"
+
+항상 구분해야 하는 말:
+
+- 생겼다
+- 연결됐다
+- 계산된다
+- 렌더된다
+- 사용자가 이해할 수 있다
+- 생리학적으로 방어 가능하다
+- 기록·백업·코치·점수·Today 기준과 함께 믿을 만하다
+
+마지막 단계까지 도달해야 "믿을 만하게 만들었다"고 말할 수 있다.
+
+### 0-1. 단계 통과 판정 방식
+
+각 단계의 통과 기준은 "구현됐는가"가 아니라 "의도대로 충분히 구현됐는가"다.
+
+다음은 통과가 아니다.
+
+- 코드에 함수나 필드가 생겼다.
+- 화면에 UI가 렌더된다.
+- 테스트가 특정 숫자만 통과한다.
+- report-only 결과가 runner에 붙었다.
+- 문서의 항목명이 코드에 등장한다.
+
+통과하려면 아래를 함께 확인한다.
+
+1. 깊이: 해당 기능이 사용자의 원래 의도를 충분히 반영하는가. 예를 들어 운동 수준 판단이면 주간 웨이트일수만 보지 않고 운동 프로필, 세션, 빈도, 시간, 강도, 유산소, 체성분 신뢰도, FFMI/LBM/골격근량 단서를 함께 본다.
+2. 넓이: Today, Records, 최근 흐름, InBody, 설정, 백업/복원, Coach, Score 중 영향을 받는 영역이 어긋나지 않는가.
+3. 설명 가능성: 사용자가 "왜 이 값/판단이 나왔는지" 물었을 때 내부 label이 아니라 사람 말로 설명 가능한가.
+4. 실제 사용자 관점: 기능이 단순히 생긴 게 아니라 해당 운동을 오래 한 사람도 앱을 끄지 않을 만큼 믿을 만한가.
+5. 회귀 위험: 기존 scoped production, 기록 snapshot, 기준갱신 signature, 테스트 기대값을 의도치 않게 깨지 않았는가.
+
+따라서 "이미 구현되어 있음"은 중복 구현을 막기 위한 상태 판정일 뿐, 품질 통과 판정이 아니다. 이미 존재하는 기능도 의도 적합성 감사에서 깊이/넓이/설명 가능성이 부족하면 보강하거나 재설계한다.
+
+## 1. 문서 우선순위
+
+충돌이 생기면 아래 순서로 판단한다.
+
+1. 사용자가 이번 대화에서 명시한 최신 의도
+2. 앱의 실제 사용자 경험과 실제 렌더
+3. 현재 `index.html` production 경로의 실제 동작
+4. 현재 HEAD 기준 테스트 결과
+5. `docs/99_v8.1_takeover_audit_2026-06-30.md`의 위험 분류와 금지선
+6. `docs/references/product/legacy_user_intent_ledger_2026-06-16.txt`
+7. `docs/references/product/legacy_product_working_criteria_2026-06-16.txt`
+8. 이 통합 실행설계 문서의 historical/report-only 참고 항목
+9. 삭제된 과거 설계 원문의 Git 이력
+10. 코덱스의 추정
+
+주의:
+
+- 테스트는 중요하지만 판단의 최상위가 아니다.
+- 문서도 중요하지만 실제 앱의 불편함을 덮을 수 없다.
+- 기존 코드도 중요하지만 생리학적·사용자적 타당성이 없으면 바꿔야 한다.
+
+## 2. 현재 production 사실
+
+2026-06-04 기준, production으로 봐도 되는 것:
+
+- 일반 diet 단백질 기본값은 `2.0g/kg`이다.
+- `GOALS.diet.proteinKg = 2.0`이다.
+- `getDualBasisProteinRange("diet")`는 `{ min: 1.4, mid: 2.0, max: 2.0 }`이다.
+- 목표는 diet / cut / recomp / maintain / lean_bulk / bulk로 확장되어 있다.
+- 운동 프로필은 bodybuilding / powerbuilding / strength / running / mixed로 들어와 있다.
+- 운동 프로필·루틴·세션은 Today 계산과 Records goalSnapshot에 일부 연결되어 있다.
+- 전문가 LBM 반영률은 사용자가 보는 슬라이더값이 기본 source of truth이고, 가정용 InBody만 0.8 reliability factor가 적용된다.
+- 기준갱신 snapshot에는 운동 프로필, 루틴/세션, 운동강도, 유산소, 전문가 LBM 관련 값이 포함되어 있다.
+
+production으로 과대해석하면 안 되는 것:
+
+- 운동 프로필이 생겼다고 profile-specific macro formula가 완성된 것은 아니다.
+- 프로필별 세션명이 생겼다고 실제 운동인을 설득할 만큼 정확한 세션 모델이 완성된 것은 아니다.
+- candidate-v2 scoped production은 모든 사용자 수준별 산식 승인이 아니다.
+- report-only runner 결과는 production formula가 아니다.
+- 18개 또는 146개 케이스는 full Cartesian 검증이 아니다.
+
+## 3. 현재 열린 gate
+
+다음은 아직 닫히지 않았다.
+
+1. user-level profile-specific macro formula production implementation
+2. broad profile/routine/session human UX review
+3. full 8-2 Cartesian execution 또는 owner-approved 대체 gate
+4. 모든 목표·모든 사용자 유형·모든 진행상황에 대한 산식 신뢰성 감사
+5. 프로필별 실제 수행능력 입력 설계
+6. 프로필별 루틴/세션 정확도 검증
+7. 사용자 설명문·Coach·Records·백업 스냅샷까지 이어지는 신뢰성 검증
+
+## 4. 현재 구현의 핵심 문제
+
+### 4-1. 운동일수만으로 수준을 판단하는 위험
+
+현재 production 쪽에는 `getTargetRateTrainingBand()`처럼 주간 웨이트일수에 크게 의존하는 판단이 남아 있다.
+
+이 방식의 위험:
+
+- 체성분이 좋은 사람이 주 2회만 운동하면 초급자로 오판될 수 있다.
+- 운동 경력이 길지만 현재 감량기라 빈도를 낮춘 사용자가 낮은 수준으로 오판될 수 있다.
+- 초보자가 주 5회 운동한다고 고급자로 오판될 수 있다.
+- 러닝, 파워리프팅(내부 key `strength`), 파워빌딩, mixed는 "웨이트일수" 하나로 설명되지 않는다.
+
+따라서 후속 구현에서는 주간 운동일수를 단독 수준 판단 근거로 쓰지 않는다.
+
+주간 운동일수는 하나의 signal일 뿐이다.
+
+### 4-2. 프로필·세션이 생겼지만 아직 믿을 만하지 않다
+
+현재 프로필별 세션은 이름, 기본 운동시간, xw, 유산소 기본값 중심이다.
+
+이것은 "프로필별 입력 경로가 생겼다"에 가깝다.
+
+아직 부족한 것:
+
+- 각 운동 종목의 실제 수행능력 입력
+- 운동 경력
+- 세션별 부하·회복·연료 요구량의 타당한 기준
+- 사용자가 봤을 때 "이 앱이 내 운동을 이해한다"는 신뢰
+- 프로필별 루틴/세션 용어의 정확도
+- Today 단순 모드와 세부 모드의 설명
+
+사용자가 지적한 것처럼 각 프로필별 루틴/세션도 현재는 모자라 보인다.
+
+후속 구현에서는 "일단 생긴 프로필"을 믿지 말고, 실제 사용자가 프로필 설정 단계에서 앱을 끄지 않을 정도로 정확한지 검토해야 한다.
+
+### 4-3. 2026-06-06 운동 프로필 표시명 정리
+
+현재 소스의 내부 key `strength`는 백업, Records snapshot, 테스트, 과거 문서와 연결되어 있으므로 그대로 둔다.
+
+하지만 사용자에게 보이는 운동 프로필명은 `스트렝스`보다 `파워리프팅`이 더 명확하다.
+
+이유:
+
+- 앱의 `strength` 세션은 고강도 상체/하체, 볼륨, 기술, 디로드처럼 파워리프팅식 주 리프트와 회복 구조에 가깝다.
+- "스트렝스"는 너무 넓어서 일반 근력운동, 파워빌딩, 보디빌딩 고중량 훈련과 쉽게 섞인다.
+- 사용자가 프로필 설정에서 앱을 신뢰하려면 화면 용어가 실제 운동 종목을 먼저 정확히 가리켜야 한다.
+
+적용 기준:
+
+- 내부 저장값, 테스트 key, 과거 백업 key: `strength` 유지
+- 사용자 표시명: `파워리프팅`
+- 세션 표시명: `파워리프팅 상체 메인 고강도`, `파워리프팅 하체 메인 고강도`, `파워리프팅 보조 볼륨`, `파워리프팅 기술 연습`, `파워리프팅 디로드`
+- 문서의 역사적 감사 문맥에서 쓰인 `스트렝스`는 무조건 삭제하지 않는다. 단, 새 작업자는 현재 사용자-facing 기준을 `파워리프팅`으로 읽어야 한다.
+
+### 4-4. 2026-06-06 프로필별 세션/루틴 사용자-facing 정밀화
+
+이번 감사는 "코드에 세션이 존재하는가"가 아니라 "그 운동을 하는 사용자가 프로필 설정에서 앱을 믿을 수 있는가"를 기준으로 진행한다.
+
+수정한 부분:
+
+- 파워빌딩의 `하체/복합`은 너무 내부 분류처럼 보이므로 `하체·힌지 메인`으로 정리한다.
+- 파워리프팅 루틴 `강도/볼륨`은 `메인 리프트 강도/볼륨`으로 정리한다.
+- 파워리프팅 루틴 `기술/디로드`는 `기술 연습/디로드`로 정리한다.
+- 파워리프팅 세션의 `고강도 상체/하체`, `볼륨`, `기술`은 각각 `상체 메인 고강도`, `하체 메인 고강도`, `보조 볼륨`, `기술 연습`으로 정리한다.
+- 러닝의 `회복주`는 주 단위 계획처럼 읽히므로 `회복 러닝`으로 정리한다.
+- 혼합 프로필의 `회복 혼합`은 역할이 흐리므로 `회복 유산소`로 정리한다.
+
+이번에 숫자를 바꾸지 않은 이유:
+
+- 기본 시간과 xw는 이미 Today 계산, Records snapshot, profileTrainingModelDesign, 후보 산식 비교와 연결되어 있다.
+- 숫자 자체가 틀렸다고 확정된 것이 아니라, 먼저 사용자-facing 의미가 흐린 것이 문제였다.
+- 기본 시간과 강도 조정은 다음 시나리오 검증에서 실제 targetCal, 운동일/휴식일, Records 저장값, Coach 문구 변화까지 같이 보고 결정한다.
+
+현재 숫자 감사 판단:
+
+- 파워빌딩 상체 75분/0.90, 하체·힌지 90분/1.00, 보조 45분/0.75는 "메인 리프트 + 보조 볼륨" 구조로 읽을 수 있어 유지한다.
+- 파워리프팅 상체/하체 메인 90분/0.95~1.00, 보조 볼륨 75분/0.85, 기술 45분/0.60, 디로드 40분/0.45는 기본 의미상 유지한다. 단, 실제 수행능력 입력과 결합될 때 과하게 높은지 다음 시나리오에서 검증한다.
+- 러닝은 웨이트 시간이 0이고 유산소 기본값이 kcal 책임을 가진다. `회복 러닝`은 휴식이 아니라 낮은 부하의 유산소 세션이다.
+- 혼합 `회복 유산소`는 웨이트 시간 0, 걷기 30분으로 둔다. 이것은 휴식과 다르며, 가벼운 회복 활동으로 읽는다.
+- REST는 모든 프로필에서 웨이트/유산소 기본값 0을 유지한다.
+
+이 단계의 결론:
+
+프로필별 세션은 "생겼다" 수준에서 한 단계 나아가 사용자-facing 의미가 정리되었다. 하지만 기본 시간/강도 숫자의 보편 타당성은 아직 닫지 않는다. 다음 단계에서는 시나리오 검증에서 실제 계산 영향까지 함께 봐야 한다.
+
+## 5. 목표별 산식 방향
+
+목표는 단순 이름이 아니라 산식 정책을 바꿔야 한다.
+
+목표별 기본 성격:
+
+- diet: 일반 감량. 지속 가능성과 과단백 방지를 우선한다.
+- cut: 더 명확한 감량. 저체지방·훈련 수준·기록 품질 gate가 필요하다.
+- recomp: 체중 변화보다 체성분 개선과 기록 안정성을 우선한다.
+- maintain: 체중 유지와 수행 안정성을 우선한다.
+- lean_bulk: 지방 증가를 제한하며 점진적 증가를 목표로 한다.
+- bulk: 더 적극적 증가지만 체지방 증가와 식단 실행률을 같이 본다.
+
+원칙:
+
+- 목표별 rate는 하나의 고정 기본값만으로 끝내지 않는다.
+- 단, 기록이 부족한 사용자의 targetCal을 자동으로 크게 바꾸지 않는다.
+- 14일은 관찰과 안내 중심이다.
+- 28일은 제안 후보를 만들 수 있는 최소 단위로 본다.
+- production 자동 적용은 별도 gate가 닫히기 전까지 금지한다.
+
+## 6. 다차원 사용자 컨텍스트
+
+후속 산식은 다음 컨텍스트를 함께 묶어야 한다.
+
+### 6-1. 체성분 컨텍스트
+
+필수 또는 강력 권장 입력:
+
+- 키
+- 체중
+- 체지방률
+- 골격근량 또는 제지방량
+- 체지방량
+- InBody 출처: 전문 InBody / 가정용 InBody / 직접 입력 / 없음
+
+파생값:
+
+- BMI
+- FFMI
+- LBM
+- 체지방률 band
+- 체성분 신뢰도
+
+체성분 사용 원칙:
+
+- 체지방률은 명확한 팩트에 가깝지만, 측정 출처 신뢰도는 다르다.
+- 골격근량과 키를 같이 봐야 체격 대비 근육 수준을 더 잘 볼 수 있다.
+- InBody 단일 값만으로 targetCal이나 단백질을 공격적으로 올리지 않는다.
+- 가정용 InBody는 신뢰도 보정이 필요하다.
+
+### 6-2. 운동 프로필 컨텍스트
+
+기본 프로필:
+
+- 기본값은 bodybuilding이 자연스럽다.
+- 앱이 기본적으로 보디빌딩/체성분 기반 영양 코치 성격을 갖고 있기 때문이다.
+- 단, 사용자가 다른 프로필을 고르면 그 프로필이 실제 산식과 설명에 반영되어야 한다.
+
+프로필 후보:
+
+- bodybuilding
+- powerbuilding
+- strength
+- running
+- mixed
+
+후속 검토 후보:
+
+- crossfit/metcon이 mixed에 충분히 포함되는지
+- endurance running과 general running을 나눌 필요가 있는지
+- rehabilitation/recovery 성격을 별도 프로필로 둘 필요가 있는지
+
+### 6-3. 실제 수행능력 컨텍스트
+
+주간 운동일수보다 중요한 입력 후보:
+
+공통:
+
+- 운동 경력
+- 최근 4주 평균 운동 빈도
+- 최근 4주 훈련 지속성
+- 주된 운동 목적
+- 부상/회복 이슈
+
+bodybuilding:
+
+- 주요 운동 8~12RM 또는 working set 기준 중량
+- 주당 부위별 빈도
+- 세트 수 또는 대략적 볼륨
+- 훈련 RPE/RIR 성격
+
+powerbuilding:
+
+- 주요 리프트 1RM 또는 e1RM
+- 보디빌딩식 보조운동 볼륨
+- heavy/volume/accessory 비율
+
+strength:
+
+- squat / bench / deadlift / optional OHP 1RM 또는 e1RM
+- 훈련 목적: maximal strength / volume / technique / deload
+- 최근 고중량 빈도
+
+running:
+
+- 주간 거리
+- 5km 또는 10km 기록
+- easy pace
+- long run 거리 또는 시간
+- tempo/interval 빈도
+
+mixed:
+
+- 저항운동 요소
+- 유산소/메트콘 요소
+- 세션 내 강도
+- 주당 hybrid session 빈도
+
+주의:
+
+- 이 입력을 모두 처음부터 강제로 받으면 사용자가 피곤해진다.
+- 그러나 앱이 전문적인 산식을 주장하려면 최소한 어떤 입력이 없어서 추정 중인지 정직하게 보여줘야 한다.
+
+2026-06-06 수행능력 입력/피로도 결정:
+
+- 수행능력은 매일 입력하는 값이 아니다.
+- `performanceLevel`을 사용자가 직접 고르는 일반/중급/고급 selector로 만들지 않는다.
+- 기본 사용자는 운동 프로필, 루틴/세션, 시간, 강도 보정, 유산소, 체성분, 최근 기록만으로 앱을 쓸 수 있어야 한다.
+- 추가 수행능력 근거는 "한 번 입력해두는 선택 정보" 또는 "기록에서 추론되는 정보"로 둔다.
+- 입력하지 않았다는 이유만으로 초급자, 저신뢰, 낮은 targetCal로 단정하지 않는다.
+- 입력이 없으면 "현재는 프로필/세션/기록 기준으로 추정 중"이라고 설명하고, 산식은 보수적인 기본 경로를 유지한다.
+
+프로필별 선택 입력 후보:
+
+- 보디빌딩: 운동 경력, 주당 분할/세션 일수, 대표 6-12RM 또는 추정 1RM, 최근 볼륨 유지 여부
+- 파워빌딩: 주요 리프트 추정 1RM 또는 training max, 보조 볼륨, 주당 메인 리프트 빈도
+- 파워리프팅: 스쿼트/벤치/데드리프트 추정 1RM 또는 training max, 현재 블록 목적, 디로드 여부
+- 러닝: 5km 또는 10km 기록, easy pace, long run 거리/시간, tempo/interval 빈도
+- 근력+유산소: 주된 축이 근력인지 유산소인지, 저항운동 근거, 유산소 근거
+
+산식 반영 경계:
+
+- 수행능력 근거는 회복 필요, 연료 필요, 설명문, 검토 신호, 향후 target relief 후보에 쓸 수 있다.
+- 수행능력 근거가 운동 kcal 배율이 되거나 targetCal을 단독으로 직접 움직이면 안 된다.
+- 운동 kcal은 계속 루틴 xw, 웨이트 시간, 유산소 종류/시간/속도/경사/MET처럼 측정 가능한 workload 입력이 책임진다.
+- 매크로 배분에 쓰려면 먼저 외부근거 기반 정책표, 목표별 정책, 운동함/운동 안 함 상위 모드 정책과 충돌하지 않는지 시나리오 검증을 거친다. 여기서 기존 가이드/활동량은 사용자 토글이 아니라 각각 운동함/운동 안 함에 흡수된 과거 개념이다.
+
+## 7. 운동 수준 판단 방식
+
+`performanceLevel`은 사용자가 직접 고르는 버튼이 아니다.
+
+파생 컨텍스트다.
+
+입력 신호:
+
+- 주간 운동 빈도
+- 운동 경력
+- 체성분 수준
+- FFMI 또는 키 대비 골격근량
+- 프로필별 수행능력
+- 오늘 세션 종류
+- 최근 기록 지속성
+- 체중/체성분 변화 흐름
+
+출력 예시:
+
+- insufficient_evidence
+- beginner_context
+- recreational_trained
+- intermediate_context
+- advanced_context
+- specialist_context
+
+주의:
+
+- 이 label을 사용자에게 그대로 노출하지 않는다.
+- 사용자에게는 "현재는 보디빌딩 기본 기준으로 계산 중입니다", "러닝 기록이 없어 유산소 부하를 보수적으로 반영합니다"처럼 설명한다.
+- 내부 label은 산식과 감사용이다.
+
+## 8. 프로필별 세션 모델
+
+세션은 이름이 아니라 아래 dimension을 가져야 한다.
+
+- resistanceLoad
+- cardioLoad
+- recoveryNeed
+- fuelNeed
+- targetReliefPressure
+- proteinNeedContext
+- carbFloorContext
+- fatProtectionContext
+- energyAccountingPolicy
+- relativeStrainPolicy
+- restOrTraining
+- confidence
+
+2026-06-04 BJ 보강:
+
+- `energyAccountingPolicy`는 운동 kcal의 책임자를 명확히 나눈다. 운동 kcal은 루틴 xw/웨이트 시간, 유산소 종류/시간/속도/경사/MET처럼 사용자가 실제로 입력하거나 세션이 명확히 제공하는 workload 입력에서 나온다.
+- `relativeStrainPolicy`는 같은 운동이라도 초보자/중급자/고급자에게 느껴지는 부담, 회복 필요, fuel 필요, 코치 설명, 추후 target relief 검토에 쓰는 컨텍스트다.
+- `performanceLevel`이나 운동수준 신호는 운동 kcal 또는 targetCal을 단독으로 직접 곱하거나 움직이면 안 된다. 예를 들어 초보자 60분과 고급자 60분의 체감 부담은 다를 수 있지만, 칼로리 산출 자체는 먼저 측정 가능한 workload가 책임지고, 수준 신호는 회복/연료/설명/검토 신호로만 들어간다.
+- 러닝 프로필은 `weightDuration=0`이어도 휴식이 아니다. 유산소 workload가 에너지 책임자가 된다.
+- 혼합 프로필은 저항운동 workload와 유산소 workload가 모두 있으면 둘 다 보존하고, 이를 하나의 보디빌딩 세션으로 접지 않는다.
+
+예시:
+
+bodybuilding PUSH:
+
+- resistanceLoad: moderate_high
+- cardioLoad: none/supplemental
+- recoveryNeed: moderate
+- fuelNeed: moderate
+- carbFloorContext: moderate
+
+strength heavy lower:
+
+- resistanceLoad: high
+- cardioLoad: none
+- recoveryNeed: high
+- fuelNeed: moderate_high
+- carbFloorContext: moderate
+
+running long:
+
+- resistanceLoad: none
+- cardioLoad: high
+- recoveryNeed: high
+- fuelNeed: high
+- carbFloorContext: high
+
+mixed circuit:
+
+- resistanceLoad: moderate
+- cardioLoad: moderate_high
+- recoveryNeed: moderate_high
+- fuelNeed: high
+- carbFloorContext: moderate_high
+
+REST:
+
+- 공통 휴식 세션이다.
+- 보디빌딩 fallback 토큰으로 오해하지 않는다.
+- 운동시간과 훈련강도는 0으로 처리한다.
+
+## 9. 산식 레이어 순서
+
+후속 산식은 다음 순서로 계산한다.
+
+1. 입력 수집
+2. 체성분 신뢰도 계산
+3. 운동 프로필/세션 컨텍스트 계산
+4. 수행능력/운동 수준 컨텍스트 계산
+5. 최근 기록 품질 계산
+6. 목표별 기본 target range 계산
+7. 안전선 계산
+8. protein anchor 계산
+9. fat protection 계산
+10. carb remainder 계산
+11. profile/session fuel need와 carb floor 충돌 검사
+12. target relief 후보 생성
+13. 기록 기반 14/28일 검토
+14. 사용자 설명문 생성
+15. Records goalSnapshot 저장
+16. Backup/restore roundtrip 확인
+
+금지:
+
+- protein을 남는 kcal를 채우는 filler로 쓰지 않는다.
+- running/mixed라고 무조건 탄수를 크게 올리지 않는다.
+- 최근 흐름이 부족한데 targetCal을 자동 변경하지 않는다.
+- 체성분 값 하나만 보고 전문 운동인처럼 계산하지 않는다.
+- "기본값"이라는 이유만으로 생리학적 타당성을 생략하지 않는다.
+
+## 10. 단백질 정책
+
+현재 일반 diet 기본값은 2.0g/kg이다.
+
+이전 2.4g/kg 정책의 의도:
+
+- 감량 중 근손실을 줄이고 싶었다.
+- 운동인이 단백질을 충분히 먹게 하려는 보수적 의도였다.
+- 체성분 기반 앱의 전문성을 강조하려는 의도가 있었다.
+
+왜 문제가 됐는가:
+
+- 모든 diet 사용자에게 2.4g/kg는 과할 수 있다.
+- 사용자의 체지방률, 훈련 수준, 제지방 신뢰도, 감량 강도, 수행 맥락을 보지 않고 높게 잡았다.
+- 단백질이 높아지면 탄수화물이 과하게 밀려, 운동 수행과 식단 지속성이 떨어질 수 있다.
+- 고단백이 필요한 맥락과 일반 감량 맥락을 구분하지 못했다.
+
+개정 원칙:
+
+- 일반 diet 기본은 2.0g/kg을 유지한다.
+- 더 높은 단백질은 저체지방, 높은 훈련 수준, 강한 감량, 신뢰 가능한 체성분, 충분한 탄수/지방 여유가 있을 때만 후보로 둔다.
+- 단백질은 목표/체성분/훈련 맥락의 결과여야 한다.
+- "칼로리가 남아서 단백질을 올림"은 금지한다.
+
+## 11. 목표 rate 정책
+
+rate는 목표별 범위로 다룬다.
+
+단일 기본값보다 범위가 타당한 이유:
+
+- 사람마다 체지방률, 훈련 수준, 목표, 지속성, 기록 품질이 다르다.
+- 같은 diet라도 초고도비만 사용자와 저체지방 운동인은 적절한 감량 속도가 다르다.
+- 같은 bulk라도 초보자와 고급자는 지방 증가 허용 폭이 다르다.
+
+하지만 범위 적용은 조심해야 한다.
+
+자동 조정 조건:
+
+- 최근 기록 커버리지 충분
+- 체중 흐름 충분
+- 식단 실행률 충분
+- 체성분 신뢰도 충분
+- 설명문 준비
+- 사용자가 바꿀 수 있는 회수/확인 UX 존재
+
+권장 구조:
+
+- 14일: 관찰, 경고, 설명
+- 28일: 제안 후보
+- 사용자가 승인한 뒤 반영
+
+## 12. 사용자 설명 원칙
+
+사용자에게 내부 용어를 보여주지 않는다.
+
+보여주면 안 되는 말:
+
+- candidate-v2
+- profileSession
+- targetReliefRisk
+- selectedMacroBasis
+- formulaAuthority
+- recordConfidence
+- windowFit
+- contextFit
+
+대신 보여줄 말:
+
+- "최근 기록이 부족해서 목표 변경은 제안하지 않습니다."
+- "러닝 기록이 없어 유산소 부하는 보수적으로 반영했습니다."
+- "가정용 InBody 기준이라 체성분 반영을 낮춰 계산했습니다."
+- "이번 28일 흐름에서는 체중 변화가 목표보다 빠릅니다. 다음 주 목표 칼로리 조정을 검토할 수 있습니다."
+- "오늘은 하체 고강도 세션이라 탄수화물 여유를 더 보존했습니다."
+
+Score와 Coach는 역할을 분리한다.
+
+- Score: 왜 점수가 나왔는지 근거를 설명한다.
+- Coach: 다음 행동을 말한다.
+
+## 13. Records / Today / InBody / Settings 책임
+
+Today:
+
+- 오늘 계산 기준
+- 오늘 세션
+- 오늘 운동/유산소
+- 오늘 목표 섭취량
+- 기준 갱신 여부
+
+Records:
+
+- 날짜별 실제 기록
+- 당시 목표와 당시 계산기준
+- 식사, 체중, 메모, InBody 기록 연결
+- 수정 시 Today 기준과 다른 값이 생기면 정직하게 표시
+
+InBody:
+
+- 체성분 원천
+- 측정 기록 목록
+- 변화 그래프
+- 체성분 신뢰도 판단 재료
+
+Settings:
+
+- 기본 운동 프로필
+- 기본 루틴/세션
+- 전문가 조정 기본값
+- 백업/복구
+
+주의:
+
+- 책임이 섞이면 기준갱신이 어색하게 뜨거나, Records 수정만 했는데 Today가 바뀐 것처럼 보일 수 있다.
+- 기준갱신 감사는 별도 작업으로 유지한다.
+
+## 14. 검증 전략
+
+전체 Cartesian을 무작정 돌리는 것은 현실적으로 어렵다.
+
+대신 다음을 반드시 구분한다.
+
+### 14-1. 필수 수동 대표 사용자
+
+최소 사용자 유형:
+
+- 근육 적고 마른 사용자
+- 근육 적고 뚱뚱한 사용자
+- 일반 체형 사용자
+- 비만 사용자
+- 초고도비만 사용자
+- 마른데 근육 많은 사용자
+- 근육 많고 체지방도 높은 사용자
+- 저체지방 보디빌더
+- 초보 운동자
+- 오래 운동했지만 주간 빈도 낮은 사용자
+- 러닝 중심 사용자
+- 파워리프팅 중심 사용자
+- mixed 고강도 사용자
+- 기록이 부족한 사용자
+- 기록이 충분한 사용자
+- InBody 없음
+- 가정용 InBody
+- 전문 InBody
+
+각 유형에서 목표:
+
+- diet
+- cut
+- recomp
+- maintain
+- lean_bulk
+- bulk
+
+각 목표에서 상태:
+
+- 기록 없음
+- 14일 기록 부족
+- 14일 기록 충분
+- 28일 목표보다 빠른 변화
+- 28일 목표보다 느린 변화
+- 체중 정체
+- 식단 실행률 낮음
+- 식단 실행률 높음
+
+### 14-2. 자동 검증
+
+자동 검증은 다음을 본다.
+
+- 목표 kcal가 안전선을 깨지 않는가
+- 단백질이 과도하게 올라가지 않는가
+- 지방이 지나치게 낮아지지 않는가
+- 러닝/고강도 세션에서 탄수가 지나치게 낮아지지 않는가
+- 기록이 부족한데 자동으로 targetCal을 바꾸지 않는가
+- Records snapshot과 Today 기준이 의도 없이 섞이지 않는가
+- Backup/restore 후 같은 결과가 나오는가
+
+### 14-3. 렌더 검증
+
+코드와 테스트만으로 끝내지 않는다.
+
+확인해야 하는 화면:
+
+- Today 기본/펼침/기준갱신
+- Records 기록 있음/없음/수정/날짜선택/상세
+- Recent Flow 3/7/14/28
+- InBody 요약/상세/변화/기록선택
+- Settings 기본/전문가/백업/복구
+- 모바일 주요 화면
+
+## 15. 작업 중 새 문제가 생겼을 때
+
+새 문제가 생기면 아래처럼 분류한다.
+
+- P0: 현재 산식 결과가 명백히 위험하거나 완전히 틀림
+- P1: 사용자가 잘못 이해할 가능성이 높음
+- P2: UI/설명/흐름이 어색하지만 계산 자체는 유지 가능
+- P3: 후속 개선 후보
+
+처리 규칙:
+
+- P0/P1은 문서 계획보다 우선할 수 있다.
+- P2는 현재 단계와 충돌하면 기록하고 단계 종료 후 처리한다.
+- P3는 후속 후보로 둔다.
+
+중요:
+
+- 새 문제를 봤는데 문서에 없다는 이유로 무시하지 않는다.
+- 반대로 새 생각이 떠올랐다고 현재 작업을 무작정 갈아엎지 않는다.
+- 현재 변경이 다른 탭, 기록, 백업, 코치 문구에 어떤 영향을 주는지 먼저 본다.
+
+## 16. 실제 작업 운영 루프
+
+이 섹션의 목적은 코덱스가 기준문서를 정답처럼 기계적으로 따라가는 것을 막고, 사람이 작업할 때처럼 관찰, 판단, 수정, 재검증을 반복하게 만드는 것이다.
+
+따라서 이 루프는 유연성을 제한하는 규칙이 아니라, 코덱스가 스스로 멈춰서 다시 판단하도록 만드는 안전장치다. 사람은 작업 중 새 문제를 보면 자연스럽게 계획을 고치지만, 코덱스는 그 중단점과 재판단 조건을 명시해야 같은 방식으로 움직일 가능성이 높아진다.
+
+각 단계는 아래 루프를 따른다.
+
+### 16-1. 단계 시작 전
+
+작업을 시작하기 전에 다음을 짧게 확인하고, 실제 앱 상태와 맞지 않으면 그 자리에서 재판단한다.
+
+- 이번 단계의 목적
+- 이번 단계가 production 변경인지, report-only 비교 레이어인지, 문서/감사 작업인지
+- 이번 단계에서 건드릴 수 있는 파일과 건드리면 안 되는 파일
+- 예상되는 숫자 변화
+- 예상되는 UI/문구 변화
+- Records, Today, Coach, Score, Backup 중 영향을 받을 수 있는 영역
+- 이번 단계에서 발견될 수 있는 위험
+
+이 단계에서 "문서에 있으니까 구현한다"는 식으로 시작하지 않는다.
+
+먼저 현재 앱이 실제로 어떻게 동작하는지 확인한다.
+
+### 16-2. 관찰 먼저, 구현은 그 다음
+
+구현 전에 확인한다.
+
+- 현재 `index.html`의 실제 production 경로
+- 현재 렌더 화면
+- 현재 테스트가 무엇을 보장하고 무엇을 보장하지 않는지
+- 현재 사용자가 실제로 보는 문구
+- 현재 Records snapshot과 기준갱신 signature
+
+문서와 코드가 다르면 코드가 무조건 옳다는 뜻도 아니고, 문서가 무조건 옳다는 뜻도 아니다.
+
+둘 중 어느 쪽이 사용자에게 더 자연스럽고 생리학적으로 방어 가능한지 판단한다.
+
+### 16-3. 작게 붙이고 비교한다
+
+V8 수준별 산식은 한 번에 production으로 갈아엎지 않는다.
+
+권장 진행:
+
+1. report-only context를 만든다.
+2. 기존 production 결과와 새 후보 결과를 나란히 비교한다.
+3. 대표 사용자와 경계 사용자에서 차이를 본다.
+4. 차이가 생긴 이유를 설명할 수 있는지 확인한다.
+5. 설명할 수 없는 차이는 production에 반영하지 않는다.
+
+특히 `performanceContext`, `profileEvidence`, `sessionModel`, `targetReliefCandidate`는 먼저 report-only로 붙인다. 단, 이미 report-only로 존재하는 브리지는 재구현하지 않고 상태 확인/보강 대상으로 읽는다.
+
+### 16-4. 예상 변화와 실제 변화 비교
+
+구현 후에는 반드시 다음 질문에 답한다.
+
+- 예상한 kcal 변화와 실제 kcal 변화가 같은가?
+- 단백질·지방·탄수 변화가 예상 범위 안인가?
+- targetCal은 변하지 않아야 하는 상황에서 변하지 않았는가?
+- Records만 수정했는데 Today 기준갱신이 뜨는 등 책임 혼선이 없는가?
+- 0으로 보정하면 안 되는 값을 0으로 보정하지 않았는가?
+- 가정용 InBody 보정, 전문가 LBM 반영률, 운동세션 기본값이 서로 중복 보정되지 않았는가?
+- 운동일수 하나만으로 사용자 수준이 결정되지 않았는가?
+
+이 답을 못 하면 다음 작업으로 넘어가지 않는다.
+
+### 16-5. 새 발견을 처리하는 방식
+
+작업 중 새 문제가 나오면 아래 중 하나로 분류한다.
+
+- 즉시 수정: 현재 작업의 정확성을 깨는 문제
+- 같은 커밋에 포함: 현재 변경의 자연스러운 일부
+- 별도 커밋으로 분리: 같은 영역이지만 다른 책임의 문제
+- 후속 후보: 지금 처리하면 범위가 커지는 문제
+- 문서 수정: 기존 기준이 틀렸거나 부족한 문제
+
+분류 기준:
+
+- 사용자가 지금 직접 겪는 오류인가?
+- 산식 결과를 틀리게 만드는가?
+- 사용자가 잘못 이해하게 만드는가?
+- 다른 탭이나 백업에 파급되는가?
+- 지금 고치면 현재 단계 검증이 흐려지는가?
+
+새 문제를 발견했는데 그냥 넘어가면 안 된다.
+
+지금 고치지 않는다면 왜 미루는지 남긴다.
+
+### 16-6. 문서와 다르게 가는 조건
+
+아래 경우에는 문서와 다르게 가도 된다.
+
+- 실제 렌더가 문서의 흐름보다 더 나은 방향을 보여줄 때
+- 사용자 입력 체감이 문서 설계보다 무겁거나 불편할 때
+- 운동 프로필 사용자에게 문서의 세션명이 부정확해 보일 때
+- 산식이 문서대로면 특정 사용자군에서 단백질, 지방, 탄수, kcal이 어색해질 때
+- 기록/백업/기준갱신 책임이 문서보다 더 명확한 구조를 요구할 때
+
+단, 이탈할 때는 다음을 남긴다.
+
+- 기존 문서 기준
+- 실제 발견
+- 왜 문서보다 새 판단이 더 나은지
+- 영향을 받는 코드/화면/테스트
+- 후속 위험
+
+### 16-7. 커밋 단위
+
+커밋은 의미 단위로 나눈다.
+
+섞으면 안 되는 것:
+
+- 문서 정리와 production 산식 변경
+- report-only candidate와 production 적용
+- UI 정리와 산식 변경
+- 테스트 기대값 변경과 실제 계산 로직 변경
+- 백업/스냅샷 변경과 단순 문구 변경
+
+권장 커밋 단위:
+
+- 문서/기준 정리
+- 현재 코드 경로 감사
+- report-only context 추가
+- candidate 비교 추가
+- production 반영
+- 렌더/문구 반영
+- 테스트/회귀 보강
+
+### 16-8. 단계 종료 조건
+
+한 단계를 끝냈다고 말하려면 아래가 확인되어야 한다.
+
+- git status가 확인됐다.
+- 변경된 파일 범위가 설명 가능하다.
+- 예상 변화와 실제 변화가 비교됐다.
+- 테스트를 돌렸거나, 왜 돌리지 않았는지 설명할 수 있다.
+- 필요한 경우 렌더를 봤다.
+- 새로 생긴 위험과 미룬 작업이 기록됐다.
+- production 변경인지 report-only 변경인지 분명히 말했다.
+
+이 조건이 없으면 "완료"라고 말하지 않는다.
+
+### 16-9. 다음 코덱스를 위한 보고 형식
+
+다른 컴퓨터나 다른 코덱스가 이어받을 수 있게 마지막 보고에는 아래를 포함한다.
+
+- 이번 단계에서 한 것
+- 건드린 파일
+- production 변경 여부
+- report-only 변경 여부
+- 예상한 변화
+- 실제 확인한 변화
+- 예상하지 못한 변화
+- 테스트 결과
+- 렌더 확인 결과
+- 남은 위험
+- 다음 우선순위
+- 문서와 다르게 판단한 부분
+
+이 보고는 길어도 된다.
+
+짧게 요약하다가 의도가 빠지는 것보다, 다음 작업자가 오해하지 않게 남기는 것이 우선이다.
+
+## 17. 기존 1~8 문서와의 매핑
+
+| 기존 문서 | 현재 통합문서에서 흡수한 위치 | 현재 상태 |
+| --- | --- | --- |
+| 설계1 현상태 진실지도 | 2, 3, 4 | historical/report-only |
+| 설계2 사용자 입력 소유권 | 13 | historical/report-only |
+| 설계3 운동 프로필별 훈련 모델 | 6, 8 | 보강 필요 |
+| 설계4 수준별 컨텍스트 | 6, 7 | 보강 필요 |
+| 설계5 산출식 원칙 | 9, 10, 11 | 보강 필요 |
+| 설계6 사용자 설명 흐름 | 12 | 유지하되 문구 구현 필요 |
+| 설계7 시나리오 검증 | 14 | 확장 필요 |
+| 설계8 최종설계감사 | 0, 3, 15, 16 | 완료 선언 금지 근거 |
+
+기존 1~8 문서, `v8_수준별산식_초정밀설계_2026-06-04.txt`, `v8_운동프로필_산식_정밀설계.txt` 원문은 2026-06-16 문서 정리에서 삭제했다.
+
+이유:
+
+- 중간 판단의 근거보다, 과거 report-only 결과가 현재 기준처럼 읽히는 위험이 더 컸다.
+- 살릴 교훈은 이 통합문서, `docs/references/product/legacy_product_working_criteria_2026-06-16.txt`, `docs/references/product/legacy_user_intent_ledger_2026-06-16.txt`, `docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt`에 흡수한다.
+- 원문이 꼭 필요하면 Git 이력에서 복구한다.
+
+## 18. 다음 구현 순서
+
+권장 순서:
+
+1. 현재 production 산식과 profile/session 입력 경로를 다시 감사한다.
+2. 프로필별 evidence schema를 정의한다.
+3. 프로필별 세션 model dimension을 코드와 문서에 명확히 반영한다.
+4. `getTargetRateTrainingBand()` 같은 weekly-days-only 판단을 대체할 `performanceContext`가 report-only로 붙어 있는지 확인하고, 없을 때만 만든다. 2026-06-04 현재는 `v8.0-BI_user_level_production_context_bridge_v0`로 존재한다.
+5. 기존 산식과 새 candidate를 비교한다.
+6. 단백질·지방·탄수·target relief 충돌을 검증한다.
+7. Records snapshot / Coach / Score / Backup 영향 범위를 붙인다.
+8. 대표 사용자 수동 케이스를 렌더와 함께 본다.
+9. 자동 테스트를 늘린다.
+10. 사용자가 승인한 범위만 production에 적용한다.
+
+금지 순서:
+
+- 프로필 세션 이름만 추가하고 산식이 완성됐다고 말하기
+- 주간 운동일수만 더 정교하게 나눠서 수준별 산식이라고 말하기
+- test runner 수치를 늘린 뒤 full V8 완료라고 말하기
+- 기준문서 문구만 맞추고 실제 화면을 보지 않기
+
+### 18-1. 7단계 실행 블록
+
+기본 작업 방식은 `/GOAL` 자동 진행이 아니라 아래 7단계를 수동으로 끊어 진행하는 것이다. `/GOAL`은 사용자가 명시적으로 원할 때만 이 7단계 중 한 단계 단위로 사용한다. V8 전체 완료를 한 번에 맡기지 않는다.
+
+단일 단계 실행 프로토콜:
+
+사용자가 "한 단계만 진행하고, 충돌이 나오면 멈춰서 재판단하라"는 의도를 보이면 특정 문장을 외워서 반응하지 말고 아래 설계를 적용한다.
+
+1. 다음 미완료 단계 선택
+   - 아래 7단계 진행 상태, `docs/README.md`의 최신 경계, 현재 git status, 실제 `index.html` 상태를 함께 본다.
+   - 문서상 다음 단계와 실제 코드 상태가 다르면 구현을 시작하지 않는다.
+   - 그 차이가 단순히 "다음 단계가 남아 있음"인지, 실제 충돌인지 먼저 판단한다.
+
+2. 단계 시작 전 확인
+   - 이번 단계의 목적을 한 문장으로 확인한다.
+   - 이번 단계가 production 변경인지, report-only 보강인지, 문서/감사 작업인지 분류한다.
+   - 건드릴 수 있는 파일과 건드리면 안 되는 파일을 정한다.
+   - 예상 숫자 변화, 예상 UI/문구 변화, 검증 방법을 적는다.
+   - 이 시작 확인이 없으면 구현을 시작하지 않는다.
+
+3. 진행 중 충돌 판정
+   - 충돌은 문서, 실제 코드, 실제 렌더, 테스트, 사용자 최신 의도가 서로 다르게 말할 때다.
+   - "이미 구현되어 있음"은 중복 구현 위험일 수 있지만, 의도대로 충분히 구현됐다는 뜻은 아니다.
+   - 충돌을 발견하면 `문서 수정`, `코드 수정`, `설계 재판단`, `사용자 승인 필요` 중 하나로 분류한다.
+   - 분류가 끝나기 전에는 다음 단계로 넘어가지 않는다.
+
+4. 단계 종료
+   - 종료 전에는 예상 변화와 실제 변화, 테스트/렌더 확인 범위, 남은 위험, production 변경 여부를 확인한다.
+   - 단계가 닫혀도 다음 단계 구현을 자동으로 시작하지 않는다.
+   - 다음 단계는 사용자의 다음 지시가 있을 때 새 단계로 다시 고정하고 시작한다.
+
+5. git 판단
+   - git stage/commit/push/tag는 작업 경계, 테스트 결과, 다른 컴퓨터 인수인계 필요성을 보고 Codex가 판단한다.
+   - 사용자가 git 판단을 맡겼다면 매 단계마다 승인 질문을 반복하지 않는다.
+   - 단, 단계 경계가 불명확하거나 충돌 분류가 끝나지 않았으면 commit/tag로 완료처럼 포장하지 않는다.
+
+이 프로토콜은 명령 문장 추가가 아니라 실행 설계다. 산식/프로필 production 변경과 섞지 말고, 각 단계의 시작·중단·종료 판단을 안정화하기 위해 사용한다.
+
+각 단계가 끝날 때마다 실제 앱/코드/렌더/테스트/문서를 다시 대조한다.
+
+2026-06-04 수동 진행 상태:
+
+- 1단계 현재 산식/프로필 입력 경로 재감사는 완료됐다.
+- 2단계 `performanceContext` report-only 브리지는 현재 `index.html`의 `v8.0-BI_user_level_production_context_bridge_v0`로 이미 존재한다.
+- 따라서 2단계는 새 구현이 아니라 의도 적합성 감사/필요 보강으로 진행한다. `performanceContext`, `profileEvidence`, `bodyCompositionContext`, `riskFlags`, 테스트 기대값, 사용자 설명 가능성이 원래 의도에 맞는지 확인하기 전에는 3단계로 넘어가지 않는다.
+- 2026-06-04 보강: 2단계 브리지에 `levelConflictSignals`를 추가했다. 현재 production `trainingBand`가 주간 웨이트일수에 크게 의존하는 상태에서 `좋은 체성분 + 낮은 주간 빈도`, `낮은 체성분 + 높은 주간 빈도`가 생기면 `productionBandEvidenceConflict`, `goodBodyCompositionLowFrequencyReview`, `lowBodyCompositionHighFrequencyReview`를 report-only로 남긴다. 이것은 production 산식 변경이 아니라 다음 단계 판단을 안전하게 하기 위한 설명/감사 증거다.
+- "다음 단계가 남아 있음" 자체는 충돌이 아니다. 충돌은 문서가 미구현처럼 말하는데 코드에 이미 구현되어 있거나, 문서가 완료처럼 말하는데 실제 앱/테스트/렌더가 그렇지 않을 때 선언한다.
+
+1. 현재 산식/프로필 입력 경로 재감사
+   - production `calculateMacroTargets()`, `buildGoalTargetRateContext()`, `getTargetRateTrainingBand()`가 현재 사용자 입력을 어떻게 읽는지 확인한다.
+   - Settings/Today/Records/Backup의 `exerciseProfile`, `routinePlan`, `routine`, `goalSnapshot`, 기준갱신 signature가 같은 책임 체계를 유지하는지 본다.
+   - 아무 값도 바꾸지 않았는데 기준갱신이 뜨는 경우, 값을 바꿨다가 원상복구했는데 갱신이 남는 경우를 실제 렌더로 확인한다.
+
+2. `performanceContext` report-only 상태 확인/보강
+   - 주간 웨이트일수만으로 beginner/intermediate/advanced를 추정하는 구조를 그대로 믿지 않는다.
+   - 운동 프로필, 세션, 주간 빈도, 운동 시간, 강도 보정, 유산소, 체성분 신뢰도, FFMI/LBM/골격근량 단서를 묶어 report-only 수준 판단 근거를 만든다.
+   - 현재 브리지는 이미 존재하므로 재구현하지 않는다. 대신 `performanceContext`, `profileEvidence`, `bodyCompositionContext`, `riskFlags`가 실제 사용자 설명에 충분한지 감사하고, 부족한 근거만 보강한다.
+   - 감사는 "필드가 있다"에서 멈추지 않는다. 사용자가 요구한 다차원 운동 수준 판단 의도, 즉 운동 프로필/세션/빈도/시간/강도/유산소/체성분/FFMI/LBM/골격근량 단서가 주간 웨이트일수 단독 판단을 실제로 대체할 만큼 잘 묶였는지 본다.
+   - 이 단계는 production 산식을 바꾸지 않는다. 숫자 산출보다 "왜 이런 수준 판단을 했는지"를 추적 가능하게 만드는 것이 목적이다.
+
+3. 프로필별 세션/루틴 정밀화
+   - 보디빌딩 기본값을 유지하되, 파워빌딩/파워리프팅(내부 key `strength`)/러닝/혼합 프로필이 보디빌딩 세션을 억지로 재사용하지 않게 한다.
+   - 각 프로필의 세션 이름, 기본 강도, 휴식/운동일 처리, 유산소 재사용 가능 범위를 실제 사용자 관점에서 검토한다.
+   - 세션이 "생겼다"와 해당 운동을 오래 한 사람이 "믿고 시작할 수 있다"를 구분한다.
+   - 2026-06-04 BJ 보강: `profileTrainingModelDesign`에 `energyAccountingPolicy`와 `relativeStrainPolicy`를 추가해 운동 kcal 책임과 운동수준/체감부담 컨텍스트를 분리했다. 이것은 production 산식 변경이 아니라 report-only 경계 보강이다. 다음 단계에서는 이 경계가 candidate 산식 비교에서 실제로 지켜지는지 본다.
+
+4. candidate 산식 비교와 충돌 감사
+   - 기존 production, 기존 candidate, 새 candidate를 같은 입력으로 나란히 비교한다.
+   - 단백질 과다, 지방 하한, 탄수 floor, target relief, 감량/린매스업/벌크업/유지 rate가 서로 충돌하는지 본다.
+   - 기존 산식이 왜 그렇게 만들어졌는지, 왜 유지/개정/폐기해야 하는지 근거를 남긴다.
+
+5. Records / Coach / Score / Backup 연결
+   - 산식 후보가 Today 숫자만 바꾸고 Records snapshot, Coach 문구, 식단 점수, 기준갱신, 백업/복원과 어긋나면 실패로 본다.
+   - user-facing 문구에는 내부 label(`candidate-v8`, `profileSession`, `formulaAuthority` 등)을 노출하지 않는다.
+   - 기록 불러오기/수정/복원 후에도 같은 입력은 같은 판단으로 돌아와야 한다.
+
+6. 렌더/시나리오/테스트 검증
+   - 대표 사용자 수동 케이스, pairwise/targeted stress, 필요한 자동 테스트를 분리해서 본다.
+   - full Cartesian을 실행하지 않았다면 full Cartesian을 실행했다고 말하지 않는다.
+   - 렌더 감사는 화면 안정화 후 실제 뷰포트로 확인하며, 모바일/웹에서 정보가 숨겨져서 기능이 사라진 것처럼 보이지 않는지 확인한다.
+
+7. 프로필/세션 숫자 시나리오 검증
+   - report-only 결과가 좋아도 곧바로 production으로 넣지 않는다.
+   - 프로필별 세션/루틴 기본 시간, 기본 강도, xw, 휴식/디로드 의미를 실제 숫자 시나리오로 검증한다.
+   - Today targetCal, Records snapshot, Coach/Score, 기준갱신, 운동함/운동 안 함 모드별 화면/산식/문구 차이를 함께 본다. Today의 가이드/활동량 직접 토글 차이는 검증 대상이 아니다.
+   - 이 검증을 통과한 뒤에만 별도 owner-scoped production 적용 결정을 잡는다.
+
+각 단계 공통 중단 조건:
+
+- 문서와 실제 앱 동작이 충돌한다.
+- 더 좋은 사용자 흐름이 보이는데 문서가 막고 있다.
+- report-only 결과를 production 완료처럼 말하고 싶어지는 지점이 생긴다.
+- 테스트 수치만 통과했는데 실제 사용자 설명이 납득되지 않는다.
+- 프로필/세션/수준 판단이 실제 운동 사용자에게 부끄러운 수준으로 단순화된다.
+
+이 중 하나라도 발견하면 다음 단계로 넘어가지 말고, "문서 수정", "코드 수정", "설계 재판단", "사용자 승인 필요" 중 어디에 해당하는지 먼저 분류한다.
+
+`/GOAL` 사용 기준:
+
+- 일반적인 현재 작업은 `/GOAL` 없이 이 7단계를 순서대로 진행한다.
+- `/GOAL`은 장시간 자동 진행이 필요하거나, 다른 컴퓨터/다른 코덱스에게 특정 한 단계를 명확히 넘길 때만 쓴다.
+- `/GOAL`을 쓰더라도 목표는 "7단계 전체"가 아니라 "1단계 현재 산식/프로필 입력 경로 재감사"처럼 한 단계로 제한한다.
+- `/GOAL` 중에도 공통 중단 조건이 발견되면 완료를 향해 계속 달리지 말고 중단/재판단한다.
+
+2026-06-06 단계 조정 메모:
+
+- 삭제된 단계는 없다.
+- 현재 단계의 이름을 "수행능력 입력 단계 설계"에서 "수행능력 입력 피로도/산식 경계 + 운동 프로필 표시명 정리"로 넓힌다.
+- 이유: 수행능력 입력은 프로필 신뢰도와 분리할 수 없다. 사용자가 처음 보는 운동 프로필명이 부정확하면 추가 수행능력 입력을 아무리 정교하게 설계해도 앱 신뢰가 먼저 무너진다.
+- 이번 단계에서 사용자 표시명 `스트렝스`는 `파워리프팅`으로 정리한다. 내부 key `strength`는 유지한다.
+- 다음 단계는 "프로필별 세션 정확도"를 "프로필별 세션/루틴 용어, 기본 시간, 기본 강도, 휴식/디로드 의미 검증"으로 확장한다.
+- 이유: 세션 이름만 바꾸는 것으로는 충분하지 않다. 각 프로필의 세션이 실제 운동인이 납득할 수 있는 강도/시간/회복/연료 컨텍스트를 가져야 한다.
+
+2026-06-06 프로필별 세션/루틴 감사 완료 메모:
+
+- 삭제된 단계는 없다.
+- 사용자-facing 세션/루틴 이름과 설명만 정리했다.
+- production 산식, 기본 시간, 기본 강도 xw는 변경하지 않았다.
+- 이유: 이번 감사에서 확정된 문제는 숫자보다 먼저 "사용자가 보는 운동 선택지의 의미 흐림"이었다. 숫자 변경은 다음 시나리오 검증에서 실제 계산 변화와 함께 판단해야 한다.
+- 다음 단계는 입력 피로도와 프로필별 정확도 사이의 균형을 보면서, 수행능력 입력/추론 범위와 실제 산식 반영 여부를 다시 검토하는 것이다.
+
+2026-06-06 BO 수행능력 입력 피로도 / 산식 반영 범위 감사 메모:
+
+- 삭제된 단계는 없다.
+- 추가된 단계는 `v8.0-BO performance input fatigue/formula scope audit`이다.
+- 수정된 단계는 BM 이후 경로다. 바로 production 적용 판단으로 가지 않고 `profile_session_numeric_scenario_validation_before_formula_application`을 먼저 수행한다.
+- 이유: 수행능력을 잘못 반영하면 사용자가 매일 입력해야 하는 부담, 독립 운동수준 선택기, 운동 kcal 배율, targetCal shortcut가 생길 수 있다.
+- BO는 report-only 감사이며 production targetCal, macro allocation, Records schema, Coach copy, UI, 기본 운동시간, 기본 xw를 바꾸지 않는다.
+- 수행능력은 매일 묻지 않는다. 사용자가 원할 때 한 번 입력하는 선택 근거 또는 기록에서 추론되는 보조 근거로 둔다.
+- 새 필수 입력은 0개다. 수행근거가 없다는 이유로 초급자, 낮은 신뢰도, 낮은 targetCal로 벌점 처리하지 않는다.
+- `performanceLevel`과 relative strain은 운동 kcal 배율 또는 targetCal 직접 이동 근거가 아니다. 운동 kcal은 루틴 xw/웨이트 시간과 유산소 종류/시간/속도/경사/MET처럼 측정 가능한 workload 입력이 책임진다.
+- 수행능력은 회복 필요, fuel 필요, Coach 설명, 시나리오 감사, 추후 target relief 검토 신호로만 쓴다.
+- 2026-06-16 최신 기준에서는 두 기준을 사용자 선택 토글로 병렬 유지한다는 표현을 폐기한다. 기존 가이드 기준의 운동생리학 성격은 운동함 모드로 흡수하고, 기존 활동량 기준의 일반 식단/체중 관리 성격은 운동 안 함 모드로 흡수한다. Today에서 두 기준을 사용자가 직접 고르는 mini toggle은 유지하지 않는다.
+- 다음 작업자는 프로필별 세션/루틴 기본 시간, 기본 강도, xw, 휴식/디로드 의미를 실제 숫자 시나리오로 검증해야 한다. 프로필/세션 용어 정리와 숫자 승인 여부를 같은 완료로 취급하지 않는다.
+
+2026-06-06 BP 프로필/세션 숫자 시나리오 검증 메모:
+
+- 삭제된 단계는 없다.
+- 추가된 단계는 `v8.0-BP profile/session numeric scenario validation`이다.
+- 수정된 단계는 BO의 다음 경로다. `profile_session_numeric_scenario_validation_before_formula_application`은 이번 BP로 닫고, 다음은 `guide_activity_basis_role_split_audit_before_formula_application`으로 이동한다.
+- 이유: 프로필/세션 이름과 소유권이 맞아도 기본 xw, 기본 웨이트 시간, 유산소 기본값이 잘못되면 실제 targetCal과 운동 부하 경험이 틀어진다. 반대로 숫자만 맞아도 운동함/운동 안 함 상위 모드와 내부 기준 흡수 관계가 섞이면 사용자는 왜 값이 달라지는지 이해하지 못한다.
+- BP는 report-only 검증이며 production targetCal, macro allocation, Records schema, Coach copy, UI, 기본 운동시간, 기본 xw, 유산소 기본값을 바꾸지 않는다.
+- 검증 대상은 bodybuilding legacy routine scheme, powerbuilding, powerlifting, running, mixed의 모든 routine/session item이다.
+- 통과 기준은 모든 프로필 커버, 모든 프로필 REST 경로, session ownership, REST 0/xw 0/유산소 0, 러닝의 유산소 소유권, 저항운동 프로필의 양수 xw/시간, mixed의 저항 또는 유산소 부하, xw/시간/유산소 수치 범위, 디로드/기술 세션 과부하 방지, heavy/lower/legs 상한 방지다.
+- BP 통과는 "현재 숫자 기본값의 구조적 모순이 없다"는 뜻이다. "수준별 산식 production 적용 가능" 또는 "가이드 기준/활동량 기준 양립 승인"이 아니다.
+- 다음 작업자는 기존 가이드/활동량 개념이 운동 여부 상위 모드 아래로 제대로 흡수됐는지 별도 감사해야 한다. 이 감사를 생략하고 산식 적용으로 넘어가면 사용자가 Today에서 예전 기준 토글을 다시 만나거나, 운동 안 함 모드에서 운동 기준 해석을 보는 상태가 된다.
+
+## 19. 다음 작업자의 시작 체크리스트
+
+작업 시작 전 반드시 확인:
+
+- 현재 git branch와 status
+- `index.html` version/stage comment
+- `GOALS`
+- `GOAL_RATE_POLICIES`
+- `getTargetRateTrainingBand()`
+- `buildGoalTargetRateContext()`
+- `calculateMacroTargets()`
+- `PROFILE_SESSION_OPTIONS`
+- `PROFILE_ROUTINE_PLANS`
+- `resolveTrainingEvidence()`
+- `resolveBodyCompositionReliability()`
+- Records `goalSnapshot`
+- 기준갱신 snapshot signature
+- 현재 앱 렌더
+
+질문:
+
+- 이 기능은 그냥 생긴 것인가, 믿을 만하게 작동하는가?
+- 사용자가 이 설명을 보고 왜 이 값이 나왔는지 이해하는가?
+- 같은 입력을 Records/Today/Backup에서 다시 불러도 같은 판단인가?
+- 프로필별 실제 사용자에게 부끄럽지 않은 세션 구조인가?
+- 문서를 따르느라 더 좋은 판단을 놓치고 있지 않은가?
+
+## 20. 현재 결론
+
+V8 수준별 산식은 아직 production 완료가 아니다.
+
+현재 필요한 일은 기준문서를 더 많이 만드는 것이 아니라, 기준문서를 줄이고 더 좋은 판단이 가능한 구조로 만드는 것이다.
+
+이 통합문서는 그 출발점이다.
+
+후속 코덱스는 이 문서를 따라야 하지만, 동시에 이 문서를 의심해야 한다.
+
+앱이 더 좋은 방향을 보여주면 앱과 사용자 경험을 우선한다.
+
+## 21. 2026-06-04 BK report-only 보강 메모
+
+BK는 production 산식 변경이 아니다.
+
+이번 보강은 BJ에서 정의한 `energyAccountingPolicy` / `relativeStrainPolicy` 경계를 BD, BE, BA, BH, whole-stage audit, completion declaration gate까지 전달하는 작업이다.
+
+핵심 원칙:
+
+- 운동 kcal은 루틴 xw, 웨이트 시간, 유산소 종류/시간/속도/경사/MET처럼 측정 가능한 workload 입력이 책임진다.
+- 운동수준, performanceLevel, relative strain은 회복 필요, fuel 필요, 설명, 검토 신호로 쓸 수 있다.
+- 운동수준이나 체감부담이 운동 kcal 배율이 되거나 targetCal을 단독으로 움직이면 안 된다.
+- 후보 산식 비교에서는 `energyStrainBoundaryPreservedCount`, `performanceLevelKcalMultiplierAllowedCount`, `relativeStrainDirectTargetMoveAllowedCount`를 보고 경계 이탈을 먼저 확인한다.
+- 이 단계는 후보/충돌 감사 계약 보강일 뿐이며 targetCal, macro allocation, Records schema, Coach copy, UI를 바꾸지 않는다.
+- 2026-06-04 검증: `runV8ScenarioRunnerTests` 1 suite / 39 cases / failed 0, `runV8ScenarioRunnerTests,runTodayCalculationOwnershipTests,runTodayQuickEditTests` 3 suites / 97 cases / failed 0.
+
+다음 작업자는 후보 산식 비교나 production implementation planning을 시작하기 전에 이 경계가 여전히 통과되는지 확인해야 한다.
+
+## 22. 2026-06-05 BL 본단계5 Records / Coach / Score / Backup 연결 계약 메모
+
+BL은 본단계 5의 report-only 연결 계약이다. production 산식 변경, user-facing 문구 변경, 식단 점수 로직 변경, Coach 런타임 변경, Records schema 변경, Backup schema 변경이 아니다.
+
+본단계 5의 완료 조건은 "후보 산식이 실제로 적용되었다"가 아니라 "BA 후보가 Records / Score / Coach / Backup에 연결될 때 어긋나지 않도록 필요한 계약이 닫혔다"이다.
+
+닫힌 계약:
+
+- `candidate_boundary`: BA 후보는 report-only이며 자동 production 적용이 금지된다.
+- `records_snapshot_signature`: Records는 저장 당시의 후보 stage/model/context basis를 snapshot/signature로 보존해야 한다.
+- `records_detail_basis_preview`: Records 상세는 오늘 draft가 아니라 저장 snapshot 기준을 보여줘야 한다.
+- `score_evidence_surface`: 식단 점수는 근거와 threshold를 설명하되 Coach 행동 문구와 섞이지 않아야 한다.
+- `coach_action_surface`: Coach는 raw 내부 필드가 아니라 사용자가 할 행동으로 번역해야 한다.
+- `backup_import_roundtrip`: 백업/복원은 저장 기록의 후보 context를 왕복시켜야 하며 transient Today draft를 formula truth로 삼지 않는다.
+- `recent_context_guard`: 최근 흐름/target relief 신호는 설명과 검토 gate이며 자동 target 변경이 아니다.
+- `internal_label_block`: user-facing 문구에는 `candidate-v8`, `profileSession`, `selectedMacroBasis`, `recentContext` 같은 내부 label이 노출되면 안 된다.
+
+`runV8ScenarioRunner()`에는 `levelAwareMacroCandidateContract`가 추가되었다. 이 report의 정상 기준은 `contractCount=8`, `closedContractCount=8`, `findingCount=0`, `missingContractCount=0`이다.
+
+completion declaration gate와 whole-stage audit도 BL 근거를 보게 되었다. whole-stage evidence boundary audit check count는 27에서 28로 올라간다.
+
+BL 통과가 의미하지 않는 것:
+
+- 수준별 산식 production 구현 완료가 아니다.
+- full V8 completion이 아니다.
+- full Cartesian 실행이 아니다.
+- Records/Score/Coach/Backup 화면 문구가 실제로 바뀐 것이 아니다.
+- 렌더/시나리오/테스트 검증 완료가 아니다.
+
+다음 단계는 본단계 6 `렌더/시나리오/테스트 검증`이다. 본단계 6에서는 BL 계약이 실제 화면 안정화, Records 상세, Today/Records 기준갱신, Coach/Score 설명, backup/import roundtrip 시나리오에서 깨지지 않는지 확인해야 한다.
+
+2026-06-05 검증:
+
+- `runV8ScenarioRunnerTests` 1 suite / 40 cases / failed 0.
+- `runV8ScenarioRunnerTests,runTodayCalculationOwnershipTests,runTodayQuickEditTests` 3 suites / 98 cases / failed 0.
+
+## 23. 2026-06-05 BM 본단계6 렌더 / 시나리오 / 테스트 검증 경계 메모
+
+BM은 본단계 6의 report-only 검증 경계다. production 산식 변경, user-facing 문구 변경, 식단 점수 로직 변경, Coach 런타임 변경, Records schema 변경, Backup schema 변경이 아니다.
+
+본단계 6의 완료 조건은 "후보 산식이 실제로 적용되었다"가 아니라 "본단계 5에서 닫은 BL 연결 계약이 렌더/시나리오/테스트 검증 경계에서도 과장 없이 유지된다"이다.
+
+닫힌 검증:
+
+- `source_contract_closed`: BL source contract가 닫힌 상태에서만 BM이 시작된다.
+- `scenario_layers_separated`: BG의 human-eye, axis sweep, pairwise stress, targeted stress, full Cartesian gate 분리가 유지된다.
+- `records_score_coach_backup_scenarios_covered`: Records / Score / Coach / Backup 연결 시나리오가 BL/BF 계약으로 덮인다.
+- `post_wiring_render_evidence_acknowledged`: 기존 AB/AH post-wiring render evidence를 screenshot evidence로 인정하되, full UX review로 오해하지 않는다.
+- `render_audit_scope_separated`: render audit는 broad human UX review, full Cartesian 실행, production 구현, full V8 completion과 분리된다.
+- `full_cartesian_claim_blocked`: full Cartesian 실행은 여전히 열려 있으며, BM이 80B 전체 실행을 대체하지 않는다.
+- `production_boundary_preserved`: BM은 production formula, user-facing copy, score/Coach logic, Records schema, Backup schema를 변경하지 않는다.
+- `full_completion_blocked`: full V8 completion은 닫히지 않는다.
+- `external_render_rerun_required`: runner report는 실제 screenshot command 실행을 내장하지 않으므로, fresh 렌더 확인은 별도 명령으로 수행해야 한다.
+
+`runV8ScenarioRunner()`에는 `levelAwareRenderScenarioValidation`이 추가되었다. 이 report의 정상 기준은 `validationCount=9`, `closedValidationCount=9`, `findingCount=0`, `missingValidationCount=0`이다.
+
+completion declaration gate와 whole-stage audit도 BM 근거를 보게 되었다. whole-stage evidence boundary audit check count는 28에서 29로 올라간다.
+
+2026-06-05 실제 검증:
+
+- `node .\tools\render_audit\run_internal_tests.cjs --profile=core --suite=runV8ScenarioRunnerTests,runTodayCalculationOwnershipTests,runTodayQuickEditTests`: 3 suites / 99 cases / failed 0
+- `node .\tools\render_audit\run_internal_tests.cjs --profile=core`: 26 suites / 371 cases / failed 0
+- `node .\tools\render_audit\capture_render_audit.cjs`: fresh screenshots 66 captures
+- `node .\tools\render_audit\analyze_render_audit.cjs`: captureCount 66, desktop 42, mobile 24, requiredMobile 24, postWiringProfileCandidate 8, profileRoutineOwnership 10, failed 0
+- 첫 `capture_render_audit`는 240초 timeout으로 중단되었고, 600초 timeout 재실행에서 통과했다. 따라서 최종 근거는 두 번째 fresh capture/analyze 결과만 사용한다.
+
+BM 통과가 의미하지 않는 것:
+
+- 수준별 산식 production 구현 완료가 아니다.
+- full V8 completion이 아니다.
+- full Cartesian 실행이 아니다.
+- broad human UX review 완료가 아니다.
+- Records/Score/Coach/Backup 화면 문구가 실제로 바뀐 것이 아니다.
+- runner 내부에서 최신 screenshot capture를 직접 실행했다는 뜻이 아니다.
+
+다음 단계는 BO `수행능력 입력 피로도 / 산식 반영 범위 감사`와 그 뒤의 본단계 7 `프로필/세션 숫자 시나리오 검증`이다. BM 통과만으로 production 적용으로 가지 않는다. 본단계 7에서는 기본 시간/xw와 guide/activity 기준 차이를 검증하고, full Cartesian 실행/대체 gate와 broad human UX review를 본단계 7 완료로 합리화하면 안 된다.
