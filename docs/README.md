@@ -101,6 +101,11 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - `index.html` title/header badge/helper fallback/full backup appVersion expectation/top comment를 `v8.3`으로 정렬한다.
   - package.json version, `FULL_BACKUP_VERSION`, scoring formula, scoring version, storage/schema, scoreDeltaPreview, old-record migration은 변경하지 않는다.
 
+- `v8.3_implementation_qa_closeout_2026-07-08.md`
+  - v8.3 continuous scoring, source visibility, legacy reference routing, app display alignment을 한 implementation block으로 검산한 docs-only QA closeout이다.
+  - static QA와 full test profile을 통과한 상태를 기록하되, score tuning / UI / storage / scoreDelta / old records migration은 열지 않는다.
+  - 다음 본류는 score distribution WATCH 후보를 실제 tuning readiness decision으로 재검토하는 것이다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
