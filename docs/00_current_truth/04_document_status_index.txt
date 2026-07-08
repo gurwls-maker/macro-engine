@@ -34,9 +34,9 @@ REQUIRED_NEXT_GATES
 - v8.3 macro card range display implementation: implemented by docs/v8.3_macro_card_range_display_implementation_2026-07-08.md
 - v8.3 target/scoring alignment incident: release-blocker by docs/v8.3_target_scoring_alignment_incident_decision_2026-07-08.md
 - v8.3 target/scoring alignment implementation: implemented by docs/v8.3_target_scoring_alignment_implementation_2026-07-08.md
-- v8.3 target/scoring alignment QA closeout: pending
-- v8.3 stabilization/tag readiness checkpoint update: held until target/scoring alignment QA closeout is closed
-- v8.3 merge/tag instruction: held until target/scoring alignment QA closeout and smoke check are closed
+- v8.3 target/scoring alignment QA closeout: closed by docs/v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md
+- v8.3 stabilization/tag readiness checkpoint update: pending after target/scoring alignment QA closeout
+- v8.3 merge/tag instruction: held until stabilization/tag readiness checkpoint update and user instruction
 - docs-policy preflight: active
 
 상태 정의
@@ -467,20 +467,25 @@ docs/references/external/acsm_resistance_training_guide_ko_2026.txt
    - 다음: v8.3 target/scoring alignment implementation.
    - 제외: tag/merge, UI-only display cap, storage/schema, scoreDeltaPreview, old records migration.
 22. v8.3 target/scoring alignment implementation.
-   - 상태: pending until incident implementation gate is closed.
-   - 목적: target generator, scoring range, macro card display, carb exercise context, fat target/range를 shared policy로 정렬한다.
+   - 상태: implemented by docs/v8.3_target_scoring_alignment_implementation_2026-07-08.md.
+   - 닫은 것: target generator, scoring range, macro card display, carb exercise context, fat target/range를 shared policy로 정렬했다.
+   - 보강: QA closeout에서 3일/7일 trend limiter를 count bucket이 아니라 continuous recency-weighted excess pressure 모델로 바꿨다.
    - 필수 invariant: 앱 target macros 그대로 섭취 시 valid full-day/no alcohol/no outlier 조건에서 낮은 점수로 떨어지지 않아야 한다.
-   - 제외: UI-only display cap, scoreDeltaPreview, storage/schema, old records migration.
-23. v8.3 stabilization/tag readiness checkpoint update.
-   - 상태: superseded/held until target/scoring alignment incident is fixed.
-   - 목적: target/scoring alignment 구현과 재검산이 닫힌 뒤 release/tag readiness를 다시 판단한다.
-   - 제외: incident가 열린 상태의 tag-ready 판단.
-24. v8.3 merge/tag instruction.
-   - 상태: held until target/scoring alignment incident is fixed and re-checked.
-   - 목적: alignment incident가 닫힌 뒤 실제 tag 생성 여부와 tag 대상 commit을 사용자 지시로 닫는다.
+   - 제외: UI-only display cap, scoreDeltaPreview, storage/schema expansion, old records migration.
+23. v8.3 target/scoring alignment QA closeout.
+   - 상태: closed by docs/v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md.
+   - 닫은 것: target 그대로 섭취 invariant, adaptive target overfitting risk, 3일/7일 continuous pressure limiter, automatic training load interpolation, high-volume no flat permission, Records snapshot stability, macro card display alignment, persistent setting 저장/백업/복원 영향.
+   - 제외: 새 score tuning, broad UI redesign, storage/schema expansion, scoreDeltaPreview, old records migration.
+24. v8.3 stabilization/tag readiness checkpoint update.
+   - 상태: pending after target/scoring alignment QA closeout.
+   - 목적: target/scoring alignment 구현과 QA closeout이 닫힌 뒤 release/tag readiness를 다시 판단한다.
+   - 제외: QA closeout 결과를 반영하지 않은 tag-ready 판단.
+25. v8.3 merge/tag instruction.
+   - 상태: held until stabilization/tag readiness checkpoint update and user instruction.
+   - 목적: readiness update 이후 실제 tag 생성 여부와 tag 대상 commit을 사용자 지시로 닫는다.
    - 제외: 새 score tuning을 건너뛴 merge/tag, UI/storage/schema, scoreDeltaPreview, old records migration.
-25. 필요 시 03_external_anchor_inventory 분리.
-26. 필요 시 05_required_result_log_format 분리.
+26. 필요 시 03_external_anchor_inventory 분리.
+27. 필요 시 05_required_result_log_format 분리.
 
 이 항목들은 "나중에 기억"할 TODO가 아니라 REQUIRED_NEXT_GATES와 docs-policy guard로 계속 노출되어야 한다.
 
@@ -491,4 +496,7 @@ target/scoring alignment release-blocker 기준
 - target carbs/protein/fat은 displayed scoring range 안에 있거나, 범위 밖일 경우 명시적인 제품 의미와 테스트가 있어야 한다.
 - macro card range는 scoring boundary와 일치해야 하며 UI-only display cap으로 숨기지 않는다.
 - 8~12g/kg carbohydrate external anchor는 high-volume 무감점 허가증이 아니라 carb curve anchor다.
-- exercise context는 final score bonus도 coarse bucket 면죄부도 아니며, 다음 구현 gate에서 continuous factor/shared policy로 재정렬해야 한다.
+- exercise context는 final score bonus도 coarse bucket 면죄부도 아니며, continuous factor/shared policy로 재정렬되어야 한다.
+- automatic exercise context label은 설명용일 수 있지만, actual carb context는 `continuous_training_load_interpolation`으로 보간되어야 한다.
+- 3일/7일 limiter는 count bucket이 아니라 continuous recency-weighted excess pressure 모델이어야 한다.
+- `오늘 목표 자동 조정`은 persistent setting surface이며, 대규모 migration은 아니지만 저장되는 설정 field 추가 사실을 숨기지 않는다.

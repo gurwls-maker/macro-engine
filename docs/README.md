@@ -163,6 +163,14 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - high-volume carb anchor는 flat no-penalty permission이 아니라 target-centered curve context로 유지한다.
   - 다음 본류는 target/scoring alignment QA closeout이며, merge/tag 재개는 closeout과 smoke check 이후 판단한다.
 
+- `v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md`
+  - target/scoring alignment implementation을 다시 검산한 QA closeout / regression checkpoint다.
+  - 초기 3일/7일 count bucket limiter를 폐기하고 `continuous_recency_weighted_excess` pressure 모델로 보강했다.
+  - 자동 운동 context label threshold가 carb boundary를 계단식으로 뛰게 하지 않도록 `continuous_training_load_interpolation`을 고정했다.
+  - Today adaptive target이 target/TDEE overage를 숨기지 않고, Records `goalSnapshot`은 adaptive live target이 아니라 selected calculation target을 보존한다고 닫는다.
+  - `오늘 목표 자동 조정`은 persistent setting surface이므로 대규모 migration은 아니지만 저장되는 설정 field 추가 사실과 full backup/restore 보존 경로를 결과로그에서 명시해야 한다.
+  - 다음 본류는 stabilization/tag readiness checkpoint update이며, 바로 merge/tag로 가지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.

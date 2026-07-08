@@ -50,6 +50,7 @@ const requiredFiles = [
   "docs/references/historical/README.md",
   "docs/v8.3_target_scoring_alignment_incident_decision_2026-07-08.md",
   "docs/v8.3_target_scoring_alignment_implementation_2026-07-08.md",
+  "docs/v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md",
   "docs/README.md",
   "AGENTS.md",
 ];
@@ -94,6 +95,7 @@ if (failures.length === 0) {
   const statusIndex = read("docs/00_current_truth/04_document_status_index.txt");
   const targetScoringIncident = read("docs/v8.3_target_scoring_alignment_incident_decision_2026-07-08.md");
   const targetScoringImplementation = read("docs/v8.3_target_scoring_alignment_implementation_2026-07-08.md");
+  const targetScoringQaCloseout = read("docs/v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
   const v82ArchiveReadme = read("docs/archive/v8.2_macro_range/README.md");
@@ -169,7 +171,9 @@ if (failures.length === 0) {
     "docs-policy preflight: active",
     "v8.3 target/scoring alignment incident: release-blocker",
     "v8.3 target/scoring alignment implementation: implemented",
-    "v8.3 target/scoring alignment QA closeout: pending",
+    "v8.3 target/scoring alignment QA closeout: closed",
+    "continuous pressure limiter",
+    "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
     "scoreDeltaPreview는 optional audit-only",
     "exercise bonus",
@@ -206,6 +210,8 @@ if (failures.length === 0) {
     "release-blocker",
     "v8.3 target/scoring alignment implementation",
     "target/scoring alignment QA closeout",
+    "continuous recency-weighted excess pressure",
+    "automatic training load interpolation",
     "target/scoring alignment release-blocker 기준",
   ];
   for (const text of statusRequirements) {
@@ -233,6 +239,7 @@ if (failures.length === 0) {
   const readmeIncidentRequirements = [
     "v8.3_target_scoring_alignment_incident_decision_2026-07-08.md",
     "v8.3_target_scoring_alignment_implementation_2026-07-08.md",
+    "v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md",
     "release blocker",
     "score `83.712`",
     "target/scoring alignment implementation",
@@ -253,6 +260,23 @@ if (failures.length === 0) {
   ];
   for (const text of targetScoringImplementationRequirements) {
     if (!targetScoringImplementation.includes(text)) fail(`target/scoring implementation log missing: ${text}`);
+  }
+
+  const targetScoringQaCloseoutRequirements = [
+    "QA closeout",
+    "continuous_recency_weighted_excess",
+    "3일/7일 count bucket limiter",
+    "Today adaptive target",
+    "targetEnergyDeviationPenalty",
+    "tdeeOverloadPenalty",
+    "Records `goalSnapshot`",
+    "selected calculation target",
+    "persistent setting surface",
+    "continuous_training_load_interpolation",
+    "stabilization/tag readiness checkpoint update",
+  ];
+  for (const text of targetScoringQaCloseoutRequirements) {
+    if (!targetScoringQaCloseout.includes(text)) fail(`target/scoring QA closeout missing: ${text}`);
   }
 
   if (!readFirstImplementationBlocked && !readFirstImplementationAccepted) {
