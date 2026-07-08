@@ -183,7 +183,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - `master` no-ff merge commit `0333d9c`에 annotated tag `v8.3`을 생성/push했고, remote master와 tag peeled target도 `0333d9c`로 확인했다.
   - v8.3 included scope는 anchor continuous macro scoring, target/scoring alignment, Today macro card range display, source visibility, DailyCoach/copy guard, WATCH guard, legacy/reference routing, app display v8.3 alignment, docs-policy/test profile hardening이다.
   - post-v8.3 deferred 항목은 score tuning, DailyCoach/copy rewrite, tooltip/glossary, kcal/alcohol range display, UI/storage/schema, scoreDeltaPreview optional audit, old records migration/reset, package version policy다.
-  - 다음 후보는 post-v8.3 backlog triage 또는 v8.3.1 planning이며, v8.3 tag를 다시 만들거나 옮기지 않는다.
+  - 이 문서의 다음 후보였던 post-v8.3 backlog triage는 `post_v8.3_backlog_triage_2026-07-09.md`로 닫혔다. v8.3 tag를 다시 만들거나 옮기지 않는다.
+
+- `post_v8.3_backlog_triage_2026-07-09.md`
+  - v8.3 release/tag/post-tag closeout 이후 남은 후보를 구현 전 분류한 docs-only triage 문서다.
+  - score tuning과 carb upper/high-volume tuning은 RESEARCH_NEEDED, kcal/alcohol range display와 old records/package policy는 BLOCKED_BY_DECISION, UI/storage/schema와 scoreDeltaPreview는 LATER로 분류한다.
+  - DailyCoach/copy tone pass와 tooltip/glossary는 V8_3_1_CANDIDATE로 분류하되, 바로 구현하지 않고 먼저 user-facing range explanation/copy decision으로 닫는다.
+  - 다음 후보는 `v8.3.1 user-facing range explanation/copy decision docs-only`이며, score formula/UI/storage/schema/scoreDelta/old records migration은 열지 않는다.
 
 ## legacy / 참고 문서
 

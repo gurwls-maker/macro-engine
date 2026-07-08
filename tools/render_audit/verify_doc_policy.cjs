@@ -53,6 +53,7 @@ const requiredFiles = [
   "docs/v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md",
   "docs/v8.3_stabilization_tag_readiness_checkpoint_update_2026-07-09.md",
   "docs/v8.3_post_tag_release_closeout_2026-07-09.md",
+  "docs/post_v8.3_backlog_triage_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
 ];
@@ -100,6 +101,7 @@ if (failures.length === 0) {
   const targetScoringQaCloseout = read("docs/v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md");
   const stabilizationTagReadinessUpdate = read("docs/v8.3_stabilization_tag_readiness_checkpoint_update_2026-07-09.md");
   const postTagReleaseCloseout = read("docs/v8.3_post_tag_release_closeout_2026-07-09.md");
+  const postV83BacklogTriage = read("docs/post_v8.3_backlog_triage_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
   const v82ArchiveReadme = read("docs/archive/v8.2_macro_range/README.md");
@@ -179,7 +181,8 @@ if (failures.length === 0) {
     "v8.3 stabilization/tag readiness checkpoint update: closed",
     "v8.3 merge/tag instruction: completed",
     "v8.3 post-tag release closeout: closed",
-    "post-v8.3 backlog triage / v8.3.1 planning: next candidate",
+    "post-v8.3 backlog triage / v8.3.1 planning: closed",
+    "v8.3.1 user-facing range explanation/copy decision: next candidate",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -222,6 +225,7 @@ if (failures.length === 0) {
     "tag-ready candidate after checkpoint update",
     "v8.3 post-tag release closeout",
     "post-v8.3 backlog triage / v8.3.1 planning",
+    "v8.3.1 user-facing range explanation/copy decision",
     "continuous recency-weighted excess pressure",
     "automatic training load interpolation",
     "target/scoring alignment release-blocker 기준",
@@ -234,6 +238,7 @@ if (failures.length === 0) {
     "v8.3 stabilization/tag readiness checkpoint update: pending after target/scoring alignment QA closeout",
     "v8.3 merge/tag instruction: held until stabilization/tag readiness checkpoint update and user instruction",
     "v8.3 merge/tag instruction: held until explicit user instruction",
+    "post-v8.3 backlog triage / v8.3.1 planning: next candidate",
   ];
   for (const text of staleReadinessPhrases) {
     if (readFirst.includes(text)) fail(`00_READ_FIRST still has stale readiness gate text: ${text}`);
@@ -264,6 +269,7 @@ if (failures.length === 0) {
     "v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md",
     "v8.3_stabilization_tag_readiness_checkpoint_update_2026-07-09.md",
     "v8.3_post_tag_release_closeout_2026-07-09.md",
+    "post_v8.3_backlog_triage_2026-07-09.md",
     "release blocker",
     "score `83.712`",
     "target/scoring alignment implementation",
@@ -271,6 +277,8 @@ if (failures.length === 0) {
     "tag-ready candidate after checkpoint update",
     "annotated tag `v8.3`",
     "post-v8.3 deferred",
+    "V8_3_1_CANDIDATE",
+    "user-facing range explanation/copy decision",
   ];
   for (const text of readmeIncidentRequirements) {
     if (!readme.includes(text)) fail(`README missing target/scoring incident routing: ${text}`);
@@ -343,6 +351,32 @@ if (failures.length === 0) {
   ];
   for (const text of postTagReleaseCloseoutRequirements) {
     if (!postTagReleaseCloseout.includes(text)) fail(`post-tag release closeout missing: ${text}`);
+  }
+
+  const postV83BacklogTriageRequirements = [
+    "docs-only backlog triage",
+    "v8.3.1 planning entry map",
+    "V8_3_1_CANDIDATE",
+    "RESEARCH_NEEDED",
+    "BLOCKED_BY_DECISION",
+    "LATER",
+    "MONITOR_ONLY",
+    "REJECT",
+    "DailyCoach/copy rewrite or tone pass",
+    "tooltip / glossary",
+    "score distribution tuning beyond alignment",
+    "carb upper / high-volume carb tuning",
+    "kcal range display",
+    "alcohol range display",
+    "UI/storage/schema expansion",
+    "scoreDeltaPreview optional audit",
+    "old records migration / recompute / reset",
+    "package version policy",
+    "adaptive target setting contract follow-up",
+    "v8.3.1 user-facing range explanation/copy decision docs-only",
+  ];
+  for (const text of postV83BacklogTriageRequirements) {
+    if (!postV83BacklogTriage.includes(text)) fail(`post-v8.3 backlog triage missing: ${text}`);
   }
 
   if (!readFirstImplementationBlocked && !readFirstImplementationAccepted) {
