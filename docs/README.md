@@ -94,7 +94,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - scoring version `v8.3_anchor_continuous_macro_score_v1`와 앱 표시 label `v8.0`의 불일치를 정리한 docs-only decision 문서다.
   - 선택한 방향은 app display label `v8.3`과 backup appVersion metadata `v8.3` 정렬이다.
   - package.json version과 `FULL_BACKUP_VERSION`은 이번 alignment에서 유지한다.
-  - 실제 title/header/fallback/STAGE/NOTE/test 갱신은 다음 implementation 브랜치로 분리한다.
+  - 실제 title/header/fallback/STAGE/NOTE/test 갱신은 `v8.3_app_display_version_alignment_implementation_2026-07-08.md`로 구현됐다.
+
+- `v8.3_app_display_version_alignment_implementation_2026-07-08.md`
+  - app display version alignment decision을 구현한 implementation log다.
+  - `index.html` title/header badge/helper fallback/full backup appVersion expectation/top comment를 `v8.3`으로 정렬한다.
+  - package.json version, `FULL_BACKUP_VERSION`, scoring formula, scoring version, storage/schema, scoreDeltaPreview, old-record migration은 변경하지 않는다.
 
 ## legacy / 참고 문서
 
