@@ -145,7 +145,7 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 
 - `v8.3_macro_card_range_display_implementation_2026-07-08.md`
   - Today macro card에 탄수화물/단백질/지방 compact range chip과 range-aware 상태 문구를 좁게 구현한 implementation log다.
-  - raw v8.3 no-penalty anchor를 UI range로 그대로 노출하지 않고, target-based display sanity band를 함께 적용한다.
+  - Today range chip은 별도 표시용 cap이 아니라 현재 v8.3 scoring boundary와 정렬한다.
   - kcal/alcohol/tooltip/DailyCoach rewrite/Records/Recent/storage/schema/scoreDelta/old records migration은 열지 않는다.
   - `오늘 해석 범위`, `회복재료`, 내부 산식 용어가 Today macro card에 나오지 않도록 UI/copy regression을 보강한다.
   - 다음 본류는 v8.3 stabilization/tag readiness checkpoint update 또는 addendum이다.
