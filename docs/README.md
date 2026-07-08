@@ -148,7 +148,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - Today range chip은 별도 표시용 cap이 아니라 현재 v8.3 scoring boundary와 정렬한다.
   - kcal/alcohol/tooltip/DailyCoach rewrite/Records/Recent/storage/schema/scoreDelta/old records migration은 열지 않는다.
   - `오늘 해석 범위`, `회복재료`, 내부 산식 용어가 Today macro card에 나오지 않도록 UI/copy regression을 보강한다.
-  - 다음 본류는 v8.3 stabilization/tag readiness checkpoint update 또는 addendum이다.
+  - 이 정렬 이후 target macros 그대로 섭취해도 낮은 점수가 나오는 release blocker가 드러났고, 다음 본류는 `v8.3_target_scoring_alignment_incident_decision_2026-07-08.md`로 재분류됐다.
+
+- `v8.3_target_scoring_alignment_incident_decision_2026-07-08.md`
+  - macro card range를 scoring boundary와 맞춘 뒤 드러난 target generator / scoring range mismatch를 release blocker로 재분류한 docs-only incident decision이다.
+  - 재현값은 앱 target 그대로 섭취 시 score `83.712`, target carbs `594.9g`이 carb range `210g~525g` 밖, target fat `124.8g`이 fat range `53g~94g` 밖인 상태다.
+  - UI-only display cap은 계속 폐기하고, 문제는 target/scoring shared policy implementation으로 해결해야 한다고 닫는다.
+  - 다음 본류는 v8.3 target/scoring alignment implementation이며, merge/tag instruction과 stabilization/tag readiness update는 이 incident가 닫힐 때까지 보류한다.
 
 ## legacy / 참고 문서
 

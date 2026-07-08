@@ -48,6 +48,7 @@ const requiredFiles = [
   "docs/references/external/README.md",
   "docs/references/copy/README.md",
   "docs/references/historical/README.md",
+  "docs/v8.3_target_scoring_alignment_incident_decision_2026-07-08.md",
   "docs/README.md",
   "AGENTS.md",
 ];
@@ -90,6 +91,7 @@ if (failures.length === 0) {
   const readFirst = read("docs/00_current_truth/00_READ_FIRST.txt");
   const currentTruth = read("docs/00_current_truth/02_macro_range_current_truth.txt");
   const statusIndex = read("docs/00_current_truth/04_document_status_index.txt");
+  const targetScoringIncident = read("docs/v8.3_target_scoring_alignment_incident_decision_2026-07-08.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
   const v82ArchiveReadme = read("docs/archive/v8.2_macro_range/README.md");
@@ -163,6 +165,9 @@ if (failures.length === 0) {
     "MANDATORY PRE-READ",
     "REQUIRED_NEXT_GATES",
     "docs-policy preflight: active",
+    "v8.3 target/scoring alignment incident: release-blocker",
+    "v8.3 target/scoring alignment implementation: pending",
+    "target/scoring alignment release blocker",
     "scoreDeltaPreview는 optional audit-only",
     "exercise bonus",
     "v6.1 alcoholImpactPenalty",
@@ -194,9 +199,40 @@ if (failures.length === 0) {
     "KEEP",
     "REVIEW",
     "기존 최상위/기준 문서 정합성 메모",
+    "v8.3 target/scoring alignment incident",
+    "release-blocker",
+    "target/scoring alignment release-blocker 기준",
   ];
   for (const text of statusRequirements) {
     if (!statusIndex.includes(text)) fail(`04_document_status_index missing: ${text}`);
+  }
+
+  const targetScoringIncidentRequirements = [
+    "release_blocking_incident_decision",
+    "score: 83.712",
+    "target carbs: 594.9g",
+    "target fat: 124.8g",
+    "carbs range: 210g~525g",
+    "fat range: 53g~94g",
+    "App-target neutral invariant",
+    "Display-scoring consistency invariant",
+    "External-anchor-not-flat-permission invariant",
+    "v8.3 target/scoring alignment implementation",
+    "UI-only display cap은 폐기",
+    "release blocker: yes",
+  ];
+  for (const text of targetScoringIncidentRequirements) {
+    if (!targetScoringIncident.includes(text)) fail(`target/scoring incident decision missing: ${text}`);
+  }
+
+  const readmeIncidentRequirements = [
+    "v8.3_target_scoring_alignment_incident_decision_2026-07-08.md",
+    "release blocker",
+    "score `83.712`",
+    "target/scoring alignment implementation",
+  ];
+  for (const text of readmeIncidentRequirements) {
+    if (!readme.includes(text)) fail(`README missing target/scoring incident routing: ${text}`);
   }
 
   if (!readFirstImplementationBlocked && !readFirstImplementationAccepted) {
