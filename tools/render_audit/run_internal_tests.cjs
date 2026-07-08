@@ -150,6 +150,7 @@ const testProfiles = {
     "runAuthoritativeTargetCalTests",
     "runTargetCalSemanticGuardTests",
     "runMacroAllocationExplanationTests",
+    "runDailyCoachTestCases",
     "runDailyCoachRecentContextTests"
   ],
   ui: [

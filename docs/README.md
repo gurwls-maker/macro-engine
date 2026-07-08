@@ -122,6 +122,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 다음 본류는 DailyCoach/copy implementation이 아니라 v8.3 DailyCoach/copy regression test hardening이다.
   - score tuning, UI/storage/schema, scoreDeltaPreview, old records migration은 열지 않는다.
 
+- `v8.3_dailycoach_copy_regression_hardening_2026-07-08.md`
+  - DailyCoach/copy tone decision의 C01~C06 조합을 `runDailyCoachTestCases`에 고정한 test-only implementation log다.
+  - alcohol 112g/140g, alcohol + high carb + training/rest, high-volume high carb, source/internal term, low-record certainty guard를 추가했다.
+  - `runDailyCoachTestCases`를 core profile에도 등록해 DailyCoach/copy 회귀가 전용 script에만 남지 않도록 했다.
+  - DailyCoach production copy, priority, score anchor 값, UI/storage/schema, scoreDeltaPreview, old records migration은 변경하지 않는다.
+  - 다음 본류는 새 copy 구현이 아니라 v8.3 stabilization/tag readiness checkpoint다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
