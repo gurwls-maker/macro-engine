@@ -1,0 +1,1861 @@
+NOTE:
+이 문서는 current truth 본문이 아니라 source ledger / 상세 원장이다.
+최신 작업 기준은 docs/00_current_truth/00_READ_FIRST.txt와 docs/00_current_truth/02_macro_range_current_truth.txt를 우선한다.
+v8.2 문서 상태 판단은 docs/00_current_truth/04_document_status_index.txt를 우선한다.
+이 파일은 판단 근거를 보존하기 위한 원장으로만 읽고, 직접 구현 지시서나 최종 기준문서처럼 사용하지 않는다.
+
+v8.3 anchor-based continuous macro scoring master plan
+작성일: 2026-07-07
+문서 성격: 기획표 / 상세 보고서 / v8.2 exit review 준비 문서
+작업 성격: docs-only planning
+
+중요:
+이 문서는 감사 판정이 아니다.
+이 문서는 구현 지시서도 아니다.
+이 문서는 v8.2 macro range 문서가 과도하게 쌓인 상태에서, v8.3으로 넘어가기 전에 무엇을 유지하고, 무엇을 폐기하고, 무엇을 통합하고, 어떤 장치로 관성을 막을지 정리하는 master plan이다.
+
+이 문서는 "요약본"이 아니다.
+임의로 결론만 압축하지 않고, 지금까지 논의된 결정, 의문, 반박, 정정, 문서 정리 문제, 구현 관성 문제를 최대한 빠뜨리지 않고 적는다.
+
+
+1. 현재 문제 정의
+==================
+
+1-1. 산식 문제
+--------------
+
+현재 v8.2 production score 구현은 fixed target score에서 range-aware score로 넘어간 1차 전환으로는 의미가 있다.
+하지만 production 최종 산식으로 보기에는 부족하다.
+
+현재 v8.2 구현의 핵심:
+
+  ADHERENCE_SCORING_VERSION = v8.2_macro_range_score_v1
+  getDailyAdherenceScore가 range-aware path를 사용
+  productionScore = clamp(100 + kcalContribution + proteinContribution + fatContribution + carbExchangeContribution, 0, 100)
+
+현재 component contribution:
+
+  kcal:
+    matched 0
+    high / low -10
+    severe_high / severe_low -16
+
+  protein:
+    satisfied 0
+    low -16
+    severe_low -24
+
+  fat:
+    inside_recommended 0
+    below_recommended / above_recommended -5
+    below_action_floor / above_flexible -12
+
+  carbExchange:
+    exchange_explained / inside_candidate_range 0
+    below_training_support -8
+    above_candidate_range -6
+
+이 방식의 문제:
+
+  1. 같은 구간 안에서는 실제 섭취량 차이가 점수에 반영되지 않는다.
+     예: kcal high가 되는 순간 -10이고, high 구간 끝까지 가도 -10이다.
+
+  2. severe 구간에 들어간 뒤에는 더 많이 먹어도 component 감점이 멈춘다.
+     예: kcal severe_high가 -16이면, 500kcal 초과와 10000kcal 초과를 충분히 구분하지 못한다.
+
+  3. 극단적인 지방 과다, 술 과다, 총칼로리 과다가 실제 점수에 충분히 반영되지 않을 수 있다.
+     예: 지방 1000g 같은 입력도 kcal -16 + fat -12 정도로 끝날 위험이 있다.
+
+  4. "고정 g 목표를 벗어나지 말자"는 과거 문제를 고치려다가, "상태 라벨별 고정 감점표"라는 다른 계단식 문제를 만들었다.
+
+따라서 v8.2 fixed penalty table은 v8.3의 production 본체가 될 수 없다.
+v8.2는 range-aware 전환 실험 / 중간 구현 / superseded 예정 상태로 재분류해야 한다.
+
+
+1-2. 사용자의 핵심 불편
+----------------------
+
+사용자가 반복해서 지적한 핵심은 다음이다.
+
+  즉시 0점 처리하자는 뜻이 아니다.
+  중간 score cap을 걸자는 뜻도 아니다.
+  high = -10, severe = -16 같은 계단식 감점표도 이상하다.
+  섭취량이 연속적으로 증가하면 생리학적 부담도 대체로 연속적으로 증가하므로, 점수도 연속적으로 변해야 한다.
+  외부근거는 hard cutoff가 아니라 곡선의 anchor로 써야 한다.
+  운동일 탄수 맥락은 "나중에 최소 구현"으로 미룰 문제가 아니라 탄수 곡선 본체에 들어가야 한다.
+  운동했다고 점수 보너스를 주는 것은 이중 반영 위험이 있으므로 금지한다.
+  알코올 영향을 무시하면 생리학적으로 틀리다.
+  old fixed Records 보존이 새 산식 전환을 막으면 안 된다.
+  문서가 너무 많아져서 오히려 관성을 만든다.
+  기준문서를 만들자는 말만으로는 부족하고, 실제로 읽게 만드는 장치가 필요하다.
+
+
+1-3. 내가 수용하는 부분
+-----------------------
+
+수용:
+
+  1. v8.3 anchor-based continuous macro scoring으로 넘어가야 한다.
+
+  2. 외부근거는 hard cutoff가 아니라 curve anchor로 사용한다.
+     예: NIAAA alcohol 기준, ISSN protein/carb 기준, AMDR 범위는 점수 절벽이 아니라 곡선 보정 기준이다.
+
+  3. 중간 score cap은 폐기한다.
+     예: "알코올 60g 이상이면 최종 점수 최대 60점" 같은 방식은 또 다른 계단식 규칙이다.
+
+  4. 마지막 0~100 clamp는 유지한다.
+     이것은 정책 cap이 아니라 점수 표시 범위다.
+
+  5. 곱셈형 risk multiplier보다 항목별 연속 감점 합산 방식이 이 앱에는 더 설명 가능하다.
+
+  6. 운동은 finalScore bonus가 아니다.
+     운동 소모는 이미 목표 칼로리에 반영되므로, 운동했다는 이유로 +5점 같은 보너스를 주면 안 된다.
+
+  7. 운동은 carb curve context modifier로 들어가야 한다.
+     탄수화물은 운동 맥락 없이 평가하면 생리학적으로 틀릴 가능성이 가장 큰 macro다.
+
+  8. 알코올 영향은 무시하지 않는다.
+     v6.1 alcoholImpactPenalty 후처리를 그대로 부활시키지는 않지만, v8.3 alcohol physiology penalty는 새로 정의해야 한다.
+
+  9. old fixed Records no silent mutation은 전환 중 안전장치이지, 새 산식 전환을 막는 영구 제품 요구가 아니다.
+
+  10. 문서 관성은 문서 추가만으로 해결되지 않는다.
+      읽기 강제 장치, 문서 frontmatter gate, preflight test, superseded map, 결과로그 필수 항목이 필요하다.
+
+
+1-4. 내가 부분 반박하거나 정정하는 부분
+--------------------------------------
+
+사용자의 방향은 대부분 타당하다.
+다만 다음 표현은 정교하게 바꿔야 한다.
+
+  "주관 없이 생리학적으로 올바르게 구현"
+
+이 목표는 방향으로는 맞지만 완전히 달성 가능한 말은 아니다.
+외부근거는 "몇 점을 깎으라"까지 주지 않는다.
+NIAAA는 표준잔/폭음/고강도 음주 기준을 주지만 알코올 70g이면 식단점수 -몇 점이라고 말하지 않는다.
+ISSN은 단백질/탄수 범위를 말하지만 앱 점수 곡선을 제공하지 않는다.
+AMDR은 범위를 말하지만 사용자 목표별 adherence 점수식을 제공하지 않는다.
+
+정확한 목표:
+
+  주관을 완전히 없앤다 X
+  주관이 끼어드는 지점을 외부근거 anchor와 QA fixture로 강하게 제한한다 O
+
+따라서 v8.3의 핵심은 "완전 객관 산식"이 아니라 "근거 기반 anchor + 연속 곡선 + 설명 가능한 QA fixture"다.
+
+
+2. v8.3 산식 방향
+=================
+
+2-1. 최종 이름
+--------------
+
+권장 작업명:
+
+  v8.3 anchor-based continuous macro scoring
+
+이 이름을 쓰는 이유:
+
+  anchor-based:
+    외부근거를 hard cutoff가 아니라 곡선 보정 기준으로 쓴다.
+
+  continuous:
+    high/severe 같은 고정 감점표가 아니라 섭취량 변화에 따라 점수가 연속적으로 변한다.
+
+  macro scoring:
+    고정 g 목표가 아니라 칼로리, 단백질, 지방, 탄수, 알코올, 운동 맥락을 통합한 식단 점수다.
+
+
+2-2. 기본 산식 형태
+------------------
+
+권장 구조:
+
+  finalRawScore =
+    100
+    - targetEnergyDeviationPenalty
+    - tdeeOverloadPenalty
+    - proteinShortagePenalty
+    - proteinExcessEfficiencyPenalty
+    - fatRangePenalty
+    - carbExerciseContextPenalty
+    - carbFatExchangeFailurePenalty
+    - alcoholPhysiologyPenalty
+    - dataOutlierPenalty
+
+  finalScore = clamp(finalRawScore, 0, 100)
+
+중요:
+
+  각 penalty는 고정 감점표가 아니다.
+  각 penalty는 계단식 cap이 아니다.
+  각 penalty는 외부근거 anchor와 앱 목표를 기반으로 한 연속 곡선이어야 한다.
+
+사람 말로 풀면:
+
+  조금 벗어나면 조금 감점
+  많이 벗어나면 많이 감점
+  극단적으로 벗어나면 자연스럽게 0점 근처로 접근
+  마지막 표시만 0~100으로 제한
+
+
+2-3. 곱셈형 risk factor를 우선하지 않는 이유
+-------------------------------------------
+
+검토한 대안:
+
+  finalScore = baseScore * alcoholRiskFactor * energyRiskFactor * fatRiskFactor * carbRiskFactor
+
+장점:
+
+  생리학적 risk가 누적되는 느낌을 수학적으로 표현하기 쉽다.
+  extreme case에서 점수가 자연스럽게 낮아질 수 있다.
+
+단점:
+
+  사용자에게 설명하기 어렵다.
+  "왜 몇 점 깎였는지"를 component별로 보여주기 어렵다.
+  여러 factor가 동시에 곱해지면 일반적인 실수도 과하게 무너질 수 있다.
+  DailyCoach copy가 내부 수학 설명으로 끌려갈 위험이 있다.
+
+따라서 이 앱에는 additive continuous penalty가 더 적합하다.
+
+단, additive라고 해서 단순 선형 감점만 쓰라는 뜻은 아니다.
+각 penalty 내부는 곡선형이어야 한다.
+
+
+3. 항목별 설계 상세
+===================
+
+3-1. targetEnergyDeviationPenalty
+---------------------------------
+
+역할:
+
+  오늘 목표 칼로리를 얼마나 잘 맞췄는지 평가한다.
+  목표 달성 평가다.
+  생리학적 과부하 평가가 아니다.
+
+필요한 이유:
+
+  다이어트 목표, 유지 목표, 린매스업 목표, 벌크업 목표는 target kcal가 다르다.
+  같은 2200kcal라도 목표가 1800kcal인 사람에게는 목표 초과이고, 목표가 2800kcal인 사람에게는 부족이다.
+
+주의:
+
+  target kcal 초과가 곧 catastrophic은 아니다.
+  예: 다이어트 목표 1800kcal, TDEE 2600kcal, 실제 섭취 2200kcal는 목표 초과이지만 생리학적 과부하는 아니다.
+
+곡선 원칙:
+
+  target 대비 1kcal 초과/부족은 거의 감점 없음.
+  target 대비 작은 이탈은 작은 감점.
+  target 대비 큰 이탈은 점진적으로 더 큰 감점.
+  목표별로 이탈 해석이 달라질 수 있다.
+
+
+3-2. tdeeOverloadPenalty
+------------------------
+
+역할:
+
+  실제 섭취가 TDEE 또는 maintenance kcal 대비 얼마나 생리학적 과부하인지 평가한다.
+  targetEnergyDeviationPenalty와 분리해야 한다.
+
+필요한 이유:
+
+  목표 대비 초과와 생리학적 과부하는 다르다.
+  다이어트 목표를 넘었어도 TDEE 이하면 에너지 과부하는 아니다.
+  TDEE의 2배를 먹었다면 목표와 관계없이 강한 과부하로 봐야 한다.
+
+입력 후보:
+
+  totalKcal
+  maintenanceKcal 또는 TDEE
+  targetKcal
+  goalMode
+
+곡선 원칙:
+
+  totalKcal / TDEE가 1.0 근처면 과부하 감점은 거의 없다.
+  totalKcal / TDEE가 커질수록 감점이 점진적으로 커진다.
+  극단값에서는 자연스럽게 0점 근처에 기여해야 한다.
+
+금지:
+
+  totalKcal / TDEE >= 1.5면 무조건 cap 60
+  totalKcal / TDEE >= 2.0이면 무조건 0점
+
+허용:
+
+  해당 비율들을 곡선 anchor로 사용한다.
+
+
+3-3. proteinShortagePenalty
+---------------------------
+
+역할:
+
+  단백질 부족을 강하게 평가한다.
+  단백질은 v8.3에서도 anchor 성격이 강하다.
+
+외부근거 anchor:
+
+  ISSN protein and exercise:
+    운동하는 사람에게 1.4~2.0 g/kg/day 범위가 일반적으로 충분하다고 제시한다.
+    hypocaloric period / 저칼로리 상황의 resistance-trained subjects에서는 2.3~3.1 g/kg/day가 필요할 수 있다고 제시한다.
+    3.0 g/kg/day 초과 고단백 섭취가 저항훈련자 체성분에 긍정적으로 작용할 수 있다는 근거도 언급된다.
+
+설계 방향:
+
+  단백질 부족 곡선은 가파르게 둔다.
+  단백질 적정 범위는 목표/운동/감량 맥락에 따라 anchor를 둔다.
+  단백질 초과는 처음부터 강하게 벌하지 않는다.
+
+금지:
+
+  protein high = 즉시 큰 감점
+  protein 3g/kg = 즉시 붕괴
+  단백질 초과를 지방/알코올과 같은 강도로 벌함
+
+
+3-4. proteinExcessEfficiencyPenalty
+-----------------------------------
+
+역할:
+
+  단백질이 지나치게 높을 때 효율 저하, 칼로리 배분 문제, 입력 오류 가능성을 완만하게 반영한다.
+
+이 항목을 분리하는 이유:
+
+  단백질 부족과 단백질 초과는 생리학적 의미가 다르다.
+  부족은 근육 유지/회복/포만감 측면에서 강한 문제일 수 있다.
+  초과는 대부분 즉시 붕괴라기보다 효율 저하나 다른 macro 배분 문제에 가깝다.
+
+곡선 원칙:
+
+  1.4~2.0 g/kg/day 근처: 일반 운동자 anchor
+  2.3~3.1 g/kg/day 근처: 감량기/제지방 보존 anchor
+  3.0 g/kg/day 초과: 자동 나쁨이 아니라 맥락 확인
+  매우 비현실적 수치: dataOutlier 또는 입력 확인 필요
+
+
+3-5. fatRangePenalty
+--------------------
+
+역할:
+
+  지방이 권장 범위, targetFatUpper, 체중 대비 과다, 총열량 비율 측면에서 얼마나 벗어났는지 평가한다.
+
+외부근거 anchor:
+
+  AMDR은 지방을 total energy 대비 범위로 본다.
+  일반적으로 지방은 에너지 밀도가 높고, 극단 과다는 총칼로리 과부하와 쉽게 결합된다.
+
+입력 후보:
+
+  fatG / targetFatUpperG
+  fatG / bodyWeightKg
+  fatKcal / totalKcal
+  totalKcal / TDEE
+
+설계 방향:
+
+  지방 상한을 조금 넘은 것은 작은 감점.
+  지방 상한을 많이 넘은 것은 점진적으로 큰 감점.
+  지방 1000g 같은 극단값은 fatRangePenalty와 tdeeOverloadPenalty가 함께 커져 자연스럽게 0점 근처로 가야 한다.
+
+금지:
+
+  fat above_recommended = -5로 고정
+  fat above_flexible = -12로 고정
+  fat > 특정 값이면 중간 cap
+  고지방을 총칼로리와 분리해서 가볍게만 처리
+
+
+3-6. carbExerciseContextPenalty
+-------------------------------
+
+역할:
+
+  탄수화물 부족/초과를 운동 맥락에 따라 해석한다.
+
+왜 본체에 포함해야 하는가:
+
+  탄수화물은 운동 맥락 없이 평가하면 생리학적으로 틀릴 가능성이 가장 큰 macro다.
+  같은 carbG라도 휴식일, 일반 웨이트일, 고볼륨 운동일, 장시간 유산소일의 의미가 다르다.
+
+외부근거 anchor:
+
+  ISSN nutrient timing:
+    glycogen 저장/회복 맥락에서 8~12 g/kg/day 고탄수 섭취를 언급한다.
+    고강도/고볼륨 운동은 glycogen 소모와 관련이 크다.
+
+trainingContext 후보:
+
+  REST
+  LIGHT
+  NORMAL_RESISTANCE
+  HIGH_VOLUME_OR_LONG_SESSION
+  UNKNOWN
+
+trainingContext 산출 후보:
+
+  exerciseManagementMode
+  exerciseKcal
+  weightDuration
+  cardioDuration
+  cardioType
+  cardioSpeed
+  cardioIncline
+  routine / profileSession
+  exerciseProfile
+
+중요한 정정:
+
+  "고볼륨이면 고탄수 붕괴 금지"라는 표현은 부정확하다.
+  정확한 표현은:
+
+    고탄수라는 이유만으로 hard zero 처리하지 않는다.
+    운동 맥락은 탄수 곡선 anchor를 이동시킨다.
+    운동량, 체중 대비 탄수, totalKcal/TDEE 과부하를 함께 본 결과 낮은 점수 또는 0점 근처로 갈 수 있다.
+
+즉:
+
+  hard-collapse 금지
+  curve-mediated collapse 허용
+
+REST:
+
+  탄수 초과 곡선이 상대적으로 더 민감해질 수 있다.
+  탄수 부족은 운동 수행/회복 문제로 크게 보지 않는다.
+
+NORMAL_RESISTANCE:
+
+  탄수 부족 곡선이 REST보다 민감해질 수 있다.
+  탄수 초과 곡선은 REST보다 덜 민감할 수 있다.
+
+HIGH_VOLUME_OR_LONG_SESSION:
+
+  탄수 부족 곡선이 더 민감해질 수 있다.
+  고탄수 섭취가 운동 맥락으로 설명될 여지가 커진다.
+  그러나 totalKcal/TDEE overload가 크면 점수는 낮아져야 한다.
+
+UNKNOWN:
+
+  운동 보정을 최소화한다.
+  불확실한 운동 입력으로 탄수 과다를 과하게 면제하면 안 된다.
+
+
+3-7. carbFatExchangeFailurePenalty
+----------------------------------
+
+역할:
+
+  v8.2의 본래 문제였던 fat/carb 이중처벌을 막되, 교환으로 설명되지 않는 경우는 평가한다.
+
+유지할 v8.2 의도:
+
+  지방을 고정 g 목표처럼 반드시 채우게 만들지 않는다.
+  지방이 낮고 탄수가 높은 날이 총칼로리/단백질/운동 맥락상 설명 가능하면 이중처벌하지 않는다.
+  탄수/지방은 총칼로리 안에서 일정 부분 교환 가능하다.
+
+v8.3에서 바꿀 점:
+
+  exchange_explained = 0 같은 고정 라벨을 생산 점수 본체로 삼지 않는다.
+  실제 벗어난 정도와 운동 맥락, 총칼로리 과부하를 함께 본다.
+
+QA 핵심:
+
+  fat slightly low + carb appropriately higher + total kcal ok:
+    이중처벌 금지
+
+  fat extremely low + carb also low + protein low:
+    영양 구성 문제로 감점 가능
+
+  fat low + carb extremely high + total kcal/TDEE extreme:
+    교환으로 면제하면 안 됨
+
+
+3-8. alcoholPhysiologyPenalty
+-----------------------------
+
+역할:
+
+  알코올이 열량 외에 회복, 수면, 지방 산화, 운동 적응, 다음날 행동 리스크에 미치는 영향을 반영한다.
+
+중요한 정정:
+
+  알코올 영향을 판단하지 않는 것이 아니다.
+  오히려 v8.3에서는 알코올을 명시적으로 더 정확하게 판단해야 한다.
+
+폐기:
+
+  v6.1 alcoholImpactPenalty를 그대로 후처리로 되살리는 것.
+
+채택:
+
+  alcohol kcal는 totalKcal에 들어가고 tdeeOverloadPenalty에 반영된다.
+  alcoholG / standardDrinks / bodyWeightKg 등은 alcoholPhysiologyPenalty에 반영된다.
+
+왜 이중감점이 아닌가:
+
+  알코올 kcal = 에너지 축
+  알코올 physiology risk = 회복/수면/대사/행동 리스크 축
+  두 축은 같은 현상이 아니다.
+
+외부근거 anchor:
+
+  NIAAA:
+    미국 standard drink는 pure alcohol 14g 기준.
+    binge drinking은 일반적으로 남성 5잔 이상, 여성 4잔 이상을 약 2시간 안에 마시는 패턴.
+    high-intensity drinking은 binge 기준의 2배 이상으로 설명된다.
+
+설계 방향:
+
+  14g은 표준잔 anchor.
+  56~70g 근처는 binge-risk anchor.
+  112~140g 근처는 high-intensity anchor.
+  이 값들은 cutoff가 아니라 곡선 기울기 보정 기준이다.
+
+금지:
+
+  alcoholG >= 56이면 무조건 score cap 60
+  alcoholG >= 112이면 무조건 0점
+  alcohol kcal만 보고 physiology risk를 무시
+  v6.1 penalty 후처리를 그대로 부활
+
+허용:
+
+  alcohol 56g, 80g, 112g, 140g의 점수가 모두 다르게 내려가야 함.
+  더 마실수록 alcoholPhysiologyPenalty는 커져야 함.
+  총칼로리 과부하와 결합되면 finalScore가 자연스럽게 크게 낮아져야 함.
+
+
+3-9. dataOutlierPenalty / invalid guard
+---------------------------------------
+
+역할:
+
+  비현실적 입력값 또는 데이터 오류 가능성을 scoring과 분리해서 처리한다.
+
+구분:
+
+  계산 가능한 극단 섭취:
+    연속 곡선으로 낮은 점수 또는 0점 근처.
+
+  데이터 오류급 입력:
+    점수 산식의 문제가 아니라 입력 확인 필요 상태.
+
+예:
+
+  지방 1000g:
+    사용자가 실제로 그렇게 입력했을 수도 있지만 식단으로는 극단이다.
+    fatRangePenalty + tdeeOverloadPenalty로 0점 근처 가능.
+
+  지방 10000g, 단백질 5000g, 알코올 5000g:
+    데이터 오류 또는 입력 확인 필요 후보.
+
+주의:
+
+  invalid guard를 score cap으로 쓰면 안 된다.
+  invalid guard는 "이 값으로 점수를 낼 수 있는가"와 "입력 확인이 필요한가"를 분리해야 한다.
+
+
+4. 외부근거 anchor inventory 초안
+=================================
+
+4-1. Alcohol anchor
+-------------------
+
+출처 후보:
+
+  NIAAA alcohol drinking patterns
+  NIAAA defining how much alcohol is too much
+
+Anchor:
+
+  standard drink: pure alcohol 14g
+  binge drinking: male 5+ drinks / female 4+ drinks in about 2 hours
+  high-intensity drinking: binge threshold의 약 2배 이상
+
+사용 방식:
+
+  alcoholPhysiologyPenalty 곡선의 anchor.
+  hard cutoff 아님.
+  score cap 아님.
+  "알코올 영향 없음"의 근거도 아님.
+
+
+4-2. Protein anchor
+-------------------
+
+출처 후보:
+
+  ISSN Position Stand: protein and exercise
+
+Anchor:
+
+  1.4~2.0 g/kg/day: 대부분의 운동자에게 충분한 일반 범위
+  2.3~3.1 g/kg/day: hypocaloric period의 resistance-trained subjects에서 제지방 보존 목적 후보
+  >3.0 g/kg/day: 일부 저항훈련자 체성분에 긍정적 가능성 언급
+
+사용 방식:
+
+  proteinShortagePenalty는 강하게.
+  proteinExcessEfficiencyPenalty는 완만하게.
+  protein high를 지방/알코올처럼 강하게 벌하지 않는다.
+
+
+4-3. Carbohydrate anchor
+------------------------
+
+출처 후보:
+
+  ISSN nutrient timing position stand
+
+Anchor:
+
+  high-carbohydrate diet 8~12 g/kg/day:
+    glycogen storage / high training / recovery context에서 언급.
+
+  rapid glycogen restoration context:
+    운동 후 회복 맥락에서 높은 carbohydrate strategy가 언급됨.
+
+사용 방식:
+
+  carbExerciseContextPenalty 곡선의 trainingContext별 anchor.
+  고탄수 hard zero 금지.
+  운동 맥락으로 설명 가능한 고탄수와, 비운동일/총칼로리 과부하의 고탄수를 구분.
+
+
+4-4. Fat / AMDR anchor
+----------------------
+
+출처 후보:
+
+  Dietary Reference Intakes / AMDR
+
+Anchor:
+
+  AMDR은 macronutrient를 total energy 대비 범위로 제시한다.
+  지방은 절대 단일 g값보다 total energy ratio, targetFatUpper, bodyWeightKg, TDEE overload 조합으로 보는 것이 자연스럽다.
+
+사용 방식:
+
+  fatG / targetFatUpperG
+  fatG / bodyWeightKg
+  fatKcal / totalKcal
+  totalKcal / TDEE
+
+주의:
+
+  AMDR은 일반 건강 범위 기준이므로 bodybuilding/goal-specific 정책과 그대로 동일하지 않을 수 있다.
+  그래도 "절대 한 점 목표"가 아니라 "범위/위험" 관점이라는 점에서 v8.3과 정합성이 높다.
+
+
+5. 대표 fixture / QA 방향
+=========================
+
+숫자를 먼저 박지 않는다.
+먼저 방향성을 박는다.
+그다음 외부근거 anchor와 앱 목표에 맞춰 점수 범위를 조정한다.
+
+5-1. Energy fixtures
+--------------------
+
+E01. target + 1kcal
+
+  기대:
+    점수 변화가 거의 없어야 한다.
+    high label 하나로 -10 같은 큰 감점이 발생하면 실패.
+
+E02. target 대비 10% 초과, TDEE 이하
+
+  기대:
+    목표 달성에는 감점이 있지만 catastrophic으로 보면 안 된다.
+    tdeeOverloadPenalty는 거의 없어야 한다.
+
+E03. target 대비 30% 초과, TDEE 근처
+
+  기대:
+    목표 이탈 감점은 의미 있게 존재.
+    생리학적 과부하로 과장하지 않음.
+
+E04. totalKcal / TDEE 1.5
+
+  기대:
+    tdeeOverloadPenalty가 분명히 커져야 한다.
+    중간 cap이 아니라 곡선상 감점 증가.
+
+E05. totalKcal / TDEE 2.0+
+
+  기대:
+    finalScore가 크게 낮아져야 한다.
+    단, "즉시 0점" hard threshold가 아니라 곡선 결과로 낮아져야 한다.
+
+
+5-2. Alcohol fixtures
+---------------------
+
+A01. alcohol 0g
+
+  기대:
+    alcoholPhysiologyPenalty 없음.
+
+A02. alcohol 14g
+
+  기대:
+    표준잔 anchor.
+    작은 physiology penalty 또는 warning 후보.
+    자동 큰 감점 아님.
+
+A03. alcohol 56g vs 80g vs 112g vs 140g
+
+  기대:
+    56g보다 80g이 더 낮아야 한다.
+    80g보다 112g이 더 낮아야 한다.
+    112g보다 140g이 더 낮아야 한다.
+    같은 bucket이라 같은 점수면 실패.
+
+A04. alcohol kcal 때문에 totalKcal도 크게 초과
+
+  기대:
+    alcoholPhysiologyPenalty와 tdeeOverloadPenalty가 함께 작동.
+    이것은 이중감점이 아니라 열량 축 + 회복/대사 리스크 축이다.
+
+A05. alcohol 10000kcal급 입력
+
+  기대:
+    finalScore는 자연스럽게 0점 근처 또는 invalid/outlier 확인 상태.
+    v6.1 alcoholImpactPenalty 후처리 부활 금지.
+
+
+5-3. Fat fixtures
+-----------------
+
+F01. fat upper + 1g
+
+  기대:
+    거의 감점 없음.
+
+F02. fat upper 1.2배
+
+  기대:
+    작은~중간 감점.
+    fat upper 2.0배와 같은 점수면 실패.
+
+F03. fat upper 2.0배
+
+  기대:
+    F02보다 더 큰 감점.
+
+F04. fat upper 3.0배
+
+  기대:
+    F03보다 더 큰 감점.
+    중간 cap이 아니라 연속 곡선.
+
+F05. fat 1000g
+
+  기대:
+    fatRangePenalty와 tdeeOverloadPenalty가 함께 커져 finalScore가 0점 근처.
+    fat above_flexible = -12에서 멈추면 실패.
+
+
+5-4. Protein fixtures
+---------------------
+
+P01. protein severe shortage
+
+  기대:
+    강한 감점.
+    단백질 부족은 anchor로 강하게 본다.
+
+P02. protein 1.4~2.0g/kg 근처
+
+  기대:
+    일반 운동자 anchor.
+    목표/운동/감량 맥락에 따라 적정.
+
+P03. protein 2.3~3.1g/kg hypocaloric context
+
+  기대:
+    자동 과다 감점 금지.
+    감량기 제지방 보존 맥락 가능.
+
+P04. protein >3.0g/kg
+
+  기대:
+    즉시 붕괴 금지.
+    필요 시 효율 저하/배분 문제를 완만하게 반영.
+
+P05. protein 비현실적 극단 입력
+
+  기대:
+    dataOutlier 또는 완만 감점 + energy overload 조합.
+    단백질 초과 단독으로 술/지방처럼 강하게 벌하면 실패.
+
+
+5-5. Carb / exercise fixtures
+-----------------------------
+
+C01. same carb 450g, REST
+
+  기대:
+    운동 맥락이 없으면 carb overage가 더 민감할 수 있다.
+    totalKcal/TDEE도 함께 본다.
+
+C02. same carb 450g, NORMAL_RESISTANCE
+
+  기대:
+    REST보다 carb overage penalty가 낮을 수 있다.
+    운동 보너스가 아니라 carb curve context 차이다.
+
+C03. same carb 450g, HIGH_VOLUME_OR_LONG_SESSION
+
+  기대:
+    NORMAL_RESISTANCE보다 고탄수 설명 가능성이 커질 수 있다.
+    단, totalKcal/TDEE overload가 심하면 점수는 낮아져야 한다.
+
+C04. low carb, REST
+
+  기대:
+    운동 수행/회복 문제는 작게 본다.
+
+C05. low carb, training day
+
+  기대:
+    REST보다 더 민감하게 감점될 수 있다.
+    운동 전후 회복 맥락 문구와 맞아야 한다.
+
+C06. carb 8~10g/kg, high training context
+
+  기대:
+    hard zero 금지.
+    자동 붕괴 금지.
+    그러나 totalKcal/TDEE overload가 크면 자연스럽게 낮아질 수 있다.
+
+C07. carb 8~10g/kg, rest day + TDEE overload
+
+  기대:
+    강한 감점.
+    운동 맥락 없이 고탄수를 면제하면 실패.
+
+
+5-6. Carb/fat exchange fixtures
+-------------------------------
+
+X01. fat slightly low + carb moderately high + total kcal ok + protein ok
+
+  기대:
+    이중처벌 금지.
+    v8.2의 핵심 문제의식 유지.
+
+X02. fat very low + carb also low + protein low
+
+  기대:
+    교환으로 설명 불가.
+    구성 부족으로 감점 가능.
+
+X03. fat low + carb extreme high + TDEE overload
+
+  기대:
+    교환으로 면제 금지.
+    energy overload와 carb context가 함께 작동.
+
+
+5-7. Data / record fixtures
+---------------------------
+
+D01. one meal only
+
+  기대:
+    점수 없음/null.
+    sentinel 0 금지.
+
+D02. no meals
+
+  기대:
+    점수 없음/null.
+
+D03. insufficient/snapshotless/range policy missing
+
+  기대:
+    점수 없음/null 또는 blocked.
+    계산 불가를 0점으로 처리 금지.
+
+D04. old fixed Records
+
+  기대:
+    새 산식 전환을 막는 제품 요구로 확대하지 않는다.
+    hidden mutation 금지는 유지하되, dev/local migration 또는 explicit recompute는 별도 결정 가능.
+
+D05. scoreDeltaPreview
+
+  기대:
+    본류 아님.
+    optional audit-only.
+    v8.3 산식 전환의 prerequisite 아님.
+
+
+6. v8.2 exit review 필요성
+==========================
+
+v8.3으로 넘어가기 전에 v8.2를 다시 한 번 싹 훑어야 한다.
+이 작업 없이 넘어가면 v8.2 문서/테스트/코드 관성이 v8.3에 다시 섞일 가능성이 크다.
+
+exit review 목적:
+
+  1. v8.2에서 유지할 계약을 분리한다.
+  2. v8.2에서 supersede할 산식 판단을 분리한다.
+  3. v8.2에서 historical/report-only로만 남길 문서를 분리한다.
+  4. v8.2 테스트 중 "고정 감점표"를 정답처럼 고정한 것을 찾아낸다.
+  5. v8.3 문서와 구현이 v8.2 관성에 끌리지 않도록 index/status map을 만든다.
+
+exit review에서 유지할 가능성이 높은 것:
+
+  range-aware 방향
+  fixed g target에 대한 문제의식
+  dataQuality null gate
+  no sentinel 0
+  preview no-leak
+  scoreDeltaPreview optional audit-only
+  storage/schema 확장 보류
+  UI/Recent/DailyCoach preview field 연결 금지
+  old fixed hidden mutation 금지
+  TDEE time ownership production 사실
+  운동은 목표 칼로리에 이미 반영된다는 사실
+
+exit review에서 supersede할 가능성이 높은 것:
+
+  component pointsPreview fixed value table
+  candidateScorePreview = clamp(100 + fixed component sum, 0, 100)
+  v8.2_macro_range_score_v1 fixed-penalty production score
+  high/severe label을 production score body로 쓰는 테스트
+  alcoholImpactPenalty 제거만으로 알코올 점수 문제가 해결됐다는 해석
+  "고볼륨이면 고탄수 자동 붕괴 금지"처럼 hard collapse와 natural collapse를 혼동하게 만드는 표현
+
+exit review에서 historical로 둘 가능성이 높은 것:
+
+  report-only helper line
+  candidateScorePreview field reservation line
+  scoreDeltaPreview line
+  numeric preview guard phase
+  storage compatibility checkpoint
+
+
+7. v8.2 문서 인벤토리와 상태 분류 초안
+=======================================
+
+현재 확인된 v8.2 macro range 문서 수: 65개
+
+분류 표기:
+
+  KEEP:
+    v8.3에서도 유지할 계약 또는 문제의식.
+
+  SUPERSEDE:
+    v8.3에서 더 이상 현재 결론으로 쓰면 안 되는 산식/방향.
+
+  HISTORICAL:
+    report-only, transition, 구현 기록으로 보존하되 최신 지시로 쓰지 않음.
+
+  REVIEW:
+    exit review에서 정합성 확인 필요.
+
+  ARCHIVE:
+    root docs에서 빼고 archive/index로 이동 후보.
+
+7-1. Foundational / policy group
+--------------------------------
+
+01. v8.2_macro_range_rebalance_note_2026-07-02.md
+    상태: KEEP + HISTORICAL
+    이유: fixed g target 문제의식, carb/fat range-aware 방향의 출발점이다.
+    주의: 여기서 바로 v8.3 산식이 확정된 것은 아니다.
+
+02. v8.2_macro_range_rebalance_feasibility_audit_2026-07-03.md
+    상태: KEEP + HISTORICAL
+    이유: copy-only로 해결되지 않고 정책/산식 검토가 필요하다는 판단은 유지.
+
+03. v8.2_macro_range_policy_design_2026-07-03.md
+    상태: KEEP + REVIEW
+    이유: 외부근거 계층, 앱 정책값, score version 필요성은 유지.
+    검토: v8.3 anchor-based continuous scoring과 충돌하는 고정표/중간값이 있는지 확인.
+
+04. v8.2_macro_range_phase_gate_closeout_2026-07-03.md
+    상태: HISTORICAL + REVIEW
+    이유: 당시 phase gate closeout 기록.
+    검토: 이후 v8.3 전환으로 superseded되는 금지선/다음 단계 표현 확인.
+
+
+7-2. Contract / storage / snapshot / signature / backup / recent group
+-----------------------------------------------------------------------
+
+05. v8.2_macro_range_contract_normalizer_design_2026-07-03.md
+    상태: KEEP + REVIEW
+    이유: explicit normalizer 필요성, schema를 조용히 열지 않는 원칙은 유지.
+
+06. v8.2_macro_range_contract_normalizer_tests_implementation_2026-07-03.md
+    상태: KEEP + HISTORICAL
+    이유: no-leak guard 유지.
+
+07. v8.2_macro_range_contract_storage_design_2026-07-03.md
+    상태: KEEP + REVIEW
+    이유: storage 확장 전 decision 필요성 유지.
+
+08. v8.2_macro_range_explicit_normalizer_simulation_design_2026-07-03.md
+    상태: HISTORICAL + REVIEW
+    이유: simulation은 production schema가 아니므로 v8.3에서 과대해석 금지.
+
+09. v8.2_macro_range_explicit_normalizer_simulation_tests_implementation_2026-07-03.md
+    상태: HISTORICAL
+    이유: 구현 기록.
+
+10. v8.2_macro_range_signature_include_exclude_decision_design_2026-07-03.md
+    상태: KEEP + REVIEW
+    이유: signature에 어떤 field를 넣을지 명시적으로 결정해야 한다는 원칙은 유지.
+
+11. v8.2_macro_range_signature_decision_tests_implementation_2026-07-03.md
+    상태: KEEP + HISTORICAL
+    이유: candidateScorePreview 등 no-leak guard 유지.
+
+12. v8.2_macro_range_snapshot_compatibility_design_2026-07-03.md
+    상태: KEEP + REVIEW
+    이유: old snapshot과 future field no-leak 원칙 유지.
+
+13. v8.2_macro_range_snapshot_compatibility_test_design_2026-07-03.md
+    상태: KEEP + HISTORICAL
+    이유: test design 기록.
+
+14. v8.2_macro_range_snapshot_compatibility_design_tests_implementation_2026-07-03.md
+    상태: KEEP + HISTORICAL
+    이유: no-leak guard 기록.
+
+15. v8.2_macro_range_backup_restore_old_new_fixture_design_2026-07-03.md
+    상태: KEEP + REVIEW
+    이유: backup/restore no-leak 원칙 유지.
+
+16. v8.2_macro_range_backup_restore_fixture_tests_implementation_2026-07-03.md
+    상태: KEEP + HISTORICAL
+    이유: backup/restore fixture guard 기록.
+
+17. v8.2_macro_range_recent_mixed_basis_handling_design_2026-07-03.md
+    상태: KEEP + REVIEW
+    이유: mixed basis를 조용히 합치지 않는 원칙 유지.
+
+18. v8.2_macro_range_recent_mixed_basis_tests_implementation_2026-07-03.md
+    상태: KEEP + HISTORICAL
+    이유: Recent mixed-basis guard 기록.
+
+19. v8.2_macro_range_storage_compatibility_checkpoint_2026-07-03.md
+    상태: KEEP + REVIEW
+    이유: storage/schema readiness와 no-leak 원칙은 유지.
+    검토: production score가 v8.2에서 열렸으므로 "ADHERENCE_SCORING_VERSION 변경 없음" 같은 당시 표현은 historical로 격하.
+
+
+7-3. Report-only helper / candidate group
+-----------------------------------------
+
+20. v8.2_macro_range_report_only_helper_design_2026-07-03.md
+    상태: HISTORICAL + KEEP 일부
+    이유: report-only와 production을 분리하는 원칙은 유지.
+
+21. v8.2_macro_range_report_only_helper_implementation_2026-07-03.md
+    상태: HISTORICAL
+
+22. v8.2_macro_range_score_candidate_report_only_design_2026-07-03.md
+    상태: HISTORICAL + KEEP 일부
+    이유: fixed score와 candidate 비교는 optional audit로만 유지.
+
+23. v8.2_macro_range_score_candidate_report_only_implementation_2026-07-03.md
+    상태: HISTORICAL
+
+
+7-4. Numeric preview / score guard group
+----------------------------------------
+
+24. v8.2_macro_range_score_severity_policy_design_2026-07-03.md
+    상태: REVIEW + SUPERSEDE 일부
+    이유: severity label은 설명에는 가능하지만 production score body로 쓰면 안 된다.
+
+25. v8.2_macro_range_score_severity_policy_tests_implementation_2026-07-05.md
+    상태: HISTORICAL + REVIEW
+
+26. v8.2_macro_range_score_report_only_numeric_preview_phase_closeout_2026-07-05.md
+    상태: HISTORICAL
+
+27. v8.2_macro_range_score_report_only_numeric_preview_entry_decision_2026-07-05.md
+    상태: HISTORICAL
+
+28. v8.2_macro_range_score_report_only_numeric_preview_entry_implementation_2026-07-05.md
+    상태: HISTORICAL
+
+29. v8.2_macro_range_score_report_only_numeric_preview_entry_tests_implementation_2026-07-05.md
+    상태: HISTORICAL
+
+30. v8.2_macro_range_score_report_only_numeric_preview_consumer_no_leak_audit_2026-07-05.md
+    상태: KEEP + HISTORICAL
+    이유: no-leak principle 유지.
+
+31. v8.2_macro_range_score_report_only_numeric_preview_consumer_no_leak_tests_implementation_2026-07-05.md
+    상태: KEEP + HISTORICAL
+
+32. v8.2_macro_range_score_numeric_preview_gate_design_2026-07-05.md
+    상태: HISTORICAL + REVIEW
+    이유: numeric preview gate 문서. v8.3에서는 production continuous score가 본류.
+
+33. v8.2_macro_range_score_numeric_preview_gate_tests_implementation_2026-07-05.md
+    상태: HISTORICAL
+
+34. v8.2_macro_range_score_numeric_preview_weight_severity_decision_2026-07-05.md
+    상태: SUPERSEDE + HISTORICAL
+    이유: weight/severity fixed table 중심이면 v8.3 continuous scoring과 충돌.
+
+35. v8.2_macro_range_score_weight_severity_decision_tests_implementation_2026-07-05.md
+    상태: SUPERSEDE + HISTORICAL
+
+36. v8.2_macro_range_score_test_local_numeric_helper_entry_decision_2026-07-05.md
+    상태: HISTORICAL
+
+37. v8.2_macro_range_score_test_local_numeric_helper_tests_implementation_2026-07-05.md
+    상태: HISTORICAL
+
+38. v8.2_macro_range_score_storage_separation_decision_2026-07-05.md
+    상태: KEEP + REVIEW
+    이유: score 계산과 storage/preview field 분리 원칙 유지.
+
+39. v8.2_macro_range_score_records_basis_version_decision_2026-07-05.md
+    상태: KEEP + REVIEW
+    이유: scoringVersion/basis 분리 원칙 유지.
+
+40. v8.2_macro_range_score_records_basis_version_tests_implementation_2026-07-05.md
+    상태: KEEP + HISTORICAL
+
+41. v8.2_macro_range_score_records_latest_policy_correction_2026-07-05.md
+    상태: REVIEW
+    이유: latest policy와 old fixed handling이 v8.3 migration concern과 충돌하는지 확인 필요.
+
+42. v8.2_macro_range_score_records_latest_policy_tests_implementation_2026-07-05.md
+    상태: HISTORICAL + REVIEW
+
+
+7-5. pointsPreview / candidateScorePreview fixed formula group
+--------------------------------------------------------------
+
+43. v8.2_macro_range_component_points_preview_shape_decision_2026-07-05.md
+    상태: KEEP 일부 + HISTORICAL
+    이유: saved field/no-leak 위치 제한은 유지. production formula로는 아님.
+
+44. v8.2_macro_range_component_points_preview_numeric_policy_test_design_2026-07-06.md
+    상태: HISTORICAL
+
+45. v8.2_macro_range_component_points_preview_numeric_policy_tests_implementation_2026-07-06.md
+    상태: HISTORICAL
+
+46. v8.2_macro_range_component_points_preview_numeric_formula_decision_2026-07-06.md
+    상태: SUPERSEDE
+    이유: non-positive fixed integer contribution table은 v8.3 continuous formula로 supersede.
+
+47. v8.2_macro_range_component_points_preview_numeric_formula_test_design_2026-07-06.md
+    상태: SUPERSEDE + HISTORICAL
+
+48. v8.2_macro_range_component_points_preview_numeric_formula_tests_implementation_2026-07-06.md
+    상태: SUPERSEDE + HISTORICAL
+
+49. v8.2_macro_range_candidate_score_preview_field_decision_2026-07-05.md
+    상태: HISTORICAL + KEEP 일부
+    이유: preview field 저장 금지/위치 제한은 유지.
+
+50. v8.2_macro_range_candidate_score_preview_numeric_policy_test_design_2026-07-06.md
+    상태: HISTORICAL
+
+51. v8.2_macro_range_candidate_score_preview_numeric_policy_tests_implementation_2026-07-06.md
+    상태: HISTORICAL
+
+52. v8.2_macro_range_candidate_score_preview_sum_clamp_rounding_decision_2026-07-06.md
+    상태: SUPERSEDE
+    이유: clamp(100 + fixed points sum) 방식은 v8.3 continuous penalty로 대체.
+
+53. v8.2_macro_range_candidate_score_preview_sum_clamp_rounding_test_design_2026-07-06.md
+    상태: SUPERSEDE + HISTORICAL
+
+54. v8.2_macro_range_candidate_score_preview_sum_clamp_rounding_tests_implementation_2026-07-06.md
+    상태: SUPERSEDE + HISTORICAL
+
+
+7-6. scoreDelta group
+---------------------
+
+55. v8.2_macro_range_score_delta_preview_policy_decision_2026-07-06.md
+    상태: KEEP 일부 + HISTORICAL
+    이유: scoreDeltaPreview는 optional audit-only로 유지.
+
+56. v8.2_macro_range_score_delta_preview_policy_test_design_2026-07-06.md
+    상태: HISTORICAL
+
+57. v8.2_macro_range_score_delta_preview_policy_tests_implementation_2026-07-06.md
+    상태: HISTORICAL
+
+
+7-7. realignment / production transition group
+----------------------------------------------
+
+58. v8.2_macro_range_score_preview_guard_phase_closeout_2026-07-06.md
+    상태: HISTORICAL + REVIEW
+    이유: preview guard closeout 기록. v8.3에서 fixed preview table은 superseded.
+
+59. v8.2_macro_range_scoring_direction_realignment_decision_2026-07-06.md
+    상태: KEEP
+    이유: scoreDelta 본류화 중단, production range-aware score 전환 방향은 유지.
+
+60. v8.2_macro_range_production_score_transition_decision_2026-07-06.md
+    상태: KEEP 일부 + REVIEW
+    이유: production score 전환 방향은 유지. fixed formula detail은 supersede.
+
+61. v8.2_macro_range_production_score_transition_test_design_2026-07-06.md
+    상태: SUPERSEDE 일부 + HISTORICAL
+    이유: exact score fixture가 fixed penalty table이면 v8.3에서 대체.
+
+62. v8.2_macro_range_production_score_transition_tests_implementation_2026-07-06.md
+    상태: SUPERSEDE 일부 + HISTORICAL
+
+63. v8.2_macro_range_production_score_implementation_decision_2026-07-06.md
+    상태: SUPERSEDE 일부 + KEEP 일부
+    이유:
+      KEEP: getDailyAdherenceScore replacement와 version bump를 같은 gate로 열어야 한다는 원칙.
+      SUPERSEDE: fixed contribution formula.
+
+64. v8.2_macro_range_production_score_implementation_test_design_2026-07-06.md
+    상태: SUPERSEDE 일부 + HISTORICAL
+
+65. v8.2_macro_range_production_score_implementation_2026-07-06.md
+    상태: SUPERSEDE 일부 + HISTORICAL
+    이유: 구현 기록으로 보존. v8.3 최종 산식 기준으로 사용 금지.
+
+
+8. 기존 기준문서 정합성 검토 / 통폐합 필요
+==========================================
+
+8-1. 검토 대상
+--------------
+
+기존 기준문서 후보:
+
+  docs/references/product/legacy_product_working_criteria_2026-06-16.txt
+  docs/references/product/legacy_user_intent_ledger_2026-06-16.txt
+  docs/references/external/macro_external_anchor_policy_table_2026-06-05.txt
+  docs/references/product/tdee_time_ownership_design_2026-06-15.txt
+  docs/references/product/exercise_mode_code_impact_audit_2026-06-15.txt
+  docs/references/historical/exercise_profile_formula_historical_map_2026-06-04.txt
+  docs/references/copy/app_copy_guidelines.txt
+  docs/references/external/acsm_resistance_training_guide_ko_2026.txt
+
+문제:
+
+  이 문서들은 각각 중요한 맥락을 담고 있지만, 현재 root docs에 v8.2 문서 65개와 함께 섞여 있다.
+  최신 기준, historical 참고, report-only map, 구현 지시서가 한눈에 구분되지 않는다.
+  이 상태에서는 Codex가 오래된 문서를 현재 기준으로 오해하기 쉽다.
+
+
+8-2. 유지할 기준
+----------------
+
+00_현재작업기준:
+
+  유지할 내용:
+    최신 대화 의도가 기준문서보다 우선.
+    산출식은 생리학적으로 설명 가능해야 함.
+    가능하면 신뢰도 높은 외부근거 사용.
+    운동 여부가 상위 모드.
+    TDEE 시간 소유권 production 적용 사실.
+    사용자 경험은 실제 화면에서 확인.
+
+  수정/보강할 내용:
+    v8.3 anchor-based continuous macro scoring을 최신 macro score 본류로 추가.
+    v8.2 fixed penalty score는 final이 아님을 명시.
+
+02_대화의도_근거표:
+
+  유지할 내용:
+    운동함/운동 안 함이 상위 모드.
+    데이터 호환/저장값 보존과 계산 유효값 분리.
+    TDEE time ownership.
+
+  보강할 내용:
+    운동은 점수 보너스가 아니라 carb curve context modifier.
+
+v8_외부근거_매크로_정책표:
+
+  유지할 내용:
+    외부근거는 대부분 범위이며 앱 정책값과 분리해야 함.
+    제품 정책값은 외부근거 밖으로 나가면 안 됨.
+
+  보강할 내용:
+    외부근거는 hard cutoff가 아니라 curve anchor로 사용.
+
+v8_CC이후_TDEE_시간소유권_설계:
+
+  유지할 내용:
+    운동/업무/생활활동/수면을 목표 칼로리에 반영.
+    같은 시간을 두 번 계산하지 않음.
+
+  보강할 내용:
+    v8.3에서 운동은 이미 target/TDEE에 반영되므로 finalScore bonus로 쓰면 안 됨.
+
+v8_운동여부_코드영향감사:
+
+  유지할 내용:
+    운동 여부는 상위 모드.
+    저장값과 계산 유효값 분리.
+    운동 안 함 모드에서 숨은 운동값이 계산에 새면 안 됨.
+
+  보강할 내용:
+    carb curve context에서 exerciseManagementMode와 trainingContext를 어떻게 쓸지 후속 문서에서 재정의.
+
+v8_운동프로필_수준별산식_통합실행설계:
+
+  유지할 내용:
+    이 문서는 정답지가 아니라 historical/report-only map.
+    기준문서가 있어도 산식이 생리학적으로 이상하면 문서와 다르게 갈 수 있음.
+    깊이/넓이/설명 가능성을 통과해야 믿을 만함.
+
+  주의:
+    현재 구현 지시서가 아니다.
+
+앱-문구-기준:
+
+  유지할 내용:
+    문구는 부드럽되 판단을 흐리지 않는다.
+    술, 고지방, 단백질 부족, 기록 부족 등은 숨기지 않는다.
+    내부 로직 용어는 사용자에게 보이지 않는다.
+
+  보강할 내용:
+    v8.3 continuous score 결과를 설명할 때도 internal curve, penalty, anchor 같은 말을 사용자에게 노출하지 않는다.
+
+
+8-3. 통폐합 제안
+----------------
+
+새 최상위 기준 폴더:
+
+  docs/00_current_truth/
+
+필수 파일 구조 초안:
+
+  docs/00_current_truth/00_READ_FIRST.txt
+    모든 작업자가 가장 먼저 읽어야 하는 문서.
+    문서 우선순위, 작업 전 체크리스트, 결과로그 필수 항목을 담는다.
+
+  docs/00_current_truth/01_product_current_truth.txt
+    앱의 현재 제품 방향.
+    운동 여부 상위 모드, TDEE time ownership, 기록/백업/문구 원칙.
+
+  docs/00_current_truth/02_macro_range_current_truth.txt
+    v8.3 macro scoring의 최신 진실.
+    fixed penalty 폐기, continuous scoring, anchor-based policy, alcohol/carb/exercise 원칙.
+
+  docs/00_current_truth/03_external_anchor_inventory.txt
+    NIAAA / ISSN / AMDR / ACSM 등 외부근거 anchor.
+    cutoff가 아니라 anchor임을 명시.
+
+  docs/00_current_truth/04_document_status_index.txt
+    v8.2 문서 65개와 기존 기준문서의 상태표.
+    KEEP / SUPERSEDE / HISTORICAL / REVIEW / ARCHIVE.
+
+  docs/00_current_truth/05_required_result_log_format.txt
+    결과로그에 반드시 포함할 항목.
+    GPT 감사 양식과 Codex 작업로그 양식을 섞지 않게 분리.
+
+  docs/00_current_truth/templates/new_doc_preamble.txt
+    앞으로 모든 문서 앞에 붙일 mandatory pre-read block.
+
+
+9. 문서가 너무 많아진 문제 정리 방식
+====================================
+
+9-1. 문제
+---------
+
+현재 root docs에는 v8.2 macro range 문서가 65개 있다.
+이 문서들은 당시 단계마다 정확한 guard를 세우기 위해 필요했지만, 지금은 오히려 혼란의 원인이 됐다.
+
+문제 유형:
+
+  1. old decision이 최신 decision처럼 보인다.
+  2. docs-only guard가 production readiness처럼 보인다.
+  3. fixed penalty table이 v8.3에서도 살아 있는 것처럼 보인다.
+  4. scoreDelta line이 optional audit인데도 다음 본류처럼 되살아난다.
+  5. old fixed Records no-mutation이 영구 제품 요구처럼 커진다.
+  6. "앱 테스트 생략 적절" 같은 감사 표현이 구현 단계 판단처럼 읽힌다.
+  7. 문서가 너무 많아 Codex가 전체를 다 읽지 않고 근처 문서만 보고 움직인다.
+
+
+9-2. 통폐합 목표
+----------------
+
+목표:
+
+  root docs에서 최신 기준과 historical archive를 분리한다.
+  최신 작업자가 반드시 읽어야 할 문서를 5개 이하로 줄인다.
+  과거 문서는 삭제하지 않고 archive/index로 이동한다.
+  과거 결정의 상태를 명확히 표시한다.
+  README를 길게 늘리는 대신 current truth entry point로 만든다.
+
+
+9-3. 통폐합 단계
+----------------
+
+Phase A. Freeze
+
+  v8.2_macro_range_*.md 새 문서 생성을 중단한다.
+  v8.2 관련 신규 문서는 exit review 1개만 허용한다.
+
+Phase B. Status index
+
+  docs/00_current_truth/04_document_status_index.txt에 65개 문서를 모두 등록한다.
+  각 문서에 KEEP / SUPERSEDE / HISTORICAL / REVIEW / ARCHIVE 상태를 부여한다.
+
+Phase C. Archive folder 생성
+
+  후보:
+    docs/archive/v8.2_macro_range/
+
+  root docs에 있던 v8.2 문서를 archive로 옮길지 판단한다.
+  바로 move하면 기존 internal link가 깨질 수 있으므로, 먼저 status index를 만든 뒤 이동한다.
+
+Phase D. README 정리
+
+  docs/README.md 최상단에 다음을 명시한다.
+
+    "macro range 작업자는 v8.2 문서를 직접 따라가지 말고 docs/00_current_truth/00_READ_FIRST.txt부터 읽는다."
+
+  README는 모든 세부 결정의 본문을 담지 않고, current truth entry와 archive index만 둔다.
+
+Phase E. Old docs preamble 주입
+
+  필요한 경우 v8.2 archive 문서 앞에 자동으로 다음 경고를 붙인다.
+
+    "이 문서는 historical/archive 문서다. 최신 macro scoring 기준은 docs/00_current_truth/02_macro_range_current_truth.txt를 우선한다."
+
+  단, 65개 파일을 수동 편집하지 않는다.
+  script로 일괄 주입하거나 archive index만 먼저 사용한다.
+
+
+10. 관성 차단 장치
+==================
+
+10-1. 문서 추가만으로는 부족하다
+--------------------------------
+
+문서 하나 더 만든다고 Codex가 반드시 읽는 것은 아니다.
+사용자가 지적한 것처럼, 작업 관성이 붙으면 문서를 읽으라는 규칙 자체가 무시될 수 있다.
+
+따라서 필요한 것은 "문서"가 아니라 "읽지 않으면 작업 산출물이 실패하게 만드는 구조"다.
+
+
+10-2. 권장 장치
+---------------
+
+장치 1. 최상위 기준 폴더
+
+  docs/00_current_truth/
+
+  이름을 00으로 시작하게 해서 파일 탐색, rg 결과, README에서 항상 먼저 보이게 한다.
+
+장치 2. 모든 신규 문서 mandatory preamble
+
+  앞으로 작성하는 모든 v8.3 macro scoring 문서 맨 위에 다음 block을 강제한다.
+
+  MANDATORY PRE-READ:
+  - docs/00_current_truth/00_READ_FIRST.txt
+  - docs/00_current_truth/02_macro_range_current_truth.txt
+  - docs/00_current_truth/03_external_anchor_inventory.txt
+  - docs/00_current_truth/04_document_status_index.txt
+
+  READ RESULT:
+  - read_before_writing: yes/no
+  - current_truth_version:
+  - superseded_docs_checked:
+  - external_anchor_checked:
+
+  없으면 문서 gate 실패.
+
+장치 3. docs preflight script
+
+  후보:
+    tools/render_audit/verify_doc_policy.cjs
+
+  검사:
+    - docs/v8.3_*.md 또는 docs/v8.3_*.txt에 mandatory preamble이 있는가
+    - current_truth 문서 경로가 적혀 있는가
+    - "high = -10", "severe = -16"을 production formula로 쓰는 문구가 금지선 없이 들어갔는가
+    - "score cap"이 policy로 들어갔는가
+    - "운동 보너스"가 들어갔는가
+    - "alcoholImpactPenalty" 후처리 부활 문구가 들어갔는가
+    - scoreDeltaPreview를 본류로 부르는 문구가 있는가
+
+장치 4. package script
+
+  후보:
+    npm run test:docs-policy
+
+  역할:
+    문서 preflight를 자동 실행.
+    새 문서가 required preamble 없이 들어오면 실패.
+
+장치 5. 결과로그 필수 항목
+
+  Codex 결과로그는 다음을 반드시 포함해야 한다.
+
+    읽은 최상위 기준문서:
+    v8.2 문서 상태 확인:
+    수용:
+    폐기:
+    통합:
+    보류:
+    외부근거 anchor:
+    금지선:
+    내 판단 다음 단계:
+
+  이 항목이 없으면 사용자가 결과를 반려할 수 있게 한다.
+
+장치 6. AGENTS.md 또는 repo-level instruction
+
+  루트 AGENTS.md에 다음을 넣는 방안 검토:
+
+    macro range / scoring / nutrition / exercise 관련 작업 전:
+    docs/00_current_truth/00_READ_FIRST.txt를 먼저 읽어야 한다.
+    읽은 문서 목록을 결과로그에 적어야 한다.
+    최신 사용자 의도가 기준문서보다 우선한다.
+    하지만 기준문서와 다르게 가면 이유를 기록해야 한다.
+
+  장점:
+    Codex가 repo context로 자동 읽을 가능성이 높아진다.
+
+  한계:
+    AGENTS.md도 항상 완벽히 강제되지는 않는다.
+    따라서 preflight test와 병행해야 한다.
+
+장치 7. archive 이동으로 noise 줄이기
+
+  root docs에 v8.2 문서가 계속 있으면 rg/탐색 시 오래된 문서가 계속 먼저 걸린다.
+  archive로 이동하면 작업자가 우연히 old decision을 따라갈 위험이 줄어든다.
+
+  단, 이동 전 status index 필요.
+
+장치 8. current truth hash
+
+  선택적 장치:
+    current truth 파일의 version/hash를 새 문서 preamble에 적는다.
+
+  예:
+    current_truth_version: macro-range-current-truth-2026-07-07-v1
+
+  장점:
+    문서를 읽었다고 주장할 때 어떤 기준을 읽었는지 추적 가능.
+
+  한계:
+    실제로 읽었는지 100% 보장하지는 못함.
+
+
+11. v8.3으로 넘어가기 전 필수 작업 순서
+=======================================
+
+Step 1. v8.2 exit review docs-only
+
+  목적:
+    v8.2 문서/테스트/구현을 KEEP / SUPERSEDE / HISTORICAL / REVIEW로 분류.
+
+  산출물:
+    docs/archive/v8.2_macro_range/v8.2_macro_range_exit_review_2026-07-07.md 또는 txt
+
+  금지:
+    code implementation
+    score formula change
+    UI/storage change
+
+
+Step 2. current truth folder 생성
+
+  목적:
+    작업자가 먼저 읽을 기준문서 집합 생성.
+
+  산출물:
+    docs/00_current_truth/00_READ_FIRST.txt
+    docs/00_current_truth/02_macro_range_current_truth.txt
+    docs/00_current_truth/04_document_status_index.txt
+
+
+Step 3. v8.3 realignment docs-only
+
+  목적:
+    anchor-based continuous macro scoring의 정책 본문 작성.
+
+  포함:
+    산식 구조
+    외부근거 anchor
+    운동일 carb context
+    alcohol physiology
+    protein/fat/carb curves
+    dataOutlier guard
+    old records migration stance
+    scoreDelta non-mainline
+
+
+Step 4. external anchor inventory docs-only
+
+  목적:
+    NIAAA, ISSN, AMDR, ACSM 등 외부근거를 anchor로 정리.
+
+  주의:
+    외부근거를 hard cutoff로 번역하지 않는다.
+
+
+Step 5. fixture direction table docs-only
+
+  목적:
+    대표 fixture 20~30개의 기대 방향을 사람 말로 확정.
+
+  주의:
+    점수 숫자부터 박지 않는다.
+    먼저 monotonicity, near-zero change, no hard cap, natural collapse 조건을 박는다.
+
+
+Step 6. test design
+
+  목적:
+    continuous scoring QA를 test suite로 설계.
+
+  필수 QA:
+    alcohol 56 < 80 < 112 < 140 순서
+    fat upper 1.2x < 2x < 3x 순서
+    target +1kcal near-zero
+    target over but TDEE below not catastrophic
+    rest vs training carb context difference
+    high training carb hard-zero 금지, curve-mediated low score 허용
+    protein excess non-catastrophic
+    old fixed not blocker
+    scoreDelta non-mainline
+
+
+Step 7. implementation
+
+  목적:
+    v8.3 continuous scoring code implementation.
+
+  전제:
+    위 문서와 test design이 닫힌 후.
+
+  구현 범위:
+    minimal surface, complete model.
+
+  즉:
+    UI/storage/scoreDelta는 최소화.
+    하지만 model 변수는 반쪽으로 빼지 않는다.
+
+
+12. "minimal implementation"에 대한 정정
+=======================================
+
+기존 문제:
+
+  Codex가 위험을 줄이려는 의도로 "최소구현"을 반복했다.
+  UI/storage/Records 변경에서는 이 태도가 맞다.
+  그러나 산식 모델에서는 핵심 변수를 빼고 나중으로 미루는 부작용을 만들었다.
+
+정정 원칙:
+
+  minimal surface, complete model
+
+뜻:
+
+  UI, storage, backup, scoreDelta, old records migration은 좁게 연다.
+  하지만 생리학 모델은 핵심 변수를 빼지 않는다.
+
+v8.3 모델에 처음부터 들어가야 하는 것:
+
+  target energy deviation
+  TDEE overload
+  protein shortage/excess efficiency
+  fat range/excess
+  carb exercise context
+  carb/fat exchange
+  alcohol physiology
+  data outlier/null gate
+
+나중으로 미뤄도 되는 것:
+
+  세부 UI breakdown
+  scoreDeltaPreview
+  storage schema expansion
+  old fixed hidden migration
+  public explanation dashboard
+
+
+13. 문구/사용자 설명 방향
+=========================
+
+사용자에게 보여줄 말:
+
+  "오늘은 목표 칼로리를 꽤 넘겼습니다."
+  "운동량에 비해 탄수화물이 부족합니다."
+  "술 영향이 커서 회복과 다음날 컨디션에 부담이 큽니다."
+  "지방 섭취가 권장 범위를 많이 벗어났습니다."
+  "기록이 부족해서 아직 점수를 내지 않습니다."
+
+사용자에게 보이면 안 되는 말:
+
+  continuous penalty
+  curve anchor
+  risk multiplier
+  cap
+  severity lane
+  component contribution
+  scoreDeltaPreview
+  candidateScorePreview
+  macroRangeContract
+
+문구 기준:
+
+  판단은 흐리지 않는다.
+  술/고지방/단백질 부족/기록 부족은 숨기지 않는다.
+  다만 내부 수학을 노출하지 않는다.
+  사용자가 "그래서 지금 뭘 하면 되는데?"를 바로 알 수 있어야 한다.
+
+
+14. 내 판단 최종 정리
+=====================
+
+수용:
+
+  v8.3 anchor-based continuous macro scoring으로 간다.
+  외부근거는 curve anchor로 쓴다.
+  fixed penalty table은 production body로 쓰지 않는다.
+  중간 score cap은 폐기한다.
+  마지막 0~100 clamp만 유지한다.
+  alcohol은 kcal + physiology risk 둘 다 반영한다.
+  운동은 finalScore bonus가 아니라 carb curve context로 반영한다.
+  high-volume carb hard-zero 금지, natural low score 허용으로 표현한다.
+  old records는 migration concern이지 scoring policy가 아니다.
+  v8.2 exit review 없이 v8.3으로 바로 넘어가지 않는다.
+  current truth 문서만으로는 부족하고 preflight/test/preamble/AGENTS/README 장치가 필요하다.
+
+폐기:
+
+  high = -10 / severe = -16 fixed table as production body
+  candidateScorePreview = clamp(100 + fixed points sum) as final policy
+  scoreDeltaPreview mainline
+  stepwise score cap
+  instant zero hard threshold 남발
+  v6.1 alcoholImpactPenalty 후처리 부활
+  운동 보너스
+  old fixed records 보존을 이유로 새 산식 전환 보류
+
+통합:
+
+  00_현재작업기준, 02_대화의도, 외부근거표, TDEE 시간소유권, 운동여부 감사, 운동프로필 historical map, 앱 문구 기준을 00_current_truth 폴더로 통합.
+  v8.2 65개 문서는 status index와 archive로 정리.
+  v8.3 관련 새 문서는 mandatory pre-read block을 갖는다.
+
+보류:
+
+  바로 구현
+  UI 세부 점수 노출
+  storage schema expansion
+  scoreDeltaPreview
+  old fixed hidden recompute
+  v8.2 archive 이동 전 무계획 파일 이동
+
+
+15. 결과로그 양식 제안
+======================
+
+앞으로 이 계열 작업의 Codex 결과로그는 아래 구조를 따른다.
+
+작업 결과:
+
+  작업명:
+  변경 성격:
+  변경 파일:
+  production 구현 여부:
+  test 실행:
+
+읽은 기준:
+
+  최상위 기준문서:
+  v8.2 상태문서:
+  외부근거 anchor:
+  관련 기존 기준문서:
+
+판단:
+
+  수용:
+  폐기:
+  통합:
+  보류:
+
+금지선:
+
+  scoreDeltaPreview:
+  storage/schema:
+  UI:
+  old records:
+  alcohol v6.1 penalty:
+  exercise bonus:
+
+내 판단 다음 단계:
+
+  추천:
+  이유:
+  먼저 할 것:
+  하지 말 것:
+  사용자 판단 필요:
+
+
+16. 다음 작업 후보
+==================
+
+추천 1순위:
+
+  v8.2 macro range exit review docs-only
+
+이유:
+
+  v8.2 문서 65개가 남긴 관성을 정리하지 않으면 v8.3 구현이 다시 고정 감점표, scoreDelta, old records 보존, preview guard 쪽으로 끌려간다.
+
+추천 2순위:
+
+  docs/00_current_truth/00_READ_FIRST.txt
+  docs/00_current_truth/02_macro_range_current_truth.txt
+  docs/00_current_truth/04_document_status_index.txt
+
+추천 3순위:
+
+  v8.3 anchor-based continuous macro scoring realignment docs-only
+
+구현은 아직 아님.
+먼저 exit review와 current truth 장치를 닫아야 한다.
+
+
+17. 참고 source URL
+===================
+
+NIAAA alcohol drinking patterns:
+  https://www.niaaa.nih.gov/alcohols-effects-health/alcohol-drinking-patterns
+
+NIAAA basics defining how much alcohol is too much:
+  https://www.niaaa.nih.gov/health-professionals-communities/core-resource-on-alcohol/basics-defining-how-much-alcohol-too-much
+
+ISSN protein and exercise:
+  https://pubmed.ncbi.nlm.nih.gov/28642676/
+  https://link.springer.com/article/10.1186/s12970-017-0177-8
+
+ISSN nutrient timing:
+  https://pmc.ncbi.nlm.nih.gov/articles/PMC5596471/
+  https://pubmed.ncbi.nlm.nih.gov/28919842/
+
+AMDR / Dietary Reference Intakes:
+  https://www.ncbi.nlm.nih.gov/books/NBK610333/

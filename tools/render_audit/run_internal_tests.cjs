@@ -48,6 +48,15 @@ function readArgValue(name){
   return index >= 0 ? process.argv[index + 1] : "";
 }
 
+function readPositiveIntEnv(name, fallback){
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function sleep(ms){
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 const mode = process.argv.includes("--mobile") ? "mobile" : "desktop";
 const requestedProfile = (readArgValue("--profile") || (mode === "mobile" ? "mobile" : "full")).trim();
 const requestedSuites = readArgValue("--suite")
@@ -61,11 +70,21 @@ const testProfiles = {
   smoke: [
     "runRecordMigrationTests",
     "runMealRecordTests",
+    "runMealEntryConsistencyTests",
     "runTodayConsumptionTests",
     "runTodayBalanceTests",
+    "runAdherenceUiTests",
     "runTodayCalculationOwnershipTests",
     "runTodayQuickEditTests",
     "runRecordEditCalculationBasisTests",
+    "runRecordDetailBodyCompositionPrecisionTests",
+    "runBackupWarningVisibilityTests",
+    "runRecordsDeleteActionPolishTests",
+    "runRecordDetailMealDeleteConfirmTests",
+    "runSettingsMobileCopyPolishTests",
+    "runUserFacingCopyConsistencyTests",
+    "runRecentRenderAuditSeedTests",
+    "runRecentMobileChartReadabilityTests",
     "runSmartRestoreImportTests",
     "runDataManagementBackupTests",
     "runDualBasisProductionTests"
@@ -77,25 +96,61 @@ const testProfiles = {
     "runTodayBalanceTests",
     "runModeRuntimeConfigTests",
     "runModeGoldenCalculationTests",
+    "runModeFreeCalculationContextTests",
     "runAdherenceScoringTests",
+    "runAdherenceUiTests",
     "runWeeklyAdherenceTests",
     "runTodayCalculationOwnershipTests",
     "runTodayQuickEditTests",
     "runRecordEditCalculationBasisTests",
+    "runRecordDetailBodyCompositionPrecisionTests",
     "runRecordTodayAutoWeeklyCountTests",
     "runRecordWeightTodayApplyPromptTests",
     "runRecordsInlineEditTests",
     "runSharedMealSurfaceTests",
+    "runMealEntryConsistencyTests",
     "runSmartRestoreImportTests",
     "runBackupRestoreConflictPreviewTests",
+    "runBackupWarningVisibilityTests",
+    "runRecordsDeleteActionPolishTests",
+    "runRecordDetailMealDeleteConfirmTests",
+    "runSettingsMobileCopyPolishTests",
+    "runUserFacingCopyConsistencyTests",
     "runDataManagementBackupTests",
     "runFullBackupMealsRestoreTests",
     "runInBodyRecordApplyTests",
     "runInBodyTodayFillTests",
     "runInBodySaveTodayApplyChoiceTests",
     "runDualBasisProductionTests",
+    "runMacroRangeReportOnlyHelperTests",
+    "runMacroRangeScoreCandidateReportOnlyTests",
+    "runMacroRangeScoreSeverityPolicyDesignTests",
+    "runMacroRangeScoreNumericPreviewGateDesignTests",
+    "runMacroRangeScoreWeightSeverityDecisionDesignTests",
+    "runMacroRangeComponentPointsPreviewNumericPolicyDesignTests",
+    "runMacroRangeComponentPointsPreviewNumericFormulaDecisionTests",
+    "runMacroRangeCandidateScorePreviewSumClampRoundingDecisionTests",
+    "runMacroRangeCandidateScorePreviewNumericPolicyDesignTests",
+    "runMacroRangeScoreDeltaPreviewPolicyDecisionTests",
+    "runMacroRangeProductionScoreTransitionDecisionTests",
+    "runMacroRangeProductionScoreImplementationDecisionTests",
+    "runMacroRangeContinuousScoringTests",
+    "runMacroRangeScoreRecordsBasisVersionDecisionTests",
+    "runMacroRangeScoreRecordsLatestPolicyCorrectionTests",
+    "runMacroRangeScoreTestLocalNumericHelperTests",
+    "runMacroRangeScoreReportOnlyNumericPreviewEntryDecisionTests",
+    "runMacroRangeScoreReportOnlyNumericPreviewConsumerNoLeakTests",
+    "runMacroRangeSnapshotCompatibilityDesignTests",
+    "runMacroRangeExplicitNormalizerSimulationDesignTests",
+    "runMacroRangeContractNormalizerDesignTests",
+    "runMacroRangeSignatureDecisionDesignTests",
+    "runMacroRangeBackupRestoreFixtureDesignTests",
+    "runMacroRangeRecentMixedBasisDesignTests",
     "runTargetMacroProductionPolicyTests",
+    "runAuthoritativeTargetCalTests",
+    "runTargetCalSemanticGuardTests",
     "runMacroAllocationExplanationTests",
+    "runDailyCoachTestCases",
     "runDailyCoachRecentContextTests"
   ],
   ui: [
@@ -113,14 +168,22 @@ const testProfiles = {
     "runUiComponentTaxonomyTests",
     "runResultProximitySummaryTests",
     "runTodayHeaderActionDensityTests",
+    "runAdherenceUiTests",
     "runUserFacingForbiddenCopyTests",
     "runUserFacingCopyPolishTests",
+    "runUserFacingCopyConsistencyTests",
+    "runRecordsDeleteActionPolishTests",
+    "runRecordDetailMealDeleteConfirmTests",
+    "runSettingsMobileCopyPolishTests",
     "runTodayCoachCopyPolishTests",
-    "runRecentFlowCopyPolishTests"
+    "runRecentFlowCopyPolishTests",
+    "runRecentRenderAuditSeedTests",
+    "runRecentMobileChartReadabilityTests"
   ],
   calibration: [
     "runMacroCalibrationTests",
     "runCalibrationScanReportTests",
+    "runV8ScenarioRunnerTests",
     "runCalibrationPhysiologyReviewTests",
     "runCalibrationWeeklyBudgetReviewTests",
     "runCalibrationCardioTargetPolicyReviewTests",
@@ -131,15 +194,29 @@ const testProfiles = {
     "runTargetMacroJointPolicyReviewTests",
     "runTargetMacroJointExpandedScanTests",
     "runGoalMacroPrincipleReviewTests",
-    "runGoalMacroDualBasisReviewTests"
+    "runGoalMacroDualBasisReviewTests",
+    "runExternalMacroPolicyComparisonTests",
+    "runExerciseManagementMacroScenarioTests",
+    "runExternalMacroProductionCandidateWiringTests",
+    "runExternalMacroActiveApplicationDecisionTests",
+    "runExternalMacroGuideActivityBasisMappingTests",
+    "runActivityWorkEnergyAvailabilityFloorPolicyTests"
   ],
   mobile: [
   "runMobileRegressionQaTests",
   "runMobileBottomNavSafetyTests",
   "runRecordsInBodySettingsCopyDietTests",
   "runAlcoholKcalCalculatorTests",
+  "runMealEntryConsistencyTests",
   "runSmartRestoreImportTests",
   "runBackupRestoreConflictPreviewTests",
+  "runBackupWarningVisibilityTests",
+  "runRecordsDeleteActionPolishTests",
+  "runRecordDetailMealDeleteConfirmTests",
+  "runSettingsMobileCopyPolishTests",
+  "runUserFacingCopyConsistencyTests",
+  "runRecentRenderAuditSeedTests",
+  "runRecentMobileChartReadabilityTests",
   "runFullBackupMealsRestoreTests",
   "runStitchSettingsShellTests",
   "runStitchRecordsShellTests",
@@ -163,12 +240,18 @@ if (!Object.prototype.hasOwnProperty.call(testProfiles, requestedProfile)) {
 }
 
 const requestedSuiteNames = requestedSuites.length ? requestedSuites : testProfiles[requestedProfile];
+const isFullExportedProfile = requestedProfile === "full" && requestedSuiteNames.length === 0;
+const runnerPageGotoTimeoutMs = readPositiveIntEnv("INTERNAL_TEST_RUNNER_GOTO_TIMEOUT_MS", 90000);
+const iframeLoadTimeoutMs = readPositiveIntEnv("INTERNAL_TEST_IFRAME_LOAD_TIMEOUT_MS", isFullExportedProfile ? 90000 : 60000);
+const completionTimeoutMs = readPositiveIntEnv("INTERNAL_TEST_COMPLETION_TIMEOUT_MS", isFullExportedProfile ? 900000 : 300000);
+const serverReadyTimeoutMs = readPositiveIntEnv("INTERNAL_TEST_SERVER_READY_TIMEOUT_MS", 10000);
 const profileDir = fs.mkdtempSync(path.join(debugDir, `browser_${mode}_${requestedProfile}_`));
 
 const runnerHtml = `<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
+  <link rel="icon" href="data:,">
   <title>macro-engine internal test runner</title>
   <style>
     body{font-family:system-ui,sans-serif;margin:16px;white-space:pre-wrap}
@@ -180,8 +263,12 @@ const runnerHtml = `<!doctype html>
 <script>
 (async () => {
   const output = document.getElementById("results-json");
+  const runnerStartedAt = Date.now();
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  let iframeLoadMs = null;
   const finish = summary => {
+    summary.elapsedMs = Date.now() - runnerStartedAt;
+    summary.iframeLoadMs = iframeLoadMs;
     output.textContent = JSON.stringify(summary, null, 2);
     document.body.setAttribute("data-done", "true");
   };
@@ -191,11 +278,20 @@ const runnerHtml = `<!doctype html>
     const iframe = document.createElement("iframe");
     iframe.src = "/index.html?codexInternalTests=1";
     document.body.appendChild(iframe);
+    const iframeStartedAt = Date.now();
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("index.html load timeout")), 30000);
+      const timer = setTimeout(
+        () => reject(new Error("index.html load timeout after ${iframeLoadTimeoutMs}ms")),
+        ${iframeLoadTimeoutMs}
+      );
       iframe.onload = () => {
         clearTimeout(timer);
+        iframeLoadMs = Date.now() - iframeStartedAt;
         resolve();
+      };
+      iframe.onerror = () => {
+        clearTimeout(timer);
+        reject(new Error("index.html iframe failed to load"));
       };
     });
     const w = iframe.contentWindow;
@@ -263,6 +359,11 @@ function createServer(){
       response.end(runnerHtml);
       return;
     }
+    if (url.pathname === "/favicon.ico") {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
     const requestedPath = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
     const filePath = path.resolve(root, requestedPath.slice(1));
     if (!filePath.startsWith(root + path.sep) && filePath !== root) {
@@ -282,10 +383,50 @@ function createServer(){
   });
 }
 
+function requestServerPath(port, pathname = "/__internal_test_runner.html", timeoutMs = 1000){
+  return new Promise((resolve, reject) => {
+    const request = http.get({
+      host: "127.0.0.1",
+      port,
+      path: pathname,
+      timeout: timeoutMs
+    }, response => {
+      response.resume();
+      response.on("end", () => {
+        if (response.statusCode === 200) {
+          resolve(response.statusCode);
+          return;
+        }
+        reject(new Error(`server readiness check returned HTTP ${response.statusCode}`));
+      });
+    });
+    request.on("timeout", () => {
+      request.destroy(new Error(`server readiness check timed out after ${timeoutMs}ms`));
+    });
+    request.on("error", reject);
+  });
+}
+
+async function waitForServerReady(port){
+  const startedAt = Date.now();
+  let lastError = null;
+  while (Date.now() - startedAt < serverReadyTimeoutMs) {
+    try {
+      await requestServerPath(port);
+      return;
+    } catch (error) {
+      lastError = error;
+      await sleep(100);
+    }
+  }
+  throw new Error(`internal test server did not become ready within ${serverReadyTimeoutMs}ms: ${lastError ? lastError.message : "unknown error"}`);
+}
+
 (async () => {
   const server = createServer();
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const port = server.address().port;
+  await waitForServerReady(port);
   let context;
   try {
     const launchOptions = {
@@ -311,10 +452,32 @@ function createServer(){
     }
     if (!context) throw lastError || new Error("Unable to launch a Playwright browser");
     const page = context.pages()[0] || await context.newPage();
+    const consoleErrors = [];
+    const pageErrors = [];
+    page.on("console", message => {
+      if (message.type() === "error") {
+        consoleErrors.push(message.text());
+      }
+    });
+    page.on("pageerror", error => {
+      pageErrors.push(error.message || String(error));
+    });
     await page.setViewportSize({ width: frameWidth + 80, height: frameHeight + 80 });
-    await page.goto(`http://127.0.0.1:${port}/__internal_test_runner.html`, { waitUntil: "load", timeout: 30000 });
-    await page.waitForFunction(() => document.body.getAttribute("data-done") === "true", null, { timeout: 240000 });
+    const gotoStartedAt = Date.now();
+    await page.goto(`http://127.0.0.1:${port}/__internal_test_runner.html`, { waitUntil: "domcontentloaded", timeout: runnerPageGotoTimeoutMs });
+    const gotoMs = Date.now() - gotoStartedAt;
+    await page.waitForFunction(() => document.body.getAttribute("data-done") === "true", null, { timeout: completionTimeoutMs });
     const summary = JSON.parse(await page.locator("#results-json").textContent());
+    summary.nodeRunner = {
+      gotoMs,
+      runnerPageGotoTimeoutMs,
+      iframeLoadTimeoutMs,
+      completionTimeoutMs,
+      consoleErrorCount: consoleErrors.length,
+      pageErrorCount: pageErrors.length,
+      consoleErrors: consoleErrors.slice(0, 20),
+      pageErrors: pageErrors.slice(0, 20)
+    };
     console.log(JSON.stringify(summary, null, 2));
     if (summary.runnerError || summary.failedCount) process.exitCode = 1;
   } finally {

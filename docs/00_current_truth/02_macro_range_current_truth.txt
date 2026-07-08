@@ -1,0 +1,163 @@
+02 macro range current truth
+작성일: 2026-07-07
+문서 성격: v8.3 macro scoring 현재 기준
+
+이 문서는 짧고 강한 current truth다.
+상세 근거는 _source master plan을 보되, 실제 작업 판단은 이 문서를 우선한다.
+
+현재 본류
+- v8.3 anchor-based continuous macro scoring으로 간다.
+- v8.2 fixed penalty score는 range-aware 전환 실험 / 중간 구현 / superseded 예정 상태다.
+- v8.3은 고정 g 목표나 상태별 고정 감점표가 아니라, 외부근거 anchor와 연속 곡선을 사용한다.
+
+유지
+- fixed g target 문제의식.
+- range-aware macro scoring 방향.
+- protein anchor.
+- carb/fat flexibility.
+- dataQuality null gate.
+- no sentinel 0.
+- preview no-leak.
+- scoreDeltaPreview optional audit-only.
+- storage/schema/UI/Recent/DailyCoach 확장은 별도 gate.
+- TDEE time ownership production 사실.
+- 운동 소모는 목표 칼로리/TDEE에 이미 반영된다는 사실.
+
+폐기 / supersede
+- high = -10, severe = -16 같은 상태별 고정 감점표를 production body로 쓰는 것.
+- candidateScorePreview = clamp(100 + fixed component point sum, 0, 100)를 final policy로 쓰는 것.
+- 중간 score cap.
+- 즉시 0점 hard threshold 남발.
+- v6.1 alcoholImpactPenalty 후처리 부활.
+- 운동 보너스.
+- scoreDeltaPreview mainline.
+- old fixed records 보존을 이유로 새 산식 전환을 막는 것.
+
+v8.3 산식 방향
+finalRawScore =
+  100
+  - targetEnergyDeviationPenalty
+  - tdeeOverloadPenalty
+  - proteinShortagePenalty
+  - proteinExcessEfficiencyPenalty
+  - fatRangePenalty
+  - carbExerciseContextPenalty
+  - carbFatExchangeFailurePenalty
+  - alcoholPhysiologyPenalty
+  - dataOutlierPenalty
+
+finalScore = clamp(finalRawScore, 0, 100)
+
+중요:
+- 각 penalty는 고정 감점표가 아니다.
+- 각 penalty는 중간 cap이 아니다.
+- 각 penalty는 외부근거 anchor와 앱 목표를 기반으로 한 연속 곡선이어야 한다.
+- 마지막 0~100 clamp는 정책 cap이 아니라 표시 범위다.
+
+외부근거 사용 원칙
+- 외부근거는 hard cutoff가 아니라 curve anchor다.
+- 외부근거는 점수 자체를 주지 않으므로, 앱 정책 판단은 fixture QA로 제한한다.
+- 주관을 완전히 제거할 수는 없지만, 주관이 끼어드는 지점을 external anchor + fixture QA로 제한한다.
+
+Anchor table v1
+- NIAAA alcohol:
+  - standard drink: pure alcohol 14g.
+  - binge drinking: 일반적으로 남성 5잔 이상, 여성 4잔 이상을 약 2시간 안에 마시는 패턴.
+  - high-intensity drinking: binge threshold의 약 2배 이상.
+  - 사용 방식: alcoholPhysiologyPenalty 곡선 anchor. hard cutoff 아님.
+
+- ISSN protein:
+  - 1.4~2.0 g/kg/day: 대부분의 운동자에게 충분한 일반 범위.
+  - 2.3~3.1 g/kg/day: hypocaloric period resistance-trained subjects의 제지방 보존 후보.
+  - >3.0 g/kg/day: 일부 저항훈련자 체성분에 긍정적 가능성 언급.
+  - 사용 방식: shortage는 강하게, excess는 완만하게.
+
+- ISSN nutrient timing / carbohydrate:
+  - glycogen storage/recovery 맥락에서 8~12 g/kg/day 고탄수 섭취가 언급된다.
+  - 사용 방식: carbExerciseContextPenalty 곡선 anchor. hard zero 아님.
+
+- AMDR / DRI:
+  - macronutrient를 total energy 대비 범위로 본다.
+  - 사용 방식: fat/carbs/protein을 단일 g target이 아니라 range/risk 관점으로 해석.
+
+알코올
+- 알코올 영향을 무시하지 않는다.
+- alcohol kcal는 totalKcal와 TDEE overload에 반영한다.
+- alcoholG / standard drinks / bodyWeightKg 등은 alcoholPhysiologyPenalty에 반영한다.
+- 이것은 이중감점이 아니다. energy 축과 recovery/sleep/metabolic risk 축이 다르기 때문이다.
+- v6.1 alcoholImpactPenalty 후처리는 되살리지 않는다.
+
+운동 / 탄수
+- 운동은 finalScore bonus가 아니다.
+- 운동 소모는 이미 target/TDEE에 반영된다.
+- 운동은 carb curve context modifier다.
+- 운동 맥락은 탄수 곡선 anchor를 이동시킬 수 있다.
+- 고탄수라는 이유만으로 hard zero 처리하지 않는다.
+- high-volume context라도 totalKcal/TDEE overload가 크면 curve-mediated collapse는 가능하다.
+- target/scoring/card display는 같은 macro range helper를 봐야 한다.
+- 8~12g/kg carb anchor는 high-volume flat no-penalty permission이 아니다.
+- Today adaptive target이 켜져 있으면 탄수화물과 지방 목표는 같은 kcal 안에서 실시간 교환될 수 있다.
+- 반복 고탄수/고지방 흐름은 3일/7일 trend limiter로 adaptive target 이동폭을 줄인다.
+- 3일/7일 trend limiter는 count bucket만으로 갑자기 꺾이는 계단식이 아니라, 최근 기록의 초과 정도와 날짜 가까움을 반영하는 continuous pressure 모델이어야 한다.
+- 자동 운동 context는 descriptive label이 바뀌는 순간 탄수 범위가 뛰면 안 된다. 실제 carb context는 `continuous_training_load_interpolation`으로 rest -> normal -> high anchor를 보간한다.
+- adaptive target OFF이면 Today는 fixed target을 유지한다.
+- Today adaptive target은 live display/score interpretation이며 Records goalSnapshot을 덮어쓰지 않는다. snapshot은 selected calculation target을 보존한다.
+- Today adaptive target ON/OFF는 persistent setting surface다. 대규모 schema migration은 아니지만 저장되는 설정 field가 추가된 사실은 결과로그에서 명시한다.
+- 핵심 표현: hard-collapse 금지, curve-mediated collapse 허용.
+
+단백질
+- 부족은 강하게 본다.
+- 초과는 지방/알코올처럼 강하게 벌하지 않는다.
+- 초과는 효율 저하, 칼로리 배분 문제, data outlier 후보로 완만하게 본다.
+
+지방
+- targetFatUpper, fatG/bodyWeightKg, fatKcal/totalKcal, totalKcal/TDEE를 함께 본다.
+- fat 1000g 같은 극단은 fatRangePenalty + tdeeOverloadPenalty가 함께 커져 자연스럽게 0점 근처로 가야 한다.
+- fat above = -12에서 멈추면 실패다.
+
+데이터 / records
+- no meals, one meal, insufficient, snapshotless, range policy missing은 null/blocked다.
+- 계산 불가를 sentinel 0으로 쓰지 않는다.
+- 현재 scoring version으로 저장된 auto adherencePercent는 기록 조회 시 저장값을 우선한다.
+- 식사 변경, 기준 갱신, Today live score처럼 명시적 이벤트가 있을 때만 v8.3 산식으로 재계산한다.
+- v8.3 scoringContext는 body weight와 totalBurn source를 노출해야 한다.
+- targetProteinFallback과 missing totalBurn은 authoritative source처럼 숨기지 않는다.
+- missing totalBurn/TDEE는 score curve tuning 문제가 아니다.
+- full macro + missing TDEE는 target adherence score를 낼 수 있지만, TDEE overload 축이 빠진 source warning 대상으로 본다.
+- targetProteinFallback은 score를 막는 null gate가 아니라 inferred weight source warning 대상으로 본다.
+- no meals, one meal, insufficient, snapshotless, range policy missing은 source warning이 아니라 null/blocked gate다.
+- source visibility 구현은 existing scoringContext를 해석하는 narrow implementation이어야 하며, storage/schema 확장으로 시작하지 않는다.
+- old fixed Records no silent mutation은 전환 중 안전장치다.
+- old fixed Records는 v8.3 scoring policy를 막는 제품 요구가 아니다.
+- dev/local old records는 별도 migration/recompute/reset 결정 가능.
+
+테스트/문서 관성 처리
+- v8.2 macro range 원문 65개는 docs/archive/v8.2_macro_range/로 이동했다.
+- root docs에 v8.2_macro_range_*.md가 다시 생기면 관성 재유입으로 보고 docs-policy 실패로 본다.
+- v8.2 fixed-point helper가 남아 있을 수는 있지만 historical guard evidence로만 둔다.
+- historical helper는 current v8.3 scoringVersion을 반환하면 안 된다.
+- v8.3 scoring correctness는 continuous scoring tests가 담당한다.
+
+현재 구현 gate
+- v8.3 fixture direction table은 docs/v8.3_fixture_direction_table_2026-07-07.md로 닫혔다.
+- v8.3 continuous scoring test design은 docs/v8.3_continuous_scoring_test_design_2026-07-07.md로 닫혔다.
+- v8.3 implementation entry decision은 docs/v8.3_implementation_entry_decision_2026-07-07.md로 닫혔다.
+- v8.3 continuous scoring implementation은 docs/v8.3_continuous_scoring_implementation_2026-07-07.md로 구현됐다.
+- v8.3 implementation regression audit은 docs/v8.3_implementation_regression_audit_2026-07-07.md로 닫혔다.
+- v8.2 root docs archive/link review는 docs/archive/v8.2_macro_range/README.md와 docs-policy guard로 닫혔다.
+- v8.3 score distribution tuning audit은 docs/v8.3_score_distribution_tuning_audit_2026-07-07.md로 닫혔다.
+- v8.3 score distribution tuning decision은 docs/v8.3_score_distribution_tuning_decision_2026-07-07.md로 닫혔다.
+- v8.3 score source visibility decision은 docs/v8.3_score_source_visibility_decision_2026-07-07.md로 닫혔다.
+- v8.3 source visibility implementation은 docs/v8.3_source_visibility_implementation_2026-07-07.md로 구현됐다.
+- v8.3 source visibility QA profile hardening은 docs/v8.3_source_visibility_qa_profile_hardening_2026-07-07.md로 구현됐다.
+- v8.3 target/scoring alignment implementation은 docs/v8.3_target_scoring_alignment_implementation_2026-07-08.md로 구현됐다.
+- v8.3 target/scoring alignment QA closeout은 docs/v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md로 닫혔다.
+- 구현 중에도 UI/storage/schema/scoreDeltaPreview/old records migration은 별도 gate다.
+
+source visibility 현재 기준
+- missing total burn / `tdeeAvailable:false` / `totalBurnSource:"missing"`은 score tuning이나 null gate가 아니라 user-facing source note 대상이다.
+- `weightSource:"targetProteinFallback"`은 score를 막지 않지만 inferred weight source note 대상이다.
+- source note는 Today live score surface에만 붙이고 storage/schema/backup/Recent/DailyCoach field로 열지 않는다.
+- stored current-version auto score는 hidden recompute하지 않으며, `stored_auto_snapshot`에는 live source warning을 붙이지 않는다.
+- no meals / one meal / pending / invalid scoring context는 계속 null/blocked gate다.
+- Today source visibility UI regression은 `runAdherenceUiTests`에서 고정하고, 해당 suite는 smoke/core/ui profile에 포함되어야 한다.

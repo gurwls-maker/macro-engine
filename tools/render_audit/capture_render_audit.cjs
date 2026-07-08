@@ -12,6 +12,22 @@ const debugDir = path.join(auditDir, "_debug");
 const profileDir = path.join(debugDir, "edge_profile");
 const prefix = "runstep_macro_v1_";
 const today = "2026-05-21";
+const currentAuditDate = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+  .toISOString()
+  .slice(0, 10);
+
+function clearGeneratedAuditFiles(dir, allowedExtensions) {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const fullPath = path.join(dir, entry.name);
+    if (allowedExtensions.has(path.extname(entry.name).toLowerCase())) fs.unlinkSync(fullPath);
+  }
+}
+
+clearGeneratedAuditFiles(pageDir, new Set([".html"]));
+clearGeneratedAuditFiles(shotDir, new Set([".png"]));
+if (fs.existsSync(path.join(auditDir, "manifest.json"))) fs.unlinkSync(path.join(auditDir, "manifest.json"));
 
 fs.mkdirSync(pageDir, { recursive: true });
 fs.mkdirSync(shotDir, { recursive: true });
@@ -44,6 +60,12 @@ configurePortableNodePath();
 const { chromium } = require("playwright");
 
 const d = day => `2026-05-${String(day).padStart(2, "0")}`;
+function shiftIsoDate(dateString, offsetDays) {
+  const date = new Date(`${dateString}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+const auditDate = offsetDays => shiftIsoDate(currentAuditDate, offsetDays);
 const meal = (id, label, carbs, protein, fat, memo = "", extras = {}) => ({
   id,
   mealLabel: label,
@@ -139,6 +161,227 @@ const todayDraft = {
   }
 };
 
+const profileCandidateV2Settings = {
+  ...baseSettings,
+  goal: "diet",
+  weight: "88",
+  height: "175",
+  age: "40",
+  bodyFat: "28",
+  skeletal: "33",
+  activityLevel: "moderate",
+  workType: "office",
+  weeklyTrainingDays: "4",
+  weeklyTrainingDaysManual: "true",
+  exerciseProfile: "mixed",
+  profileSession: "mixed_strength_cardio",
+  routinePlan: "mixed_balanced",
+  routine: "mixed_strength_cardio",
+  intensityOverride: "0.8",
+  weightDuration: "60",
+  cardioType: "treadmill_run",
+  cardioDuration: "70",
+  cardioSpeed: "8",
+  cardioIncline: "1"
+};
+
+const profileCandidateV2TodayDraftValues = {
+  calculationWeight: 88,
+  skeletalMuscle: 33,
+  bodyFatMass: 24.64,
+  bodyFatPercent: 28,
+  todayActivityLevel: "moderate",
+  todayWorkType: "office",
+  todayExerciseProfile: "mixed",
+  todayProfileSession: "mixed_strength_cardio",
+  todayRoutineSession: "mixed_strength_cardio",
+  todayIntensityOverride: 0.8,
+  todayWeightDuration: 60,
+  todayCardioType: "treadmill_run",
+  todayCardioDuration: 70,
+  todayCardioSpeed: 8,
+  todayCardioIncline: 1,
+  bodyStatusSource: "user",
+  bodyStatusEdited: true,
+  cardioSource: "user",
+  cardioEdited: true
+};
+
+const profileCandidateV2TodayDraft = {
+  [today]: profileCandidateV2TodayDraftValues,
+  [currentAuditDate]: profileCandidateV2TodayDraftValues
+};
+
+const profileCandidateV2Snapshot = snap({
+  targetCal: 3312.9411753385825,
+  protein: 176,
+  carbs: 528,
+  fat: 55.21568614873139,
+  mode: "general",
+  goal: "diet",
+  weight: 88,
+  height: "175",
+  age: "40",
+  bodyFat: 28,
+  bodyFatMass: 24.64,
+  skeletal: 33,
+  activityLevel: "moderate",
+  workType: "office",
+  weeklyTrainingDays: "4",
+  routinePlan: "mixed_balanced",
+  routine: "mixed_strength_cardio",
+  intensityOverride: "0.8",
+  weightDuration: 60,
+  cardioType: "treadmill_run",
+  cardioDuration: 70,
+  cardioSpeed: 8,
+  cardioIncline: 1,
+  exerciseProfile: "mixed",
+  profileSession: "mixed_strength_cardio",
+  profileMacroCandidateModel: "candidate-v8-profile-macro-v2-linked-target-v0",
+  profileMacroCandidateStage: "calculate_runtime_candidate_v2_target_delta_proposal_v0",
+  profileTargetDeltaKcal: 29.446064227471197,
+  profileTargetRateDeltaEquivalentKgPerWeek: 0.02676914929770109
+});
+
+const profileCandidateV2Records = [
+  {
+    date: d(21),
+    recordMode: "detailed",
+    weight: 88,
+    note: "v8.0-AA post-wiring candidate-v2 applied visual QA fixture",
+    goalSnapshot: profileCandidateV2Snapshot,
+    snapshotSource: "saved_at_entry",
+    meals: [
+      meal("pcv2-breakfast", "Breakfast", 115, 42, 12, "Visual QA fixture", { date: d(21), time: "08:10" }),
+      meal("pcv2-lunch", "Lunch", 150, 55, 18, "Visual QA fixture", { date: d(21), time: "12:30" }),
+      meal("pcv2-dinner", "Dinner", 140, 50, 16, "Visual QA fixture", { date: d(21), time: "19:10" })
+    ]
+  },
+  {
+    date: d(20),
+    recordMode: "simple",
+    weight: 88.2,
+    adherence: "medium",
+    goalSnapshot: profileCandidateV2Snapshot,
+    snapshotSource: "saved_at_entry",
+    note: "previous-day context fixture"
+  }
+];
+
+const profileCandidateV2InbodyRecords = [
+  { date: "2026-05-03", weight: 89.4, skeletalMuscle: 32.8, bodyFat: 25.6, bodyFatPercent: 28.6 },
+  { date: "2026-05-10", weight: 88.9, skeletalMuscle: 33.0, bodyFat: 25.0, bodyFatPercent: 28.1 },
+  { date: "2026-05-17", weight: 88.4, skeletalMuscle: 33.1, bodyFat: 24.8, bodyFatPercent: 28.0 }
+];
+
+const profileRoutineVisualFixtures = Object.freeze({
+  bodybuilding: {
+    profileSession: "bodybuilding_arms",
+    routinePlan: "split5",
+    routine: "ARM",
+    intensityOverride: 0.75,
+    weightDuration: 60,
+    cardioType: "treadmill_walk",
+    cardioDuration: 20,
+    cardioSpeed: 5,
+    cardioIncline: 4
+  },
+  powerbuilding: {
+    profileSession: "powerbuilding_lower",
+    routinePlan: "powerbuilding_ppl",
+    routine: "powerbuilding_lower",
+    intensityOverride: 1,
+    weightDuration: 90,
+    cardioType: "treadmill_walk",
+    cardioDuration: 10,
+    cardioSpeed: 5,
+    cardioIncline: 2
+  },
+  strength: {
+    profileSession: "strength_deload",
+    routinePlan: "strength_technique_deload",
+    routine: "strength_deload",
+    intensityOverride: 0.45,
+    weightDuration: 40,
+    cardioType: "treadmill_walk",
+    cardioDuration: 10,
+    cardioSpeed: 5,
+    cardioIncline: 0
+  },
+  running: {
+    profileSession: "running_interval",
+    routinePlan: "running_speed",
+    routine: "running_interval",
+    intensityOverride: 0,
+    weightDuration: 0,
+    cardioType: "treadmill_run",
+    cardioDuration: 35,
+    cardioSpeed: 12,
+    cardioIncline: 1
+  },
+  mixed: {
+    profileSession: "mixed_recovery",
+    routinePlan: "mixed_circuit",
+    routine: "mixed_recovery",
+    intensityOverride: 0,
+    weightDuration: 0,
+    cardioType: "treadmill_walk",
+    cardioDuration: 30,
+    cardioSpeed: 5,
+    cardioIncline: 0
+  }
+});
+
+function makeProfileRoutineVisualPayload(profile){
+  const fixture = profileRoutineVisualFixtures[profile];
+  const settings = {
+    ...baseSettings,
+    generalAdvancedSettings: "true",
+    exerciseProfile: profile,
+    profileSession: fixture.profileSession,
+    routinePlan: fixture.routinePlan,
+    routine: fixture.routine,
+    intensityOverride: String(fixture.intensityOverride),
+    weightDuration: String(fixture.weightDuration),
+    cardioType: fixture.cardioType,
+    cardioDuration: String(fixture.cardioDuration),
+    cardioSpeed: String(fixture.cardioSpeed),
+    cardioIncline: String(fixture.cardioIncline)
+  };
+  const draftValues = {
+    calculationWeight: 74.8,
+    skeletalMuscle: 36,
+    bodyFatMass: 11.37,
+    bodyFatPercent: 15.2,
+    todayActivityLevel: "moderate",
+    todayWorkType: "office",
+    todayExerciseProfile: profile,
+    todayProfileSession: fixture.profileSession,
+    todayRoutinePlan: fixture.routinePlan,
+    todayRoutineSession: fixture.routine,
+    todayIntensityOverride: fixture.intensityOverride,
+    todayWeightDuration: fixture.weightDuration,
+    todayCardioType: fixture.cardioType,
+    todayCardioDuration: fixture.cardioDuration,
+    todayCardioSpeed: fixture.cardioSpeed,
+    todayCardioIncline: fixture.cardioIncline,
+    bodyStatusSource: "user",
+    bodyStatusEdited: true,
+    cardioSource: "user",
+    cardioEdited: true
+  };
+  return {
+    settings,
+    records: [],
+    inbodyRecords,
+    todayDrafts: {
+      [today]: draftValues,
+      [currentAuditDate]: draftValues
+    }
+  };
+}
+
 const inbodyRecords = [
   { date: "2026-04-05", weight: 76.1, skeletalMuscle: 35.8, bodyFat: 13.2, bodyFatPercent: 17.4 },
   { date: "2026-04-13", weight: 75.4, skeletalMuscle: 35.9, bodyFat: 11.6, bodyFatPercent: 15.6 },
@@ -228,8 +471,66 @@ const richRecords = [
   }
 ];
 
+function makeRecentEnoughRecords(dayCount = 28) {
+  return Array.from({ length: dayCount }, (_, index) => {
+    const date = auditDate(-(dayCount - 1 - index));
+    const trainingDay = index % 4 !== 0;
+    const highFatDay = index % 9 === 4;
+    const alcoholDay = index % 11 === 6;
+    const targetCal = trainingDay ? 2280 : 2050;
+    const meals = [
+      meal(`recent-${index}-breakfast`, "아침", 52 + (index % 5), 28, 11, "audit seed", { date, time: "08:10" }),
+      meal(`recent-${index}-lunch`, "점심", 86, 42, highFatDay ? 34 : 18, "audit seed", { date, time: "12:30", otherKcal: highFatDay ? 160 : 0 }),
+      meal(`recent-${index}-dinner`, "저녁", trainingDay ? 94 : 56, 46, alcoholDay ? 24 : 16, "audit seed", { date, time: "19:20", alcoholKcal: alcoholDay ? 240 : 0 })
+    ];
+    return {
+      date,
+      recordMode: "detailed",
+      weight: Number((74.9 - index * 0.025).toFixed(2)),
+      note: highFatDay ? "기타 칼로리 높은 날" : alcoholDay ? "술 기록 포함" : "Recent enough audit seed",
+      adherencePercent: Math.max(72, 92 - (index % 7) * 2),
+      adherenceSource: "auto",
+      adherenceScoringVersion: "v6.1_alcohol_penalty_v2",
+      goalSnapshot: snap({
+        targetCal,
+        protein: 145,
+        carbs: trainingDay ? 285 : 220,
+        fat: trainingDay ? 64 : 58,
+        routine: trainingDay ? "PUSH" : "REST",
+        weightDuration: trainingDay ? 65 : 0,
+        cardioDuration: trainingDay ? 20 : 0
+      }),
+      snapshotSource: "saved_at_entry",
+      meals
+    };
+  });
+}
+
+const recentEnoughTodayDraft = {
+  [currentAuditDate]: {
+    ...todayDraft[today],
+    calculationWeight: 74.2,
+    skeletalMuscle: 36.1,
+    bodyFatMass: 11.2,
+    bodyFatPercent: 15.1
+  }
+};
+
 const payloads = {
   empty: { settings: baseSettings, records: [], inbodyRecords, todayDrafts: todayDraft },
+  recentEnough: {
+    settings: baseSettings,
+    records: makeRecentEnoughRecords(28),
+    inbodyRecords,
+    todayDrafts: recentEnoughTodayDraft,
+    cardioPresets: {
+      items: [{ id: "recent-walk-default", name: "Recent audit walk", cardioType: "treadmill_walk", cardioDuration: 25, cardioSpeed: 5.4, cardioIncline: 5, isDefault: true, createdAt: `${currentAuditDate}T00:00:00.000Z` }],
+      defaultId: "recent-walk-default"
+    },
+    mealTemplates: {
+      items: [{ id: "recent-template", name: "Recent audit meal", meal: meal("recent-template-meal", "간식", 28, 25, 5, "Recent audit template", { date: currentAuditDate }), isFavorite: true }]
+    }
+  },
   rich: {
     settings: baseSettings,
     records: richRecords,
@@ -242,7 +543,25 @@ const payloads = {
     mealTemplates: {
       items: [{ id: "tpl-shake", name: "프로틴 쉐이크", meal: meal("tpl-meal", "간식", 25, 30, 3, "쉐이크 템플릿"), isFavorite: true }]
     }
-  }
+  },
+  profileCandidateV2: {
+    settings: profileCandidateV2Settings,
+    records: profileCandidateV2Records,
+    inbodyRecords: profileCandidateV2InbodyRecords,
+    todayDrafts: profileCandidateV2TodayDraft,
+    cardioPresets: {
+      items: [{ id: "pcv2-run", name: "Candidate v2 run", cardioType: "treadmill_run", cardioDuration: 70, cardioSpeed: 8, cardioIncline: 1, isDefault: true, createdAt: "2026-05-21T00:00:00.000Z" }],
+      defaultId: "pcv2-run"
+    },
+    mealTemplates: {
+      items: [{ id: "pcv2-template", name: "Candidate v2 meal", meal: meal("pcv2-template-meal", "Template", 120, 45, 14, "Candidate v2 visual QA template"), isFavorite: true }]
+    }
+  },
+  profileRoutineBodybuilding: makeProfileRoutineVisualPayload("bodybuilding"),
+  profileRoutinePowerbuilding: makeProfileRoutineVisualPayload("powerbuilding"),
+  profileRoutineStrength: makeProfileRoutineVisualPayload("strength"),
+  profileRoutineRunning: makeProfileRoutineVisualPayload("running"),
+  profileRoutineMixed: makeProfileRoutineVisualPayload("mixed")
 };
 
 const actionScripts = {
@@ -250,16 +569,16 @@ const actionScripts = {
   scrollMid: "w.scrollTo(0, 760);",
   scrollLower: "w.scrollTo(0, 1450);",
   quickOpen: "w.document.querySelector('#todayQuickEditToggle')?.click(); w.scrollTo(0, 1220);",
-  todayRecordModal: "w.openTodayRecordStartDialog?.('choices');",
+  todayRecordModal: "w.openTodayRecordStartDialog?.('detailed');",
   todayRecordDetailed: "w.openTodayRecordStartDialog?.('detailed'); await delay(250); w.document.getElementById('todayRecordMealCarbs').value='72'; w.document.getElementById('todayRecordMealProtein').value='38'; w.document.getElementById('todayRecordMealFat').value='12'; w.document.getElementById('todayRecordMealOtherKcal').value='80'; w.document.getElementById('todayRecordMealMemo').value='감사용 입력';",
-  todayRecordSimple: "w.openTodayRecordStartDialog?.('simple'); await delay(250); w.document.querySelector('#todayRecordSimpleChoices [data-adherence-value=\"high\"]')?.click();",
-  todayRecordSkip: "w.openTodayRecordStartDialog?.('skip');",
+  todayRecordDetailedLower: "w.openTodayRecordStartDialog?.('detailed'); await delay(250); const body=w.document.querySelector('#todayRecordStartOverlay .record-start-body'); if(body) body.scrollTop=body.scrollHeight;",
   todayRecordAlcoholOpen: "w.openTodayRecordStartDialog?.('detailed'); await delay(250); const alc=w.document.querySelector('[data-alcohol-calc=\"today-start\"]'); if(alc) alc.open=true; w.document.getElementById('todayRecordAlcoholVolumeMl').value='500'; w.document.getElementById('todayRecordAlcoholAbvPercent').value='5'; w.document.getElementById('todayRecordAlcoholServings').value='2'; w.document.querySelector('[data-apply-alcohol-calc=\"today-start\"]')?.click();",
   todayMealReuseModal: "w.openTodayRecordStartDialog?.('detailed'); await delay(250); w.document.querySelector('[data-open-meal-reuse=\"today-start\"]')?.click();",
   todayInbodyRecordSelect: "w.document.getElementById('todaySelectInbodyRecordBtn')?.click();",
   todayUpdated: "w.document.querySelector('[data-update-today-record-basis]')?.click();",
   tabRecords: "w.document.querySelector('#tabRecords')?.click();",
   tabRecordsDetail: "w.document.querySelector('#tabRecords')?.click(); await delay(300); w.document.querySelector('[data-record-card-date=\"2026-05-21\"]')?.click(); await delay(300); w.document.getElementById('recordArchiveDetailHost')?.scrollIntoView({block:'start'});",
+  tabRecordsDetailBasisOpen: "w.document.querySelector('#tabRecords')?.click(); await delay(300); w.document.querySelector('[data-record-card-date=\"2026-05-21\"]')?.click(); await delay(300); const basis=w.document.querySelector('[data-record-detail-section=\"basis\"]'); if(basis) basis.open=true; await delay(100); basis?.scrollIntoView({block:'start'});",
   tabRecordsEdit: "w.document.querySelector('#tabRecords')?.click(); await delay(300); w.document.querySelector('[data-record-card-date=\"2026-05-21\"]')?.click(); await delay(300); w.document.querySelector('[data-edit-record-date=\"2026-05-21\"]')?.click(); await delay(300); w.document.getElementById('recordArchiveDetailHost')?.scrollIntoView({block:'start'});",
   tabRecordsInfoEditModal: "w.document.querySelector('#tabRecords')?.click(); await delay(300); w.document.querySelector('[data-open-record-edit-panel]')?.click();",
   tabRecordsMealAddModal: "w.document.querySelector('#tabRecords')?.click(); await delay(300); w.document.querySelector('[data-open-record-meal-entry]')?.click();",
@@ -270,7 +589,8 @@ const actionScripts = {
   tabWeekly14: "w.document.querySelector('#tabWeekly')?.click(); await delay(300); w.document.querySelector('[data-recent-flow-range=\"14\"]')?.click();",
   tabWeekly28: "w.document.querySelector('#tabWeekly')?.click(); await delay(300); w.document.querySelector('[data-recent-flow-range=\"28\"]')?.click();",
   tabInbody: "w.document.querySelector('#tabInbody')?.click();",
-  tabInbodyLower: "w.document.querySelector('#tabInbody')?.click(); await delay(300); w.scrollTo(0, 720);",
+  tabInbodyAnalysis: "w.document.querySelector('#tabInbody')?.click(); await delay(300); w.document.querySelector('[data-inbody-view-tab=\"detail\"]')?.click(); await delay(300); w.document.getElementById('inbodyDetailView')?.scrollIntoView({block:'start'});",
+  tabInbodyChange: "w.document.querySelector('#tabInbody')?.click(); await delay(300); w.document.querySelector('[data-inbody-view-tab=\"trend\"]')?.click(); await delay(300); w.document.getElementById('inbodyTrendView')?.scrollIntoView({block:'start'});",
   tabInbodyEdit: "w.document.querySelector('#tabInbody')?.click(); await delay(300); w.scrollTo(0, 720); await delay(100); w.document.querySelector('[data-load-inbody]')?.click(); await delay(300); w.document.querySelector('#inbodyInputTitle')?.scrollIntoView({block:'start'});",
   tabInbodyRecordsLink: "w.document.querySelector('#tabInbody')?.click(); await delay(300); const details=w.document.getElementById('inbodyRecordsDetails'); if(details) details.open=false; w.document.getElementById('viewInbodyRecordsBtn')?.click(); await delay(400); w.document.getElementById('inbodyRecordsDetails')?.scrollIntoView({block:'start'});",
   tabSettings: "w.document.querySelector('#tabSettings')?.click();",
@@ -288,8 +608,7 @@ const captures = [
   ["04_desktop_today_quick_open", "rich", "quickOpen", 1280, 900],
   ["05_desktop_today_record_start_modal", "rich", "todayRecordModal", 1280, 900],
   ["06_desktop_today_record_detailed_modal", "rich", "todayRecordDetailed", 1280, 900],
-  ["07_desktop_today_record_simple_modal", "rich", "todayRecordSimple", 1280, 900],
-  ["08_desktop_today_record_skip_modal", "rich", "todayRecordSkip", 1280, 900],
+  ["07_desktop_today_record_detailed_lower", "rich", "todayRecordDetailedLower", 1280, 900],
   ["09_desktop_today_record_alcohol_open", "rich", "todayRecordAlcoholOpen", 1280, 900],
   ["10_desktop_today_meal_reuse_modal", "rich", "todayMealReuseModal", 1280, 900],
   ["11_desktop_today_inbody_select_modal", "rich", "todayInbodyRecordSelect", 1280, 900],
@@ -301,12 +620,14 @@ const captures = [
   ["17_desktop_records_meal_add_modal", "rich", "tabRecordsMealAddModal", 1280, 900],
   ["18_desktop_records_meals_expanded", "rich", "tabRecordsMealsExpanded", 1280, 900],
   ["19_desktop_records_meal_edit_modal", "rich", "tabRecordsMealEditModal", 1280, 900],
-  ["21_desktop_recent_3d", "rich", "tabWeekly3", 1280, 900],
-  ["22_desktop_recent_7d", "rich", "tabWeekly", 1280, 900],
-  ["23_desktop_recent_14d", "rich", "tabWeekly14", 1280, 900],
-  ["24_desktop_recent_28d", "rich", "tabWeekly28", 1280, 900],
+  ["20_desktop_recent_empty", "empty", "tabWeekly", 1280, 900],
+  ["21_desktop_recent_enough_3d", "recentEnough", "tabWeekly3", 1280, 900],
+  ["22_desktop_recent_enough_7d", "recentEnough", "tabWeekly", 1280, 900],
+  ["23_desktop_recent_enough_14d", "recentEnough", "tabWeekly14", 1280, 900],
+  ["24_desktop_recent_enough_28d", "recentEnough", "tabWeekly28", 1280, 900],
   ["25_desktop_inbody_top", "rich", "tabInbody", 1280, 900],
-  ["26_desktop_inbody_lower", "rich", "tabInbodyLower", 1280, 900],
+  ["26_desktop_inbody_analysis", "rich", "tabInbodyAnalysis", 1280, 900],
+  ["26b_desktop_inbody_change", "rich", "tabInbodyChange", 1280, 900],
   ["27_desktop_inbody_edit", "rich", "tabInbodyEdit", 1280, 900],
   ["28_desktop_inbody_records_link", "rich", "tabInbodyRecordsLink", 1280, 900],
   ["29_desktop_settings_top", "rich", "tabSettings", 1280, 900],
@@ -319,7 +640,10 @@ const captures = [
   ["35_mobile_today_record_detailed", "rich", "todayRecordDetailed", 390, 900],
   ["36_mobile_records", "rich", "tabRecords", 390, 900],
   ["37_mobile_records_meal_edit", "rich", "tabRecordsMealEditModal", 390, 900],
-  ["38_mobile_recent", "rich", "tabWeekly", 390, 900],
+  ["38_mobile_recent_empty", "empty", "tabWeekly", 390, 900],
+  ["38b_mobile_recent_enough_7d", "recentEnough", "tabWeekly", 390, 900],
+  ["38c_mobile_recent_enough_14d", "recentEnough", "tabWeekly14", 390, 900],
+  ["38d_mobile_recent_enough_28d", "recentEnough", "tabWeekly28", 390, 900],
   ["39_mobile_inbody", "rich", "tabInbody", 390, 900],
   ["40_mobile_settings", "rich", "tabSettings", 390, 900],
   ["41_mobile_settings_groups_open", "rich", "tabSettingsOpenGroups", 390, 900],
@@ -328,7 +652,26 @@ const captures = [
   ["45_mobile_records_info_edit_modal", "rich", "tabRecordsInfoEditModal", 390, 900],
   ["46_mobile_records_meal_add_modal", "rich", "tabRecordsMealAddModal", 390, 900],
   ["47_mobile_inbody_records_link", "rich", "tabInbodyRecordsLink", 390, 900],
-  ["48_mobile_settings_data_lower", "rich", "tabSettingsDataLower", 390, 900]
+  ["47b_mobile_inbody_change", "rich", "tabInbodyChange", 390, 900],
+  ["48_mobile_settings_data_lower", "rich", "tabSettingsDataLower", 390, 900],
+  ["49_desktop_today_profile_candidate_v2_applied", "profileCandidateV2", "none", 1280, 900],
+  ["50_desktop_today_profile_candidate_v2_quick_open", "profileCandidateV2", "quickOpen", 1280, 900],
+  ["51_desktop_records_profile_candidate_v2_detail", "profileCandidateV2", "tabRecordsDetail", 1280, 900],
+  ["52_mobile_today_profile_candidate_v2_applied", "profileCandidateV2", "none", 390, 900],
+  ["53_mobile_today_profile_candidate_v2_quick_open", "profileCandidateV2", "quickOpen", 390, 900],
+  ["54_mobile_records_profile_candidate_v2_detail", "profileCandidateV2", "tabRecordsDetail", 390, 900],
+  ["55_desktop_records_profile_candidate_v2_basis_open", "profileCandidateV2", "tabRecordsDetailBasisOpen", 1280, 900],
+  ["56_mobile_records_profile_candidate_v2_basis_open", "profileCandidateV2", "tabRecordsDetailBasisOpen", 390, 900],
+  ["57_desktop_today_profile_routine_bodybuilding_quick_open", "profileRoutineBodybuilding", "quickOpen", 1280, 900],
+  ["58_desktop_today_profile_routine_powerbuilding_quick_open", "profileRoutinePowerbuilding", "quickOpen", 1280, 900],
+  ["59_desktop_today_profile_routine_strength_quick_open", "profileRoutineStrength", "quickOpen", 1280, 900],
+  ["60_desktop_today_profile_routine_running_quick_open", "profileRoutineRunning", "quickOpen", 1280, 900],
+  ["61_desktop_today_profile_routine_mixed_quick_open", "profileRoutineMixed", "quickOpen", 1280, 900],
+  ["62_mobile_today_profile_routine_bodybuilding_quick_open", "profileRoutineBodybuilding", "quickOpen", 390, 900],
+  ["63_mobile_today_profile_routine_powerbuilding_quick_open", "profileRoutinePowerbuilding", "quickOpen", 390, 900],
+  ["64_mobile_today_profile_routine_strength_quick_open", "profileRoutineStrength", "quickOpen", 390, 900],
+  ["65_mobile_today_profile_routine_running_quick_open", "profileRoutineRunning", "quickOpen", 390, 900],
+  ["66_mobile_today_profile_routine_mixed_quick_open", "profileRoutineMixed", "quickOpen", 390, 900]
 ];
 
 function makePage(name, payloadName, actionName, width, height) {
@@ -422,6 +765,87 @@ async function expandMobileFrameForFullPage(page, width, height) {
   return { fullPage: true, contentHeight, captureHeight };
 }
 
+function getAppFrame(page) {
+  return page.frames().find(frame => frame.url().includes("/index.html"));
+}
+
+async function getRuntimeMeta(page) {
+  const iframe = getAppFrame(page);
+  if (!iframe) return { appFrameFound: false, calculateFound: false };
+  return iframe.evaluate(() => {
+    try {
+      const calculateFn = typeof window.calculate === "function"
+        ? window.calculate
+        : (typeof calculate === "function" ? calculate : null);
+      const buildRecentContextFn = typeof window.buildRecentContext === "function"
+        ? window.buildRecentContext
+        : (typeof buildRecentContext === "function" ? buildRecentContext : null);
+      if (typeof calculateFn !== "function") {
+        return { appFrameFound: true, calculateFound: false };
+      }
+      const result = calculateFn();
+      const wiring = result?.profileCandidateV2ProductionWiring || {};
+      const proposal = result?.profileMacroCandidateV2RuntimeProposal || {};
+      const recentContext = typeof buildRecentContextFn === "function"
+        ? buildRecentContextFn(result, { records: [] })
+        : null;
+      const gate = recentContext?.profileCandidateV2TargetDeltaGate || {};
+      const activeRecentRangeButton = document.querySelector(".recent-flow-range-btn.active");
+      const recentFlowChartWrap = document.querySelector(".recent-flow-chart-wrap");
+      const recentFlowChartRect = recentFlowChartWrap?.getBoundingClientRect();
+      return {
+        appFrameFound: true,
+        calculateFound: true,
+        isCalculable: result?.isCalculable === true,
+        exerciseProfile: result?.s?.exerciseProfile || null,
+        profileSession: result?.s?.profileSession || null,
+        routinePlan: result?.s?.routinePlan || null,
+        routine: result?.s?.routine || null,
+        goal: result?.s?.goal || null,
+        selectedMacroBasis: result?.selectedMacroBasis || null,
+        targetCal: Number.isFinite(Number(result?.targetCal)) ? Number(result.targetCal) : null,
+        protein: Number.isFinite(Number(result?.protein)) ? Number(result.protein) : null,
+        carbs: Number.isFinite(Number(result?.carbs)) ? Number(result.carbs) : null,
+        fat: Number.isFinite(Number(result?.fat)) ? Number(result.fat) : null,
+        productionWiringVersion: wiring.version || null,
+        productionWiringStage: wiring.stage || null,
+        productionWiringApplied: wiring.applied === true,
+        productionTargetCalApplied: wiring.productionTargetCalApplied === true,
+        productionWiringReasonCode: wiring.reasonCode || null,
+        productionWiringTargetDeltaKcal: Number.isFinite(Number(wiring.targetDeltaKcal)) ? Number(wiring.targetDeltaKcal) : null,
+        runtimeProposalActive: proposal.active === true,
+        runtimeProposalRequested: proposal.requested === true,
+        runtimeProposalTargetDeltaKcal: Number.isFinite(Number(proposal.targetDeltaKcal)) ? Number(proposal.targetDeltaKcal) : null,
+        runtimeProposalProfileCarbFloorMet: proposal.profileCarbFloorMet === true,
+        recentGateStatus: gate.status || null,
+        recentGateTargetDeltaApplied: gate.targetDeltaApplied === true,
+        recentGateCanApplyAutomatically: gate.canApplyAutomatically === true,
+        recentFlowActiveRangeDays: Number(activeRecentRangeButton?.getAttribute("data-recent-flow-range")) || null,
+        recentFlowChartBarCount: document.querySelectorAll(".recent-flow-chart-bar").length,
+        recentFlowChartDateLabelCount: document.querySelectorAll(".recent-flow-chart-date-label").length,
+        recentFlowChartEmpty: !!document.querySelector(".recent-flow-chart-empty"),
+        recentFlowHorizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
+        recentFlowChartWrapHeight: recentFlowChartRect ? Math.round(recentFlowChartRect.height) : null,
+        todayProfileSelectHidden: document.getElementById("todayQuickExerciseProfile")?.closest(".field")?.classList.contains("hidden") === true,
+        todayRoutineProfileLabelText: document.getElementById("todayQuickRoutineProfileLabel")?.textContent?.trim() || null,
+        todayRoutinePlanDisabled: document.getElementById("todayQuickRoutinePlan")?.disabled === true,
+        todayRoutinePlanValue: document.getElementById("todayQuickRoutinePlan")?.value || null,
+        todayRoutineSessionValue: document.getElementById("todayQuickRoutineSession")?.value || null,
+        todayRoutineSessionOptions: Array.from(document.getElementById("todayQuickRoutineSession")?.options || []).map(option => option.value),
+        todayCalcSummaryText: document.getElementById("todayCalcSummary")?.textContent?.trim() || null,
+        settingsTrainingHostHasDefaultSessionPicker: document.getElementById("settingsTrainingDefaultsHost")?.contains(document.getElementById("todayRoutineAthleteField")) === true,
+        settingsTrainingHostHasWeekdaySchedule: document.getElementById("settingsTrainingDefaultsHost")?.closest(".settings-group")?.contains(document.getElementById("routineWeekdaySchedulePanel")) === true
+      };
+    } catch (error) {
+      return {
+        appFrameFound: true,
+        calculateFound: null,
+        runtimeMetaError: error?.message || String(error)
+      };
+    }
+  });
+}
+
 async function capture(context, baseUrl, name, payloadName, actionName, width, height) {
   const htmlPath = path.join(pageDir, `${name}.html`);
   const shotPath = path.join(shotDir, `${name}.png`);
@@ -448,9 +872,10 @@ async function capture(context, baseUrl, name, payloadName, actionName, width, h
   const captureMeta = width <= 560
     ? await expandMobileFrameForFullPage(page, width, height)
     : { fullPage: false, contentHeight: height, captureHeight: height };
+  const runtimeMeta = await getRuntimeMeta(page);
   await page.screenshot({ path: shotPath, fullPage: captureMeta.fullPage });
   await page.close();
-  return { shotPath, captureMeta };
+  return { shotPath, captureMeta, runtimeMeta };
 }
 
 async function runRenderAudit() {
@@ -487,8 +912,8 @@ async function runRenderAudit() {
     for (const item of captures) {
       const [name, payloadName, actionName, width, height] = item;
       console.log(`capture ${name}`);
-      const { shotPath, captureMeta } = await capture(context, baseUrl, name, payloadName, actionName, width, height);
-      manifest.push({ name, payloadName, actionName, viewport: { width, height }, shotPath, capture: captureMeta });
+      const { shotPath, captureMeta, runtimeMeta } = await capture(context, baseUrl, name, payloadName, actionName, width, height);
+      manifest.push({ name, payloadName, actionName, viewport: { width, height }, shotPath, capture: captureMeta, runtime: runtimeMeta });
     }
     fs.writeFileSync(path.join(auditDir, "manifest.json"), JSON.stringify({ generatedAt: new Date().toISOString(), captures: manifest }, null, 2), "utf-8");
     console.log(JSON.stringify({ count: manifest.length, shotDir }, null, 2));
@@ -520,6 +945,8 @@ module.exports = {
   captures,
   makePage,
   createServer,
+  getAppFrame,
+  getRuntimeMeta,
   chromium,
   runRenderAudit
 };
