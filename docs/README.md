@@ -90,6 +90,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - README 충돌 판단 순서는 current truth / status index를 legacy 00/02보다 우선하도록 정리한다.
   - 산식/UI/storage/schema 변경과 app display version alignment는 여전히 별도 gate다.
 
+- `app_display_version_alignment_decision_2026-07-08.md`
+  - scoring version `v8.3_anchor_continuous_macro_score_v1`와 앱 표시 label `v8.0`의 불일치를 정리한 docs-only decision 문서다.
+  - 선택한 방향은 app display label `v8.3`과 backup appVersion metadata `v8.3` 정렬이다.
+  - package.json version과 `FULL_BACKUP_VERSION`은 이번 alignment에서 유지한다.
+  - 실제 title/header/fallback/STAGE/NOTE/test 갱신은 다음 implementation 브랜치로 분리한다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
