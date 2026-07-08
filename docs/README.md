@@ -134,7 +134,14 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 산식 구현, source visibility, reference routing, app display alignment, WATCH regression, DailyCoach/copy regression, docs-policy, test profile coverage를 한 묶음으로 검산한다.
   - 결론은 `tag-ready after PR merge`이며, 실제 tag 생성은 이번 문서에서 하지 않는다.
   - score tuning, DailyCoach/copy rewrite, UI/storage/schema, scoreDeltaPreview, old records migration은 별도 future gate로 남긴다.
-  - 다음 본류는 사용자 결정이 필요한 v8.3 merge/tag instruction이다.
+  - 다음 본류는 사용자 화면 정합성 확인 중 새로 열린 `v8.3_macro_card_range_display_decision_2026-07-08.md`로 재분류됐다.
+
+- `v8.3_macro_card_range_display_decision_2026-07-08.md`
+  - v8.3 range-aware score와 Today macro card의 단일 target/남음/초과 표시가 충돌할 수 있는지 판단한 docs-only decision 문서다.
+  - 결론은 merge/tag instruction 폐기가 아니라 tag 전 macro card range display narrow implementation 필요다.
+  - 탄수화물/단백질/지방은 `오늘 범위` 용어로 통일하고, card는 짧게 유지하며 긴 운동/탄수 설명은 DailyCoach 계열로 분리한다.
+  - copy test가 AI스럽거나 낡은 문구를 고정하면 앱 문구를 테스트에 맞추기보다 test expectation 갱신도 허용한다고 닫는다.
+  - 다음 본류는 v8.3 macro card range display implementation이며, score formula/UI redesign/storage/schema/scoreDelta/old records migration은 열지 않는다.
 
 ## legacy / 참고 문서
 
