@@ -232,7 +232,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - Today card는 compact range/status surface로 유지하고, DailyCoach가 해석과 행동을 맡는다고 정리한다.
   - `글리코겐` 같은 전문어는 유용할 수 있지만 primary copy에 바로 넣지 않고 tooltip/glossary spec 이후로 미룬다.
   - `회복 재료`처럼 AI스럽거나 낡은 문구를 test가 고정하면 앱 문구를 테스트에 맞추지 말고 test expectation 갱신도 허용한다고 닫는다.
-  - 다음 gate는 `v8.3.1 DailyCoach/range copy naturalness narrow implementation`이다.
+  - 이 문서의 다음 후보였던 `v8.3.1 DailyCoach/range copy naturalness implementation`은 `v8.3.1_dailycoach_range_copy_naturalness_implementation_2026-07-09.md`로 닫혔다.
+  - score formula, numeric tuning, tooltip implementation, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
+
+- `v8.3.1_dailycoach_range_copy_naturalness_implementation_2026-07-09.md`
+  - DailyCoach/range-adjacent production copy에서 `회복 재료`, `회복재료`, `성장 재료` 같은 AI스럽거나 낡은 표현을 제거한 implementation log다.
+  - 해당 표현을 요구하던 test expectation을 meaning-first copy guard로 갱신했다.
+  - 이 작업은 앱 전체 문구 해결이 아니며, 다음 gate는 `v8.3.1 app-wide user-facing copy naturalness inventory / decision`이다.
   - score formula, numeric tuning, tooltip implementation, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
 ## legacy / 참고 문서

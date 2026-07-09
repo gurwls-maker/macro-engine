@@ -59,6 +59,7 @@ const requiredFiles = [
   "docs/v8.3.1_scoring_tuning_objective_rubric_decision_2026-07-09.md",
   "docs/v8.3.1_scoring_tuning_curve_candidate_simulation_decision_2026-07-09.md",
   "docs/v8.3.1_user_facing_range_explanation_copy_decision_2026-07-09.md",
+  "docs/v8.3.1_dailycoach_range_copy_naturalness_implementation_2026-07-09.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -113,6 +114,7 @@ if (failures.length === 0) {
   const scoringTuningObjectiveRubricDecision = read("docs/v8.3.1_scoring_tuning_objective_rubric_decision_2026-07-09.md");
   const scoringTuningCurveSimulationDecision = read("docs/v8.3.1_scoring_tuning_curve_candidate_simulation_decision_2026-07-09.md");
   const userFacingRangeCopyDecision = read("docs/v8.3.1_user_facing_range_explanation_copy_decision_2026-07-09.md");
+  const dailyCoachRangeCopyNaturalnessImplementation = read("docs/v8.3.1_dailycoach_range_copy_naturalness_implementation_2026-07-09.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
@@ -200,7 +202,8 @@ if (failures.length === 0) {
     "v8.3.1 scoring tuning objective rubric decision: closed",
     "v8.3.1 scoring tuning curve candidate simulation decision: closed",
     "v8.3.1 user-facing range explanation/copy decision: closed",
-    "v8.3.1 DailyCoach/range copy naturalness narrow implementation: next candidate",
+    "v8.3.1 DailyCoach/range copy naturalness implementation: implemented",
+    "v8.3.1 app-wide user-facing copy naturalness inventory / decision: next candidate",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -230,7 +233,8 @@ if (failures.length === 0) {
     "curve candidate simulation decision",
     "current_curve_with_guarded_outputs",
     "user-facing range explanation/copy decision",
-    "DailyCoach/range copy naturalness narrow implementation",
+    "DailyCoach/range copy naturalness implementation",
+    "app-wide user-facing copy naturalness inventory",
   ];
   for (const text of currentTruthRequirements) {
     if (!currentTruth.includes(text)) fail(`02_macro_range_current_truth missing: ${text}`);
@@ -258,7 +262,8 @@ if (failures.length === 0) {
     "v8.3.1 scoring tuning objective rubric decision",
     "v8.3.1 scoring tuning curve candidate simulation decision",
     "v8.3.1 user-facing range explanation/copy decision",
-    "v8.3.1 DailyCoach/range copy naturalness narrow implementation",
+    "v8.3.1 DailyCoach/range copy naturalness implementation",
+    "v8.3.1 app-wide user-facing copy naturalness inventory / decision",
     "current_curve_with_guarded_outputs",
     "continuous recency-weighted excess pressure",
     "automatic training load interpolation",
@@ -279,6 +284,7 @@ if (failures.length === 0) {
     "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning user confirmation",
     "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning evidence/user confirmation",
     "v8.3.1 user-facing range explanation/copy decision: next candidate",
+    "v8.3.1 DailyCoach/range copy naturalness narrow implementation: next candidate",
     "다음 후보는 evidence pack / user confirmation",
   ];
   for (const text of staleReadinessPhrases) {
@@ -315,6 +321,7 @@ if (failures.length === 0) {
     "v8.3.1_scoring_tuning_evidence_pack_2026-07-09.md",
     "v8.3.1_scoring_tuning_objective_rubric_decision_2026-07-09.md",
     "lightweight_anti_inertia_routine_2026-07-09.md",
+    "v8.3.1_dailycoach_range_copy_naturalness_implementation_2026-07-09.md",
     "release blocker",
     "score `83.712`",
     "target/scoring alignment implementation",
@@ -329,6 +336,7 @@ if (failures.length === 0) {
     "curve candidate simulation decision",
     "user-facing range explanation/copy decision",
     "DailyCoach/range copy naturalness",
+    "app-wide user-facing copy naturalness inventory",
   ];
   for (const text of readmeIncidentRequirements) {
     if (!readme.includes(text)) fail(`README missing target/scoring incident routing: ${text}`);
@@ -563,6 +571,29 @@ if (failures.length === 0) {
   for (const text of userFacingRangeCopyRequirements) {
     if (!userFacingRangeCopyDecision.includes(text)) {
       fail(`v8.3.1 user-facing range explanation/copy decision missing: ${text}`);
+    }
+  }
+
+  const dailyCoachRangeCopyNaturalnessImplementationRequirements = [
+    "v8.3.1 DailyCoach/range copy naturalness implementation",
+    "PROMPT_SCOPE_AUDIT",
+    "complete the full relevant DailyCoach/range/source-adjacent copy pass",
+    "Replaced DailyCoach production wording",
+    "회복 재료",
+    "회복재료",
+    "성장 재료",
+    "Tests must protect meaning, not awkward legacy wording.",
+    "app-wide line-by-line copy audit",
+    "app-wide user-facing copy naturalness inventory / decision",
+    "screen / area",
+    "exact current text",
+    "test fossilization",
+    "score anchors",
+    "scoreDeltaPreview",
+  ];
+  for (const text of dailyCoachRangeCopyNaturalnessImplementationRequirements) {
+    if (!dailyCoachRangeCopyNaturalnessImplementation.includes(text)) {
+      fail(`v8.3.1 DailyCoach/range copy naturalness implementation missing: ${text}`);
     }
   }
 
