@@ -55,6 +55,7 @@ const requiredFiles = [
   "docs/v8.3_post_tag_release_closeout_2026-07-09.md",
   "docs/post_v8.3_backlog_triage_2026-07-09.md",
   "docs/v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md",
+  "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
 ];
@@ -104,6 +105,7 @@ if (failures.length === 0) {
   const postTagReleaseCloseout = read("docs/v8.3_post_tag_release_closeout_2026-07-09.md");
   const postV83BacklogTriage = read("docs/post_v8.3_backlog_triage_2026-07-09.md");
   const scoringTuningProtocolDecision = read("docs/v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md");
+  const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
   const v82ArchiveReadme = read("docs/archive/v8.2_macro_range/README.md");
@@ -185,6 +187,7 @@ if (failures.length === 0) {
     "v8.3 post-tag release closeout: closed",
     "post-v8.3 backlog triage / v8.3.1 planning: corrected and closed",
     "v8.3.1 scoring tuning protocol decision: closed",
+    "lightweight anti-inertia execution routine: closed",
     "v8.3.1 scoring tuning evidence pack / user confirmation: next candidate",
     "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning evidence/user confirmation",
     "continuous pressure limiter",
@@ -232,6 +235,7 @@ if (failures.length === 0) {
     "v8.3 post-tag release closeout",
     "post-v8.3 backlog triage / v8.3.1 planning",
     "v8.3.1 scoring tuning protocol decision",
+    "lightweight anti-inertia execution routine",
     "v8.3.1 scoring tuning evidence pack / user confirmation",
     "v8.3.1 user-facing range explanation/copy decision",
     "continuous recency-weighted excess pressure",
@@ -281,6 +285,7 @@ if (failures.length === 0) {
     "v8.3_post_tag_release_closeout_2026-07-09.md",
     "post_v8.3_backlog_triage_2026-07-09.md",
     "v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md",
+    "lightweight_anti_inertia_routine_2026-07-09.md",
     "release blocker",
     "score `83.712`",
     "target/scoring alignment implementation",
@@ -416,6 +421,23 @@ if (failures.length === 0) {
     if (!scoringTuningProtocolDecision.includes(text)) fail(`v8.3.1 scoring tuning protocol decision missing: ${text}`);
   }
 
+  const lightweightAntiInertiaRequirements = [
+    "docs-only lightweight process guard",
+    "One-minute PROMPT_SCOPE_AUDIT",
+    "Minimal surface vs complete scope",
+    "Anti-loop rules",
+    "Stale-routine / supersede rules",
+    "Result-log template",
+    "Most audits belong in the result log",
+    "must not create another anti-inertia task",
+    "Do not enter review-the-review loops",
+    "Do not treat this checklist as permanent law",
+    "v8.3.1 scoring tuning evidence pack / user confirmation",
+  ];
+  for (const text of lightweightAntiInertiaRequirements) {
+    if (!lightweightAntiInertiaRoutine.includes(text)) fail(`lightweight anti-inertia routine missing: ${text}`);
+  }
+
   if (!readFirstImplementationBlocked && !readFirstImplementationAccepted) {
     fail("00_READ_FIRST missing v8.3 implementation gate state");
   }
@@ -440,6 +462,12 @@ if (failures.length === 0) {
     "docs/archive/v8.2_macro_range/",
     "v8.3 scoring implementation은 현재 `v8.3_anchor_continuous_macro_score_v1`로 구현된 상태",
     "v6.1 alcoholImpactPenalty",
+    "PROMPT_SCOPE_AUDIT",
+    "Do not assume the prompt is the correct next step",
+    "minimal surface",
+    "complete scope",
+    "recursive meta-work",
+    "Most audits belong in the result log",
   ];
   for (const text of agentsRequirements) {
     if (!agents.includes(text)) fail(`AGENTS.md missing: ${text}`);
