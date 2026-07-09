@@ -57,6 +57,7 @@ const requiredFiles = [
   "docs/v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md",
   "docs/v8.3.1_scoring_tuning_evidence_pack_2026-07-09.md",
   "docs/v8.3.1_scoring_tuning_objective_rubric_decision_2026-07-09.md",
+  "docs/v8.3.1_scoring_tuning_curve_candidate_simulation_decision_2026-07-09.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -109,6 +110,7 @@ if (failures.length === 0) {
   const scoringTuningProtocolDecision = read("docs/v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md");
   const scoringTuningEvidencePack = read("docs/v8.3.1_scoring_tuning_evidence_pack_2026-07-09.md");
   const scoringTuningObjectiveRubricDecision = read("docs/v8.3.1_scoring_tuning_objective_rubric_decision_2026-07-09.md");
+  const scoringTuningCurveSimulationDecision = read("docs/v8.3.1_scoring_tuning_curve_candidate_simulation_decision_2026-07-09.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
@@ -194,8 +196,8 @@ if (failures.length === 0) {
     "lightweight anti-inertia execution routine: closed",
     "v8.3.1 scoring tuning evidence pack: closed",
     "v8.3.1 scoring tuning objective rubric decision: closed",
-    "v8.3.1 scoring tuning curve candidate simulation decision: next candidate",
-    "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning curve candidate simulation decision",
+    "v8.3.1 scoring tuning curve candidate simulation decision: closed",
+    "v8.3.1 user-facing range explanation/copy decision: next candidate",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -220,8 +222,10 @@ if (failures.length === 0) {
     "v8.3.1 scoring tuning protocol decision",
     "scoring tuning evidence pack",
     "scoring tuning objective rubric decision",
+    "scoring tuning curve candidate simulation decision",
     "objective score band",
     "curve candidate simulation decision",
+    "current_curve_with_guarded_outputs",
   ];
   for (const text of currentTruthRequirements) {
     if (!currentTruth.includes(text)) fail(`02_macro_range_current_truth missing: ${text}`);
@@ -249,6 +253,7 @@ if (failures.length === 0) {
     "v8.3.1 scoring tuning objective rubric decision",
     "v8.3.1 scoring tuning curve candidate simulation decision",
     "v8.3.1 user-facing range explanation/copy decision",
+    "current_curve_with_guarded_outputs",
     "continuous recency-weighted excess pressure",
     "automatic training load interpolation",
     "target/scoring alignment release-blocker 기준",
@@ -267,7 +272,6 @@ if (failures.length === 0) {
     "v8.3.1 scoring tuning evidence pack / user confirmation: next candidate",
     "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning user confirmation",
     "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning evidence/user confirmation",
-    "v8.3.1 user-facing range explanation/copy decision: next candidate",
     "다음 후보는 evidence pack / user confirmation",
   ];
   for (const text of staleReadinessPhrases) {
@@ -495,6 +499,33 @@ if (failures.length === 0) {
   ];
   for (const text of scoringTuningObjectiveRubricRequirements) {
     if (!scoringTuningObjectiveRubricDecision.includes(text)) fail(`v8.3.1 scoring tuning objective rubric decision missing: ${text}`);
+  }
+
+  const scoringTuningCurveSimulationRequirements = [
+    "docs-only curve candidate simulation decision",
+    "PROMPT_SCOPE_AUDIT",
+    "current smoothstep anchor interpolation",
+    "Current output vs objective band",
+    "TDEE 1.05x",
+    "fat upper 2.00x with added kcal",
+    "700g carb with added calories",
+    "current_curve_with_guarded_outputs",
+    "No immediate numeric tuning is justified.",
+    "numeric tuning readiness: no",
+    "score formula implementation readiness: no",
+    "anchor value change readiness: no",
+    "curve steepness change readiness: no",
+    "adaptive limiter change readiness: no",
+    "v8.3.1 user-facing range explanation/copy decision",
+    "hard-collapse score tuning",
+    "permissive high-volume tuning",
+    "scoreDeltaPreview product path",
+    "kcal range display product UI",
+  ];
+  for (const text of scoringTuningCurveSimulationRequirements) {
+    if (!scoringTuningCurveSimulationDecision.includes(text)) {
+      fail(`v8.3.1 scoring tuning curve candidate simulation decision missing: ${text}`);
+    }
   }
 
   const lightweightAntiInertiaRequirements = [
