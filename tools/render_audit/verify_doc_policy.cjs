@@ -181,12 +181,13 @@ if (failures.length === 0) {
     "v8.3 stabilization/tag readiness checkpoint update: closed",
     "v8.3 merge/tag instruction: completed",
     "v8.3 post-tag release closeout: closed",
-    "post-v8.3 backlog triage / v8.3.1 planning: closed",
-    "v8.3.1 user-facing range explanation/copy decision: next candidate",
+    "post-v8.3 backlog triage / v8.3.1 planning: corrected and closed",
+    "v8.3.1 scoring tuning protocol decision: next candidate",
+    "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning protocol",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
-    "scoreDeltaPreview는 optional audit-only",
+    "scoreDeltaPreview product path는 폐기",
     "exercise bonus",
     "v6.1 alcoholImpactPenalty",
   ];
@@ -203,7 +204,7 @@ if (failures.length === 0) {
     "alcoholPhysiologyPenalty",
     "hard-collapse 금지",
     "curve-mediated collapse 허용",
-    "scoreDeltaPreview optional audit-only",
+    "scoreDeltaPreview product path rejected",
   ];
   for (const text of currentTruthRequirements) {
     if (!currentTruth.includes(text)) fail(`02_macro_range_current_truth missing: ${text}`);
@@ -225,6 +226,7 @@ if (failures.length === 0) {
     "tag-ready candidate after checkpoint update",
     "v8.3 post-tag release closeout",
     "post-v8.3 backlog triage / v8.3.1 planning",
+    "v8.3.1 scoring tuning protocol decision",
     "v8.3.1 user-facing range explanation/copy decision",
     "continuous recency-weighted excess pressure",
     "automatic training load interpolation",
@@ -239,6 +241,7 @@ if (failures.length === 0) {
     "v8.3 merge/tag instruction: held until stabilization/tag readiness checkpoint update and user instruction",
     "v8.3 merge/tag instruction: held until explicit user instruction",
     "post-v8.3 backlog triage / v8.3.1 planning: next candidate",
+    "v8.3.1 user-facing range explanation/copy decision: next candidate",
   ];
   for (const text of staleReadinessPhrases) {
     if (readFirst.includes(text)) fail(`00_READ_FIRST still has stale readiness gate text: ${text}`);
@@ -278,6 +281,7 @@ if (failures.length === 0) {
     "annotated tag `v8.3`",
     "post-v8.3 deferred",
     "V8_3_1_CANDIDATE",
+    "scoring tuning protocol decision",
     "user-facing range explanation/copy decision",
   ];
   for (const text of readmeIncidentRequirements) {
@@ -366,14 +370,15 @@ if (failures.length === 0) {
     "tooltip / glossary",
     "score distribution tuning beyond alignment",
     "carb upper / high-volume carb tuning",
-    "kcal range display",
+    "kcal range display product UI",
     "alcohol range display",
     "UI/storage/schema expansion",
-    "scoreDeltaPreview optional audit",
-    "old records migration / recompute / reset",
+    "scoreDeltaPreview product path: REJECT",
+    "legacy/dev records cleanup / reset / fallback decision",
     "package version policy",
     "adaptive target setting contract follow-up",
-    "v8.3.1 user-facing range explanation/copy decision docs-only",
+    "v8.3.1 scoring tuning protocol decision docs-only",
+    "calorie target/source reliability audit",
   ];
   for (const text of postV83BacklogTriageRequirements) {
     if (!postV83BacklogTriage.includes(text)) fail(`post-v8.3 backlog triage missing: ${text}`);
