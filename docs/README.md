@@ -241,6 +241,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 이 작업은 앱 전체 문구 해결이 아니며, 다음 gate는 `v8.3.1 app-wide user-facing copy naturalness inventory / decision`이다.
   - score formula, numeric tuning, tooltip implementation, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
+- `v8.3.1_app_wide_user_facing_copy_inventory_decision_2026-07-09.md`
+  - 앱 전체 user-facing copy를 Today macro card, source visibility notes, DailyCoach, Settings, backup/restore, Records, InBody, validation, navigation surface로 분류한 docs-only inventory / decision 문서다.
+  - Today macro card compact range copy는 유지하고, source visibility notes / DailyCoach leftover "재료" family / Settings low-digest and hero copy / backup warning / InBody help and trend phrase / validation spacing을 batch 1 후보로 분리한다.
+  - `체지방 쪽 변화`처럼 test가 어색한 문구를 고정하는 경우 앱 문구와 test expectation을 같이 meaning-first로 갱신할 수 있다고 닫았다.
+  - 다음 gate는 `v8.3.1 app-wide copy naturalness batch 1 implementation`이며, app-wide rewrite, tooltip implementation, score formula/numeric tuning, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
