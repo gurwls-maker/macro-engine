@@ -182,8 +182,16 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - v8.3 merge/tag 이후 release state를 닫은 docs-only post-tag closeout이다.
   - `master` no-ff merge commit `0333d9c`에 annotated tag `v8.3`을 생성/push했고, remote master와 tag peeled target도 `0333d9c`로 확인했다.
   - v8.3 included scope는 anchor continuous macro scoring, target/scoring alignment, Today macro card range display, source visibility, DailyCoach/copy guard, WATCH guard, legacy/reference routing, app display v8.3 alignment, docs-policy/test profile hardening이다.
-  - post-v8.3 deferred 항목은 score tuning, DailyCoach/copy rewrite, tooltip/glossary, kcal/alcohol range display, UI/storage/schema, scoreDeltaPreview optional audit, old records migration/reset, package version policy다.
-  - 다음 후보는 post-v8.3 backlog triage 또는 v8.3.1 planning이며, v8.3 tag를 다시 만들거나 옮기지 않는다.
+  - post-v8.3 deferred 항목은 score tuning, DailyCoach/copy rewrite, tooltip/glossary, kcal/alcohol range display, UI/storage/schema, scoreDeltaPreview product path, legacy/dev records cleanup/reset/fallback, package version policy다.
+  - 이 문서의 다음 후보였던 post-v8.3 backlog triage는 `post_v8.3_backlog_triage_2026-07-09.md`로 닫혔다. v8.3 tag를 다시 만들거나 옮기지 않는다.
+
+- `post_v8.3_backlog_triage_2026-07-09.md`
+  - v8.3 release/tag/post-tag closeout 이후 남은 후보를 구현 전 분류한 docs-only triage 문서다.
+  - 사용자 재검토를 반영해 score tuning과 carb upper/high-volume tuning은 V8_3_1_CANDIDATE as protocol/evidence decision으로 승격하고, 바로 숫자 구현하지 않는다.
+  - kcal range display product UI와 scoreDeltaPreview product path는 REJECT로 정정한다. kcal은 range UI가 아니라 calorie target/source reliability audit 대상으로만 본다.
+  - old records는 보존/마이그레이션 기본값이 아니라 legacy/dev records cleanup/reset/fallback decision으로 재정의한다.
+  - 다음 후보는 `v8.3.1 scoring tuning protocol decision docs-only`이며, user-facing range explanation/copy decision은 그 다음 후보로 둔다.
+  - score formula/UI/storage/schema/scoreDelta/old records implementation은 열지 않는다.
 
 ## legacy / 참고 문서
 
