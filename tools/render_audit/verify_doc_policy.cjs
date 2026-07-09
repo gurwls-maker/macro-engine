@@ -56,6 +56,7 @@ const requiredFiles = [
   "docs/post_v8.3_backlog_triage_2026-07-09.md",
   "docs/v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md",
   "docs/v8.3.1_scoring_tuning_evidence_pack_2026-07-09.md",
+  "docs/v8.3.1_scoring_tuning_objective_rubric_decision_2026-07-09.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -107,6 +108,7 @@ if (failures.length === 0) {
   const postV83BacklogTriage = read("docs/post_v8.3_backlog_triage_2026-07-09.md");
   const scoringTuningProtocolDecision = read("docs/v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md");
   const scoringTuningEvidencePack = read("docs/v8.3.1_scoring_tuning_evidence_pack_2026-07-09.md");
+  const scoringTuningObjectiveRubricDecision = read("docs/v8.3.1_scoring_tuning_objective_rubric_decision_2026-07-09.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
@@ -191,8 +193,9 @@ if (failures.length === 0) {
     "v8.3.1 scoring tuning protocol decision: closed",
     "lightweight anti-inertia execution routine: closed",
     "v8.3.1 scoring tuning evidence pack: closed",
-    "v8.3.1 scoring tuning user confirmation answers: next candidate",
-    "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning user confirmation",
+    "v8.3.1 scoring tuning objective rubric decision: closed",
+    "v8.3.1 scoring tuning curve candidate simulation decision: next candidate",
+    "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning curve candidate simulation decision",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -215,7 +218,10 @@ if (failures.length === 0) {
     "curve-mediated collapse 허용",
     "scoreDeltaPreview product path rejected",
     "v8.3.1 scoring tuning protocol decision",
-    "evidence pack / user confirmation gate",
+    "scoring tuning evidence pack",
+    "scoring tuning objective rubric decision",
+    "objective score band",
+    "curve candidate simulation decision",
   ];
   for (const text of currentTruthRequirements) {
     if (!currentTruth.includes(text)) fail(`02_macro_range_current_truth missing: ${text}`);
@@ -240,7 +246,8 @@ if (failures.length === 0) {
     "v8.3.1 scoring tuning protocol decision",
     "lightweight anti-inertia execution routine",
     "v8.3.1 scoring tuning evidence pack",
-    "v8.3.1 scoring tuning user confirmation answers",
+    "v8.3.1 scoring tuning objective rubric decision",
+    "v8.3.1 scoring tuning curve candidate simulation decision",
     "v8.3.1 user-facing range explanation/copy decision",
     "continuous recency-weighted excess pressure",
     "automatic training load interpolation",
@@ -256,7 +263,9 @@ if (failures.length === 0) {
     "v8.3 merge/tag instruction: held until explicit user instruction",
     "post-v8.3 backlog triage / v8.3.1 planning: next candidate",
     "v8.3.1 scoring tuning protocol decision: next candidate",
+    "v8.3.1 scoring tuning user confirmation answers: next candidate",
     "v8.3.1 scoring tuning evidence pack / user confirmation: next candidate",
+    "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning user confirmation",
     "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning evidence/user confirmation",
     "v8.3.1 user-facing range explanation/copy decision: next candidate",
     "다음 후보는 evidence pack / user confirmation",
@@ -293,6 +302,7 @@ if (failures.length === 0) {
     "post_v8.3_backlog_triage_2026-07-09.md",
     "v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md",
     "v8.3.1_scoring_tuning_evidence_pack_2026-07-09.md",
+    "v8.3.1_scoring_tuning_objective_rubric_decision_2026-07-09.md",
     "lightweight_anti_inertia_routine_2026-07-09.md",
     "release blocker",
     "score `83.712`",
@@ -304,7 +314,8 @@ if (failures.length === 0) {
     "V8_3_1_CANDIDATE",
     "scoring tuning protocol decision",
     "scoring tuning evidence pack",
-    "scoring tuning user confirmation",
+    "scoring tuning objective rubric",
+    "curve candidate simulation decision",
     "user-facing range explanation/copy decision",
   ];
   for (const text of readmeIncidentRequirements) {
@@ -443,7 +454,9 @@ if (failures.length === 0) {
     "MORE_SAMPLES_NEEDED",
     "COPY_NOT_SCORE",
     "MONITOR_ONLY",
-    "Next gate: user confirmation first",
+    "Next gate: objective rubric first, then curve candidate simulation.",
+    "objective rubric readiness: yes",
+    "not asking the user to pick exact point values",
     "numeric tuning readiness: not yet",
     "direct implementation readiness: no",
     "scoreDeltaPreview product path: REJECT",
@@ -451,6 +464,37 @@ if (failures.length === 0) {
   ];
   for (const text of scoringTuningEvidencePackRequirements) {
     if (!scoringTuningEvidencePack.includes(text)) fail(`v8.3.1 scoring tuning evidence pack missing: ${text}`);
+  }
+
+  const scoringTuningObjectiveRubricRequirements = [
+    "docs-only objective rubric decision",
+    "Original intent preservation",
+    "The user is not asking to pick exact score numbers.",
+    "Codex must design the scoring curve and simulation method.",
+    "external anchor -> physiological zone",
+    "objective rubric -> app score band target",
+    "aligned",
+    "acceptable",
+    "warning",
+    "problem",
+    "serious",
+    "severe",
+    "display collapse",
+    "E01. TDEE overload",
+    "E02. Fat excess",
+    "E03. Carb upper / high-volume carb",
+    "E06. Adaptive target limiter",
+    "E07. Alcohol",
+    "Forbidden:",
+    "Pick the exact score for TDEE 1.2x",
+    "v8.3.1 scoring tuning curve candidate simulation decision",
+    "numeric tuning readiness: not yet",
+    "direct implementation readiness: no",
+    "scoreDeltaPreview product path remains rejected",
+    "kcal range display product UI remains rejected",
+  ];
+  for (const text of scoringTuningObjectiveRubricRequirements) {
+    if (!scoringTuningObjectiveRubricDecision.includes(text)) fail(`v8.3.1 scoring tuning objective rubric decision missing: ${text}`);
   }
 
   const lightweightAntiInertiaRequirements = [
@@ -464,7 +508,7 @@ if (failures.length === 0) {
     "must not create another anti-inertia task",
     "Do not enter review-the-review loops",
     "Do not treat this checklist as permanent law",
-    "v8.3.1 scoring tuning evidence pack / user confirmation",
+    "v8.3.1 scoring tuning curve candidate simulation decision",
   ];
   for (const text of lightweightAntiInertiaRequirements) {
     if (!lightweightAntiInertiaRoutine.includes(text)) fail(`lightweight anti-inertia routine missing: ${text}`);
