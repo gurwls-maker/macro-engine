@@ -225,7 +225,15 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - accepted candidate는 `current_curve_with_guarded_outputs`이며, TDEE/fat/carb/high-volume/UNKNOWN/alcohol 출력은 현재 band 안에서 설명 가능하다고 닫는다.
   - adaptive limiter는 방향은 유지하지만 3일/7일 high-carb/high-fat/mixed 샘플이 더 필요하므로 numeric limiter tuning은 열지 않는다.
   - numeric tuning implementation, anchor 값 변경, curve steepness 변경, adaptive limiter 변경은 모두 열지 않는다.
-  - 다음 gate는 `v8.3.1 user-facing range explanation/copy decision`이다.
+  - 이 문서의 다음 후보였던 `v8.3.1 user-facing range explanation/copy decision`은 `v8.3.1_user_facing_range_explanation_copy_decision_2026-07-09.md`로 닫혔다.
+
+- `v8.3.1_user_facing_range_explanation_copy_decision_2026-07-09.md`
+  - Today macro card / DailyCoach / tooltip-glossary / 전문어 / alcohol-training tone / source visibility copy / copy test expectation의 책임 범위를 닫은 docs-only decision 문서다.
+  - Today card는 compact range/status surface로 유지하고, DailyCoach가 해석과 행동을 맡는다고 정리한다.
+  - `글리코겐` 같은 전문어는 유용할 수 있지만 primary copy에 바로 넣지 않고 tooltip/glossary spec 이후로 미룬다.
+  - `회복 재료`처럼 AI스럽거나 낡은 문구를 test가 고정하면 앱 문구를 테스트에 맞추지 말고 test expectation 갱신도 허용한다고 닫는다.
+  - 다음 gate는 `v8.3.1 DailyCoach/range copy naturalness narrow implementation`이다.
+  - score formula, numeric tuning, tooltip implementation, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
 ## legacy / 참고 문서
 
