@@ -55,6 +55,7 @@ const requiredFiles = [
   "docs/v8.3_post_tag_release_closeout_2026-07-09.md",
   "docs/post_v8.3_backlog_triage_2026-07-09.md",
   "docs/v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md",
+  "docs/v8.3.1_scoring_tuning_evidence_pack_2026-07-09.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -105,6 +106,7 @@ if (failures.length === 0) {
   const postTagReleaseCloseout = read("docs/v8.3_post_tag_release_closeout_2026-07-09.md");
   const postV83BacklogTriage = read("docs/post_v8.3_backlog_triage_2026-07-09.md");
   const scoringTuningProtocolDecision = read("docs/v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md");
+  const scoringTuningEvidencePack = read("docs/v8.3.1_scoring_tuning_evidence_pack_2026-07-09.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
@@ -188,8 +190,9 @@ if (failures.length === 0) {
     "post-v8.3 backlog triage / v8.3.1 planning: corrected and closed",
     "v8.3.1 scoring tuning protocol decision: closed",
     "lightweight anti-inertia execution routine: closed",
-    "v8.3.1 scoring tuning evidence pack / user confirmation: next candidate",
-    "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning evidence/user confirmation",
+    "v8.3.1 scoring tuning evidence pack: closed",
+    "v8.3.1 scoring tuning user confirmation answers: next candidate",
+    "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning user confirmation",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -236,7 +239,8 @@ if (failures.length === 0) {
     "post-v8.3 backlog triage / v8.3.1 planning",
     "v8.3.1 scoring tuning protocol decision",
     "lightweight anti-inertia execution routine",
-    "v8.3.1 scoring tuning evidence pack / user confirmation",
+    "v8.3.1 scoring tuning evidence pack",
+    "v8.3.1 scoring tuning user confirmation answers",
     "v8.3.1 user-facing range explanation/copy decision",
     "continuous recency-weighted excess pressure",
     "automatic training load interpolation",
@@ -252,7 +256,10 @@ if (failures.length === 0) {
     "v8.3 merge/tag instruction: held until explicit user instruction",
     "post-v8.3 backlog triage / v8.3.1 planning: next candidate",
     "v8.3.1 scoring tuning protocol decision: next candidate",
+    "v8.3.1 scoring tuning evidence pack / user confirmation: next candidate",
+    "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning evidence/user confirmation",
     "v8.3.1 user-facing range explanation/copy decision: next candidate",
+    "다음 후보는 evidence pack / user confirmation",
   ];
   for (const text of staleReadinessPhrases) {
     if (readFirst.includes(text)) fail(`00_READ_FIRST still has stale readiness gate text: ${text}`);
@@ -285,6 +292,7 @@ if (failures.length === 0) {
     "v8.3_post_tag_release_closeout_2026-07-09.md",
     "post_v8.3_backlog_triage_2026-07-09.md",
     "v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md",
+    "v8.3.1_scoring_tuning_evidence_pack_2026-07-09.md",
     "lightweight_anti_inertia_routine_2026-07-09.md",
     "release blocker",
     "score `83.712`",
@@ -295,7 +303,8 @@ if (failures.length === 0) {
     "post-v8.3 deferred",
     "V8_3_1_CANDIDATE",
     "scoring tuning protocol decision",
-    "scoring tuning evidence pack / user confirmation",
+    "scoring tuning evidence pack",
+    "scoring tuning user confirmation",
     "user-facing range explanation/copy decision",
   ];
   for (const text of readmeIncidentRequirements) {
@@ -419,6 +428,29 @@ if (failures.length === 0) {
   ];
   for (const text of scoringTuningProtocolRequirements) {
     if (!scoringTuningProtocolDecision.includes(text)) fail(`v8.3.1 scoring tuning protocol decision missing: ${text}`);
+  }
+
+  const scoringTuningEvidencePackRequirements = [
+    "docs-only evidence pack",
+    "Current output table",
+    "TDEE12",
+    "FAT1000",
+    "CARB_HIGH_700",
+    "ALC112",
+    "Adaptive target current output",
+    "Candidate classification",
+    "USER_CONFIRMATION_NEEDED",
+    "MORE_SAMPLES_NEEDED",
+    "COPY_NOT_SCORE",
+    "MONITOR_ONLY",
+    "Next gate: user confirmation first",
+    "numeric tuning readiness: not yet",
+    "direct implementation readiness: no",
+    "scoreDeltaPreview product path: REJECT",
+    "kcal range display product UI remains rejected",
+  ];
+  for (const text of scoringTuningEvidencePackRequirements) {
+    if (!scoringTuningEvidencePack.includes(text)) fail(`v8.3.1 scoring tuning evidence pack missing: ${text}`);
   }
 
   const lightweightAntiInertiaRequirements = [
