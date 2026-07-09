@@ -201,6 +201,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - kcal range display product UI와 scoreDeltaPreview product path는 REJECT 유지, old records cleanup/reset/fallback은 별도 product-data decision 유지다.
   - score formula, anchor 값, curve steepness, adaptive limiter, UI/storage/schema는 변경하지 않는다.
 
+- `lightweight_anti_inertia_routine_2026-07-09.md`
+  - 긴 경계 프롬프트 수동 의존을 줄이기 위한 docs-only lightweight process guard다.
+  - 위험 작업 전 one-minute `PROMPT_SCOPE_AUDIT`로 요청 다음 단계와 repo/current truth 다음 단계를 비교하되, 대부분은 결과로그에 짧게 남기는 것으로 충분하다고 닫는다.
+  - anti-loop / stale-routine / supersede 규칙을 포함해 이 루틴 자체가 새 관성이 되지 않도록 제한한다.
+  - 이 문서는 새 product gate가 아니며, 다음 gate는 그대로 `v8.3.1 scoring tuning evidence pack / user confirmation`이다.
+  - evidence pack, score tuning implementation, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
