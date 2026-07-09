@@ -61,6 +61,7 @@ const requiredFiles = [
   "docs/v8.3.1_user_facing_range_explanation_copy_decision_2026-07-09.md",
   "docs/v8.3.1_dailycoach_range_copy_naturalness_implementation_2026-07-09.md",
   "docs/v8.3.1_app_wide_user_facing_copy_inventory_decision_2026-07-09.md",
+  "docs/v8.3.1_app_wide_copy_naturalness_batch_1_implementation_2026-07-09.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -117,6 +118,7 @@ if (failures.length === 0) {
   const userFacingRangeCopyDecision = read("docs/v8.3.1_user_facing_range_explanation_copy_decision_2026-07-09.md");
   const dailyCoachRangeCopyNaturalnessImplementation = read("docs/v8.3.1_dailycoach_range_copy_naturalness_implementation_2026-07-09.md");
   const appWideCopyInventoryDecision = read("docs/v8.3.1_app_wide_user_facing_copy_inventory_decision_2026-07-09.md");
+  const appWideCopyBatch1Implementation = read("docs/v8.3.1_app_wide_copy_naturalness_batch_1_implementation_2026-07-09.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
@@ -206,7 +208,7 @@ if (failures.length === 0) {
     "v8.3.1 user-facing range explanation/copy decision: closed",
     "v8.3.1 DailyCoach/range copy naturalness implementation: implemented",
     "v8.3.1 app-wide user-facing copy naturalness inventory / decision: closed",
-    "v8.3.1 app-wide copy naturalness batch 1 implementation: next candidate",
+    "v8.3.1 app-wide copy naturalness batch 1 implementation: implemented",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -635,6 +637,34 @@ if (failures.length === 0) {
   for (const text of appWideCopyInventoryDecisionRequirements) {
     if (!appWideCopyInventoryDecision.includes(text)) {
       fail(`v8.3.1 app-wide user-facing copy inventory decision missing: ${text}`);
+    }
+  }
+
+  const appWideCopyBatch1ImplementationRequirements = [
+    "v8.3.1 app-wide copy naturalness batch 1 implementation",
+    "PROMPT_SCOPE_AUDIT",
+    "narrow user-facing copy implementation",
+    "A04 Today target extreme note",
+    "B01/B02 Today score/source visibility notes",
+    "C01/C02 DailyCoach leftover",
+    "D03 low-digest setting copy",
+    "E03 backup warning tone",
+    "G02 InBody",
+    "G04 InBody help tone",
+    "H01/H02 validation spacing/tone",
+    "I02 Settings hero",
+    "목표가 높아 탄단지는 무리 없는 g으로 잡았습니다.",
+    "오늘 소비 칼로리 기준이 없어, 먹은 양과 목표 차이를 중심으로 봅니다.",
+    "회복하려면 단백질과 먹기 쉬운 탄수화물은 필요합니다.",
+    "체지방 변화가 더 큽니다.",
+    "Tests must protect meaning, not awkward legacy wording.",
+    "score formula / numeric tuning implementation",
+    "tooltip/glossary implementation without spec",
+    "scoreDeltaPreview product path",
+  ];
+  for (const text of appWideCopyBatch1ImplementationRequirements) {
+    if (!appWideCopyBatch1Implementation.includes(text)) {
+      fail(`v8.3.1 app-wide copy naturalness batch 1 implementation missing: ${text}`);
     }
   }
 

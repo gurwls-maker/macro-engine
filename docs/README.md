@@ -247,6 +247,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - `체지방 쪽 변화`처럼 test가 어색한 문구를 고정하는 경우 앱 문구와 test expectation을 같이 meaning-first로 갱신할 수 있다고 닫았다.
   - 다음 gate는 `v8.3.1 app-wide copy naturalness batch 1 implementation`이며, app-wide rewrite, tooltip implementation, score formula/numeric tuning, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
+- `v8.3.1_app_wide_copy_naturalness_batch_1_implementation_2026-07-09.md`
+  - 앱 전체 문구 inventory에서 COPY_FIX_NEXT / TEST_EXPECTATION_UPDATE_NEXT로 분류된 첫 batch를 좁게 구현한 implementation log다.
+  - source visibility notes, DailyCoach leftover "재료" family, Settings low-digest and hero copy, backup warning, InBody help/trend phrase, validation spacing/tone을 자연화했다.
+  - 어색한 정확 문구를 고정하던 source visibility / InBody / Settings / macro allocation note tests는 meaning-first expectation으로 갱신했다.
+  - D02 `오늘 목표 자동 조정` 설명, tooltip/glossary, broad DailyCoach/InBody/Settings rewrite, score formula/numeric tuning, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
