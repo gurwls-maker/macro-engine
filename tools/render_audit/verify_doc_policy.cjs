@@ -614,6 +614,10 @@ if (failures.length === 0) {
     "Backup / Restore / Smart Restore",
     "InBody / measurement / body composition coach",
     "Alerts / validation / empty-state / error messages",
+    "OVER_EXPLAINED",
+    "UI_REDUNDANT",
+    "UI context is part of meaning.",
+    "Replacement copy should be shorter or equal length by default.",
     "surface",
     "exact current text",
     "TEST_LOCKED_BAD_COPY",
@@ -631,6 +635,23 @@ if (failures.length === 0) {
   for (const text of appWideCopyInventoryDecisionRequirements) {
     if (!appWideCopyInventoryDecision.includes(text)) {
       fail(`v8.3.1 app-wide user-facing copy inventory decision missing: ${text}`);
+    }
+  }
+
+  const copyGuidelines = read("docs/references/copy/app_copy_guidelines.txt");
+  const copyGuidelineOverExplanationRequirements = [
+    "UI가 이미 말하는 내용은 문장으로 다시 설명하지 않는다.",
+    "짧은 라벨, 숫자, 단위, 카드 위치만으로 충분히 알 수 있으면 설명을 줄인다.",
+    "전문 설명은 기본 화면 본문이 아니라 ? 도움말, tooltip, glossary, 설정 상세처럼 설명을 읽으려는 위치로 보낸다.",
+    "과잉 설명 금지",
+    "설명이 필요한 경우:",
+    "데이터가 사라질 수 있는 경우",
+    "사용자가 잘못된 action을 할 수 있는 경우",
+    "점수/출처/측정 신뢰도를 오해할 수 있는 경우",
+  ];
+  for (const text of copyGuidelineOverExplanationRequirements) {
+    if (!copyGuidelines.includes(text)) {
+      fail(`copy guidelines missing over-explanation rule: ${text}`);
     }
   }
 
