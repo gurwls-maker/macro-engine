@@ -94,7 +94,7 @@ The point is not to make every task small. The point is to keep the edited surfa
   2. adjust scope and proceed
   3. stop and ask user
 - Do not enter review-the-review loops.
-- Do not use this routine to keep postponing `v8.3.1 scoring tuning evidence pack / user confirmation`.
+- Do not use this routine to keep postponing `v8.3.1 scoring tuning curve candidate simulation decision`.
 
 Korean summary:
 - 이 루틴은 작업을 막기 위한 문서 관문이 아니라, 작업 시작 전 방향 확인이다.
@@ -160,7 +160,11 @@ For low-risk tasks, a one-line audit in the result log is enough.
 This document does not replace the v8.3.1 scoring path.
 
 Next gate after this process hardening:
-- `v8.3.1 scoring tuning evidence pack / user confirmation`
+- `v8.3.1 scoring tuning curve candidate simulation decision`
+
+Follow-up correction:
+- The evidence pack was closed by `docs/v8.3.1_scoring_tuning_evidence_pack_2026-07-09.md`.
+- The old "user confirmation answers" gate name was replaced by `docs/v8.3.1_scoring_tuning_objective_rubric_decision_2026-07-09.md` because exact score coefficients are Codex design output, not user input.
 
 Not next:
 - another anti-inertia document

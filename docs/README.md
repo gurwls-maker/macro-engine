@@ -197,7 +197,7 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - post-v8.3 score tuning 후보를 바로 구현하지 않고, 튜닝을 열기 위한 evidence / fixture / user confirmation protocol로 닫은 docs-only decision 문서다.
   - 외부근거 anchor와 앱 policy coefficient를 분리하고, TDEE overload, fat high, carb upper/high-volume, UNKNOWN training context, adaptive target limiter, alcohol, calorie source, old records 후보를 각각 분류한다.
   - 이 문서의 다음 후보였던 `v8.3.1 scoring tuning evidence pack`은 `v8.3.1_scoring_tuning_evidence_pack_2026-07-09.md`로 닫혔다.
-  - user-facing range explanation/copy decision은 scoring tuning user confirmation 다음 후보로 둔다.
+  - user-facing range explanation/copy decision은 scoring tuning curve candidate simulation decision 다음 후보로 둔다.
   - kcal range display product UI와 scoreDeltaPreview product path는 REJECT 유지, old records cleanup/reset/fallback은 별도 product-data decision 유지다.
   - score formula, anchor 값, curve steepness, adaptive limiter, UI/storage/schema는 변경하지 않는다.
 
@@ -205,14 +205,21 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 긴 경계 프롬프트 수동 의존을 줄이기 위한 docs-only lightweight process guard다.
   - 위험 작업 전 one-minute `PROMPT_SCOPE_AUDIT`로 요청 다음 단계와 repo/current truth 다음 단계를 비교하되, 대부분은 결과로그에 짧게 남기는 것으로 충분하다고 닫는다.
   - anti-loop / stale-routine / supersede 규칙을 포함해 이 루틴 자체가 새 관성이 되지 않도록 제한한다.
-  - 이 문서는 새 product gate가 아니며, 다음 product gate는 scoring tuning user confirmation이다.
+  - 이 문서는 새 product gate가 아니며, 다음 product gate는 scoring tuning curve candidate simulation decision이다.
   - evidence pack, score tuning implementation, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
 - `v8.3.1_scoring_tuning_evidence_pack_2026-07-09.md`
   - current `73166f4` 기준으로 TDEE overload, fat excess, carb upper/high-volume, UNKNOWN training context, protein excess, adaptive limiter, alcohol handling의 현재 출력표를 수집한 docs-only evidence pack이다.
   - E01~E07을 USER_CONFIRMATION_NEEDED / MORE_SAMPLES_NEEDED / COPY_NOT_SCORE / MONITOR_ONLY로 분류하고, 직접 숫자 구현 readiness는 아직 없다고 닫는다.
-  - 다음 gate는 구현이 아니라 user confirmation answers다.
+  - 다음 후보였던 user confirmation answers는 `v8.3.1_scoring_tuning_objective_rubric_decision_2026-07-09.md`에서 objective rubric으로 재정렬됐다.
   - scoreDeltaPreview product path와 kcal range display product UI는 REJECT 유지다.
+
+- `v8.3.1_scoring_tuning_objective_rubric_decision_2026-07-09.md`
+  - scoring tuning objective rubric을 닫은 docs-only decision 문서다.
+  - 사용자가 exact score나 coefficient를 고르는 구조를 폐기하고, Codex가 외부근거 anchor / current output / objective score band / simulation / regression 설계를 책임지는 구조로 바꾼다.
+  - aligned / acceptable / warning / problem / serious / severe / display collapse score-band language를 정의하고, E01~E07 후보를 이 band에 맞춰 재분류한다.
+  - 다음 gate는 numeric implementation이 아니라 `v8.3.1 scoring tuning curve candidate simulation decision`이다.
+  - score formula, anchor 값, curve steepness, adaptive limiter, UI/storage/schema는 변경하지 않는다.
 
 ## legacy / 참고 문서
 
