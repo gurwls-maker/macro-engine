@@ -54,6 +54,7 @@ const requiredFiles = [
   "docs/v8.3_stabilization_tag_readiness_checkpoint_update_2026-07-09.md",
   "docs/v8.3_post_tag_release_closeout_2026-07-09.md",
   "docs/post_v8.3_backlog_triage_2026-07-09.md",
+  "docs/v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
 ];
@@ -102,6 +103,7 @@ if (failures.length === 0) {
   const stabilizationTagReadinessUpdate = read("docs/v8.3_stabilization_tag_readiness_checkpoint_update_2026-07-09.md");
   const postTagReleaseCloseout = read("docs/v8.3_post_tag_release_closeout_2026-07-09.md");
   const postV83BacklogTriage = read("docs/post_v8.3_backlog_triage_2026-07-09.md");
+  const scoringTuningProtocolDecision = read("docs/v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
   const v82ArchiveReadme = read("docs/archive/v8.2_macro_range/README.md");
@@ -182,8 +184,9 @@ if (failures.length === 0) {
     "v8.3 merge/tag instruction: completed",
     "v8.3 post-tag release closeout: closed",
     "post-v8.3 backlog triage / v8.3.1 planning: corrected and closed",
-    "v8.3.1 scoring tuning protocol decision: next candidate",
-    "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning protocol",
+    "v8.3.1 scoring tuning protocol decision: closed",
+    "v8.3.1 scoring tuning evidence pack / user confirmation: next candidate",
+    "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning evidence/user confirmation",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -205,6 +208,8 @@ if (failures.length === 0) {
     "hard-collapse 금지",
     "curve-mediated collapse 허용",
     "scoreDeltaPreview product path rejected",
+    "v8.3.1 scoring tuning protocol decision",
+    "evidence pack / user confirmation gate",
   ];
   for (const text of currentTruthRequirements) {
     if (!currentTruth.includes(text)) fail(`02_macro_range_current_truth missing: ${text}`);
@@ -227,6 +232,7 @@ if (failures.length === 0) {
     "v8.3 post-tag release closeout",
     "post-v8.3 backlog triage / v8.3.1 planning",
     "v8.3.1 scoring tuning protocol decision",
+    "v8.3.1 scoring tuning evidence pack / user confirmation",
     "v8.3.1 user-facing range explanation/copy decision",
     "continuous recency-weighted excess pressure",
     "automatic training load interpolation",
@@ -241,6 +247,7 @@ if (failures.length === 0) {
     "v8.3 merge/tag instruction: held until stabilization/tag readiness checkpoint update and user instruction",
     "v8.3 merge/tag instruction: held until explicit user instruction",
     "post-v8.3 backlog triage / v8.3.1 planning: next candidate",
+    "v8.3.1 scoring tuning protocol decision: next candidate",
     "v8.3.1 user-facing range explanation/copy decision: next candidate",
   ];
   for (const text of staleReadinessPhrases) {
@@ -273,6 +280,7 @@ if (failures.length === 0) {
     "v8.3_stabilization_tag_readiness_checkpoint_update_2026-07-09.md",
     "v8.3_post_tag_release_closeout_2026-07-09.md",
     "post_v8.3_backlog_triage_2026-07-09.md",
+    "v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md",
     "release blocker",
     "score `83.712`",
     "target/scoring alignment implementation",
@@ -282,6 +290,7 @@ if (failures.length === 0) {
     "post-v8.3 deferred",
     "V8_3_1_CANDIDATE",
     "scoring tuning protocol decision",
+    "scoring tuning evidence pack / user confirmation",
     "user-facing range explanation/copy decision",
   ];
   for (const text of readmeIncidentRequirements) {
@@ -384,6 +393,29 @@ if (failures.length === 0) {
     if (!postV83BacklogTriage.includes(text)) fail(`post-v8.3 backlog triage missing: ${text}`);
   }
 
+  const scoringTuningProtocolRequirements = [
+    "docs-only protocol decision",
+    "External anchor vs app policy coefficient",
+    "Candidate decision matrix",
+    "Required evidence pack",
+    "User confirmation questions",
+    "TDEE overload curve",
+    "fat high curve",
+    "carb high / high-volume context",
+    "unknown training context carb",
+    "adaptive target limiter",
+    "alcohol physiology risk",
+    "calorie target/source reliability",
+    "old records cleanup/reset/fallback",
+    "scoreDeltaPreview product path: REJECT",
+    "kcal range display product UI remains rejected",
+    "v8.3.1 scoring tuning evidence pack / user confirmation",
+    "Numeric tuning is not opened",
+  ];
+  for (const text of scoringTuningProtocolRequirements) {
+    if (!scoringTuningProtocolDecision.includes(text)) fail(`v8.3.1 scoring tuning protocol decision missing: ${text}`);
+  }
+
   if (!readFirstImplementationBlocked && !readFirstImplementationAccepted) {
     fail("00_READ_FIRST missing v8.3 implementation gate state");
   }
@@ -467,7 +499,7 @@ if (failures.length === 0) {
   const v83Docs = allDocs.filter((file) => {
     const name = path.basename(file);
     const normalized = rel(file);
-    if (!/^v8\.3_.*\.(md|txt)$/.test(name)) return false;
+    if (!/^v8\.3(?:\.1)?_.*\.(md|txt)$/.test(name)) return false;
     if (normalized.includes("docs/00_current_truth/_source/")) return false;
     if (normalized.includes("docs/00_current_truth/templates/")) return false;
     if (normalized.includes("docs/archive/")) return false;

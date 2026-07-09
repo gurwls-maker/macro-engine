@@ -190,8 +190,16 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 사용자 재검토를 반영해 score tuning과 carb upper/high-volume tuning은 V8_3_1_CANDIDATE as protocol/evidence decision으로 승격하고, 바로 숫자 구현하지 않는다.
   - kcal range display product UI와 scoreDeltaPreview product path는 REJECT로 정정한다. kcal은 range UI가 아니라 calorie target/source reliability audit 대상으로만 본다.
   - old records는 보존/마이그레이션 기본값이 아니라 legacy/dev records cleanup/reset/fallback decision으로 재정의한다.
-  - 다음 후보는 `v8.3.1 scoring tuning protocol decision docs-only`이며, user-facing range explanation/copy decision은 그 다음 후보로 둔다.
+  - 이 문서의 다음 후보였던 `v8.3.1 scoring tuning protocol decision docs-only`는 `v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md`로 닫혔다.
   - score formula/UI/storage/schema/scoreDelta/old records implementation은 열지 않는다.
+
+- `v8.3.1_scoring_tuning_protocol_decision_2026-07-09.md`
+  - post-v8.3 score tuning 후보를 바로 구현하지 않고, 튜닝을 열기 위한 evidence / fixture / user confirmation protocol로 닫은 docs-only decision 문서다.
+  - 외부근거 anchor와 앱 policy coefficient를 분리하고, TDEE overload, fat high, carb upper/high-volume, UNKNOWN training context, adaptive target limiter, alcohol, calorie source, old records 후보를 각각 분류한다.
+  - 다음 gate는 숫자 구현이 아니라 `v8.3.1 scoring tuning evidence pack / user confirmation`이다.
+  - user-facing range explanation/copy decision은 scoring tuning evidence/user confirmation 다음 후보로 둔다.
+  - kcal range display product UI와 scoreDeltaPreview product path는 REJECT 유지, old records cleanup/reset/fallback은 별도 product-data decision 유지다.
+  - score formula, anchor 값, curve steepness, adaptive limiter, UI/storage/schema는 변경하지 않는다.
 
 ## legacy / 참고 문서
 
