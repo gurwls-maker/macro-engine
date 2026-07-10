@@ -271,7 +271,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - carb/fat exchange를 card help/copy로 설명하는 대신, 내부 모델로 맞추기 위한 docs-only model decision 문서다.
   - 채택 모델은 `protein-reserved iso-calorie carb/fat joint allocation with conditional feasible display ranges`다.
   - protein을 먼저 reserve하고 남은 target kcal 안에서 carb/fat target pair를 움직이며, card range chip은 independent marginal range가 아니라 joint helper의 conditional feasible display range를 봐야 한다고 닫는다.
-  - 다음 gate는 별도 test-design 문서가 아니라 `v8.3.1 carb-fat joint allocation model implementation`이다. score curve tuning, card help/copy, UI redesign, storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
+  - 다음 gate였던 `v8.3.1 carb-fat joint allocation model implementation`은 `v8.3.1_carb_fat_joint_allocation_model_implementation_2026-07-10.md`로 구현됐다.
+
+- `v8.3.1_carb_fat_joint_allocation_model_implementation_2026-07-10.md`
+  - `getV831CarbFatJointAllocationModel`을 추가해 protein-reserved carb/fat kcal budget, raw ranges, joint feasible ranges, current counterpart conditional display range, base/adaptive target pair를 계산한다.
+  - `getV83AdaptiveTodayMacroTarget`은 joint model target pair를 쓰고, Today card carb/fat range chip은 `scoringContext.jointAllocationModel.conditionalDisplayRanges`를 우선 읽는다.
+  - score penalty range 자체를 joint display range로 바꾸는 첫 접근은 폐기했고, 기존 continuous score axes는 유지했다.
+  - `runMacroRangeContinuousScoringTests`에 joint allocation regression case를 추가했다. score curve tuning, card help/copy, UI redesign, storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
 ## legacy / 참고 문서
 
