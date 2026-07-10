@@ -67,6 +67,7 @@ const requiredFiles = [
   "docs/v8.3.1_carb_fat_joint_allocation_model_implementation_2026-07-10.md",
   "docs/v8.3.1_carb_fat_joint_allocation_model_qa_closeout_2026-07-10.md",
   "docs/v8.3.1_stabilization_readiness_checkpoint_update_2026-07-10.md",
+  "docs/v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -127,6 +128,7 @@ if (failures.length === 0) {
   const carbFatExchangeRangeConsistencyAuditDesign = read("docs/v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md");
   const carbFatExchangeJointAllocationModelDecision = read("docs/v8.3.1_carb_fat_exchange_joint_allocation_model_decision_2026-07-10.md");
   const v831StabilizationReadinessCheckpointUpdate = read("docs/v8.3.1_stabilization_readiness_checkpoint_update_2026-07-10.md");
+  const macroCardAdaptiveOffProteinTargetImplementation = read("docs/v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
@@ -222,6 +224,7 @@ if (failures.length === 0) {
     "v8.3.1 carb-fat joint allocation model implementation: implemented",
     "v8.3.1 carb-fat joint allocation model QA closeout: closed",
     "v8.3.1 stabilization/readiness checkpoint update: closed",
+    "v8.3.1 macro card adaptive OFF and protein target level implementation: implemented",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -263,6 +266,7 @@ if (failures.length === 0) {
     "carb-fat joint allocation model implementation",
     "protein-reserved iso-calorie carb/fat joint allocation",
     "conditional feasible display ranges",
+    "proteinTargetLevel",
   ];
   for (const text of currentTruthRequirements) {
     if (!currentTruth.includes(text)) fail(`02_macro_range_current_truth missing: ${text}`);
@@ -298,6 +302,7 @@ if (failures.length === 0) {
     "v8.3.1 carb-fat joint allocation model implementation",
     "v8.3.1 carb-fat joint allocation model QA closeout",
     "v8.3.1 stabilization/readiness checkpoint update",
+    "v8.3.1 macro card adaptive OFF and protein target level implementation",
     "v8.3.1-ready for next planning",
     "current_curve_with_guarded_outputs",
     "continuous recency-weighted excess pressure",
@@ -379,6 +384,7 @@ if (failures.length === 0) {
     "v8.3.1_carb_fat_joint_allocation_model_implementation_2026-07-10.md",
     "v8.3.1_carb_fat_joint_allocation_model_qa_closeout_2026-07-10.md",
     "v8.3.1_stabilization_readiness_checkpoint_update_2026-07-10.md",
+    "v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md",
   ];
   for (const text of readmeIncidentRequirements) {
     if (!readme.includes(text)) fail(`README missing target/scoring incident routing: ${text}`);
@@ -773,6 +779,26 @@ if (failures.length === 0) {
   for (const text of v831StabilizationReadinessCheckpointUpdateRequirements) {
     if (!v831StabilizationReadinessCheckpointUpdate.includes(text)) {
       fail(`v8.3.1 stabilization readiness checkpoint update missing: ${text}`);
+    }
+  }
+
+  const macroCardAdaptiveOffProteinTargetRequirements = [
+    "implementation_log",
+    "adaptive ON",
+    "adaptive OFF",
+    "proteinTargetLevel",
+    "persistent setting surface",
+    "Protein card no longer shows a range chip",
+    "`default` and `medium` preserve the existing production recommended protein target",
+    "`low` and `high` explicitly move the protein target anchor",
+    "No score formula change",
+    "No score curve tuning",
+    "No scoreDeltaPreview work",
+    "No old records migration/recompute/reset",
+  ];
+  for (const text of macroCardAdaptiveOffProteinTargetRequirements) {
+    if (!macroCardAdaptiveOffProteinTargetImplementation.includes(text)) {
+      fail(`v8.3.1 macro card adaptive OFF/protein target implementation missing: ${text}`);
     }
   }
 
