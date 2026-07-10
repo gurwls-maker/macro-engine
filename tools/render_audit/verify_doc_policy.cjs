@@ -187,6 +187,20 @@ if (failures.length === 0) {
     if (!indexHtml.includes(newExternalReferencePath)) {
       fail(`index.html missing routed external macro reference path: ${newExternalReferencePath}`);
     }
+    if (indexHtml.includes("PROTEIN_TARGET_LEVEL_POLICIES")) {
+      fail("protein target levels must not revive a separate goal-only policy table");
+    }
+    if (indexHtml.includes("applyProteinTargetLevelToFinalMacros")) {
+      fail("protein target levels must not overwrite final macros after external policy application");
+    }
+    for (const signal of [
+      "buildExternalMacroProteinTargetLevelSelection",
+      "runProteinTargetLevelPolicyIntegrationTests",
+      "genericFfmExceptionApplied: false",
+      "proteinTargetLevelContext: externalMacroActiveProductionApplication.proteinTargetLevelContext",
+    ]) {
+      if (!indexHtml.includes(signal)) fail(`index.html missing protein target policy integration signal: ${signal}`);
+    }
   }
 
   const sourceLedgerRequirements = [
@@ -267,6 +281,9 @@ if (failures.length === 0) {
     "protein-reserved iso-calorie carb/fat joint allocation",
     "conditional feasible display ranges",
     "proteinTargetLevel",
+    "mode/context-selected external macro production policy",
+    "2.3~3.1g/kg FFM contest-prep 예외를 열지 않는다",
+    "external policy 적용 후 final protein/carbs/fat을 다시 덮어쓰면 실패",
   ];
   for (const text of currentTruthRequirements) {
     if (!currentTruth.includes(text)) fail(`02_macro_range_current_truth missing: ${text}`);
@@ -789,8 +806,13 @@ if (failures.length === 0) {
     "proteinTargetLevel",
     "persistent setting surface",
     "Protein card no longer shows a range chip",
-    "`default` and `medium` preserve the existing production recommended protein target",
-    "`low` and `high` explicitly move the protein target anchor",
+    "`default` and `medium` preserve the automatic recommendation selected by the existing external macro production policy",
+    "`low` and `high` select the lower/upper bound of the existing mode/context policy range",
+    "Generic `high` does not expose the 2.3-3.1g/kg FFM contest-prep exception",
+    "former post-policy final macro overwrite was removed",
+    "runProteinTargetLevelPolicyIntegrationTests",
+    "six goals x exercise/general x default/low/medium/high",
+    "No scoring-curve anchor change",
     "No score formula change",
     "No score curve tuning",
     "No scoreDeltaPreview work",

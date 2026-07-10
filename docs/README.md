@@ -293,7 +293,8 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - Today macro card에서 adaptive ON/OFF 표시를 분리하고, protein target level setting을 추가한 implementation log다.
   - adaptive ON은 탄수/지방 conditional range chip과 base target을 함께 보여주고, adaptive OFF는 range chip을 숨기며 fixed recommended target remaining/over wording으로 돌아간다.
   - protein card는 range chip을 보여주지 않고 selected protein target level을 보여준다. `proteinTargetLevel`은 full backup/restore에 포함되는 persistent setting surface다.
-  - score formula, score curve tuning, anchor value, adaptive limiter, kcal/alcohol range display, tooltip/glossary, DailyCoach copy rewrite, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
+  - 단백질 low/default/medium/high는 별도 goal 수치표가 아니라 mode/context-selected external macro production policy의 하한/자동값/상한에서 파생하며, generic 3.1g/kg BW high와 post-policy final macro overwrite를 금지한다.
+  - score formula, score curve tuning, scoring-curve anchor, adaptive limiter, kcal/alcohol range display, tooltip/glossary, DailyCoach copy rewrite, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
 ## legacy / 참고 문서
 
