@@ -257,8 +257,15 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - pushed branch `774b7b7`을 master merge 전에 감사한 docs-only pre-merge audit 문서다.
   - copy-only diff scope, source/DailyCoach/Settings/backup/InBody/validation meaning guard, test expectation 갱신 적절성, full test pass를 확인했다.
   - audit decision은 `MERGE_READY`였고, batch 1 implementation과 pre-merge audit은 master merge commit `9241a8e`로 반영됐다.
-  - 다음 우선 gate는 `v8.3.1 carb-fat exchange range consistency decision`이다. 탄수/지방 독립 range chip이 모든 조합을 동시에 가능한 것처럼 읽히는 문제를 구현 전에 판단한다.
+  - 이 문서의 다음 우선 gate였던 `v8.3.1 carb-fat exchange range consistency decision`은 `v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md`로 닫혔다.
   - 추가 copy fix, broad rewrite, tooltip/glossary implementation, score formula/numeric tuning, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
+
+- `v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md`
+  - copy batch 1 이후 열린 탄수/지방 range chip 의미를 감사한 docs-only decision 문서다.
+  - 결론은 carb/fat chip이 marginal range이며, 모든 모서리 조합이 동시에 가능한 joint feasible set이 아니라는 것이다.
+  - 1:1 gram exchange가 아니라 같은 kcal budget 안의 calorie-equivalent exchange로 봐야 하며, 현재 adaptive target math는 이 방향과 맞다.
+  - 다음 gate는 `v8.3.1 carb-fat exchange joint allocation model decision/design`이다. UI 문구보다 먼저, 탄수/지방 목표와 범위가 같은 칼로리 선 위에서 어떻게 함께 움직일지 닫는다.
+  - score formula, adaptive target logic, UI-only display cap, storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
 ## legacy / 참고 문서
 

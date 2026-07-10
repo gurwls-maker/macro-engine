@@ -62,6 +62,7 @@ const requiredFiles = [
   "docs/v8.3.1_dailycoach_range_copy_naturalness_implementation_2026-07-09.md",
   "docs/v8.3.1_app_wide_user_facing_copy_inventory_decision_2026-07-09.md",
   "docs/v8.3.1_app_wide_copy_naturalness_batch_1_implementation_2026-07-09.md",
+  "docs/v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -119,6 +120,7 @@ if (failures.length === 0) {
   const dailyCoachRangeCopyNaturalnessImplementation = read("docs/v8.3.1_dailycoach_range_copy_naturalness_implementation_2026-07-09.md");
   const appWideCopyInventoryDecision = read("docs/v8.3.1_app_wide_user_facing_copy_inventory_decision_2026-07-09.md");
   const appWideCopyBatch1Implementation = read("docs/v8.3.1_app_wide_copy_naturalness_batch_1_implementation_2026-07-09.md");
+  const carbFatExchangeRangeConsistencyAuditDesign = read("docs/v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
@@ -209,6 +211,8 @@ if (failures.length === 0) {
     "v8.3.1 DailyCoach/range copy naturalness implementation: implemented",
     "v8.3.1 app-wide user-facing copy naturalness inventory / decision: closed",
     "v8.3.1 app-wide copy naturalness batch 1 implementation: implemented",
+    "v8.3.1 carb-fat exchange range consistency audit/design: closed",
+    "v8.3.1 carb-fat exchange joint allocation model decision/design: next candidate",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -241,6 +245,8 @@ if (failures.length === 0) {
     "DailyCoach/range copy naturalness implementation",
     "app-wide user-facing copy naturalness inventory",
     "app-wide copy naturalness batch 1 implementation",
+    "carb-fat exchange range consistency audit/design",
+    "calorie-equivalent exchange",
   ];
   for (const text of currentTruthRequirements) {
     if (!currentTruth.includes(text)) fail(`02_macro_range_current_truth missing: ${text}`);
@@ -271,6 +277,8 @@ if (failures.length === 0) {
     "v8.3.1 DailyCoach/range copy naturalness implementation",
     "v8.3.1 app-wide user-facing copy naturalness inventory / decision",
     "v8.3.1 app-wide copy naturalness batch 1 implementation",
+    "v8.3.1 carb-fat exchange range consistency audit/design",
+    "v8.3.1 carb-fat exchange joint allocation model decision/design",
     "current_curve_with_guarded_outputs",
     "continuous recency-weighted excess pressure",
     "automatic training load interpolation",
@@ -292,6 +300,8 @@ if (failures.length === 0) {
     "v8.3.1 user-facing range explanation/copy decision: next after scoring tuning evidence/user confirmation",
     "v8.3.1 user-facing range explanation/copy decision: next candidate",
     "v8.3.1 DailyCoach/range copy naturalness narrow implementation: next candidate",
+    "v8.3.1 carb-fat exchange range consistency decision: next candidate",
+    "v8.3.1 carb-fat exchange card cue/help spec + narrow implementation: next candidate",
     "다음 후보는 evidence pack / user confirmation",
   ];
   for (const text of staleReadinessPhrases) {
@@ -665,6 +675,28 @@ if (failures.length === 0) {
   for (const text of appWideCopyBatch1ImplementationRequirements) {
     if (!appWideCopyBatch1Implementation.includes(text)) {
       fail(`v8.3.1 app-wide copy naturalness batch 1 implementation missing: ${text}`);
+    }
+  }
+
+  const carbFatExchangeRangeConsistencyAuditDesignRequirements = [
+    "v8.3.1 carb-fat exchange range consistency audit design",
+    "docs-only carb/fat exchange range consistency audit design",
+    "not a joint feasible carb/fat rectangle",
+    "calorie-equivalent",
+    "fat -1g frees about carb +2.25g",
+    "carb +1g requires about fat -0.44g",
+    "Option B.",
+    "v8.3.1 carb-fat exchange joint allocation model decision/design",
+    "iso-calorie line",
+    "Moving target example",
+    "No UI-only cap",
+    "No explanation-only shortcut",
+    "do not show internal calorie-exchange arithmetic to the user",
+    "scoreDeltaPreview product path",
+  ];
+  for (const text of carbFatExchangeRangeConsistencyAuditDesignRequirements) {
+    if (!carbFatExchangeRangeConsistencyAuditDesign.includes(text)) {
+      fail(`v8.3.1 carb-fat exchange range consistency audit design missing: ${text}`);
     }
   }
 
