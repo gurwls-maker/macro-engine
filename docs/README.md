@@ -296,6 +296,11 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 단백질 선택지는 낮게/중간/높게이며 중간이 기본 자동 권장값이다. 예전 `default` 저장값은 중간으로 읽고, 별도 goal 수치표가 아니라 mode/context-selected external macro production policy의 하한/자동값/상한에서 파생한다.
   - 설정에는 짧은 단계 설명 tooltip과 compact selector만 추가했다. score formula, score curve tuning, scoring-curve anchor, adaptive limiter, kcal/alcohol range display, broad tooltip/glossary, DailyCoach copy rewrite, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
+- `v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md`
+  - clean localStorage 첫 실행이 75kg/173cm/32세 남성/린매스업/운동함 예시값으로 4,013kcal 목표를 계산·저장하는 실제 문제를 닫은 decision이다.
+  - 과거 exercise-only 최소 v1과 불완전한 4~6개 checklist를 폐기하고, required Settings profile을 먼저 받는 `truthful setup gate + progressive Today` hybrid를 채택한다.
+  - next gate는 별도 test-design이 아니라 first-run detection, calculation placeholder gate, existing-user migration, full backup/restore, records-only import, mobile QA를 포함한 complete onboarding implementation이다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
@@ -338,9 +343,9 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
      - fixed 감점표, scoreDelta 본류화, preview field 저장/노출 같은 v8.2 관성은 v8.3 current truth에 의해 대체된다.
 
 8. 후속 후보 문서
-   - `v8.2_onboarding_start_flow_note_2026-07-03.md`
-     - 첫 실행 UX, Settings 기본값 초기화, Today 첫 계산 진입을 다루는 온보딩 후보 메모다.
-     - 현재 구현 지시서가 아니며, v8.1 copy/help 작업에 섞지 않는다. 실제 구현 전에는 별도 UX 설계 감사가 필요하다.
+   - `archive/onboarding/v8.2_onboarding_start_flow_note_2026-07-03.md`
+     - exercise 여부만 묻는 과거 최소 v1 메모이며 historical / superseded 상태다.
+     - 현재 구현 기준은 `v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md`다.
 
 ## 충돌 판단 순서
 
