@@ -264,8 +264,14 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - copy batch 1 이후 열린 탄수/지방 range chip 의미를 감사한 docs-only decision 문서다.
   - 결론은 carb/fat chip이 marginal range이며, 모든 모서리 조합이 동시에 가능한 joint feasible set이 아니라는 것이다.
   - 1:1 gram exchange가 아니라 같은 kcal budget 안의 calorie-equivalent exchange로 봐야 하며, 현재 adaptive target math는 이 방향과 맞다.
-  - 다음 gate는 `v8.3.1 carb-fat exchange joint allocation model decision/design`이다. UI 문구보다 먼저, 탄수/지방 목표와 범위가 같은 칼로리 선 위에서 어떻게 함께 움직일지 닫는다.
+  - 다음 gate였던 `v8.3.1 carb-fat exchange joint allocation model decision/design`은 `v8.3.1_carb_fat_exchange_joint_allocation_model_decision_2026-07-10.md`로 닫혔다.
   - score formula, adaptive target logic, UI-only display cap, storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
+
+- `v8.3.1_carb_fat_exchange_joint_allocation_model_decision_2026-07-10.md`
+  - carb/fat exchange를 card help/copy로 설명하는 대신, 내부 모델로 맞추기 위한 docs-only model decision 문서다.
+  - 채택 모델은 `protein-reserved iso-calorie carb/fat joint allocation with conditional feasible display ranges`다.
+  - protein을 먼저 reserve하고 남은 target kcal 안에서 carb/fat target pair를 움직이며, card range chip은 independent marginal range가 아니라 joint helper의 conditional feasible display range를 봐야 한다고 닫는다.
+  - 다음 gate는 별도 test-design 문서가 아니라 `v8.3.1 carb-fat joint allocation model implementation`이다. score curve tuning, card help/copy, UI redesign, storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
 ## legacy / 참고 문서
 

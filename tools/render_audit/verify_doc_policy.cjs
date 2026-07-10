@@ -63,6 +63,7 @@ const requiredFiles = [
   "docs/v8.3.1_app_wide_user_facing_copy_inventory_decision_2026-07-09.md",
   "docs/v8.3.1_app_wide_copy_naturalness_batch_1_implementation_2026-07-09.md",
   "docs/v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md",
+  "docs/v8.3.1_carb_fat_exchange_joint_allocation_model_decision_2026-07-10.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -121,6 +122,7 @@ if (failures.length === 0) {
   const appWideCopyInventoryDecision = read("docs/v8.3.1_app_wide_user_facing_copy_inventory_decision_2026-07-09.md");
   const appWideCopyBatch1Implementation = read("docs/v8.3.1_app_wide_copy_naturalness_batch_1_implementation_2026-07-09.md");
   const carbFatExchangeRangeConsistencyAuditDesign = read("docs/v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md");
+  const carbFatExchangeJointAllocationModelDecision = read("docs/v8.3.1_carb_fat_exchange_joint_allocation_model_decision_2026-07-10.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
@@ -212,7 +214,8 @@ if (failures.length === 0) {
     "v8.3.1 app-wide user-facing copy naturalness inventory / decision: closed",
     "v8.3.1 app-wide copy naturalness batch 1 implementation: implemented",
     "v8.3.1 carb-fat exchange range consistency audit/design: closed",
-    "v8.3.1 carb-fat exchange joint allocation model decision/design: next candidate",
+    "v8.3.1 carb-fat exchange joint allocation model decision/design: closed",
+    "v8.3.1 carb-fat joint allocation model implementation: next candidate",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -247,6 +250,9 @@ if (failures.length === 0) {
     "app-wide copy naturalness batch 1 implementation",
     "carb-fat exchange range consistency audit/design",
     "calorie-equivalent exchange",
+    "carb-fat exchange joint allocation model decision/design",
+    "protein-reserved iso-calorie carb/fat joint allocation",
+    "conditional feasible display ranges",
   ];
   for (const text of currentTruthRequirements) {
     if (!currentTruth.includes(text)) fail(`02_macro_range_current_truth missing: ${text}`);
@@ -279,6 +285,7 @@ if (failures.length === 0) {
     "v8.3.1 app-wide copy naturalness batch 1 implementation",
     "v8.3.1 carb-fat exchange range consistency audit/design",
     "v8.3.1 carb-fat exchange joint allocation model decision/design",
+    "v8.3.1 carb-fat joint allocation model implementation",
     "current_curve_with_guarded_outputs",
     "continuous recency-weighted excess pressure",
     "automatic training load interpolation",
@@ -302,6 +309,7 @@ if (failures.length === 0) {
     "v8.3.1 DailyCoach/range copy naturalness narrow implementation: next candidate",
     "v8.3.1 carb-fat exchange range consistency decision: next candidate",
     "v8.3.1 carb-fat exchange card cue/help spec + narrow implementation: next candidate",
+    "v8.3.1 carb-fat exchange joint allocation model decision/design: next candidate",
     "다음 후보는 evidence pack / user confirmation",
   ];
   for (const text of staleReadinessPhrases) {
@@ -697,6 +705,32 @@ if (failures.length === 0) {
   for (const text of carbFatExchangeRangeConsistencyAuditDesignRequirements) {
     if (!carbFatExchangeRangeConsistencyAuditDesign.includes(text)) {
       fail(`v8.3.1 carb-fat exchange range consistency audit design missing: ${text}`);
+    }
+  }
+
+  const carbFatExchangeJointAllocationModelDecisionRequirements = [
+    "v8.3.1 carb-fat exchange joint allocation model decision",
+    "docs-only model decision/design",
+    "protein-reserved iso-calorie carb/fat joint allocation",
+    "conditional feasible display ranges",
+    "No explanation-only shortcut",
+    "사용자에게 내부 calorie exchange arithmetic을 설명하지 말고",
+    "Option C.",
+    "availableCarbFatKcal",
+    "4 * carbTargetG + 9 * fatTargetG = availableCarbFatKcal",
+    "allowedGapKcal <= 2",
+    "raw physiological range ∩ iso-calorie feasible interval",
+    "3일/7일 continuous pressure limiter",
+    "getV831CarbFatJointAllocationModel",
+    "J01 target kcal / protein reserve / carb+fat kcal equality",
+    "J12 no user-facing internal exchange arithmetic",
+    "v8.3.1 carb-fat joint allocation model implementation",
+    "별도 test-design 문서를 하나 더 만들지 않는다",
+    "scoreDeltaPreview product path",
+  ];
+  for (const text of carbFatExchangeJointAllocationModelDecisionRequirements) {
+    if (!carbFatExchangeJointAllocationModelDecision.includes(text)) {
+      fail(`v8.3.1 carb-fat exchange joint allocation model decision missing: ${text}`);
     }
   }
 
