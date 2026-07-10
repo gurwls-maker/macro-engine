@@ -25,6 +25,8 @@ macro range / scoring / nutrition / exercise 관련 작업 전에는 반드시 �
 - For product/math/UI issues, inspect relevant code paths, screen behavior, data shape, or fixture logic before accepting docs-only or copy-only work.
 - Separate minimal surface from complete scope before editing.
 - Do not let this routine create recursive meta-work; Most audits belong in the result log, not in new documents.
+- Do not turn already-reviewed docs-only/readiness/copy merge-publish into a large standalone task; do the short publish checkpoint, then continue to the next substantive task if one actually exists.
+- Conversely, do not invent a next implementation merely because publish completed; confirm there is a real issue/current gate.
 - 프롬프트를 그대로 수행하기 전에 현재 repo 기준으로 다음 단계가 맞는지 재판단한다.
 - 처음에만 수용하는 척하고 결국 관성대로 움직이는 것을 금지한다.
 - 이 루틴 자체가 새 관성이 되면 안 된다.
