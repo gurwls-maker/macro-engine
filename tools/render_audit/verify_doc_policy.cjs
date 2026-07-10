@@ -193,11 +193,18 @@ if (failures.length === 0) {
     if (indexHtml.includes("applyProteinTargetLevelToFinalMacros")) {
       fail("protein target levels must not overwrite final macros after external policy application");
     }
+    if (indexHtml.includes('<option value="default">기본</option>')) {
+      fail("protein target selector must not expose duplicate default and medium choices");
+    }
     for (const signal of [
       "buildExternalMacroProteinTargetLevelSelection",
       "runProteinTargetLevelPolicyIntegrationTests",
       "genericFfmExceptionApplied: false",
       "proteinTargetLevelContext: externalMacroActiveProductionApplication.proteinTargetLevelContext",
+      'const PROTEIN_TARGET_LEVELS = Object.freeze(["low", "medium", "high"])',
+      'if (value === "default") return "medium"',
+      'proteinTargetLevel: "medium"',
+      'id="proteinTargetLevelHelpTip"',
     ]) {
       if (!indexHtml.includes(signal)) fail(`index.html missing protein target policy integration signal: ${signal}`);
     }
@@ -806,12 +813,15 @@ if (failures.length === 0) {
     "proteinTargetLevel",
     "persistent setting surface",
     "Protein card no longer shows a range chip",
-    "`default` and `medium` preserve the automatic recommendation selected by the existing external macro production policy",
+    "`medium` is the only default/automatic UI choice",
+    "Legacy stored `default` values normalize to `medium`",
+    "compact 72px selector",
+    "proteinTargetLevelHelpTip",
     "`low` and `high` select the lower/upper bound of the existing mode/context policy range",
     "Generic `high` does not expose the 2.3-3.1g/kg FFM contest-prep exception",
     "former post-policy final macro overwrite was removed",
     "runProteinTargetLevelPolicyIntegrationTests",
-    "six goals x exercise/general x default/low/medium/high",
+    "six goals x exercise/general x low/medium/high",
     "No scoring-curve anchor change",
     "No score formula change",
     "No score curve tuning",
