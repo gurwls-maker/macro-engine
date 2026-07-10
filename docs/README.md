@@ -202,7 +202,7 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 
 - `lightweight_anti_inertia_routine_2026-07-09.md`
   - 긴 경계 프롬프트 수동 의존을 줄이기 위한 docs-only lightweight process guard다.
-  - 위험 작업 전 one-minute `PROMPT_SCOPE_AUDIT`로 요청 다음 단계와 repo/current truth 다음 단계를 비교하되, 대부분은 결과로그에 짧게 남기는 것으로 충분하다고 닫는다.
+  - 위험 작업 전 one-minute `PROMPT_SCOPE_AUDIT`로 요청 다음 단계와 repo/current truth 다음 단계를 비교하되, documented next gate는 가설로 보고 root problem / 문서 밖 증거 / 대안 / 반증 조건을 확인해야 한다.
   - anti-loop / stale-routine / supersede 규칙을 포함해 이 루틴 자체가 새 관성이 되지 않도록 제한한다.
   - 이 문서는 새 product gate가 아니며, product gate 상태는 current truth / status index를 따른다.
   - evidence pack, score tuning implementation, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.

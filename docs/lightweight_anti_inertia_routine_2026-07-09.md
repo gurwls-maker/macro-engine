@@ -39,13 +39,21 @@ Scope:
 
 This routine exists to reduce manual dependence on long warning prompts. It is not a new product gate and not a reason to delay real work repeatedly.
 
-The routine asks one question before risky work:
+The routine asks two questions before risky work:
 
 ```text
-Is the requested next step still the correct next step when compared with current truth, git state, and required gates?
+1. Is the requested next step still the correct next step when compared with current truth, git state, and required gates?
+2. Does the chosen action actually solve the root problem, or does it merely match the documented next gate?
 ```
 
 It should usually take about one minute. If it grows into a new meta-work loop, the routine is being misused.
+
+Important correction:
+- A REQUIRED_NEXT_GATES entry is a hypothesis, not proof.
+- A documented next gate is a hypothesis.
+- "Current truth says this is next" is not enough.
+- "The previous audit says this is next" is not enough.
+- Before acting, state the actual product/math/UI/user problem in plain language and check whether the chosen action would solve it.
 
 ## 2. One-minute PROMPT_SCOPE_AUDIT
 
@@ -55,8 +63,15 @@ Use this short form before macro/scoring/nutrition/exercise/docs-policy/release 
 PROMPT_SCOPE_AUDIT:
 - requested next step:
 - repo/current truth next step:
+- root problem in plain language:
+- evidence checked outside next-gate text:
+- alternatives considered:
+- why the chosen action solves the root problem:
+- what would prove this choice wrong:
 - mismatch or risk:
 - chosen action:
+- minimal surface:
+- complete scope:
 - why not broader:
 ```
 
@@ -66,6 +81,33 @@ Rules:
 - Add a document only when the mismatch materially changes project direction or gates.
 - Do not assume the prompt is the correct next step.
 - Do not assume a previous GPT/Codex opinion is still correct.
+- Do not assume the current truth next gate is correct merely because it is documented.
+- If the chosen action cannot explain how it solves the root problem, adjust scope before editing.
+- For product/math/UI problems, inspect the relevant code path, screen behavior, data shape, or fixture logic before accepting a docs-only or copy-only step.
+
+## 2.5. Adversarial root-problem check
+
+The audit must be adversarial, not ceremonial.
+
+Before editing, answer these checks:
+
+```text
+1. What is the real issue if all document names are ignored?
+2. Would the proposed step fix that issue, or only update routing/docs/copy?
+3. What is the strongest alternative action?
+4. What evidence would make the proposed step wrong?
+5. Is the latest user correction overriding a stale current-truth path?
+6. Is this another version of a previously rejected pattern?
+```
+
+If the task is macro/scoring/nutrition/exercise and the answer depends on app behavior, do not stop at document routing.
+Read or inspect the relevant production code, current screen behavior, test fixture, or data contract.
+
+Examples:
+- If the problem is math/model consistency, card copy/help is not a sufficient solution.
+- If the problem is user-facing copy, exact old test strings are not automatically correct.
+- If the problem is old records or scoreDelta, do not preserve them merely because historical docs mention them.
+- If the problem is tuning, do not change coefficients until fixture/evidence says the current curve is wrong.
 
 ## 3. Minimal surface vs complete scope
 
@@ -140,6 +182,11 @@ Use this shape when the task is risky enough to need the full form:
 PROMPT_SCOPE_AUDIT:
 - 요청된 다음 단계:
 - repo 기준 실제 다음 단계:
+- 실제 문제:
+- 문서 밖에서 확인한 증거:
+- 검토한 대안:
+- 선택한 작업이 실제 문제를 푸는 이유:
+- 이 선택이 틀렸다고 볼 조건:
 - 다르게 판단한 점:
 - 선택한 이유:
 
@@ -155,7 +202,11 @@ PROMPT_SCOPE_AUDIT:
 
 For low-risk tasks, a one-line audit in the result log is enough.
 
-## 8. Next gate restoration
+## 8. Historical next gate restoration
+
+This section is historical. It records what the next product gate was when this process guard was first written.
+Do not use this section as the current next-step source.
+The active next-step source is always the latest user intent plus current truth / status index / actual repo state.
 
 This document does not replace the v8.3.1 scoring path.
 
