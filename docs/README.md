@@ -256,7 +256,8 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 - `v8.3.1_app_wide_copy_naturalness_batch_1_pre_merge_audit_2026-07-10.md`
   - pushed branch `774b7b7`을 master merge 전에 감사한 docs-only pre-merge audit 문서다.
   - copy-only diff scope, source/DailyCoach/Settings/backup/InBody/validation meaning guard, test expectation 갱신 적절성, full test pass를 확인했다.
-  - audit decision은 `MERGE_READY`이며 다음 gate는 `v8.3.1 app-wide copy naturalness batch 1 merge/publish`다.
+  - audit decision은 `MERGE_READY`였고, batch 1 implementation과 pre-merge audit은 master merge commit `9241a8e`로 반영됐다.
+  - 다음 우선 gate는 `v8.3.1 carb-fat exchange range consistency decision`이다. 탄수/지방 독립 range chip이 모든 조합을 동시에 가능한 것처럼 읽히는 문제를 구현 전에 판단한다.
   - 추가 copy fix, broad rewrite, tooltip/glossary implementation, score formula/numeric tuning, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
 ## legacy / 참고 문서
