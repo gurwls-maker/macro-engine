@@ -236,10 +236,26 @@ if (failures.length === 0) {
       "completionOwnershipSnapshot",
       "onboarding Settings re-entry submit preserves non-onboarding ownership",
       "onboarding existing-data confirmation preserves user-owned Settings and Today data",
+      "onboarding incomplete full restore rebases ownership snapshot to restored backup",
+      "onboarding completed full restore clears stale ownership snapshot",
+      "smart-restore record-add should keep the existing Settings/Today ownership snapshot",
       "if (shouldShowFirstRunSetup()) return;",
       "if (shouldShowFirstRunSetup() && !onboardingUiState.reentry)",
     ]) {
       if (!indexHtml.includes(signal)) fail(`index.html missing onboarding truthfulness signal: ${signal}`);
+    }
+    const restoreStart = indexHtml.indexOf("function restoreFullBackupData(data){");
+    const restoreEnd = indexHtml.indexOf("\n    function confirmDataManagementImport", restoreStart);
+    if (restoreStart < 0 || restoreEnd < 0) {
+      fail("index.html missing full-backup restore boundary for onboarding snapshot policy");
+    } else {
+      const restoreBody = indexHtml.slice(restoreStart, restoreEnd);
+      const settingsAppliedAt = restoreBody.indexOf("Object.assign(state, settings");
+      const snapshotClearedAt = restoreBody.indexOf("onboardingUiState.completionOwnershipSnapshot = null;");
+      const incompletePreparedAt = restoreBody.indexOf("prepareIncompleteOnboardingState();");
+      if (!(settingsAppliedAt >= 0 && snapshotClearedAt > settingsAppliedAt && incompletePreparedAt > snapshotClearedAt)) {
+        fail("full-backup restore must clear stale onboarding ownership after applying B and before incomplete B recapture");
+      }
     }
   }
 
@@ -913,6 +929,10 @@ if (failures.length === 0) {
     "No score formula change",
     "Additional requested product audit: not implemented",
     "코드 몰라도 보는 완료 보존 핫픽스",
+    "코드 몰라도 보는 전체 백업 스냅샷 재설정 핫픽스",
+    "Full-backup snapshot hotfix PROMPT_SCOPE_AUDIT",
+    "incomplete full backup restore",
+    "completed full backup restore",
     "Settings re-entry submit",
     "Carb/fat adaptive-target explanation in DailyCoach",
     "DailyCoach semantic v2 phase 1",
@@ -943,6 +963,9 @@ if (failures.length === 0) {
   if (!readFirst.includes("onboarding completion ownership hotfix: implemented by docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md")) {
     fail("00_READ_FIRST missing onboarding completion ownership hotfix");
   }
+  if (!readFirst.includes("onboarding full-backup ownership snapshot rebase hotfix: implemented by docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md")) {
+    fail("00_READ_FIRST missing onboarding full-backup ownership snapshot rebase hotfix");
+  }
   if (!statusIndex.includes("onboarding / first-run flow implementation: implemented by docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md")) {
     fail("status index missing implemented onboarding gate");
   }
@@ -951,6 +974,15 @@ if (failures.length === 0) {
   }
   if (!currentTruth.includes("completion ownership hotfix") || !readme.includes("completion ownership hotfix")) {
     fail("current truth and README must route the onboarding completion ownership hotfix");
+  }
+  for (const [label, text] of [
+    ["02_macro_range_current_truth", currentTruth],
+    ["04_document_status_index", statusIndex],
+    ["README", readme],
+  ]) {
+    if (!text.includes("full-backup snapshot rebase hotfix")) {
+      fail(`${label} must route the onboarding full-backup snapshot rebase hotfix`);
+    }
   }
   for (const [label, text] of [
     ["00_READ_FIRST", readFirst],
