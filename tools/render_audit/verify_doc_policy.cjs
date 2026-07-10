@@ -64,6 +64,7 @@ const requiredFiles = [
   "docs/v8.3.1_app_wide_copy_naturalness_batch_1_implementation_2026-07-09.md",
   "docs/v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md",
   "docs/v8.3.1_carb_fat_exchange_joint_allocation_model_decision_2026-07-10.md",
+  "docs/v8.3.1_carb_fat_joint_allocation_model_implementation_2026-07-10.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -215,7 +216,7 @@ if (failures.length === 0) {
     "v8.3.1 app-wide copy naturalness batch 1 implementation: implemented",
     "v8.3.1 carb-fat exchange range consistency audit/design: closed",
     "v8.3.1 carb-fat exchange joint allocation model decision/design: closed",
-    "v8.3.1 carb-fat joint allocation model implementation: next candidate",
+    "v8.3.1 carb-fat joint allocation model implementation: implemented",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -251,6 +252,7 @@ if (failures.length === 0) {
     "carb-fat exchange range consistency audit/design",
     "calorie-equivalent exchange",
     "carb-fat exchange joint allocation model decision/design",
+    "carb-fat joint allocation model implementation",
     "protein-reserved iso-calorie carb/fat joint allocation",
     "conditional feasible display ranges",
   ];
@@ -363,6 +365,7 @@ if (failures.length === 0) {
     "user-facing range explanation/copy decision",
     "DailyCoach/range copy naturalness",
     "app-wide user-facing copy naturalness inventory",
+    "v8.3.1_carb_fat_joint_allocation_model_implementation_2026-07-10.md",
   ];
   for (const text of readmeIncidentRequirements) {
     if (!readme.includes(text)) fail(`README missing target/scoring incident routing: ${text}`);

@@ -104,11 +104,11 @@ Anchor table v1
 - adaptive target OFF이면 Today는 fixed target을 유지한다.
 - Today adaptive target은 live display/score interpretation이며 Records goalSnapshot을 덮어쓰지 않는다. snapshot은 selected calculation target을 보존한다.
 - Today adaptive target ON/OFF는 persistent setting surface다. 대규모 schema migration은 아니지만 저장되는 설정 field가 추가된 사실은 결과로그에서 명시한다.
-- Today macro card의 탄수/지방 range chip은 marginal range다. 모든 chip corner combination이 동시에 가능한 joint feasible set이라고 읽히면 안 된다.
+- Today macro card의 탄수/지방 range chip은 더 이상 단순 independent marginal range로 열지 않는다. v8.3.1 구현 이후 card는 `jointAllocationModel.conditionalDisplayRanges`를 우선 읽고, 현재 탄수 섭취가 높으면 지방 upper가 내려가며 현재 지방 섭취가 높으면 탄수 upper가 내려간다.
 - 탄수/지방 교환은 gram 1:1이 아니라 calorie-equivalent exchange다. 고정 kcal와 protein 조건에서는 carb가 올라가면 fat 여유가 kcal 기준으로 내려가며, fat 1g은 carb 약 2.25g에 해당한다.
 - 사용자-facing 설명문으로 산식/제품 의미 결정을 대체하면 안 된다. 앱 내부 모델이 맞게 계산하고 화면은 결과 숫자만 자연스럽게 보여준다.
-- carb/fat joint allocation의 채택 모델은 `protein-reserved iso-calorie carb/fat joint allocation with conditional feasible display ranges`다. protein을 먼저 reserve하고, 남은 kcal 안에서 carbs/fat target pair와 display range를 같은 helper로 계산한다.
-- card range chip을 유지한다면 independent marginal range가 아니라 `raw physiological range ∩ iso-calorie feasible interval`이어야 한다. 탄수를 이미 많이 먹으면 fat upper가 내려가고, 지방을 이미 많이 먹으면 carb upper가 내려가야 한다.
+- carb/fat joint allocation의 채택/구현 모델은 `protein-reserved iso-calorie carb/fat joint allocation with conditional feasible display ranges`다. protein을 먼저 reserve하고, 남은 kcal 안에서 carbs/fat target pair와 display range를 같은 helper로 계산한다.
+- card range chip은 `raw physiological range ∩ iso-calorie feasible interval`을 바탕으로 한 conditional feasible range여야 한다. 탄수를 이미 많이 먹으면 fat upper가 내려가고, 지방을 이미 많이 먹으면 carb upper가 내려간다.
 - 이 문제는 copy/help/tooltip으로 해결하지 않는다. 사용자에게 내부 calorie-exchange arithmetic을 설명하지 말고, 앱이 맞는 target/range 숫자를 계산한다.
 - 핵심 표현: hard-collapse 금지, curve-mediated collapse 허용.
 
@@ -171,8 +171,9 @@ Anchor table v1
 - v8.3.1 DailyCoach/range copy naturalness implementation은 docs/v8.3.1_dailycoach_range_copy_naturalness_implementation_2026-07-09.md로 구현됐다. 알려진 위험이던 "회복 재료" / "성장 재료" 계열 문구와 이를 고정한 test expectation은 DailyCoach/range-adjacent surface에서 제거했다.
 - app-wide user-facing copy naturalness inventory / decision은 docs/v8.3.1_app_wide_user_facing_copy_inventory_decision_2026-07-09.md로 닫혔다. 이 작업은 grep-only 치환이 아니라 앱 전체 사용자 문구를 surface / exact current text / issue type / decision / next action으로 분류한 inventory-first gate다.
 - v8.3.1 app-wide copy naturalness batch 1 implementation은 docs/v8.3.1_app_wide_copy_naturalness_batch_1_implementation_2026-07-09.md로 구현됐다. source visibility notes, DailyCoach leftover "재료" family, Settings/low-digest copy, backup warning, InBody help/trend phrase, validation spacing/tone, Settings hero를 좁게 자연화했고, 어색한 정확 문구 테스트는 meaning-first expectation으로 갱신했다.
-- v8.3.1 carb-fat exchange range consistency audit/design은 docs/v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md로 닫혔다. 현재 card chip은 marginal range이고 adaptive target은 calorie-equivalent exchange 방향이지만, 다음 gate는 사용자 설명이 아니라 joint allocation model decision/design이다.
-- v8.3.1 carb-fat exchange joint allocation model decision/design은 docs/v8.3.1_carb_fat_exchange_joint_allocation_model_decision_2026-07-10.md로 닫혔다. 다음 gate는 별도 test-design 문서가 아니라 joint allocation model implementation이며, shared helper / adaptive target / card display range / regression test를 같이 맞춘다.
+- v8.3.1 carb-fat exchange range consistency audit/design은 docs/v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md로 닫혔다. 이 문서는 기존 card chip이 marginal range였고, 사용자 설명이 아니라 joint allocation model이 필요하다고 정리했다.
+- v8.3.1 carb-fat exchange joint allocation model decision/design은 docs/v8.3.1_carb_fat_exchange_joint_allocation_model_decision_2026-07-10.md로 닫혔다.
+- v8.3.1 carb-fat joint allocation model implementation은 docs/v8.3.1_carb_fat_joint_allocation_model_implementation_2026-07-10.md로 구현됐다. shared helper / adaptive target / card conditional display range / regression test를 맞췄고, score penalty curve 자체를 과잉 변경하지 않는 경계도 닫았다.
 - 다음 copy 후보는 필요 시 tooltip/glossary and adaptive-target help copy spec 또는 app-wide copy batch 2 decision이다. 새 이슈가 없으면 broad rewrite를 열지 않는다. score formula / anchor / curve / adaptive limiter / UI-storage-schema는 이 copy implementation에서 바꾸지 않았다.
 - alcohol은 kcal + physiology risk를 유지하되, 첫 판단은 copy/product-tone mismatch인지 score curve mismatch인지 분리한다.
 - 구현 중에도 UI/storage/schema/scoreDeltaPreview/old records migration은 별도 gate다.
