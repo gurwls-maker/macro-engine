@@ -822,7 +822,7 @@ if (failures.length === 0) {
     "Protein card no longer shows a range chip",
     "`medium` is the only default/automatic UI choice",
     "Legacy stored `default` values normalize to `medium`",
-    "compact 72px selector",
+    "compact 58px selector",
     "proteinTargetLevelHelpTip",
     "`low` and `high` select the lower/upper bound of the existing mode/context policy range",
     "Generic `high` does not expose the 2.3-3.1g/kg FFM contest-prep exception",
