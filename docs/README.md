@@ -284,6 +284,11 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - target 그대로 섭취 100점, carb/fat conditional display range, adaptive target overfitting 방지, high-volume no-permission, Records snapshot stability, pre/post-merge full test pass를 확인했다.
   - 다음 gate는 v8.3.1 stabilization/readiness checkpoint update다. card help/copy, score curve tuning, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
+- `v8.3.1_stabilization_readiness_checkpoint_update_2026-07-10.md`
+  - carb/fat joint allocation implementation과 QA closeout이 master까지 반영된 상태를 readiness checkpoint로 닫은 docs-only 문서다.
+  - 결론은 v8.3.1-ready for next planning, with monitor-only residual risk다.
+  - 다음은 새 기능 자동 진입이 아니라 monitor 또는 실제 이슈 기반 planning이다. tooltip/glossary, app-wide copy batch 2, score tuning, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 별도 gate 없이는 열지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
