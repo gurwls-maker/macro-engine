@@ -289,6 +289,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 결론은 v8.3.1-ready for next planning, with monitor-only residual risk다.
   - 다음은 새 기능 자동 진입이 아니라 monitor 또는 실제 이슈 기반 planning이다. tooltip/glossary, app-wide copy batch 2, score tuning, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 별도 gate 없이는 열지 않는다.
 
+- `v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md`
+  - Today macro card에서 adaptive ON/OFF 표시를 분리하고, protein target level setting을 추가한 implementation log다.
+  - adaptive ON은 탄수/지방 conditional range chip과 base target을 함께 보여주고, adaptive OFF는 range chip을 숨기며 fixed recommended target remaining/over wording으로 돌아간다.
+  - protein card는 range chip을 보여주지 않고 selected protein target level을 보여준다. `proteinTargetLevel`은 full backup/restore에 포함되는 persistent setting surface다.
+  - 단백질 low/default/medium/high는 별도 goal 수치표가 아니라 mode/context-selected external macro production policy의 하한/자동값/상한에서 파생하며, generic 3.1g/kg BW high와 post-policy final macro overwrite를 금지한다.
+  - score formula, score curve tuning, scoring-curve anchor, adaptive limiter, kcal/alcohol range display, tooltip/glossary, DailyCoach copy rewrite, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.

@@ -67,6 +67,7 @@ const requiredFiles = [
   "docs/v8.3.1_carb_fat_joint_allocation_model_implementation_2026-07-10.md",
   "docs/v8.3.1_carb_fat_joint_allocation_model_qa_closeout_2026-07-10.md",
   "docs/v8.3.1_stabilization_readiness_checkpoint_update_2026-07-10.md",
+  "docs/v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -127,6 +128,7 @@ if (failures.length === 0) {
   const carbFatExchangeRangeConsistencyAuditDesign = read("docs/v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md");
   const carbFatExchangeJointAllocationModelDecision = read("docs/v8.3.1_carb_fat_exchange_joint_allocation_model_decision_2026-07-10.md");
   const v831StabilizationReadinessCheckpointUpdate = read("docs/v8.3.1_stabilization_readiness_checkpoint_update_2026-07-10.md");
+  const macroCardAdaptiveOffProteinTargetImplementation = read("docs/v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
@@ -185,6 +187,20 @@ if (failures.length === 0) {
     if (!indexHtml.includes(newExternalReferencePath)) {
       fail(`index.html missing routed external macro reference path: ${newExternalReferencePath}`);
     }
+    if (indexHtml.includes("PROTEIN_TARGET_LEVEL_POLICIES")) {
+      fail("protein target levels must not revive a separate goal-only policy table");
+    }
+    if (indexHtml.includes("applyProteinTargetLevelToFinalMacros")) {
+      fail("protein target levels must not overwrite final macros after external policy application");
+    }
+    for (const signal of [
+      "buildExternalMacroProteinTargetLevelSelection",
+      "runProteinTargetLevelPolicyIntegrationTests",
+      "genericFfmExceptionApplied: false",
+      "proteinTargetLevelContext: externalMacroActiveProductionApplication.proteinTargetLevelContext",
+    ]) {
+      if (!indexHtml.includes(signal)) fail(`index.html missing protein target policy integration signal: ${signal}`);
+    }
   }
 
   const sourceLedgerRequirements = [
@@ -222,6 +238,7 @@ if (failures.length === 0) {
     "v8.3.1 carb-fat joint allocation model implementation: implemented",
     "v8.3.1 carb-fat joint allocation model QA closeout: closed",
     "v8.3.1 stabilization/readiness checkpoint update: closed",
+    "v8.3.1 macro card adaptive OFF and protein target level implementation: implemented",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -263,6 +280,10 @@ if (failures.length === 0) {
     "carb-fat joint allocation model implementation",
     "protein-reserved iso-calorie carb/fat joint allocation",
     "conditional feasible display ranges",
+    "proteinTargetLevel",
+    "mode/context-selected external macro production policy",
+    "2.3~3.1g/kg FFM contest-prep 예외를 열지 않는다",
+    "external policy 적용 후 final protein/carbs/fat을 다시 덮어쓰면 실패",
   ];
   for (const text of currentTruthRequirements) {
     if (!currentTruth.includes(text)) fail(`02_macro_range_current_truth missing: ${text}`);
@@ -298,6 +319,7 @@ if (failures.length === 0) {
     "v8.3.1 carb-fat joint allocation model implementation",
     "v8.3.1 carb-fat joint allocation model QA closeout",
     "v8.3.1 stabilization/readiness checkpoint update",
+    "v8.3.1 macro card adaptive OFF and protein target level implementation",
     "v8.3.1-ready for next planning",
     "current_curve_with_guarded_outputs",
     "continuous recency-weighted excess pressure",
@@ -379,6 +401,7 @@ if (failures.length === 0) {
     "v8.3.1_carb_fat_joint_allocation_model_implementation_2026-07-10.md",
     "v8.3.1_carb_fat_joint_allocation_model_qa_closeout_2026-07-10.md",
     "v8.3.1_stabilization_readiness_checkpoint_update_2026-07-10.md",
+    "v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md",
   ];
   for (const text of readmeIncidentRequirements) {
     if (!readme.includes(text)) fail(`README missing target/scoring incident routing: ${text}`);
@@ -773,6 +796,31 @@ if (failures.length === 0) {
   for (const text of v831StabilizationReadinessCheckpointUpdateRequirements) {
     if (!v831StabilizationReadinessCheckpointUpdate.includes(text)) {
       fail(`v8.3.1 stabilization readiness checkpoint update missing: ${text}`);
+    }
+  }
+
+  const macroCardAdaptiveOffProteinTargetRequirements = [
+    "implementation_log",
+    "adaptive ON",
+    "adaptive OFF",
+    "proteinTargetLevel",
+    "persistent setting surface",
+    "Protein card no longer shows a range chip",
+    "`default` and `medium` preserve the automatic recommendation selected by the existing external macro production policy",
+    "`low` and `high` select the lower/upper bound of the existing mode/context policy range",
+    "Generic `high` does not expose the 2.3-3.1g/kg FFM contest-prep exception",
+    "former post-policy final macro overwrite was removed",
+    "runProteinTargetLevelPolicyIntegrationTests",
+    "six goals x exercise/general x default/low/medium/high",
+    "No scoring-curve anchor change",
+    "No score formula change",
+    "No score curve tuning",
+    "No scoreDeltaPreview work",
+    "No old records migration/recompute/reset",
+  ];
+  for (const text of macroCardAdaptiveOffProteinTargetRequirements) {
+    if (!macroCardAdaptiveOffProteinTargetImplementation.includes(text)) {
+      fail(`v8.3.1 macro card adaptive OFF/protein target implementation missing: ${text}`);
     }
   }
 

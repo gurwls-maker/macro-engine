@@ -147,6 +147,7 @@ const testProfiles = {
     "runMacroRangeBackupRestoreFixtureDesignTests",
     "runMacroRangeRecentMixedBasisDesignTests",
     "runTargetMacroProductionPolicyTests",
+    "runProteinTargetLevelPolicyIntegrationTests",
     "runAuthoritativeTargetCalTests",
     "runTargetCalSemanticGuardTests",
     "runMacroAllocationExplanationTests",
