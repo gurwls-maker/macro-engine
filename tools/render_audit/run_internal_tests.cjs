@@ -68,6 +68,7 @@ const frameHeight = mode === "mobile" ? 844 : 900;
 
 const testProfiles = {
   smoke: [
+    "runOnboardingFirstRunFlowTests",
     "runRecordMigrationTests",
     "runMealRecordTests",
     "runMealEntryConsistencyTests",
@@ -90,6 +91,7 @@ const testProfiles = {
     "runDualBasisProductionTests"
   ],
   core: [
+    "runOnboardingFirstRunFlowTests",
     "runRecordMigrationTests",
     "runMealRecordTests",
     "runTodayConsumptionTests",
@@ -155,6 +157,7 @@ const testProfiles = {
     "runDailyCoachRecentContextTests"
   ],
   ui: [
+    "runOnboardingFirstRunFlowTests",
     "runMobileRegressionQaTests",
     "runMobileBottomNavSafetyTests",
     "runStitchTodayShellTests",
@@ -204,6 +207,7 @@ const testProfiles = {
     "runActivityWorkEnergyAvailabilityFloorPolicyTests"
   ],
   mobile: [
+  "runOnboardingFirstRunFlowTests",
   "runMobileRegressionQaTests",
   "runMobileBottomNavSafetyTests",
   "runRecordsInBodySettingsCopyDietTests",

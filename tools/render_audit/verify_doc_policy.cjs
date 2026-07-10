@@ -71,6 +71,7 @@ const requiredFiles = [
   "docs/v8.3.1_stabilization_readiness_checkpoint_update_2026-07-10.md",
   "docs/v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md",
   "docs/v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md",
+  "docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -134,6 +135,7 @@ if (failures.length === 0) {
   const v831StabilizationReadinessCheckpointUpdate = read("docs/v8.3.1_stabilization_readiness_checkpoint_update_2026-07-10.md");
   const macroCardAdaptiveOffProteinTargetImplementation = read("docs/v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md");
   const onboardingFirstRunFlowDecision = read("docs/v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md");
+  const onboardingFirstRunFlowImplementation = read("docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md");
   const onboardingArchiveReadme = read("docs/archive/onboarding/README.md");
   const onboardingHistoricalNote = read("docs/archive/onboarding/v8.2_onboarding_start_flow_note_2026-07-03.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
@@ -142,6 +144,7 @@ if (failures.length === 0) {
   const v82ArchiveReadme = read("docs/archive/v8.2_macro_range/README.md");
   const readme = read("docs/README.md");
   const agents = read("AGENTS.md");
+  const internalTestRunner = read("tools/render_audit/run_internal_tests.cjs");
   const readmeHead = readme.slice(0, 2000);
   const readFirstImplementationBlocked = /v8\.3 implementation:\s*blocked/i.test(readFirst);
   const statusImplementationBlocked = /v8\.3 implementation:\s*blocked/i.test(statusIndex);
@@ -214,6 +217,24 @@ if (failures.length === 0) {
       'id="proteinTargetLevelHelpTip"',
     ]) {
       if (!indexHtml.includes(signal)) fail(`index.html missing protein target policy integration signal: ${signal}`);
+    }
+    for (const signal of [
+      "const ONBOARDING_VERSION = 1",
+      'const ONBOARDING_STORAGE_KEY = "onboardingCompletedVersion"',
+      'const BODY_COMPOSITION_CONFIRMED_STORAGE_KEY = "bodyCompositionConfirmed"',
+      'FRESH: "fresh"',
+      'COMPLETED: "completed"',
+      'EXISTING_PROFILE_CONFIRMED: "existing_profile_confirmed"',
+      'EXISTING_DATA_PROFILE_UNCONFIRMED: "existing_data_profile_unconfirmed"',
+      "function classifyOnboardingEvidence(",
+      "function getOnboardingCompletionState(",
+      "function shouldShowFirstRunSetup(",
+      "function completeFirstRunSetup(",
+      "function runOnboardingFirstRunFlowTests(",
+      "if (shouldShowFirstRunSetup()) return;",
+      "if (shouldShowFirstRunSetup() && !onboardingUiState.reentry)",
+    ]) {
+      if (!indexHtml.includes(signal)) fail(`index.html missing onboarding truthfulness signal: ${signal}`);
     }
   }
 
@@ -856,7 +877,13 @@ if (failures.length === 0) {
     "AUTO_DEFAULT",
     "ONBOARDING_VERSION = 1",
     "onboardingCompletedVersion",
+    "fresh",
+    "completed",
+    "existing_profile_confirmed",
+    "existing_data_profile_unconfirmed",
     "Mere presence of auto-saved default keys is not completion evidence",
+    "exact historical defaults plus Records or InBody must classify as `existing_data_profile_unconfirmed`",
+    "bodyCompositionConfirmed",
     "Records-only import does not complete onboarding",
     "No additional docs-only test-design step is required",
     "complete onboarding implementation",
@@ -868,20 +895,55 @@ if (failures.length === 0) {
     }
   }
 
+  const onboardingFirstRunImplementationRequirements = [
+    "DOCUMENT ROLE",
+    "- implementation_log",
+    "four-state raw-storage classification",
+    "existing_profile_confirmed",
+    "existing_data_profile_unconfirmed",
+    "Records-only import does not complete setup",
+    "bodyCompositionConfirmed",
+    "runOnboardingFirstRunFlowTests",
+    "No score formula change",
+    "Additional requested product audit: not implemented",
+    "DailyCoach v2 + selectable tone",
+  ];
+  for (const text of onboardingFirstRunImplementationRequirements) {
+    if (!onboardingFirstRunFlowImplementation.includes(text)) {
+      fail(`v8.3.1 onboarding first-run implementation missing: ${text}`);
+    }
+  }
+
   for (const [label, text] of [
     ["00_READ_FIRST", readFirst],
+    ["02_macro_range_current_truth", currentTruth],
     ["04_document_status_index", statusIndex],
     ["README", readme],
   ]) {
-    if (!text.includes("v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md")) {
-      fail(`${label} missing onboarding first-run decision routing`);
+    for (const route of [
+      "v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md",
+      "v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md",
+    ]) {
+      if (!text.includes(route)) fail(`${label} missing onboarding route: ${route}`);
     }
   }
-  if (!readFirst.includes("onboarding / first-run flow implementation: pending; next substantive gate")) {
-    fail("00_READ_FIRST missing pending onboarding implementation gate");
+  if (!readFirst.includes("onboarding / first-run flow implementation: implemented by docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md")) {
+    fail("00_READ_FIRST missing implemented onboarding gate");
   }
-  if (!statusIndex.includes("onboarding / first-run flow implementation: pending; next substantive gate")) {
-    fail("status index missing pending onboarding implementation gate");
+  if (!statusIndex.includes("onboarding / first-run flow implementation: implemented by docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md")) {
+    fail("status index missing implemented onboarding gate");
+  }
+  for (const [label, text] of [
+    ["00_READ_FIRST", readFirst],
+    ["04_document_status_index", statusIndex],
+  ]) {
+    if (text.includes("onboarding / first-run flow implementation: pending; next substantive gate")) {
+      fail(`${label} still has stale pending onboarding implementation text`);
+    }
+  }
+  const onboardingSuiteRegistrations = (internalTestRunner.match(/"runOnboardingFirstRunFlowTests"/g) || []).length;
+  if (onboardingSuiteRegistrations < 4) {
+    fail("onboarding first-run suite must stay registered in smoke, core, UI, and mobile profiles");
   }
   if (!onboardingArchiveReadme.includes("current decision") || !onboardingArchiveReadme.includes("superseded")) {
     fail("onboarding archive README must route historical notes to the current decision");
