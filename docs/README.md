@@ -202,7 +202,7 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 
 - `lightweight_anti_inertia_routine_2026-07-09.md`
   - 긴 경계 프롬프트 수동 의존을 줄이기 위한 docs-only lightweight process guard다.
-  - 위험 작업 전 one-minute `PROMPT_SCOPE_AUDIT`로 요청 다음 단계와 repo/current truth 다음 단계를 비교하되, 대부분은 결과로그에 짧게 남기는 것으로 충분하다고 닫는다.
+  - 위험 작업 전 one-minute `PROMPT_SCOPE_AUDIT`로 요청 다음 단계와 repo/current truth 다음 단계를 비교하되, documented next gate는 가설로 보고 root problem / 문서 밖 증거 / 대안 / 반증 조건을 확인해야 한다.
   - anti-loop / stale-routine / supersede 규칙을 포함해 이 루틴 자체가 새 관성이 되지 않도록 제한한다.
   - 이 문서는 새 product gate가 아니며, product gate 상태는 current truth / status index를 따른다.
   - evidence pack, score tuning implementation, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
@@ -257,8 +257,21 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - pushed branch `774b7b7`을 master merge 전에 감사한 docs-only pre-merge audit 문서다.
   - copy-only diff scope, source/DailyCoach/Settings/backup/InBody/validation meaning guard, test expectation 갱신 적절성, full test pass를 확인했다.
   - audit decision은 `MERGE_READY`였고, batch 1 implementation과 pre-merge audit은 master merge commit `9241a8e`로 반영됐다.
-  - 다음 우선 gate는 `v8.3.1 carb-fat exchange range consistency decision`이다. 탄수/지방 독립 range chip이 모든 조합을 동시에 가능한 것처럼 읽히는 문제를 구현 전에 판단한다.
+  - 이 문서의 다음 우선 gate였던 `v8.3.1 carb-fat exchange range consistency decision`은 `v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md`로 닫혔다.
   - 추가 copy fix, broad rewrite, tooltip/glossary implementation, score formula/numeric tuning, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
+
+- `v8.3.1_carb_fat_exchange_range_consistency_audit_design_2026-07-10.md`
+  - copy batch 1 이후 열린 탄수/지방 range chip 의미를 감사한 docs-only decision 문서다.
+  - 결론은 carb/fat chip이 marginal range이며, 모든 모서리 조합이 동시에 가능한 joint feasible set이 아니라는 것이다.
+  - 1:1 gram exchange가 아니라 같은 kcal budget 안의 calorie-equivalent exchange로 봐야 하며, 현재 adaptive target math는 이 방향과 맞다.
+  - 다음 gate였던 `v8.3.1 carb-fat exchange joint allocation model decision/design`은 `v8.3.1_carb_fat_exchange_joint_allocation_model_decision_2026-07-10.md`로 닫혔다.
+  - score formula, adaptive target logic, UI-only display cap, storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
+
+- `v8.3.1_carb_fat_exchange_joint_allocation_model_decision_2026-07-10.md`
+  - carb/fat exchange를 card help/copy로 설명하는 대신, 내부 모델로 맞추기 위한 docs-only model decision 문서다.
+  - 채택 모델은 `protein-reserved iso-calorie carb/fat joint allocation with conditional feasible display ranges`다.
+  - protein을 먼저 reserve하고 남은 target kcal 안에서 carb/fat target pair를 움직이며, card range chip은 independent marginal range가 아니라 joint helper의 conditional feasible display range를 봐야 한다고 닫는다.
+  - 다음 gate는 별도 test-design 문서가 아니라 `v8.3.1 carb-fat joint allocation model implementation`이다. score curve tuning, card help/copy, UI redesign, storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
 ## legacy / 참고 문서
 
