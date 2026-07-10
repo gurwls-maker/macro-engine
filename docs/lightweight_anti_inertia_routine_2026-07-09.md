@@ -109,6 +109,42 @@ Examples:
 - If the problem is old records or scoreDelta, do not preserve them merely because historical docs mention them.
 - If the problem is tuning, do not change coefficients until fixture/evidence says the current curve is wrong.
 
+## 2.6. Compact merge/publish checkpoint
+
+Do not turn every merge/publish into a large standalone task.
+
+If a branch is already reviewed, tested, and low-risk, merge/publish is a short checkpoint that can be followed immediately by the next substantive task in the same turn.
+
+Use the compact form for:
+- docs-only decision publish
+- readiness/status publish
+- current truth / README routing publish
+- already-audited copy batch merge
+- already-audited docs-policy guard merge
+
+Compact form:
+
+```text
+1. Check HEAD / clean working tree / target branch / v8.3 tag if relevant.
+2. Run docs-policy and the directly relevant test profile.
+3. no-ff merge and push.
+4. Re-check docs-policy / refs.
+5. Continue to the next substantive task if the prompt or current repo state requires it.
+```
+
+Split merge/publish into a separate full audit only when the publish boundary itself is high-risk:
+- scoring formula or range calculation changed
+- storage/schema/backup/restore changed
+- old records migration/reset/recompute changed
+- release tag creation or tag movement
+- tests pass but product/math/UI meaning is still uncertain
+
+Anti-inertia correction:
+- Do not stop after merge/publish when the user asked to continue into the next real implementation.
+- Do not invent a next implementation merely because publish completed; verify that a real issue or current gate exists.
+- If no real issue exists, say so briefly and stop. If one exists, proceed.
+- Merge/publish is a safety checkpoint, not a reason to postpone real work by default.
+
 ## 3. Minimal surface vs complete scope
 
 Before editing, separate these two ideas.
@@ -158,7 +194,7 @@ Full form required:
 - docs-policy
 - storage/schema
 - migration/reset
-- release/tag/merge
+- release/tag creation or tag movement
 - score tuning
 
 Short form enough:
@@ -167,6 +203,7 @@ Short form enough:
 - command output confirmation
 - small README routing
 - non-policy formatting
+- already-reviewed docs-only/readiness/copy merge-publish
 
 ## 7. Result-log template
 
