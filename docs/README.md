@@ -306,6 +306,7 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - exact historical defaults + Records/InBody는 profile-unconfirmed로 데이터를 보존하고, records-only import도 setup을 완료하지 않는다.
   - optional body composition은 `bodyCompositionConfirmed`가 없는 경우 null/low-authority + Mifflin 경로를 사용한다. fresh Today만 첫 완료 시 REST/웨이트 0분/유산소 0분으로 시작한다.
   - completion ownership hotfix는 Settings re-entry submit과 profile-unconfirmed existing-data completion이 onboarding에서 묻지 않은 protein/adaptive/advanced/routine/Today/cardio/draft/Records/InBody 값을 지우지 않게 한다. exercise profile이 바뀌면 incompatible routine plan/session만 정규화한다.
+  - full-backup snapshot rebase hotfix는 전체 백업 B의 Settings와 분류를 적용한 뒤 stale onboarding ownership snapshot A를 폐기한다. 미완료 B는 B snapshot을 다시 캡처하고 완료 B는 null을 유지해, 완료·저장·reload 뒤 Settings/Today와 Records/InBody/drafts/presets/templates가 한 출처 B로 남게 한다. Records-only/스마트복원 기록 추가는 기존 snapshot을 보존한다.
   - 문서 앞부분에 코드 비사용자용 문제·변화·정책 영향·확인 포인트를 추가했다. carb/fat adaptive-target Coach 설명은 구현하지 않고, joint score/guidance ownership inventory 뒤의 `DailyCoach semantic v2 phase 1` 후보로 분리했다.
   - new/old full backup, reset, Settings re-entry submit/cancel, existing-data submit, desktop/mobile/focus와 기존 회귀 테스트를 닫았으며 score formula/anchor/DailyCoach/old record score/version/tag는 변경하지 않았다.
 
