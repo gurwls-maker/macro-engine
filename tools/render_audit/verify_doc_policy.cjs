@@ -44,6 +44,8 @@ const requiredFiles = [
   "docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt",
   "docs/00_current_truth/templates/new_doc_preamble.txt",
   "docs/archive/v8.2_macro_range/README.md",
+  "docs/archive/onboarding/README.md",
+  "docs/archive/onboarding/v8.2_onboarding_start_flow_note_2026-07-03.md",
   "docs/references/product/README.md",
   "docs/references/external/README.md",
   "docs/references/copy/README.md",
@@ -68,6 +70,7 @@ const requiredFiles = [
   "docs/v8.3.1_carb_fat_joint_allocation_model_qa_closeout_2026-07-10.md",
   "docs/v8.3.1_stabilization_readiness_checkpoint_update_2026-07-10.md",
   "docs/v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md",
+  "docs/v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -84,6 +87,7 @@ const legacyRootDocs = [
   "docs/v8_운동프로필_수준별산식_통합실행설계_2026-06-04.txt",
   "docs/# 2026 ACSM 근력운동 가이드 한국어 해설판.txt",
   "docs/앱-문구-기준.txt",
+  "docs/v8.2_onboarding_start_flow_note_2026-07-03.md",
 ];
 
 for (const file of legacyRootDocs) {
@@ -129,6 +133,9 @@ if (failures.length === 0) {
   const carbFatExchangeJointAllocationModelDecision = read("docs/v8.3.1_carb_fat_exchange_joint_allocation_model_decision_2026-07-10.md");
   const v831StabilizationReadinessCheckpointUpdate = read("docs/v8.3.1_stabilization_readiness_checkpoint_update_2026-07-10.md");
   const macroCardAdaptiveOffProteinTargetImplementation = read("docs/v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md");
+  const onboardingFirstRunFlowDecision = read("docs/v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md");
+  const onboardingArchiveReadme = read("docs/archive/onboarding/README.md");
+  const onboardingHistoricalNote = read("docs/archive/onboarding/v8.2_onboarding_start_flow_note_2026-07-03.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
   const sourceLedger = read("docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt");
   const preamble = read("docs/00_current_truth/templates/new_doc_preamble.txt");
@@ -831,6 +838,57 @@ if (failures.length === 0) {
   for (const text of macroCardAdaptiveOffProteinTargetRequirements) {
     if (!macroCardAdaptiveOffProteinTargetImplementation.includes(text)) {
       fail(`v8.3.1 macro card adaptive OFF/protein target implementation missing: ${text}`);
+    }
+  }
+
+  const onboardingFirstRunDecisionRequirements = [
+    "DOCUMENT ROLE",
+    "- decision",
+    "truthful setup gate + progressive Today",
+    "target kcal: 4,013kcal",
+    "weight: 75kg",
+    "goal: lean_bulk",
+    "render() -> saveState()",
+    "exercise 여부만 묻는 최소 v1",
+    "REQUIRED_BEFORE_FIRST_CALC",
+    "REQUIRED_IF_EXERCISE",
+    "proteinTargetLevel",
+    "AUTO_DEFAULT",
+    "ONBOARDING_VERSION = 1",
+    "onboardingCompletedVersion",
+    "Mere presence of auto-saved default keys is not completion evidence",
+    "Records-only import does not complete onboarding",
+    "No additional docs-only test-design step is required",
+    "complete onboarding implementation",
+    "no score formula change",
+  ];
+  for (const text of onboardingFirstRunDecisionRequirements) {
+    if (!onboardingFirstRunFlowDecision.includes(text)) {
+      fail(`v8.3.1 onboarding first-run decision missing: ${text}`);
+    }
+  }
+
+  for (const [label, text] of [
+    ["00_READ_FIRST", readFirst],
+    ["04_document_status_index", statusIndex],
+    ["README", readme],
+  ]) {
+    if (!text.includes("v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md")) {
+      fail(`${label} missing onboarding first-run decision routing`);
+    }
+  }
+  if (!readFirst.includes("onboarding / first-run flow implementation: pending; next substantive gate")) {
+    fail("00_READ_FIRST missing pending onboarding implementation gate");
+  }
+  if (!statusIndex.includes("onboarding / first-run flow implementation: pending; next substantive gate")) {
+    fail("status index missing pending onboarding implementation gate");
+  }
+  if (!onboardingArchiveReadme.includes("current decision") || !onboardingArchiveReadme.includes("superseded")) {
+    fail("onboarding archive README must route historical notes to the current decision");
+  }
+  for (const text of ["HISTORICAL / SUPERSEDED", "docs/v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md"]) {
+    if (!onboardingHistoricalNote.includes(text)) {
+      fail(`historical onboarding note missing supersede marker: ${text}`);
     }
   }
 
