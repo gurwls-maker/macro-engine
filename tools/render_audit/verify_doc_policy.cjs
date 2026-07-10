@@ -231,6 +231,11 @@ if (failures.length === 0) {
       "function shouldShowFirstRunSetup(",
       "function completeFirstRunSetup(",
       "function runOnboardingFirstRunFlowTests(",
+      "function getOnboardingCompletionOwnershipMode(",
+      "function captureOnboardingCompletionOwnershipSnapshot(",
+      "completionOwnershipSnapshot",
+      "onboarding Settings re-entry submit preserves non-onboarding ownership",
+      "onboarding existing-data confirmation preserves user-owned Settings and Today data",
       "if (shouldShowFirstRunSetup()) return;",
       "if (shouldShowFirstRunSetup() && !onboardingUiState.reentry)",
     ]) {
@@ -274,6 +279,7 @@ if (failures.length === 0) {
     "v8.3.1 carb-fat joint allocation model QA closeout: closed",
     "v8.3.1 stabilization/readiness checkpoint update: closed",
     "v8.3.1 macro card adaptive OFF and protein target level implementation: implemented",
+    "v8.3.1 onboarding completion ownership hotfix: implemented",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -906,7 +912,11 @@ if (failures.length === 0) {
     "runOnboardingFirstRunFlowTests",
     "No score formula change",
     "Additional requested product audit: not implemented",
-    "DailyCoach v2 + selectable tone",
+    "코드 몰라도 보는 완료 보존 핫픽스",
+    "Settings re-entry submit",
+    "Carb/fat adaptive-target explanation in DailyCoach",
+    "DailyCoach semantic v2 phase 1",
+    "selectable Coach tone/persona",
   ];
   for (const text of onboardingFirstRunImplementationRequirements) {
     if (!onboardingFirstRunFlowImplementation.includes(text)) {
@@ -930,8 +940,17 @@ if (failures.length === 0) {
   if (!readFirst.includes("onboarding / first-run flow implementation: implemented by docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md")) {
     fail("00_READ_FIRST missing implemented onboarding gate");
   }
+  if (!readFirst.includes("onboarding completion ownership hotfix: implemented by docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md")) {
+    fail("00_READ_FIRST missing onboarding completion ownership hotfix");
+  }
   if (!statusIndex.includes("onboarding / first-run flow implementation: implemented by docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md")) {
     fail("status index missing implemented onboarding gate");
+  }
+  if (!statusIndex.includes("onboarding completion ownership hotfix: implemented by docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md")) {
+    fail("status index missing onboarding completion ownership hotfix");
+  }
+  if (!currentTruth.includes("completion ownership hotfix") || !readme.includes("completion ownership hotfix")) {
+    fail("current truth and README must route the onboarding completion ownership hotfix");
   }
   for (const [label, text] of [
     ["00_READ_FIRST", readFirst],
