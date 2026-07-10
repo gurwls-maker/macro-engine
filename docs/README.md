@@ -299,7 +299,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 - `v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md`
   - clean localStorage 첫 실행이 75kg/173cm/32세 남성/린매스업/운동함 예시값으로 4,013kcal 목표를 계산·저장하는 실제 문제를 닫은 decision이다.
   - 과거 exercise-only 최소 v1과 불완전한 4~6개 checklist를 폐기하고, required Settings profile을 먼저 받는 `truthful setup gate + progressive Today` hybrid를 채택한다.
-  - next gate는 별도 test-design이 아니라 first-run detection, calculation placeholder gate, existing-user migration, full backup/restore, records-only import, mobile QA를 포함한 complete onboarding implementation이다.
+  - migration contract는 `fresh` / `completed` / `existing_profile_confirmed` / `existing_data_profile_unconfirmed` 4상태로 정정됐다. Records/InBody/draft만으로 historical Settings profile을 confirmed 처리하지 않는다.
+
+- `v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md`
+  - raw storage 4상태 분류, completion 전 calculation/persistence placeholder gate, 3단계 setup, conditional exercise input을 구현한 결과로그다.
+  - exact historical defaults + Records/InBody는 profile-unconfirmed로 데이터를 보존하고, records-only import도 setup을 완료하지 않는다.
+  - optional body composition은 `bodyCompositionConfirmed`가 없는 경우 null/low-authority + Mifflin 경로를 사용한다. Today는 첫 완료 시 REST/웨이트 0분/유산소 0분으로 시작한다.
+  - new/old full backup, reset, Settings re-entry/cancel, desktop/mobile/focus와 기존 회귀 테스트를 닫았으며 score formula/anchor/DailyCoach/old record score/version/tag는 변경하지 않았다.
 
 ## legacy / 참고 문서
 
@@ -345,7 +351,7 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 8. 후속 후보 문서
    - `archive/onboarding/v8.2_onboarding_start_flow_note_2026-07-03.md`
      - exercise 여부만 묻는 과거 최소 v1 메모이며 historical / superseded 상태다.
-     - 현재 구현 기준은 `v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md`다.
+     - 현재 결정 기준은 `v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md`, 구현 결과는 `v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md`다.
 
 ## 충돌 판단 순서
 
