@@ -253,6 +253,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 어색한 정확 문구를 고정하던 source visibility / InBody / Settings / macro allocation note tests는 meaning-first expectation으로 갱신했다.
   - D02 `오늘 목표 자동 조정` 설명, tooltip/glossary, broad DailyCoach/InBody/Settings rewrite, score formula/numeric tuning, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
 
+- `v8.3.1_app_wide_copy_naturalness_batch_1_pre_merge_audit_2026-07-10.md`
+  - pushed branch `774b7b7`을 master merge 전에 감사한 docs-only pre-merge audit 문서다.
+  - copy-only diff scope, source/DailyCoach/Settings/backup/InBody/validation meaning guard, test expectation 갱신 적절성, full test pass를 확인했다.
+  - audit decision은 `MERGE_READY`이며 다음 gate는 `v8.3.1 app-wide copy naturalness batch 1 merge/publish`다.
+  - 추가 copy fix, broad rewrite, tooltip/glossary implementation, score formula/numeric tuning, UI/storage/schema, scoreDeltaPreview, old records cleanup/reset/fallback은 열지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
