@@ -310,6 +310,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 문서 앞부분에 코드 비사용자용 문제·변화·정책 영향·확인 포인트를 추가했다. carb/fat adaptive-target Coach 설명은 구현하지 않고, joint score/guidance ownership inventory 뒤의 `DailyCoach semantic v2 phase 1` 후보로 분리했다.
   - new/old full backup, reset, Settings re-entry submit/cancel, existing-data submit, desktop/mobile/focus와 기존 회귀 테스트를 닫았으며 score formula/anchor/DailyCoach/old record score/version/tag는 변경하지 않았다.
 
+- `v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md`
+  - Today score ring/band/secondary/quick evidence/네 타일/`추가 확인`, Hero, DailyCoach, adaptive help, selectable voice, broad glossary의 실제 producer/consumer를 다시 나눈 docs-only decision이다.
+  - production 점수는 9개 raw penalty를 합산하지만 네 타일이 alcohol physiology와 data outlier를 완결되게 설명하지 못하고, score `추가 확인`이 Coach/recent/InBody를 재소비한다는 문제를 확인했다.
+  - 네 항목을 독립 0~100점으로 바꾸는 안과 사용자 예시 adaptive copy 즉시 구현은 폐기했다. 다음은 formula 불변의 `penaltyBreakdown` 기반 score-card semantic ownership cleanup이다.
+  - 좁은 adaptive stable help는 broad glossary와 분리해 score cleanup 뒤 모바일/a11y까지 구현하고, 그다음 `balance.adaptiveTarget` 기반 `DailyCoach semantic v2 phase 1`, selectable Coach voice decision, 필요할 때만 broad tooltip/glossary 순서로 진행한다.
+  - 이번 문서는 product code, score formula/anchor/curve, adaptive limiter, UI/storage/schema/Records/tag를 변경하지 않는다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
