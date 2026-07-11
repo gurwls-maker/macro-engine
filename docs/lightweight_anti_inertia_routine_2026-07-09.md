@@ -2,6 +2,7 @@ MANDATORY PRE-READ
 - docs/00_current_truth/00_READ_FIRST.txt
 - docs/00_current_truth/02_macro_range_current_truth.txt
 - docs/00_current_truth/04_document_status_index.txt
+- docs/00_current_truth/05_required_result_log_format.txt
 
 READ RESULT
 - read_before_writing: yes
@@ -207,7 +208,11 @@ Short form enough:
 
 ## 7. Result-log template
 
-Use this shape when the task is risky enough to need the full form:
+The canonical user-first format is `docs/00_current_truth/05_required_result_log_format.txt`.
+Use `비개발자용 설명` as the first narrative section and put this audit detail under the later technical section.
+The mandatory pre-read block may remain above the first narrative section for machine verification.
+
+Use this technical shape when the task is risky enough to need the full form:
 
 ```text
 작업 결과:
