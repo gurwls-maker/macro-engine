@@ -337,16 +337,24 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 감점 대신 양수 항목점수를 원하는 원 세션 의도를 실제 6 goals, 운동 맥락, 단백질 단계, current 9-axis formula와 다시 맞춘 historical simulation input이다.
   - 단순 `100 - current penalty`, 네 core 산술평균, 7-domain 평균, 9-axis 평균은 단일 심각 문제를 평균에 숨겨 폐기했다.
   - 당시 carb/protein/fat/energy와 non-neutral joint/alcohol score를 곱하는 `contextual_multiplicative_domain_score_v1_candidate`를 조건부 채택했지만, 이 판단과 당시 next gate는 아래 후속 반증 결정이 supersede한다.
-  - current production은 실제 target 54개 중 21개가 exact 100이 아니었고, target-aware energy reference와 target-aligned proteinRange를 사용한 후보는 54/54 exact 100을 통과했다.
+  - 당시 production은 실제 target 54개 중 21개가 exact 100이 아니었고, target-aware energy reference와 target-aligned proteinRange를 사용한 후보는 54/54 exact 100을 통과했다.
   - production formula/UI/storage/Records는 바꾸지 않았다.
 
 - `v8.4_component_score_architecture_falsification_decision_2026-07-11.md`
   - permanent browser harness로 raw product, soft-min, geometric worst guard, minimum+bounded residual을 대칭 fixture와 익명 실제 54일에서 다시 비교한 test-only decision이다.
   - raw product와 geometric guard는 폐기했다. soft-min/minimum residual은 합성 fixture만 통과했으며 실제 severe/multi-moderate 사례를 과도하게 높여 production model로 선택하지 않았다.
   - current thresholded carb-fat joint는 core 감점 중복과 경계 불연속 때문에 폐기했다. protein-reserved feasible segment 밖 잔여 거리만 보는 Option C는 design direction으로만 남겼고 exact curve는 승인하지 않았다.
-  - valid target 54개 중 current production 21개 non-100을 component architecture와 독립된 release blocker로 재분류했다. corrected-reference 54/54 probe는 검증 근거일 뿐 production 변경이 아니다.
+  - valid target 54개 중 당시 production 21개 non-100을 component architecture와 독립된 release blocker로 재분류했다. corrected-reference 54/54 probe는 검증 근거일 뿐 이 문서의 production 변경이 아니다.
   - outcome은 `D_TARGET_HOTFIX_REQUIRED_FIRST`이고 다음 gate는 `narrow target/scoring authoritative-reference correction decision/implementation`이다. production formula/version/UI/storage/Records/DailyCoach는 그대로다.
   - 재현 도구는 `tools/render_audit/simulate_component_score_architecture.cjs`, 기본 명령은 `npm run test:component-score-simulation`이다.
+
+- `v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md`
+  - item 51이 발견한 target/scoring release blocker를 production에서 닫은 구현·QA·version/old-Records closeout 결과로그다.
+  - active scoring version은 `v8.3.1_target_authority_continuous_macro_score_v2`다. valid production target 54/54가 exact 100이고 9개 penalty가 모두 0인지 영구 검증한다.
+  - 단백질은 generated target-aligned range, 에너지 overload는 유효 target과 physical TDEE 중 높은 기준을 사용한다. physical TDEE ratio와 data-outlier 판정은 유지한다.
+  - invalid target/rate/EA/protein/external-application ownership은 numeric score 없이 차단하며, frozen snapshot은 전체 계산 basis가 같을 때만 current burn을 빌린다.
+  - v6.1/pre-correction v1/version-null stored auto score는 passive 조회에서 보존하고 explicit regrade/persistence에서만 v2로 전환한다. UI/storage/schema/backup migration, component production, DailyCoach, v8.3 tag는 변경하지 않았다.
+  - 다음 gate는 `v8.4 Option C joint-allocation residual exact-formula simulation`이며, 그 뒤 actual-day aggregation 재비교와 component path 선택/폐기를 거친다.
 
 ## legacy / 참고 문서
 

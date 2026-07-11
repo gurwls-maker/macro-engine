@@ -76,6 +76,7 @@ const testProfiles = {
     "runTodayBalanceTests",
     "runAdherenceUiTests",
     "runAdaptiveTargetStableHelpTests",
+    "runTargetScoringAuthoritativeReferenceCorrectionTests",
     "runTodayScoreEvidenceOwnershipTests",
     "runTodayCalculationOwnershipTests",
     "runTodayQuickEditTests",
@@ -141,6 +142,7 @@ const testProfiles = {
     "runMacroRangeProductionScoreTransitionDecisionTests",
     "runMacroRangeProductionScoreImplementationDecisionTests",
     "runMacroRangeContinuousScoringTests",
+    "runTargetScoringAuthoritativeReferenceCorrectionTests",
     "runMacroRangeScoreRecordsBasisVersionDecisionTests",
     "runMacroRangeScoreRecordsLatestPolicyCorrectionTests",
     "runMacroRangeScoreTestLocalNumericHelperTests",
@@ -318,8 +320,15 @@ const runnerHtml = `<!doctype html>
     if (typeof w.runDailyCoachTestCases === "function" && !allSuiteNames.includes("runDailyCoachTestCases")) {
       allSuiteNames.push("runDailyCoachTestCases");
     }
+    const missingRequestedSuiteNames = requestedSuiteNames.filter(name => typeof w[name] !== "function");
+    if (missingRequestedSuiteNames.length) {
+      throw new Error("requested internal test suites are unavailable: " + missingRequestedSuiteNames.join(", "));
+    }
+    if (!requestedSuiteNames.length && !allSuiteNames.length) {
+      throw new Error("no exported internal test suites are available");
+    }
     const suiteNames = requestedSuiteNames.length
-      ? requestedSuiteNames.filter(name => typeof w[name] === "function")
+      ? requestedSuiteNames
       : allSuiteNames;
     const suites = [];
     const cases = [];
@@ -492,7 +501,17 @@ async function waitForServerReady(port){
       pageErrors: pageErrors.slice(0, 20)
     };
     console.log(JSON.stringify(summary, null, 2));
-    if (summary.runnerError || summary.failedCount) process.exitCode = 1;
+    const expectedRequestedSuiteCount = requestedSuiteNames.length;
+    const requestedSuiteCountMismatch = expectedRequestedSuiteCount > 0 && summary.suiteCount !== expectedRequestedSuiteCount;
+    const emptyFullProfile = expectedRequestedSuiteCount === 0 && summary.suiteCount === 0;
+    if (
+      summary.runnerError
+      || summary.failedCount
+      || requestedSuiteCountMismatch
+      || emptyFullProfile
+      || consoleErrors.length
+      || pageErrors.length
+    ) process.exitCode = 1;
   } finally {
     if (context) await context.close();
     await new Promise(resolve => server.close(resolve));

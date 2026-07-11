@@ -78,6 +78,7 @@ const requiredFiles = [
   "docs/v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
   "docs/component_score_architecture_simulation_decision_2026-07-11.md",
   "docs/v8.4_component_score_architecture_falsification_decision_2026-07-11.md",
+  "docs/v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md",
   "tools/render_audit/simulate_component_score_architecture.cjs",
   "package.json",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
@@ -150,6 +151,7 @@ if (failures.length === 0) {
   const adaptiveTargetStableHelpImplementation = read("docs/v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md");
   const componentScoreArchitectureSimulationDecision = read("docs/component_score_architecture_simulation_decision_2026-07-11.md");
   const componentScoreArchitectureFalsificationDecision = read("docs/v8.4_component_score_architecture_falsification_decision_2026-07-11.md");
+  const targetScoringAuthorityCorrectionImplementation = read("docs/v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md");
   const componentScoreArchitectureSimulationTool = read("tools/render_audit/simulate_component_score_architecture.cjs");
   const packageJson = JSON.parse(read("package.json"));
   const onboardingArchiveReadme = read("docs/archive/onboarding/README.md");
@@ -315,7 +317,10 @@ if (failures.length === 0) {
     "v8.3.1 onboarding completion ownership hotfix: implemented",
     "v8.3.1 adaptive-target stable help implementation: implemented",
     "v8.4 component-score architecture falsification decision: closed",
-    "current production 9-axis formula/version/UI/storage는 그대로",
+    "narrow target/scoring authoritative-reference correction decision/implementation: implemented and release blocker closed",
+    "v8.4 Option C joint-allocation residual exact-formula simulation: pending",
+    "v8.3.1_target_authority_continuous_macro_score_v2",
+    "valid 54개 target 모두 exact 100",
     "v8.3.1 DailyCoach semantic v2 phase 1: paused",
     "required result-log format: active",
     "docs/00_current_truth/05_required_result_log_format.txt",
@@ -367,8 +372,11 @@ if (failures.length === 0) {
     "adaptive-target stable help",
     "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
     "v8.4_component_score_architecture_falsification_decision_2026-07-11.md",
-    "component production 구현을 열지 않는다",
-    "current formula/version/UI/storage는 unchanged",
+    "v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md",
+    "v8.3.1_target_authority_continuous_macro_score_v2",
+    "current production은 54/54 exact 100",
+    "production formula/UI/storage implementation은 열지 않는다",
+    "v8.4 Option C joint-allocation residual exact-formula simulation",
     "DailyCoach semantic v2 phase 1",
   ];
   for (const text of currentTruthRequirements) {
@@ -410,7 +418,10 @@ if (failures.length === 0) {
     "v8.4 component-score architecture falsification decision: closed",
     "component production readiness is NO",
     "후보는 반증 가능하고 교체 가능해야 한다",
-    "pending release-blocker",
+    "narrow target/scoring authoritative-reference correction decision/implementation: implemented and release blocker closed",
+    "v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md",
+    "valid target 54/54 exact 100",
+    "v8.4 Option C joint-allocation residual exact-formula simulation",
     "v8.3.1 DailyCoach semantic v2 phase 1: paused",
     "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
     "required result-log format: active",
@@ -1216,6 +1227,7 @@ if (failures.length === 0) {
 
   const componentScoreArchitectureRoute = "component_score_architecture_simulation_decision_2026-07-11.md";
   const componentScoreArchitectureFalsificationRoute = "v8.4_component_score_architecture_falsification_decision_2026-07-11.md";
+  const targetScoringAuthorityCorrectionRoute = "v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md";
   for (const [label, text] of [
     ["00_READ_FIRST", readFirst],
     ["02_macro_range_current_truth", currentTruth],
@@ -1227,6 +1239,9 @@ if (failures.length === 0) {
     }
     if (!text.includes(componentScoreArchitectureFalsificationRoute)) {
       fail(`${label} missing component score architecture falsification decision route`);
+    }
+    if (!text.includes(targetScoringAuthorityCorrectionRoute)) {
+      fail(`${label} missing target/scoring authority correction route`);
     }
   }
   for (const [label, text] of [
@@ -1242,12 +1257,91 @@ if (failures.length === 0) {
       fail(`${label} still exposes the superseded exact component-score implementation gate`);
     }
   }
+  for (const [label, text] of [
+    ["00_READ_FIRST", readFirst],
+    ["02_macro_range_current_truth", currentTruth],
+    ["04_document_status_index", statusIndex],
+  ]) {
+    for (const stalePhrase of [
+      "mismatch는 OPEN",
+      "narrow target/scoring authoritative-reference correction decision/implementation: pending release-blocker",
+      "current formula/version/UI/storage는 unchanged",
+    ]) {
+      if (text.includes(stalePhrase)) fail(`${label} retains stale target/scoring correction state: ${stalePhrase}`);
+    }
+  }
   if (!statusIndex.includes(`상태: historical input superseded by docs/${componentScoreArchitectureFalsificationRoute}`)) {
     fail("status index must mark the first component score architecture decision as superseded historical input");
   }
   const escapedFalsificationRoute = componentScoreArchitectureFalsificationRoute.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   if (!new RegExp(`상태: closed[^\\n]*docs/${escapedFalsificationRoute}`).test(statusIndex)) {
     fail("status index must mark the component score falsification decision closed without forcing a permanent candidate name");
+  }
+  if (!statusIndex.includes(`상태: implemented and release blocker closed by docs/${targetScoringAuthorityCorrectionRoute}`)) {
+    fail("status index must mark target/scoring authority correction implemented and closed");
+  }
+
+  const targetScoringAuthorityCorrectionRequirements = [
+    "DOCUMENT ROLE",
+    "- implementation_log",
+    "target/scoring authoritative-reference correction implementation",
+    "## 비개발자용 설명",
+    "### 무엇을 바꿨는지",
+    "### 왜 바꿨는지",
+    "### 실제 사용자 화면이나 계산 결과가 어떻게 달라지는지",
+    "### 정책, 산식, 데이터 해석이 바뀌었는지",
+    "### 바꾸지 않은 범위와 보류한 내용",
+    "### 사용자가 큰 틀에서 확인해야 할 판단점",
+    "### 테스트에서 무엇을 검증했는지",
+    "## 기술 검증",
+    "v8.3.1_target_authority_continuous_macro_score_v2",
+    "before 33/54 exact 100, after 54/54 exact 100",
+    "runTargetScoringAuthoritativeReferenceCorrectionTests",
+    "explicit regrade/persistence",
+    "frozen snapshot",
+    "PROMPT_SCOPE_AUDIT",
+    "Option C joint-allocation residual exact-formula simulation",
+  ];
+  for (const text of targetScoringAuthorityCorrectionRequirements) {
+    if (!targetScoringAuthorityCorrectionImplementation.includes(text)) {
+      fail(`target/scoring authority correction implementation log missing: ${text}`);
+    }
+  }
+
+  const targetAuthorityIndexHtml = read("index.html");
+  for (const signal of [
+    'const PRE_TARGET_AUTHORITY_ADHERENCE_SCORING_VERSION = "v8.3_anchor_continuous_macro_score_v1"',
+    'const TARGET_SCORING_AUTHORITY_CORRECTION_VERSION = "v8.3.1_target_scoring_authority_v1"',
+    'const MACRO_RANGE_PRODUCTION_SCORING_VERSION = "v8.3.1_target_authority_continuous_macro_score_v2"',
+    'const MACRO_RANGE_SCORE_FORMULA_NAME = "anchor_continuous_macro_score_v2_target_authority"',
+    "function getV831TargetScoringAuthority",
+    "function getStoredAdherenceRangeScoreFormula",
+    "function runTargetScoringAuthoritativeReferenceCorrectionTests",
+    "window.runTargetScoringAuthoritativeReferenceCorrectionTests",
+  ]) {
+    if (!targetAuthorityIndexHtml.includes(signal)) fail(`index.html missing target-authority correction signal: ${signal}`);
+  }
+  for (const profile of ["smoke", "core"]) {
+    const profileStart = internalTestRunner.indexOf(`${profile}: [`);
+    const profileEnd = internalTestRunner.indexOf("\n  ],", profileStart);
+    const profileBody = profileStart >= 0 && profileEnd > profileStart
+      ? internalTestRunner.slice(profileStart, profileEnd)
+      : "";
+    if (!profileBody.includes("runTargetScoringAuthoritativeReferenceCorrectionTests")) {
+      fail(`${profile} profile missing target/scoring authority correction regression suite`);
+    }
+  }
+  if (!packageJson.scripts?.["test:macro-policy"]?.includes("runTargetScoringAuthoritativeReferenceCorrectionTests")) {
+    fail("test:macro-policy missing target/scoring authority correction regression suite");
+  }
+  for (const signal of [
+    "missingRequestedSuiteNames",
+    "no exported internal test suites are available",
+    "requestedSuiteCountMismatch",
+    "consoleErrors.length",
+    "pageErrors.length",
+  ]) {
+    if (!internalTestRunner.includes(signal)) fail(`internal test runner missing fail-closed guard: ${signal}`);
   }
 
   const simulationToolRequirements = [
@@ -1262,6 +1356,10 @@ if (failures.length === 0) {
     "deterministicHash",
     "target matrix has 54 cases",
     "current target matrix produces finite scores",
+    "current production restores exact generated targets",
+    "current production target authority passes generated targets",
+    "finiteNonNegativeMacros",
+    "proteinSelectionMatchesIndependentRequest",
     "target validity envelope passes generated targets",
   ];
   for (const text of simulationToolRequirements) {
@@ -1443,7 +1541,7 @@ if (failures.length === 0) {
     "docs/00_current_truth/04_document_status_index.txt",
     "docs/00_current_truth/05_required_result_log_format.txt",
     "docs/archive/v8.2_macro_range/",
-    "v8.3 scoring implementation은 현재 `v8.3_anchor_continuous_macro_score_v1`로 구현된 상태",
+    "scoring implementation은 현재 `v8.3.1_target_authority_continuous_macro_score_v2`로 구현된 상태",
     "v6.1 alcoholImpactPenalty",
     "PROMPT_SCOPE_AUDIT",
     "Do not assume the prompt is the correct next step",
