@@ -317,6 +317,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 좁은 adaptive stable help는 broad glossary와 분리해 score cleanup 뒤 모바일/a11y까지 구현하고, 그다음 `balance.adaptiveTarget` 기반 `DailyCoach semantic v2 phase 1`, selectable Coach voice decision, 필요할 때만 broad tooltip/glossary 순서로 진행한다.
   - 이번 문서는 product code, score formula/anchor/curve, adaptive limiter, UI/storage/schema/Records/tag를 변경하지 않는다.
 
+- `v8.3.1_today_score_card_semantic_ownership_cleanup_implementation_2026-07-11.md`
+  - Today 식단 점수의 사용자 근거를 실제 `penaltyBreakdown`에 맞춘 implementation log다.
+  - 9개 raw penalty axis를 탄수/단백질/지방/총칼로리 core aggregate와 탄수·지방 조합/술 영향/섭취량 확인 조건부 근거에 정확히 한 번 매핑하고 raw 합을 검산한다.
+  - generic secondary, quick top evidence, Coach/recent/InBody/other-kcal score extra를 제거했으며 Score renderer는 Coach output을 받지 않는다. 조건부 근거는 실제 감점이 있을 때만 직접 보인다.
+  - current stored score에는 breakdown이 없으므로 저장된 점수 숫자는 유지하되 당시 세부 근거를 current Today/Coach 값으로 추정하거나 재계산하지 않는다. storage/schema/backup/Records는 바꾸지 않았다.
+  - score formula/version/anchor/curve/adaptive limiter/DailyCoach semantic/voice/v8.3 tag는 유지했다. 다음 gate는 adaptive-target stable help implementation이다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
