@@ -73,6 +73,7 @@ const requiredFiles = [
   "docs/v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md",
   "docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md",
   "docs/v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md",
+  "docs/v8.3.1_today_score_card_semantic_ownership_cleanup_implementation_2026-07-11.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -138,6 +139,7 @@ if (failures.length === 0) {
   const onboardingFirstRunFlowDecision = read("docs/v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md");
   const onboardingFirstRunFlowImplementation = read("docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md");
   const todayScoreGuidanceOwnershipDecision = read("docs/v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md");
+  const todayScoreOwnershipCleanupImplementation = read("docs/v8.3.1_today_score_card_semantic_ownership_cleanup_implementation_2026-07-11.md");
   const onboardingArchiveReadme = read("docs/archive/onboarding/README.md");
   const onboardingHistoricalNote = read("docs/archive/onboarding/v8.2_onboarding_start_flow_note_2026-07-03.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
@@ -967,6 +969,76 @@ if (failures.length === 0) {
   for (const text of todayScoreGuidanceOwnershipDecisionRequirements) {
     if (!todayScoreGuidanceOwnershipDecision.includes(text)) {
       fail(`v8.3.1 Today score/guidance ownership decision missing: ${text}`);
+    }
+  }
+
+  const todayScoreOwnershipCleanupImplementationRequirements = [
+    "DOCUMENT ROLE",
+    "- implementation_log",
+    "buildTodayScoreEvidenceModel",
+    "penaltyBreakdown",
+    "9개",
+    "raw penalty",
+    "stored_auto_snapshot",
+    "hidden recompute",
+    "DailyCoach semantic v2",
+    "adaptive-target stable help",
+  ];
+  for (const text of todayScoreOwnershipCleanupImplementationRequirements) {
+    if (!todayScoreOwnershipCleanupImplementation.includes(text)) {
+      fail(`v8.3.1 Today score ownership cleanup implementation missing: ${text}`);
+    }
+  }
+
+  const todayScoreOwnershipCleanupRoute = "v8.3.1_today_score_card_semantic_ownership_cleanup_implementation_2026-07-11.md";
+  for (const [label, text] of [
+    ["00_READ_FIRST", readFirst],
+    ["02_macro_range_current_truth", currentTruth],
+    ["04_document_status_index", statusIndex],
+    ["README", readme],
+  ]) {
+    if (!text.includes(todayScoreOwnershipCleanupRoute)) {
+      fail(`${label} missing Today score ownership cleanup implementation route`);
+    }
+  }
+  if (!statusIndex.includes(`상태: implemented by docs/${todayScoreOwnershipCleanupRoute}`)) {
+    fail("status index must mark Today score ownership cleanup as implemented");
+  }
+
+  if (exists("index.html")) {
+    const indexHtmlForTodayScore = read("index.html");
+    for (const signal of [
+      "function buildTodayScoreEvidenceModel(adherenceResult)",
+      "TODAY_SCORE_REQUIRED_PENALTY_AXES",
+      "function renderTodayScorePrimaryTiles(evidenceModel)",
+      "function renderTodayScoreConditionalEvidence(evidenceModel)",
+      "function renderTodayAdherencePanel(adherenceResult)",
+      "stored_breakdown_unavailable",
+      "function runTodayScoreEvidenceOwnershipTests()",
+    ]) {
+      if (!indexHtmlForTodayScore.includes(signal)) {
+        fail(`index.html missing Today score ownership signal: ${signal}`);
+      }
+    }
+    for (const forbiddenPattern of [
+      /function\s+getTodayScoreCardCopy\s*\(/,
+      /function\s+renderAdherenceMacroCards\s*\(/,
+      /function\s+renderAdherenceExtraChecks\s*\(/,
+      /renderTodayAdherencePanel\(todayAdherence,\s*\{\s*coach:/,
+    ]) {
+      if (forbiddenPattern.test(indexHtmlForTodayScore)) {
+        fail(`index.html revives removed Today score ownership path: ${forbiddenPattern}`);
+      }
+    }
+  }
+  for (const profile of ["smoke", "core", "ui", "mobile"]) {
+    const profileStart = internalTestRunner.indexOf(`${profile}: [`);
+    const profileEnd = internalTestRunner.indexOf("\n  ],", profileStart);
+    const profileBody = profileStart >= 0 && profileEnd > profileStart
+      ? internalTestRunner.slice(profileStart, profileEnd)
+      : "";
+    if (!profileBody.includes("runTodayScoreEvidenceOwnershipTests")) {
+      fail(`${profile} profile missing Today score evidence ownership regression suite`);
     }
   }
 
