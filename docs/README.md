@@ -315,8 +315,8 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 - `v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md`
   - Today score ring/band/secondary/quick evidence/네 타일/`추가 확인`, Hero, DailyCoach, adaptive help, selectable voice, broad glossary의 실제 producer/consumer를 다시 나눈 docs-only decision이다.
   - production 점수는 9개 raw penalty를 합산하지만 네 타일이 alcohol physiology와 data outlier를 완결되게 설명하지 못하고, score `추가 확인`이 Coach/recent/InBody를 재소비한다는 문제를 확인했다.
-  - 네 항목을 독립 0~100점으로 바꾸는 안과 사용자 예시 adaptive copy 즉시 구현은 폐기했다. 다음은 formula 불변의 `penaltyBreakdown` 기반 score-card semantic ownership cleanup이다.
-  - 좁은 adaptive stable help는 broad glossary와 분리해 score cleanup 뒤 모바일/a11y까지 구현하고, 그다음 `balance.adaptiveTarget` 기반 `DailyCoach semantic v2 phase 1`, selectable Coach voice decision, 필요할 때만 broad tooltip/glossary 순서로 진행한다.
+  - 당시에는 현재 감점을 양수화한 네 독립 0~100점과 산술평균을 폐기했다. 이 판단은 아래 component architecture simulation decision이 broad interpretation을 supersede하기 전까지 current production에 유지된다.
+  - 좁은 adaptive stable help는 broad glossary와 분리해 score cleanup 뒤 모바일/a11y까지 구현했다. 당시 다음이던 DailyCoach semantic v2는 아래 component-score scoring-version 경계가 확정될 때까지 보류됐다.
   - 이번 문서는 product code, score formula/anchor/curve, adaptive limiter, UI/storage/schema/Records/tag를 변경하지 않는다.
 
 - `v8.3.1_today_score_card_semantic_ownership_cleanup_implementation_2026-07-11.md`
@@ -331,7 +331,14 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - Settings는 짧은 visible copy와 full tooltip, Today는 같은 source의 짧은 tooltip reference를 사용한다.
   - 모바일 390px에서도 native help button을 kcal card 안에 남기고 tooltip id/aria-describedby/role=tooltip, keyboard/tap/Escape/outside-dismiss를 닫았다.
   - adaptive target 계산, ON/OFF 저장, score percent/rawScore/penaltyBreakdown, storage/schema/Records/backup/DailyCoach/v8.3 tag는 변경하지 않았다.
-  - 다음 gate는 `DailyCoach semantic v2 phase 1`이며, selectable Coach voice와 broad glossary는 그 뒤의 별도 판단이다.
+  - 당시 다음 gate는 `DailyCoach semantic v2 phase 1`이었으나, 최신 사용자 score-surface 재검토로 아래 component architecture decision이 선행했다.
+
+- `component_score_architecture_simulation_decision_2026-07-11.md`
+  - 감점 대신 양수 항목점수를 원하는 원 세션 의도를 실제 6 goals, 운동 맥락, 단백질 단계, current 9-axis formula와 다시 맞춘 docs-only simulation decision이다.
+  - 단순 `100 - current penalty`, 네 core 산술평균, 7-domain 평균, 9-axis 평균은 단일 심각 문제를 평균에 숨겨 폐기했다.
+  - carb/protein/fat/energy와 non-neutral joint/alcohol score를 곱하는 `contextual_multiplicative_domain_score_v1_candidate`를 조건부 채택했다. data outlier는 영양 점수가 아니라 validity 상태로 분리한다.
+  - current production은 실제 target 54개 중 21개가 exact 100이 아니었고, target-aware energy reference와 target-aligned proteinRange를 사용한 후보는 54/54 exact 100을 통과했다.
+  - production formula/UI/storage/Records는 바꾸지 않았다. 다음 gate는 new scoring version, exact formula/rounding, Records snapshot/no-recompute를 닫는 `v8.4 candidate component-score scoring-version implementation decision`이며 DailyCoach semantic v2는 그때까지 보류한다.
 
 ## legacy / 참고 문서
 

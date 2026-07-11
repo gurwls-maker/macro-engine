@@ -62,7 +62,9 @@ REQUIRED_NEXT_GATES
 - v8.3.1 Today score and guidance surface ownership decision: closed by docs/v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md
 - v8.3.1 Today score-card semantic ownership cleanup: implemented by docs/v8.3.1_today_score_card_semantic_ownership_cleanup_implementation_2026-07-11.md
 - v8.3.1 adaptive-target stable help implementation: implemented by docs/v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md
-- v8.3.1 DailyCoach semantic v2 phase 1: pending after adaptive-target stable help implementation
+- component score architecture feasibility / simulation decision: conditionally accepted and production-blocked by docs/component_score_architecture_simulation_decision_2026-07-11.md
+- v8.4 candidate component-score scoring-version implementation decision: pending
+- v8.3.1 DailyCoach semantic v2 phase 1: paused until component-score path resolution
 - required result-log format: active by docs/00_current_truth/05_required_result_log_format.txt
 - docs-policy preflight: active
 
@@ -631,7 +633,8 @@ docs/references/external/acsm_resistance_training_guide_ko_2026.txt
 47. Today score and guidance surface ownership inventory / decision.
    - 상태: closed by docs/v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md; product implementation not included.
    - 확인: final score는 9개 raw penalty axis를 합산하지만 현재 네 tile은 alcohol physiology와 data outlier를 완결되게 설명하지 못한다. secondary와 score `추가 확인`은 fixed-target flag 및 Coach/recent/InBody item을 섞어 정상 same-kcal exchange 오경고와 ownership 중복을 만들 수 있다.
-   - 결정: 네 항목을 독립 0~100점으로 바꾸지 않는다. Score는 final 계산 근거, Coach는 해석/행동, Help는 adaptive 기능의 안정 정의를 맡는다. stable adaptive help는 broad glossary와 분리한다.
+   - 당시 결정: 현재 감점을 양수화한 네 독립 0~100점과 산술평균을 구현하지 않는다. Score는 final 계산 근거, Coach는 해석/행동, Help는 adaptive 기능의 안정 정의를 맡는다. stable adaptive help는 broad glossary와 분리한다.
+   - 최신 해석: item 50의 explicit superseding decision 전까지 current production에 유지된다. 모든 수학적으로 일관된 component architecture의 영구 금지는 아니다.
    - 금지: score formula/anchor/curve/adaptive limiter 변경, 증거 없는 `3일 연속`/`7일 연속`/`조절 불가`, UI/storage/schema/Records migration 혼합.
 48. v8.3.1 Today score-card semantic ownership cleanup.
    - 상태: implemented by docs/v8.3.1_today_score_card_semantic_ownership_cleanup_implementation_2026-07-11.md.
@@ -644,22 +647,34 @@ docs/references/external/acsm_resistance_training_guide_ko_2026.txt
    - 구현: Settings canonical full definition과 Today short reference를 shared source로 묶었다. 모바일 390px에서는 반복 제목을 숨기되 native help button을 kcal card 안에 남기며, Settings/Today 모두 tooltip id/aria-describedby/role=tooltip과 keyboard/tap/Escape/outside-dismiss 계약을 갖는다.
    - 불변: adaptive ON/OFF/default/storage, target kcal/protein/carb/fat, joint allocation/limiter, score percent/rawScore/penaltyBreakdown, DailyCoach, Records/backup/schema, v8.3 tag.
    - report-only cleanup: runtime 참조가 없던 `buildMacroReason`을 제거하고 `todayDietScoreEvidence.existingProductionSource`를 현재 score evidence model/renderer로 정리했다.
-   - 다음: item 50 `DailyCoach semantic v2 phase 1`; static help는 오늘의 direction/delta/history/limiter/boundary를 추측하지 않는다.
-50. v8.3.1 DailyCoach semantic v2 phase 1.
-   - 상태: pending after item 49.
+   - 당시 다음: DailyCoach semantic v2 phase 1이었으나 최신 사용자 score-surface 재검토로 item 50이 선행한다. static help는 오늘의 direction/delta/history/limiter/boundary를 추측하지 않는다.
+50. component score architecture feasibility / simulation decision.
+   - 상태: conditionally accepted and production-blocked by docs/component_score_architecture_simulation_decision_2026-07-11.md.
+   - 원 세션 의도: 감점 대신 양수 항목점수를 원하지만, goal/exercise context와 final reconciliation이 맞아야 하며 운동 효과가 과도하게 중복되면 구현하지 않는다.
+   - 폐기: naive `100 - current penalty`, four-core arithmetic average, 7-domain arithmetic average, 9-axis arithmetic/hierarchical average, hidden modifiers, exercise final bonus.
+   - 조건부 채택: `contextual_multiplicative_domain_score_v1_candidate`. carb/protein/fat/energy와 non-neutral joint/alcohol score를 곱하고 data outlier는 validity status로 분리한다.
+   - current gap: 6 goals x 3 contexts x 3 protein levels의 실제 target 54개 중 current production 21개가 exact 100이 아니다. selected protein target보다 높은 hard floor와 intentional surplus target의 TDEE overload 재감점이 원인이다.
+   - candidate evidence: target-aware energy reference와 target-aligned proteinRange를 사용한 후보는 54/54 exact 100, high-volume actual 700g carb는 goal별 42.175~56.221로 no-permission을 유지했다.
+   - 불변: production index/formula/version/UI/storage/schema/Records/DailyCoach/tag는 변경하지 않았다.
+51. v8.4 candidate component-score scoring-version implementation decision.
+   - 상태: pending after item 50; production implementation is not open.
+   - 필수 범위: exact domain curves/rounding, target-aware energy reference, selected proteinRange, multiplicative final, joint/alcohol/data contract, Today UI reconciliation, new `ADHERENCE_SCORING_VERSION`, new Records snapshot 여부, old Records no-recompute, actual user-day sample audit.
+   - 실패 복귀: target invariant, score-band common meaning, no hidden factor, no exercise bonus, no old-record recompute 중 하나라도 닫지 못하면 component candidate를 폐기하고 current additive evidence model을 유지한다.
+52. v8.3.1 DailyCoach semantic v2 phase 1.
+   - 상태: paused after item 50 until item 51 resolves or the component candidate is rejected.
    - 범위: `balance.adaptiveTarget` causal evidence, requested/applied shift, direction/delta/history confidence/limiter effect/boundary/no-adjust reason을 `adaptiveAllocation` signal로 만들고 canonical Coach output을 Hero/Coach가 중복 없이 소비한다.
    - 금지: window count를 consecutive streak로 말하기, adaptive adjustment를 초과 허가로 말하기, Score가 새 Coach signal을 다시 가져가기.
-51. selectable Coach voice decision / implementation.
+53. selectable Coach voice decision / implementation.
    - 상태: decision candidate only after semantic v2 stability.
    - 범위: 사용자 가치와 2~3개 prototype을 먼저 비교한다. facts/numbers/priority/severity/action/confidence는 voice와 무관하게 동일해야 하며 alcohol severity인 `coachTone`을 설정 이름으로 재사용하지 않는다.
-52. 필요 시 broad tooltip/glossary spec.
+54. 필요 시 broad tooltip/glossary spec.
    - 상태: optional; 실제로 유지할 전문어가 있을 때만 연다.
    - 선행조건: native trigger/tap target/aria-describedby/role=tooltip/Escape/outside-dismiss/mobile overflow를 공통 interaction contract로 정규화한다. 필요가 없으면 구현하지 않는다.
-53. 필요 시 v8.3.1 app-wide copy batch 2 decision.
+55. 필요 시 v8.3.1 app-wide copy batch 2 decision.
    - 상태: optional.
    - 이유: broad DailyCoach "흐름" tone pass, InBody trend phrase set rewrite, Settings broad polish는 batch 1에서 일부러 열지 않았다.
-54. 필요 시 03_external_anchor_inventory 분리.
-55. required result-log format.
+56. 필요 시 03_external_anchor_inventory 분리.
+57. required result-log format.
    - 상태: active repository contract by docs/00_current_truth/05_required_result_log_format.txt.
    - 닫은 것: 새 로컬 Codex가 저장 결과로그와 최종 사용자 보고의 첫 본문을 비개발자용 설명으로 쓰고, 변경 이유/화면·계산 영향/정책·산식·데이터 해석/비변경·보류/사용자 판단점/테스트 의미를 먼저 설명하도록 공통 형식과 docs-policy route를 고정했다.
    - 기술 세부사항: 파일/함수/커밋/테스트 명령은 사용자 설명 아래에 두며, 기존 결과로그를 소급 재작성하지 않는다.
@@ -671,6 +686,8 @@ target/scoring alignment release-blocker 기준
 ===========================================
 
 - 앱 target macros 그대로 섭취했을 때 valid full-day/no alcohol/no outlier 조건에서 점수가 낮게 떨어지면 release blocker다.
+- target 그대로 invariant는 대표 target 하나가 아니라 6 goals x exercise context x protein target level matrix에서 확인한다. selected low/medium/high target을 더 높은 scoring floor로 다시 부족 판정하면 실패다.
+- lean_bulk/bulk의 유효 target surplus를 TDEE overload로 다시 감점해 exact target day를 낮추면 실패다. target policy 자체가 부적절한 경우와 사용자가 유효 target을 지킨 경우를 분리한다.
 - target carbs/protein/fat은 displayed scoring range 안에 있거나, 범위 밖일 경우 명시적인 제품 의미와 테스트가 있어야 한다.
 - macro card range는 scoring boundary와 일치해야 하며 UI-only display cap으로 숨기지 않는다.
 - 8~12g/kg carbohydrate external anchor는 high-volume 무감점 허가증이 아니라 carb curve anchor다.

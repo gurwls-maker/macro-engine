@@ -76,6 +76,7 @@ const requiredFiles = [
   "docs/v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md",
   "docs/v8.3.1_today_score_card_semantic_ownership_cleanup_implementation_2026-07-11.md",
   "docs/v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
+  "docs/component_score_architecture_simulation_decision_2026-07-11.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -144,6 +145,7 @@ if (failures.length === 0) {
   const todayScoreGuidanceOwnershipDecision = read("docs/v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md");
   const todayScoreOwnershipCleanupImplementation = read("docs/v8.3.1_today_score_card_semantic_ownership_cleanup_implementation_2026-07-11.md");
   const adaptiveTargetStableHelpImplementation = read("docs/v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md");
+  const componentScoreArchitectureSimulationDecision = read("docs/component_score_architecture_simulation_decision_2026-07-11.md");
   const onboardingArchiveReadme = read("docs/archive/onboarding/README.md");
   const onboardingHistoricalNote = read("docs/archive/onboarding/v8.2_onboarding_start_flow_note_2026-07-03.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
@@ -306,7 +308,7 @@ if (failures.length === 0) {
     "v8.3.1 macro card adaptive OFF and protein target level implementation: implemented",
     "v8.3.1 onboarding completion ownership hotfix: implemented",
     "v8.3.1 adaptive-target stable help implementation: implemented",
-    "v8.3.1 DailyCoach semantic v2 phase 1: pending",
+    "v8.3.1 DailyCoach semantic v2 phase 1: paused until the component-score path is rejected or its scoring-version boundary is fixed",
     "required result-log format: active",
     "docs/00_current_truth/05_required_result_log_format.txt",
     "continuous pressure limiter",
@@ -394,7 +396,7 @@ if (failures.length === 0) {
     "v8.3.1 stabilization/readiness checkpoint update",
     "v8.3.1 macro card adaptive OFF and protein target level implementation",
     "v8.3.1 adaptive-target stable help implementation: implemented",
-    "v8.3.1 DailyCoach semantic v2 phase 1: pending",
+    "v8.3.1 DailyCoach semantic v2 phase 1: paused until component-score path resolution",
     "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
     "required result-log format: active",
     "docs/00_current_truth/05_required_result_log_format.txt",
@@ -1155,6 +1157,59 @@ if (failures.length === 0) {
     }
   }
 
+  const componentScoreArchitectureDecisionRequirements = [
+    "DOCUMENT ROLE",
+    "- decision",
+    "component score architecture simulation decision",
+    "architecture feasibility: CONDITIONAL_ACCEPT",
+    "contextual_multiplicative_domain_score_v1_candidate",
+    "naive 100-minus display: REJECTED",
+    "arithmetic component average: REJECTED",
+    "data validity",
+    "54/54",
+    "v8.4 candidate component-score scoring-version implementation decision",
+    "production implementation: NOT OPEN",
+    "DailyCoach semantic v2 phase 1",
+    "current production formula: KEEP until explicitly superseded",
+    "영구 REJECT 아님:",
+  ];
+  for (const text of componentScoreArchitectureDecisionRequirements) {
+    if (!componentScoreArchitectureSimulationDecision.includes(text)) {
+      fail(`component score architecture simulation decision missing: ${text}`);
+    }
+  }
+
+  const componentScoreArchitectureRoute = "component_score_architecture_simulation_decision_2026-07-11.md";
+  for (const [label, text] of [
+    ["00_READ_FIRST", readFirst],
+    ["02_macro_range_current_truth", currentTruth],
+    ["04_document_status_index", statusIndex],
+    ["README", readme],
+  ]) {
+    if (!text.includes(componentScoreArchitectureRoute)) {
+      fail(`${label} missing component score architecture simulation decision route`);
+    }
+  }
+  for (const [label, text] of [
+    ["00_READ_FIRST", readFirst],
+    ["02_macro_range_current_truth", currentTruth],
+    ["04_document_status_index", statusIndex],
+    ["README", readme],
+  ]) {
+    if (!text.includes("v8.4 candidate component-score scoring-version implementation decision")) {
+      fail(`${label} missing v8.4 candidate component-score next gate`);
+    }
+  }
+  if (!statusIndex.includes(`상태: conditionally accepted and production-blocked by docs/${componentScoreArchitectureRoute}`)) {
+    fail("status index must mark component score architecture decision as conditional and production-blocked");
+  }
+  if (!currentTruth.includes("current production은 21/54 non-100") && !currentTruth.includes("current production은 21개가 exact 100이 아니었다")) {
+    fail("current truth missing exact-target 21/54 production mismatch evidence");
+  }
+  if (!currentTruth.includes("candidate는 54/54 exact 100") && !currentTruth.includes("후보는 54/54를 100으로 맞췄")) {
+    fail("current truth missing corrected candidate 54/54 target invariant evidence");
+  }
+
   for (const [label, text] of [
     ["00_READ_FIRST", readFirst],
     ["02_macro_range_current_truth", currentTruth],
@@ -1171,9 +1226,11 @@ if (failures.length === 0) {
   for (const text of [
     "48. v8.3.1 Today score-card semantic ownership cleanup.",
     "49. v8.3.1 adaptive-target stable help implementation.",
-    "50. v8.3.1 DailyCoach semantic v2 phase 1.",
-    "51. selectable Coach voice decision / implementation.",
-    "52. 필요 시 broad tooltip/glossary spec.",
+    "50. component score architecture feasibility / simulation decision.",
+    "51. v8.4 candidate component-score scoring-version implementation decision.",
+    "52. v8.3.1 DailyCoach semantic v2 phase 1.",
+    "53. selectable Coach voice decision / implementation.",
+    "54. 필요 시 broad tooltip/glossary spec.",
   ]) {
     if (!statusIndex.includes(text)) fail(`status index missing Today ownership follow-up gate: ${text}`);
   }
