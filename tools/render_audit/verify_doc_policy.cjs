@@ -72,6 +72,7 @@ const requiredFiles = [
   "docs/v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md",
   "docs/v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md",
   "docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md",
+  "docs/v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -136,6 +137,7 @@ if (failures.length === 0) {
   const macroCardAdaptiveOffProteinTargetImplementation = read("docs/v8.3.1_macro_card_adaptive_off_and_protein_target_level_implementation_2026-07-10.md");
   const onboardingFirstRunFlowDecision = read("docs/v8.3.1_onboarding_first_run_flow_decision_2026-07-10.md");
   const onboardingFirstRunFlowImplementation = read("docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md");
+  const todayScoreGuidanceOwnershipDecision = read("docs/v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md");
   const onboardingArchiveReadme = read("docs/archive/onboarding/README.md");
   const onboardingHistoricalNote = read("docs/archive/onboarding/v8.2_onboarding_start_flow_note_2026-07-03.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
@@ -942,6 +944,53 @@ if (failures.length === 0) {
     if (!onboardingFirstRunFlowImplementation.includes(text)) {
       fail(`v8.3.1 onboarding first-run implementation missing: ${text}`);
     }
+  }
+
+  const todayScoreGuidanceOwnershipDecisionRequirements = [
+    "DOCUMENT ROLE",
+    "- decision",
+    "Today score and guidance surface ownership inventory / decision",
+    "four standalone 0-100 component scores: REJECTED",
+    "`componentContributions.alcohol`",
+    "`dataOutlierPenalty`",
+    "`carbFatExchangeFailurePenalty`",
+    "`adaptiveAllocation`",
+    "`balance.adaptiveTarget`",
+    "adaptive-target stable definition",
+    "`3일 연속`",
+    "`coachTone`",
+    "점수는 “왜 이 점수가 나왔는지”를 책임진다.",
+    "v8.3.1 Today score-card semantic ownership cleanup",
+    "next implementation gate: v8.3.1 Today score-card semantic ownership cleanup",
+    "UI/storage/schema/backup/onboarding/Records migration/scoreDeltaPreview는 열지 않았다.",
+  ];
+  for (const text of todayScoreGuidanceOwnershipDecisionRequirements) {
+    if (!todayScoreGuidanceOwnershipDecision.includes(text)) {
+      fail(`v8.3.1 Today score/guidance ownership decision missing: ${text}`);
+    }
+  }
+
+  for (const [label, text] of [
+    ["00_READ_FIRST", readFirst],
+    ["02_macro_range_current_truth", currentTruth],
+    ["04_document_status_index", statusIndex],
+    ["README", readme],
+  ]) {
+    if (!text.includes("v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md")) {
+      fail(`${label} missing Today score/guidance ownership decision route`);
+    }
+  }
+  if (/Today score and guidance surface ownership inventory \/ decision\.[\r\n]+\s+- 상태: user-raised future candidate; implementation not opened\./.test(statusIndex)) {
+    fail("status index still marks Today score/guidance ownership inventory as an unopened future candidate");
+  }
+  for (const text of [
+    "48. v8.3.1 Today score-card semantic ownership cleanup.",
+    "49. v8.3.1 adaptive-target stable help implementation.",
+    "50. v8.3.1 DailyCoach semantic v2 phase 1.",
+    "51. selectable Coach voice decision / implementation.",
+    "52. 필요 시 broad tooltip/glossary spec.",
+  ]) {
+    if (!statusIndex.includes(text)) fail(`status index missing Today ownership follow-up gate: ${text}`);
   }
 
   for (const [label, text] of [
