@@ -324,11 +324,18 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 9개 raw penalty axis를 탄수/단백질/지방/총칼로리 core aggregate와 탄수·지방 조합/술 영향/섭취량 확인 조건부 근거에 정확히 한 번 매핑하고 raw 합을 검산한다.
   - generic secondary, quick top evidence, Coach/recent/InBody/other-kcal score extra를 제거했으며 Score renderer는 Coach output을 받지 않는다. 조건부 근거는 실제 감점이 있을 때만 직접 보인다.
   - current stored score에는 breakdown이 없으므로 저장된 점수 숫자는 유지하되 당시 세부 근거를 current Today/Coach 값으로 추정하거나 재계산하지 않는다. storage/schema/backup/Records는 바꾸지 않았다.
-  - score formula/version/anchor/curve/adaptive limiter/DailyCoach semantic/voice/v8.3 tag는 유지했다. 다음 gate는 adaptive-target stable help implementation이다.
+  - score formula/version/anchor/curve/adaptive limiter/DailyCoach semantic/voice/v8.3 tag는 유지했다. 당시 다음 gate였던 adaptive-target stable help는 아래 구현 로그로 닫혔다.
+
+- `v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md`
+  - Settings와 Today의 서로 다른 자동조정 설명을 한 shared stable source로 묶은 implementation log다.
+  - Settings는 짧은 visible copy와 full tooltip, Today는 같은 source의 짧은 tooltip reference를 사용한다.
+  - 모바일 390px에서도 native help button을 kcal card 안에 남기고 tooltip id/aria-describedby/role=tooltip, keyboard/tap/Escape/outside-dismiss를 닫았다.
+  - adaptive target 계산, ON/OFF 저장, score percent/rawScore/penaltyBreakdown, storage/schema/Records/backup/DailyCoach/v8.3 tag는 변경하지 않았다.
+  - 다음 gate는 `DailyCoach semantic v2 phase 1`이며, selectable Coach voice와 broad glossary는 그 뒤의 별도 판단이다.
 
 ## legacy / 참고 문서
 
-이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
+이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`, `00_current_truth/05_required_result_log_format.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
 
 1. `99_v8.1_takeover_audit_2026-06-30.md`
    - v8.0 final 이후 인수인계 감사 문서다.
@@ -375,7 +382,7 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 ## 충돌 판단 순서
 
 1. 최신 대화 의도
-2. `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`
+2. `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`, `00_current_truth/05_required_result_log_format.txt`
 3. 현재 git HEAD의 실제 `index.html`, 브라우저 화면, 테스트 결과
 4. 현재 앱에서 실제로 자연스러운 동작
 5. status index에서 KEEP_CURRENT_REFERENCE / EXTERNAL_REFERENCE_ONLY / COPY_REFERENCE_ONLY로 분류된 topic reference
