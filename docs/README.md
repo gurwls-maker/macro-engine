@@ -334,11 +334,19 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 당시 다음 gate는 `DailyCoach semantic v2 phase 1`이었으나, 최신 사용자 score-surface 재검토로 아래 component architecture decision이 선행했다.
 
 - `component_score_architecture_simulation_decision_2026-07-11.md`
-  - 감점 대신 양수 항목점수를 원하는 원 세션 의도를 실제 6 goals, 운동 맥락, 단백질 단계, current 9-axis formula와 다시 맞춘 docs-only simulation decision이다.
+  - 감점 대신 양수 항목점수를 원하는 원 세션 의도를 실제 6 goals, 운동 맥락, 단백질 단계, current 9-axis formula와 다시 맞춘 historical simulation input이다.
   - 단순 `100 - current penalty`, 네 core 산술평균, 7-domain 평균, 9-axis 평균은 단일 심각 문제를 평균에 숨겨 폐기했다.
-  - carb/protein/fat/energy와 non-neutral joint/alcohol score를 곱하는 `contextual_multiplicative_domain_score_v1_candidate`를 조건부 채택했다. data outlier는 영양 점수가 아니라 validity 상태로 분리한다.
+  - 당시 carb/protein/fat/energy와 non-neutral joint/alcohol score를 곱하는 `contextual_multiplicative_domain_score_v1_candidate`를 조건부 채택했지만, 이 판단과 당시 next gate는 아래 후속 반증 결정이 supersede한다.
   - current production은 실제 target 54개 중 21개가 exact 100이 아니었고, target-aware energy reference와 target-aligned proteinRange를 사용한 후보는 54/54 exact 100을 통과했다.
-  - production formula/UI/storage/Records는 바꾸지 않았다. 다음 gate는 new scoring version, exact formula/rounding, Records snapshot/no-recompute를 닫는 `v8.4 candidate component-score scoring-version implementation decision`이며 DailyCoach semantic v2는 그때까지 보류한다.
+  - production formula/UI/storage/Records는 바꾸지 않았다.
+
+- `v8.4_component_score_architecture_falsification_decision_2026-07-11.md`
+  - permanent browser harness로 raw product, soft-min, geometric worst guard, minimum+bounded residual을 대칭 fixture와 익명 실제 54일에서 다시 비교한 test-only decision이다.
+  - raw product와 geometric guard는 폐기했다. soft-min/minimum residual은 합성 fixture만 통과했으며 실제 severe/multi-moderate 사례를 과도하게 높여 production model로 선택하지 않았다.
+  - current thresholded carb-fat joint는 core 감점 중복과 경계 불연속 때문에 폐기했다. protein-reserved feasible segment 밖 잔여 거리만 보는 Option C는 design direction으로만 남겼고 exact curve는 승인하지 않았다.
+  - valid target 54개 중 current production 21개 non-100을 component architecture와 독립된 release blocker로 재분류했다. corrected-reference 54/54 probe는 검증 근거일 뿐 production 변경이 아니다.
+  - outcome은 `D_TARGET_HOTFIX_REQUIRED_FIRST`이고 다음 gate는 `narrow target/scoring authoritative-reference correction decision/implementation`이다. production formula/version/UI/storage/Records/DailyCoach는 그대로다.
+  - 재현 도구는 `tools/render_audit/simulate_component_score_architecture.cjs`, 기본 명령은 `npm run test:component-score-simulation`이다.
 
 ## legacy / 참고 문서
 

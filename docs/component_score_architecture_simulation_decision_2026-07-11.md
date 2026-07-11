@@ -41,6 +41,19 @@ new scoring version: required if implemented, likely v8.4 candidate
 DailyCoach semantic v2 phase 1: paused until this score path is resolved
 ```
 
+후속 반증 상태:
+
+이 문서는 최초 feasibility 판단의 historical input으로 유지한다. 최신 production route와 후보 판정은 `docs/v8.4_component_score_architecture_falsification_decision_2026-07-11.md`가 supersede한다.
+
+```text
+raw multiplicative candidate: REJECTED by symmetric and actual-day falsification
+soft-min / minimum-residual families: research candidates only, not selected
+current target mismatch: promoted to HOTFIX_FIRST open blocker
+current production formula: unchanged until an explicit correction decision
+```
+
+아래의 Model D 조건부 채택과 `v8.4 implementation decision` next-gate 문구는 당시 결론을 보존한 기록이며 현재 실행 지시로 사용하지 않는다. 후보는 반증·대체 가능해야 한다.
+
 ## 비개발자용 설명
 
 ### 무엇을 바꿨는지
