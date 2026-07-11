@@ -75,6 +75,7 @@ const requiredFiles = [
   "docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md",
   "docs/v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md",
   "docs/v8.3.1_today_score_card_semantic_ownership_cleanup_implementation_2026-07-11.md",
+  "docs/v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
@@ -142,6 +143,7 @@ if (failures.length === 0) {
   const onboardingFirstRunFlowImplementation = read("docs/v8.3.1_onboarding_first_run_flow_implementation_2026-07-10.md");
   const todayScoreGuidanceOwnershipDecision = read("docs/v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md");
   const todayScoreOwnershipCleanupImplementation = read("docs/v8.3.1_today_score_card_semantic_ownership_cleanup_implementation_2026-07-11.md");
+  const adaptiveTargetStableHelpImplementation = read("docs/v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md");
   const onboardingArchiveReadme = read("docs/archive/onboarding/README.md");
   const onboardingHistoricalNote = read("docs/archive/onboarding/v8.2_onboarding_start_flow_note_2026-07-03.md");
   const lightweightAntiInertiaRoutine = read("docs/lightweight_anti_inertia_routine_2026-07-09.md");
@@ -303,6 +305,8 @@ if (failures.length === 0) {
     "v8.3.1 stabilization/readiness checkpoint update: closed",
     "v8.3.1 macro card adaptive OFF and protein target level implementation: implemented",
     "v8.3.1 onboarding completion ownership hotfix: implemented",
+    "v8.3.1 adaptive-target stable help implementation: implemented",
+    "v8.3.1 DailyCoach semantic v2 phase 1: pending",
     "required result-log format: active",
     "docs/00_current_truth/05_required_result_log_format.txt",
     "continuous pressure limiter",
@@ -350,6 +354,9 @@ if (failures.length === 0) {
     "mode/context-selected external macro production policy",
     "2.3~3.1g/kg FFM contest-prep 예외를 열지 않는다",
     "external policy 적용 후 final protein/carbs/fat을 다시 덮어쓰면 실패",
+    "adaptive-target stable help",
+    "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
+    "DailyCoach semantic v2 phase 1",
   ];
   for (const text of currentTruthRequirements) {
     if (!currentTruth.includes(text)) fail(`02_macro_range_current_truth missing: ${text}`);
@@ -386,6 +393,9 @@ if (failures.length === 0) {
     "v8.3.1 carb-fat joint allocation model QA closeout",
     "v8.3.1 stabilization/readiness checkpoint update",
     "v8.3.1 macro card adaptive OFF and protein target level implementation",
+    "v8.3.1 adaptive-target stable help implementation: implemented",
+    "v8.3.1 DailyCoach semantic v2 phase 1: pending",
+    "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
     "required result-log format: active",
     "docs/00_current_truth/05_required_result_log_format.txt",
     "v8.3.1-ready for next planning",
@@ -1046,6 +1056,102 @@ if (failures.length === 0) {
       : "";
     if (!profileBody.includes("runTodayScoreEvidenceOwnershipTests")) {
       fail(`${profile} profile missing Today score evidence ownership regression suite`);
+    }
+  }
+
+  const adaptiveTargetStableHelpRequirements = [
+    "DOCUMENT ROLE",
+    "- implementation_log",
+    "## 비개발자용 설명",
+    "### 무엇을 바꿨는지",
+    "### 실제 사용자 화면이나 계산 결과가 어떻게 달라지는지",
+    "### 정책, 산식, 데이터 해석이 바뀌었는지",
+    "### 바꾸지 않은 범위와 보류한 내용",
+    "### 사용자가 큰 틀에서 확인해야 할 판단점",
+    "### 테스트에서 무엇을 검증했는지",
+    "ADAPTIVE_TARGET_STABLE_HELP_COPY",
+    "390px",
+    "native button",
+    "aria-describedby",
+    "role=\"tooltip\"",
+    "변경 없음",
+    "DailyCoach semantic v2 phase 1",
+    "buildMacroReason",
+  ];
+  for (const text of adaptiveTargetStableHelpRequirements) {
+    if (!adaptiveTargetStableHelpImplementation.includes(text)) {
+      fail(`v8.3.1 adaptive-target stable help implementation missing: ${text}`);
+    }
+  }
+
+  const adaptiveTargetStableHelpRoute = "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md";
+  for (const [label, text] of [
+    ["00_READ_FIRST", readFirst],
+    ["02_macro_range_current_truth", currentTruth],
+    ["04_document_status_index", statusIndex],
+    ["README", readme],
+  ]) {
+    if (!text.includes(adaptiveTargetStableHelpRoute)) {
+      fail(`${label} missing adaptive-target stable help implementation route`);
+    }
+  }
+  if (!statusIndex.includes(`상태: implemented by docs/${adaptiveTargetStableHelpRoute}`)) {
+    fail("status index must mark adaptive-target stable help as implemented");
+  }
+  if (/49\. v8\.3\.1 adaptive-target stable help implementation\.[\s\S]{0,180}상태:\s*pending/.test(statusIndex)) {
+    fail("status index still marks adaptive-target stable help as pending");
+  }
+
+  if (exists("index.html")) {
+    const indexHtmlForAdaptiveHelp = read("index.html");
+    for (const signal of [
+      "const ADAPTIVE_TARGET_STABLE_HELP_COPY = Object.freeze({",
+      "function getAdaptiveTargetStableHelpCopy()",
+      "function syncAdaptiveTargetStableHelpCopy()",
+      "id=\"settingsAdaptiveTargetHelp\" type=\"button\"",
+      "aria-describedby=\"settingsAdaptiveTargetHelpTip\"",
+      "id=\"settingsAdaptiveTargetHelpTip\" role=\"tooltip\"",
+      "id=\"todayAdaptiveTargetHelp\" type=\"button\"",
+      "aria-describedby=\"todayAdaptiveTargetHelpTip\"",
+      "id=\"todayAdaptiveTargetHelpTip\" role=\"tooltip\"",
+      "is-tooltip-dismissed",
+      "function runAdaptiveTargetStableHelpTests()",
+      "buildTodayScoreEvidenceModel() + renderTodayAdherencePanel()",
+    ]) {
+      if (!indexHtmlForAdaptiveHelp.includes(signal)) {
+        fail(`index.html missing adaptive-target stable help signal: ${signal}`);
+      }
+    }
+
+    const copyStart = indexHtmlForAdaptiveHelp.indexOf("const ADAPTIVE_TARGET_STABLE_HELP_COPY = Object.freeze({");
+    const copyEnd = indexHtmlForAdaptiveHelp.indexOf("function getAdaptiveTargetStableHelpCopy()", copyStart);
+    const copyBlock = copyStart >= 0 && copyEnd > copyStart
+      ? indexHtmlForAdaptiveHelp.slice(copyStart, copyEnd)
+      : "";
+    for (const meaning of ["shortReference", "fullDefinition", "총 목표 칼로리", "단백질", "남은 칼로리", "새 권장량"]) {
+      if (!copyBlock.includes(meaning)) fail(`adaptive-target shared help source missing semantic contract: ${meaning}`);
+    }
+    for (const forbidden of ["3일 연속", "7일 연속", "조절 불가", "joint allocation", "limiter", "anchor", "penalty", "curve"]) {
+      if (copyBlock.includes(forbidden)) fail(`adaptive-target stable help source exposes unsupported term: ${forbidden}`);
+    }
+    for (const forbiddenPattern of [
+      /<span class="help-wrap today-target-help"/,
+      /function\s+buildMacroReason\s*\(/,
+      /getTodayScoreCardCopy\(\) \+ buildMacroReason\(\)/,
+    ]) {
+      if (forbiddenPattern.test(indexHtmlForAdaptiveHelp)) {
+        fail(`index.html revives stale adaptive-help or score-report path: ${forbiddenPattern}`);
+      }
+    }
+  }
+  for (const profile of ["smoke", "core", "ui", "mobile"]) {
+    const profileStart = internalTestRunner.indexOf(`${profile}: [`);
+    const profileEnd = internalTestRunner.indexOf("\n  ],", profileStart);
+    const profileBody = profileStart >= 0 && profileEnd > profileStart
+      ? internalTestRunner.slice(profileStart, profileEnd)
+      : "";
+    if (!profileBody.includes("runAdaptiveTargetStableHelpTests")) {
+      fail(`${profile} profile missing adaptive-target stable help regression suite`);
     }
   }
 
