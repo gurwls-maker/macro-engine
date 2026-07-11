@@ -25,6 +25,7 @@ npm run test:calibration
 npm run test:full
 npm run test:daily-coach
 npm run test:macro-policy
+npm run test:component-score-simulation
 npm run audit:render:capture
 npm run audit:render:analyze
 ```
@@ -34,6 +35,9 @@ npm run audit:render:analyze
 ```powershell
 node .\tools\render_audit\run_internal_tests.cjs
 node .\tools\render_audit\run_internal_tests.cjs --mobile
+node .\tools\render_audit\simulate_component_score_architecture.cjs --assert
+node .\tools\render_audit\simulate_component_score_architecture.cjs --format=csv --output=tools\render_audit\_debug\component_score_ledger.csv
+node .\tools\render_audit\simulate_component_score_architecture.cjs --assert --actual-backup=user-data\macro-engine-full-backup.json --output=tools\render_audit\_debug\component_score_actual_audit.json
 node .\tools\render_audit\capture_render_audit.cjs
 node .\tools\render_audit\analyze_render_audit.cjs
 node .\tools\render_audit\run_v8_full_cartesian_shard.cjs --start=0 --limit=8 --max-cases=8
@@ -82,6 +86,22 @@ It verifies:
 - each mobile capture is full-page expanded and its PNG height matches the captured scroll height
 
 This tool is a visual-audit evidence gate. It does not approve formulas or mutate app state.
+
+## Component Score Architecture Simulation
+
+`simulate_component_score_architecture.cjs` is a test-only decision tool. Production does not import it.
+
+It deterministically produces:
+
+- symmetric component-score vectors for additive, raw-product, soft-min, geometric guard, and minimum-residual probes
+- the current carb/fat threshold grid and anonymized user-reproduced transition
+- joint removal, legacy residual, joint-allocation residual, and current-threshold comparisons
+- the permanent 6 goals x 3 exercise contexts x 3 protein levels exact-target matrix
+- JSON or CSV ledger output with a deterministic content hash
+
+Generated ledgers belong under ignored `_debug/`. They must not contain raw Records, dates, or food names. Passing this tool is architecture evidence only and never opens production scoring implementation by itself.
+
+`--actual-backup` is optional and local-only. It reads an ignored full backup transiently, emits only anonymous day ids plus numeric ratios/domain outputs, and adds a separate anonymized-audit hash. The deterministic architecture hash intentionally excludes this private audit section, so another machine can reproduce the synthetic and target-matrix evidence without access to personal Records.
 
 ## V8 Full Cartesian Shard Pilot
 
