@@ -504,18 +504,38 @@ async function buildTargetMatrix(){
       function targetValidity(result){
         const rate = result.targetRateContext || {};
         const protein = result.proteinTargetLevelContext || {};
+        const application = result.externalMacroActiveProductionApplication || {};
         const weight = Math.max(1, Number(result.s?.weight) || 1);
         const actualProteinGkg = Number(result.protein) / weight;
         const macroKcal = Number(result.protein) * 4 + Number(result.carbs) * 4 + Number(result.fat) * 9;
+        const selectedProteinMatchesRequested = protein.constrained === true
+          ? Number.isFinite(Number(protein.requestedGkg))
+            && Number.isFinite(Number(protein.automaticGkg))
+            && actualProteinGkg >= Math.min(Number(protein.requestedGkg), Number(protein.automaticGkg)) - 0.021
+            && actualProteinGkg <= Math.max(Number(protein.requestedGkg), Number(protein.automaticGkg)) + 0.021
+            && Array.isArray(protein.constraintReasons)
+            && protein.constraintReasons.length > 0
+          : Number.isFinite(Number(protein.requestedGkg))
+            && Math.abs(actualProteinGkg - Number(protein.requestedGkg)) <= 0.021;
         const checks = {
           finitePositiveTarget: Number.isFinite(result.targetCal) && result.targetCal > 0,
+          finiteNonNegativeMacros: Number.isFinite(result.protein) && result.protein > 0
+            && Number.isFinite(result.carbs) && result.carbs >= 0
+            && Number.isFinite(result.fat) && result.fat >= 0,
           goalDeltaInsideGuard: Number.isFinite(rate.clampedGoalDelta)
             && rate.clampedGoalDelta >= rate.deltaGuardMin - 1e-6
             && rate.clampedGoalDelta <= rate.deltaGuardMax + 1e-6,
-          energyAvailabilityFloorHonored: !Number.isFinite(rate.minimumTargetCal) || rate.targetCal >= rate.minimumTargetCal - 1e-6,
-          proteinSelectionMatchesAuthoritativeContext: Number.isFinite(protein.selectedGkg)
-            && Math.abs(actualProteinGkg - protein.selectedGkg) <= 0.021,
-          macroKcalMatchesTarget: Math.abs(macroKcal - Number(result.targetCal)) <= 8
+          energyAvailabilityFloorHonored: Number.isFinite(rate.minimumTargetCal)
+            && rate.minimumTargetCal >= 0
+            && rate.targetCal >= rate.minimumTargetCal - 1e-6,
+          targetRateMatchesTarget: Number.isFinite(rate.targetCal) && Math.abs(Number(rate.targetCal) - Number(result.targetCal)) <= 8,
+          proteinSelectionMatchesIndependentRequest: selectedProteinMatchesRequested,
+          externalApplicationMatchesFinalTarget: application.applied === true
+            && Math.abs(Number(application.targetCal) - Number(result.targetCal)) <= 8
+            && Math.abs(Number(application.protein) - Number(result.protein)) <= 0.25
+            && Math.abs(Number(application.carbs) - Number(result.carbs)) <= 0.25
+            && Math.abs(Number(application.fat) - Number(result.fat)) <= 0.25,
+          macroKcalMatchesTarget: Number.isFinite(macroKcal) && Math.abs(macroKcal - Number(result.targetCal)) <= 8
         };
         return { checks, valid: Object.values(checks).every(Boolean), macroKcalGap: macroKcal - Number(result.targetCal) };
       }
@@ -544,27 +564,21 @@ async function buildTargetMatrix(){
             state.proteinTargetLevel = proteinLevel;
             if (ids.proteinTargetLevel) ids.proteinTargetLevel.value = proteinLevel;
             const target = calculate();
+            const targetMacroKcal = Number(target.protein) * 4 + Number(target.carbs) * 4 + Number(target.fat) * 9;
             const balance = {
               target: { kcal: target.targetCal, protein: target.protein, carbs: target.carbs, fat: target.fat },
               consumed: {
-                scoringKcal: target.targetCal,
-                totalKcal: target.targetCal,
-                kcal: target.targetCal,
+                scoringKcal: targetMacroKcal,
+                totalKcal: targetMacroKcal,
+                kcal: targetMacroKcal,
                 protein: target.protein,
                 carbs: target.carbs,
                 fat: target.fat,
                 alcoholKcal: 0,
                 otherKcal: 0
-              },
-              goalSnapshot: {
-                goal,
-                exerciseManagementMode: target.s.exerciseManagementMode,
-                routine: target.s.routine,
-                weightDuration: target.s.weightDuration,
-                weeklyTrainingDays: target.s.weeklyTrainingDays
               }
             };
-            const options = { totalBurn: target.totalBurn, bodyWeightKg: target.s.weight };
+            const options = {};
             const summary = getMacroRangeProductionScoreSummary(balance, target, options);
             const scoringContext = buildV83ContinuousScoringContext(balance, target, options);
             const policy = getV83ContinuousScoringPolicy();
@@ -600,7 +614,8 @@ async function buildTargetMatrix(){
               current: {
                 percent: summary.percent,
                 rawScore: summary.rawScore,
-                penalties: summary.penaltyBreakdown
+                penalties: summary.penaltyBreakdown,
+                targetAuthority: summary.scoringContext?.targetAuthority || null
               },
               correctedReferenceProbe: {
                 percent: correctedRawScore === null ? null : Math.max(0, Math.min(100, correctedRawScore)),
@@ -820,6 +835,7 @@ function summarizeTargetMatrix(cases){
   const currentBelow95 = cases.filter(item => Number(item.current.percent) < 95 - 1e-6);
   const correctedNon100 = cases.filter(item => !isExact100(item.correctedReferenceProbe.percent));
   const invalidTargets = cases.filter(item => !item.validity.valid);
+  const invalidProductionAuthority = cases.filter(item => item.current.targetAuthority?.valid !== true);
   return {
     caseCount: cases.length,
     currentExact100Count: cases.length - currentNon100.length,
@@ -831,7 +847,10 @@ function summarizeTargetMatrix(cases){
     correctedNon100Ids: correctedNon100.map(item => item.id),
     validityPassCount: cases.length - invalidTargets.length,
     validityFailCount: invalidTargets.length,
-    validityFailIds: invalidTargets.map(item => item.id)
+    validityFailIds: invalidTargets.map(item => item.id),
+    productionAuthorityPassCount: cases.length - invalidProductionAuthority.length,
+    productionAuthorityFailCount: invalidProductionAuthority.length,
+    productionAuthorityFailIds: invalidProductionAuthority.map(item => item.id)
   };
 }
 
@@ -891,6 +910,8 @@ function makeAssertion(name, pass, detail){
     makeAssertion("joint allocation residual stays continuous across user transition", userBefore.results.option_c_joint_allocation_residual.penalty > 0 && userAfter.results.option_c_joint_allocation_residual.penalty > 0, `before=${userBefore.results.option_c_joint_allocation_residual.penalty},after=${userAfter.results.option_c_joint_allocation_residual.penalty}`),
     makeAssertion("target matrix has 54 cases", targetSummary.caseCount === 54, `count=${targetSummary.caseCount}`),
     makeAssertion("current target matrix produces finite scores", currentTargetScoresAreFinite, `finite=${targetCases.filter(item => Number.isFinite(item.current.percent)).length}/${targetCases.length}`),
+    makeAssertion("current production restores exact generated targets", targetSummary.currentNon100Count === 0, `non100=${targetSummary.currentNon100Count}`),
+    makeAssertion("current production target authority passes generated targets", targetSummary.productionAuthorityFailCount === 0, `invalid=${targetSummary.productionAuthorityFailCount}`),
     makeAssertion("corrected reference probe restores exact targets", targetSummary.correctedNon100Count === 0, `non100=${targetSummary.correctedNon100Count}`),
     makeAssertion("target validity envelope passes generated targets", targetSummary.validityFailCount === 0, `invalid=${targetSummary.validityFailCount}`)
   ];
