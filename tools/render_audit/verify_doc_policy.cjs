@@ -41,6 +41,7 @@ const requiredFiles = [
   "docs/00_current_truth/00_READ_FIRST.txt",
   "docs/00_current_truth/02_macro_range_current_truth.txt",
   "docs/00_current_truth/04_document_status_index.txt",
+  "docs/00_current_truth/05_required_result_log_format.txt",
   "docs/00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt",
   "docs/00_current_truth/templates/new_doc_preamble.txt",
   "docs/archive/v8.2_macro_range/README.md",
@@ -118,6 +119,7 @@ if (failures.length === 0) {
   const readFirst = read("docs/00_current_truth/00_READ_FIRST.txt");
   const currentTruth = read("docs/00_current_truth/02_macro_range_current_truth.txt");
   const statusIndex = read("docs/00_current_truth/04_document_status_index.txt");
+  const resultLogFormat = read("docs/00_current_truth/05_required_result_log_format.txt");
   const targetScoringIncident = read("docs/v8.3_target_scoring_alignment_incident_decision_2026-07-08.md");
   const targetScoringImplementation = read("docs/v8.3_target_scoring_alignment_implementation_2026-07-08.md");
   const targetScoringQaCloseout = read("docs/v8.3_target_scoring_alignment_qa_closeout_2026-07-08.md");
@@ -159,6 +161,7 @@ if (failures.length === 0) {
     "00_current_truth/00_READ_FIRST.txt",
     "00_current_truth/02_macro_range_current_truth.txt",
     "00_current_truth/04_document_status_index.txt",
+    "00_current_truth/05_required_result_log_format.txt",
     "v8.2_macro_range_*",
     "archive/v8.2_macro_range/README.md",
   ];
@@ -300,6 +303,8 @@ if (failures.length === 0) {
     "v8.3.1 stabilization/readiness checkpoint update: closed",
     "v8.3.1 macro card adaptive OFF and protein target level implementation: implemented",
     "v8.3.1 onboarding completion ownership hotfix: implemented",
+    "required result-log format: active",
+    "docs/00_current_truth/05_required_result_log_format.txt",
     "continuous pressure limiter",
     "continuous_training_load_interpolation",
     "target/scoring alignment release blocker",
@@ -381,6 +386,8 @@ if (failures.length === 0) {
     "v8.3.1 carb-fat joint allocation model QA closeout",
     "v8.3.1 stabilization/readiness checkpoint update",
     "v8.3.1 macro card adaptive OFF and protein target level implementation",
+    "required result-log format: active",
+    "docs/00_current_truth/05_required_result_log_format.txt",
     "v8.3.1-ready for next planning",
     "current_curve_with_guarded_outputs",
     "continuous recency-weighted excess pressure",
@@ -1150,6 +1157,8 @@ if (failures.length === 0) {
     "Anti-loop rules",
     "Stale-routine / supersede rules",
     "Result-log template",
+    "docs/00_current_truth/05_required_result_log_format.txt",
+    "비개발자용 설명",
     "Most audits belong in the result log",
     "must not create another anti-inertia task",
     "Do not enter review-the-review loops",
@@ -1186,6 +1195,10 @@ if (failures.length === 0) {
     "READ RESULT",
     "DOCUMENT ROLE",
     "FORBIDDEN WITHOUT EXPLICIT SUPERSEDING DECISION",
+    "docs/00_current_truth/05_required_result_log_format.txt",
+    "FIRST BODY SECTION",
+    "## 비개발자용 설명",
+    "## 기술 검증",
   ];
   for (const text of preambleRequirements) {
     if (!preamble.includes(text)) fail(`new_doc_preamble missing: ${text}`);
@@ -1195,6 +1208,7 @@ if (failures.length === 0) {
     "docs/00_current_truth/00_READ_FIRST.txt",
     "docs/00_current_truth/02_macro_range_current_truth.txt",
     "docs/00_current_truth/04_document_status_index.txt",
+    "docs/00_current_truth/05_required_result_log_format.txt",
     "docs/archive/v8.2_macro_range/",
     "v8.3 scoring implementation은 현재 `v8.3_anchor_continuous_macro_score_v1`로 구현된 상태",
     "v6.1 alcoholImpactPenalty",
@@ -1212,9 +1226,38 @@ if (failures.length === 0) {
     "do not invent a next implementation merely because publish completed",
     "recursive meta-work",
     "Most audits belong in the result log",
+    "첫 본문은 반드시 `비개발자용 설명`",
+    "정책/산식/데이터 해석 변경 여부",
+    "기술 검증 섹션",
   ];
   for (const text of agentsRequirements) {
     if (!agents.includes(text)) fail(`AGENTS.md missing: ${text}`);
+  }
+
+  const resultLogFormatRequirements = [
+    "저장소 공통 결과로그 계약 / 비개발자 우선 설명",
+    "새 로컬 Codex도 같은 순서로 보고",
+    "첫 본문 섹션은 반드시 `비개발자용 설명`",
+    "무엇을 바꿨는지",
+    "왜 바꿨는지",
+    "실제 사용자 화면이나 계산 결과가 어떻게 달라지는지",
+    "정책, 산식, 데이터 해석이 바뀌었는지",
+    "바꾸지 않은 범위와 보류한 내용",
+    "사용자가 큰 틀에서 확인해야 할 판단점",
+    "테스트에서 어떤 사용자 동작이나 계산 결과를 검증했는지",
+    "코드명, 함수명, 파일명만 나열해서 설명을 대신하지 않는다",
+    "## 기술 검증",
+    "PROMPT_SCOPE_AUDIT",
+    "수용:",
+    "폐기:",
+    "통합:",
+    "보류:",
+    "금지선:",
+    "내 판단 다음 단계:",
+    "문구 테스트가 실패했다는 이유만으로 어색한 기존 문구를 되살리지 않는다",
+  ];
+  for (const text of resultLogFormatRequirements) {
+    if (!resultLogFormat.includes(text)) fail(`05_required_result_log_format missing: ${text}`);
   }
 
   const allDocs = walk(docsDir);
@@ -1282,6 +1325,41 @@ if (failures.length === 0) {
     const text = fs.readFileSync(file, "utf8");
     if (!text.includes("MANDATORY PRE-READ")) {
       fail(`v8.3 document missing mandatory pre-read block: ${rel(file)}`);
+    }
+  }
+
+  const resultLogPolicyEffectiveDate = "2026-07-11";
+  const preContractRootWorkLogs = new Set([
+    "docs/v8.3.1_today_score_guidance_surface_ownership_inventory_decision_2026-07-11.md",
+    "docs/v8.3.1_today_score_card_semantic_ownership_cleanup_implementation_2026-07-11.md",
+  ]);
+  const requiredUserFirstHeadings = [
+    "### 무엇을 바꿨는지",
+    "### 왜 바꿨는지",
+    "### 실제 사용자 화면이나 계산 결과가 어떻게 달라지는지",
+    "### 정책, 산식, 데이터 해석이 바뀌었는지",
+    "### 바꾸지 않은 범위와 보류한 내용",
+    "### 사용자가 큰 틀에서 확인해야 할 판단점",
+    "### 테스트에서 무엇을 검증했는지",
+    "## 기술 검증",
+  ];
+  const datedRootWorkLogs = fs
+    .readdirSync(docsDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /_(\d{4}-\d{2}-\d{2})\.md$/.test(entry.name))
+    .map((entry) => path.join(docsDir, entry.name));
+
+  for (const file of datedRootWorkLogs) {
+    const normalized = rel(file);
+    const dateMatch = path.basename(file).match(/_(\d{4}-\d{2}-\d{2})\.md$/);
+    if (!dateMatch || dateMatch[1] < resultLogPolicyEffectiveDate || preContractRootWorkLogs.has(normalized)) continue;
+
+    const text = fs.readFileSync(file, "utf8");
+    const firstLevelTwoHeading = text.match(/^## .+$/m)?.[0] || "";
+    if (!/^## 비개발자용(?: 결과)? 설명$/.test(firstLevelTwoHeading)) {
+      fail(`new work log must start its narrative sections with non-developer explanation: ${normalized}`);
+    }
+    for (const heading of requiredUserFirstHeadings) {
+      if (!text.includes(heading)) fail(`new work log missing user-first heading '${heading}': ${normalized}`);
     }
   }
 
