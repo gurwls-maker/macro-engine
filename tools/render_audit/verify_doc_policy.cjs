@@ -322,6 +322,7 @@ if (failures.length === 0) {
     "narrow target/scoring authoritative-reference correction decision/implementation: implemented and release blocker closed",
     "v8.4 Option C joint-allocation residual exact-formula simulation: original geometry decision closed with outcome MORE_EVIDENCE_REQUIRED",
     "v8.4 production-authoritative joint ownership/source-safety correction: closed with outcome",
+    "actual-context-anchored controlled counterfactual product-meaning evidence: closed with outcome COUNTERFACTUAL_PACKET_INSUFFICIENT",
     "replacement, removal, aggregation, production 구현을 열지 않는다",
     "v8.3.1_target_authority_continuous_macro_score_v2",
     "valid 54개 target 모두 exact 100",
@@ -436,6 +437,7 @@ if (failures.length === 0) {
     "valid target 54/54 exact 100",
     "v8.4 Option C joint-allocation residual exact-formula simulation: original geometry decision closed with outcome MORE_EVIDENCE_REQUIRED",
     "v8.4 production-authoritative joint ownership/source-safety correction: closed with outcome",
+    "actual-context-anchored controlled counterfactual product-meaning evidence: closed with outcome COUNTERFACTUAL_PACKET_INSUFFICIENT",
     "v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md",
     "v8.3.1 DailyCoach semantic v2 phase 1: paused",
     "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
@@ -1371,6 +1373,12 @@ if (failures.length === 0) {
     "source-safe included: 96",
     "balanced block candidates: 0",
     "actual same-input two-run: audit/review 모두 byte-identical",
+    "actual-context-anchored counterfactual closeout",
+    "actual-context counterfactual evidence outcome: COUNTERFACTUAL_PACKET_INSUFFICIENT",
+    "controlled_counterfactual_not_observed_prevalence",
+    "eligible roles after all invariants: null-control 12 / carb-heavy contrast 6 / fat-heavy contrast 0",
+    "selected balanced blocks / cases: 0 / 0",
+    "component simulation: 77 assertions / 77 pass / 0 fail",
     "coefficient tuning",
     "실제 private backup은 이 작업공간에 없어서",
     "scoring formula/version, UI, storage/schema, backup, Records, DailyCoach, v8.3 tag를 바꾸지 않았다",
@@ -1408,6 +1416,17 @@ if (failures.length === 0) {
     : null;
   if (!allowedActualEvidenceOutcomes.has(actualEvidenceOutcome)) {
     fail("Option C actual-day evidence must declare exactly one allowed, falsifiable outcome");
+  }
+  const counterfactualOutcomeLines = optionCJointResidualSimulationDecision.match(/^actual-context counterfactual evidence outcome:\s*.+$/gm) || [];
+  const allowedCounterfactualOutcomes = new Set([
+    "COUNTERFACTUAL_PACKET_INSUFFICIENT",
+    "READY_FOR_COUNTERFACTUAL_BLIND_JUDGMENT",
+  ]);
+  const counterfactualOutcome = counterfactualOutcomeLines.length === 1
+    ? counterfactualOutcomeLines[0].split(":").slice(1).join(":").trim()
+    : null;
+  if (!allowedCounterfactualOutcomes.has(counterfactualOutcome)) {
+    fail("Option C actual-context counterfactual evidence must declare exactly one allowed, falsifiable outcome");
   }
   if (!statusIndex.includes(`상태: closed with outcome \`${correctionOutcome}\` by the append-only production-authority correction section`)) {
     fail("status index must expose the same falsifiable production-authority correction outcome as the result log");
@@ -1447,6 +1466,25 @@ if (failures.length === 0) {
         || !statusIndex.includes("56. component-score actual-day aggregation re-evaluation.")
         || !statusIndex.includes("상태: blocked because item 55 closed `ACTUAL_EVIDENCE_INSUFFICIENT`.")) {
       fail("actual evidence insufficiency must close item 55 without review/reveal and keep component aggregation blocked");
+    }
+  }
+  if (counterfactualOutcome === "COUNTERFACTUAL_PACKET_INSUFFICIENT") {
+    for (const [label, text] of [
+      ["00_READ_FIRST", readFirst],
+      ["02_macro_range_current_truth", currentTruth],
+      ["04_document_status_index", statusIndex],
+      ["README", readme],
+    ]) {
+      if (!text.includes(counterfactualOutcome)
+          || !text.includes("ACTUAL_EVIDENCE_INSUFFICIENT")) {
+        fail(`${label} must expose counterfactual insufficiency while preserving observed actual insufficiency`);
+      }
+    }
+    if (!statusIndex.includes("55-CF. actual-context-anchored controlled counterfactual product-meaning evidence.")
+        || !statusIndex.includes("상태: closed with outcome `COUNTERFACTUAL_PACKET_INSUFFICIENT`")
+        || !statusIndex.includes("56. component-score actual-day aggregation re-evaluation.")
+        || !statusIndex.includes("상태: blocked because item 55 closed `ACTUAL_EVIDENCE_INSUFFICIENT`.")) {
+      fail("counterfactual insufficiency must remain a separate closed evidence class and keep item 56 blocked");
     }
   }
 
@@ -1560,6 +1598,21 @@ if (failures.length === 0) {
     "cardio-only snapshot training is derived from raw snapshot energy instead of rest fallback",
     "historical_test_local_helper_diagnostics_only",
     "production versus historical ownership drift is explicit and fully accounted",
+    "--actual-counterfactual-review-output",
+    "--actual-counterfactual-reveal-output",
+    "--post-counterfactual-judgment-reveal",
+    "controlled_counterfactual_not_observed_prevalence",
+    "function buildActualAnchoredCounterfactualEvidence",
+    "function buildActualAnchoredCounterfactualBlindArtifacts",
+    "function isActualAnchoredCounterfactualReviewArtifactSafe",
+    "function isActualAnchoredCounterfactualRevealArtifactSafe",
+    "function assertLockedCounterfactualReviewMatchesGenerated",
+    "counterfactual generation is raw-record-order invariant and ignores injected residual/final-score metadata",
+    "counterfactual fixture requires six balanced blocks, twelve distinct anchors, both directions, and multiple contexts",
+    "counterfactual selection and A/B randomization are input-order invariant",
+    "counterfactual balanced selection explores alternate display-pair options within each anchor",
+    "counterfactual reveal roles are coherent and remain bound to the reviewed A/B sides",
+    "one-direction-only counterfactual evidence fails closed with empty review and reveal maps",
   ];
   for (const text of simulationToolRequirements) {
     if (!componentScoreArchitectureSimulationTool.includes(text)) {
@@ -1598,6 +1651,7 @@ if (failures.length === 0) {
     "53. v8.4 Option C joint-allocation residual exact-formula simulation.",
     "54. v8.4 production-authoritative joint ownership/source-safety correction.",
     "55. explicit-backup privacy-safe actual-day joint ownership evidence.",
+    "55-CF. actual-context-anchored controlled counterfactual product-meaning evidence.",
     "56. component-score actual-day aggregation re-evaluation.",
     "57. component-score candidate selection or rejection.",
     "58. v8.3.1 DailyCoach semantic v2 phase 1.",
