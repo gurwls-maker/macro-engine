@@ -50,7 +50,10 @@ const outputPath = readArgValue("--output");
 const actualBackupPath = readArgValue("--actual-backup");
 const actualReviewOutputPath = readArgValue("--actual-review-output");
 const actualRevealOutputPath = readArgValue("--actual-reveal-output");
+const actualCounterfactualReviewOutputPath = readArgValue("--actual-counterfactual-review-output");
+const actualCounterfactualRevealOutputPath = readArgValue("--actual-counterfactual-reveal-output");
 const postJudgmentReveal = process.argv.includes("--post-judgment-reveal");
+const postCounterfactualJudgmentReveal = process.argv.includes("--post-counterfactual-judgment-reveal");
 const assertMode = process.argv.includes("--assert");
 
 function isPathInsideDirectory(candidatePath, parentPath){
@@ -1315,6 +1318,12 @@ const ACTUAL_AUDIT_LEGACY_BODYBUILDING_ROUTINES = new Set([
   "PUSH", "PULL", "LEGS", "UPPER", "LOWER", "CHEST", "BACK", "SHOULDER", "ARM", "ARMS"
 ]);
 const ACTUAL_BLIND_SHUFFLE_SEED_VERSION = "v8.4_joint_actual_day_hypothesis_blind_v2_balanced_disjoint";
+const ACTUAL_COUNTERFACTUAL_SEED_VERSION = "v8.4_actual_context_counterfactual_v2_balanced_sides";
+const ACTUAL_COUNTERFACTUAL_EXCHANGE_STEPS = Object.freeze([
+  -8, -7, -6, -5, -4, -3, -2, -1,
+  1, 2, 3, 4, 5, 6, 7, 8
+]);
+const ACTUAL_COUNTERFACTUAL_MAX_BALANCED_BLOCKS = 6;
 const ACTUAL_MATCH_TOLERANCES = Object.freeze([
   Object.freeze({ id: "exact", maxAxisDelta: 0 }),
   Object.freeze({ id: "tolerance_0_25", maxAxisDelta: 0.25 }),
@@ -1506,8 +1515,9 @@ function countBy(items, selector){
   }, {});
 }
 
-async function extractAnonymizedActualDaysFromPayload(rawPayload){
+async function extractAnonymizedActualDaysFromPayload(rawPayload, options = {}){
   const payload = validateRawActualBackupEnvelope(rawPayload);
+  const counterfactualRequested = options.counterfactualRequested === true;
   const rawRecords = payload.data.records;
   const recordDateCounts = rawRecords.reduce((counts, record) => {
     const date = isSemanticallyValidActualRecordDate(record?.date) ? record.date : null;
@@ -1542,7 +1552,7 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
     const page = context.pages()[0] || await context.newPage();
     await page.goto(`http://127.0.0.1:${port}/index.html?codexInternalTests=1`, { waitUntil: "domcontentloaded", timeout: 90000 });
     await page.waitForFunction(() => typeof calculate === "function" && typeof getDailyAdherenceScore === "function", null, { timeout: 90000 });
-    const evaluated = await page.evaluate(({ payload: data, eligibleRecords: eligible }) => {
+    const evaluated = await page.evaluate(({ payload: data, eligibleRecords: eligible, counterfactualRequested: buildCounterfactuals, counterfactualExchangeSteps }) => {
       const normalizedBackup = normalizeFullBackupPayload(data);
       const rawRecords = data.data.records;
       recordsState.items = eligible.map(item => normalizeRecord(rawRecords[item.index])).filter(record => record?.date);
@@ -1618,7 +1628,7 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
           cardio: { kcal: cardioKcal },
           weightKcal
         };
-        const score = getDailyAdherenceScore(record.date, snapshotOwnedResult, {
+        const scoreOptions = {
           goalSnapshot: snapshot,
           useStoredAdherence: false,
           exerciseManagementMode: rawSnapshot.exerciseManagementMode,
@@ -1627,7 +1637,8 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
           weightDuration: Number(rawSnapshot.weightDuration),
           cardioKcal,
           weightKcal
-        });
+        };
+        const score = getDailyAdherenceScore(record.date, snapshotOwnedResult, scoreOptions);
         const target = score.detail?.target || {};
         const consumed = score.detail?.consumed || {};
         const penalties = score.detail?.penaltyBreakdown || null;
@@ -1636,6 +1647,146 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
         const ratio = (actual, expected) => Number.isFinite(Number(actual)) && Number(expected) > 0
           ? Number(actual) / Number(expected)
           : null;
+        const counterfactualFamily = buildCounterfactuals ? (() => {
+          const originalCarbs = Number(consumed.carbs);
+          const originalFat = Number(consumed.fat);
+          const originalProtein = Number(consumed.protein);
+          const originalScoringKcal = Number(consumed.scoringKcal);
+          const originalAlcoholKcal = Math.max(0, Number(consumed.alcoholKcal) || 0);
+          const originalOtherKcal = Math.max(0, Number(consumed.otherKcal) || 0);
+          if (![originalCarbs, originalFat, originalProtein, originalScoringKcal].every(Number.isFinite)
+              || originalCarbs < 0
+              || originalFat < 0
+              || originalProtein < 0
+              || !(originalScoringKcal > 0)) {
+            return { valid: false, exclusionReason: "invalid_redacted_anchor", variants: [] };
+          }
+          const originalMacroEnergy = originalProtein * 4 + originalCarbs * 4 + originalFat * 9;
+          const originalDerivedScoringKcal = originalMacroEnergy + originalAlcoholKcal + originalOtherKcal;
+          const variants = counterfactualExchangeSteps.map(exchangeStep => {
+            const carbs = originalCarbs + 9 * exchangeStep;
+            const fat = originalFat - 4 * exchangeStep;
+            if (![carbs, fat].every(Number.isFinite) || carbs < 0 || fat < 0) {
+              return {
+                variantKey: `exchange_${exchangeStep < 0 ? "minus" : "plus"}_${Math.abs(exchangeStep)}`,
+                exchangeStep,
+                valid: false,
+                exclusionReason: "negative_counterfactual_macro"
+              };
+            }
+            const exchangeEnergyGap = (carbs - originalCarbs) * 4 + (fat - originalFat) * 9;
+            const derivedScoringKcal = originalProtein * 4 + carbs * 4 + fat * 9 + originalAlcoholKcal + originalOtherKcal;
+            const syntheticMeals = [0.5, 0.5].map((share, syntheticIndex) => ({
+              syntheticIndex,
+              carbs: carbs * share,
+              protein: originalProtein * share,
+              fat: fat * share,
+              alcoholKcal: originalAlcoholKcal * share,
+              otherKcal: originalOtherKcal * share
+            }));
+            const syntheticTotals = syntheticMeals.reduce((totals, meal) => ({
+              carbs: totals.carbs + meal.carbs,
+              protein: totals.protein + meal.protein,
+              fat: totals.fat + meal.fat,
+              alcoholKcal: totals.alcoholKcal + meal.alcoholKcal,
+              otherKcal: totals.otherKcal + meal.otherKcal
+            }), { carbs: 0, protein: 0, fat: 0, alcoholKcal: 0, otherKcal: 0 });
+            const candidateConsumed = {
+              ...consumed,
+              carbs,
+              protein: originalProtein,
+              fat,
+              scoringKcal: originalScoringKcal,
+              totalKcal: originalScoringKcal,
+              alcoholKcal: originalAlcoholKcal,
+              otherKcal: originalOtherKcal
+            };
+            const candidateBalance = {
+              target: { ...target },
+              baseTarget: { ...target },
+              goalSnapshot: snapshot,
+              consumed: candidateConsumed
+            };
+            const candidateSummary = getMacroRangeProductionScoreSummary(candidateBalance, snapshotOwnedResult, scoreOptions);
+            const candidatePenalties = candidateSummary?.penaltyBreakdown || null;
+            const candidateContext = candidateSummary?.scoringContext || {};
+            const candidateJoint = candidateContext.jointAllocationModel || null;
+            const missingPenaltyAxes = [
+              "targetEnergyDeviationPenalty",
+              "tdeeOverloadPenalty",
+              "proteinShortagePenalty",
+              "proteinExcessEfficiencyPenalty",
+              "fatRangePenalty",
+              "carbExerciseContextPenalty",
+              "carbFatExchangeFailurePenalty",
+              "alcoholPhysiologyPenalty",
+              "dataOutlierPenalty"
+            ].filter(key => !Number.isFinite(Number(candidatePenalties?.[key])) || Number(candidatePenalties[key]) < 0);
+            const valid = candidateSummary?.blockedReason === null
+              && candidateContext.targetAuthority?.valid === true
+              && candidateContext.targetAuthority?.source === "frozen_goal_snapshot"
+              && candidateContext.weightSource === scoringContext.weightSource
+              && candidateContext.totalBurnSource === scoringContext.totalBurnSource
+              && candidateContext.trainingContext === scoringContext.trainingContext
+              && missingPenaltyAxes.length === 0
+              && !!candidateJoint
+              && Math.abs(exchangeEnergyGap) <= 1e-9
+              && Math.abs(derivedScoringKcal - originalDerivedScoringKcal) <= 1e-9
+              && Math.abs(syntheticTotals.carbs - carbs) <= 1e-9
+              && Math.abs(syntheticTotals.protein - originalProtein) <= 1e-9
+              && Math.abs(syntheticTotals.fat - fat) <= 1e-9
+              && Math.abs(syntheticTotals.alcoholKcal - originalAlcoholKcal) <= 1e-9
+              && Math.abs(syntheticTotals.otherKcal - originalOtherKcal) <= 1e-9;
+            return {
+              variantKey: `exchange_${exchangeStep < 0 ? "minus" : "plus"}_${Math.abs(exchangeStep)}`,
+              exchangeStep,
+              valid,
+              exclusionReason: valid ? null : "counterfactual_production_invariant_failed",
+              ratios: {
+                energy: ratio(originalScoringKcal, target.kcal),
+                protein: ratio(originalProtein, target.protein),
+                carb: ratio(carbs, target.carbs),
+                fat: ratio(fat, target.fat)
+              },
+              penalties: candidatePenalties,
+              invariants: {
+                exchangeEnergyGap,
+                derivedScoringKcalGap: derivedScoringKcal - originalDerivedScoringKcal,
+                proteinGap: syntheticTotals.protein - originalProtein,
+                targetAuthorityValid: candidateContext.targetAuthority?.valid === true,
+                targetAuthoritySource: candidateContext.targetAuthority?.source || null,
+                weightSource: candidateContext.weightSource || null,
+                totalBurnSource: candidateContext.totalBurnSource || null,
+                trainingContext: candidateContext.trainingContext || null,
+                syntheticMealClosureValid: Math.abs(syntheticTotals.carbs - carbs) <= 1e-9
+                  && Math.abs(syntheticTotals.protein - originalProtein) <= 1e-9
+                  && Math.abs(syntheticTotals.fat - fat) <= 1e-9
+                  && Math.abs(syntheticTotals.alcoholKcal - originalAlcoholKcal) <= 1e-9
+                  && Math.abs(syntheticTotals.otherKcal - originalOtherKcal) <= 1e-9
+              },
+              optionCInput: candidateJoint ? {
+                targetKcal: candidateJoint.baseTargetPair?.kcal ?? target.kcal,
+                targetProteinG: candidateJoint.proteinReservedG,
+                proteinReservedG: candidateJoint.proteinReservedG,
+                availableCarbFatKcal: candidateJoint.availableCarbFatKcal,
+                carbMinG: candidateJoint.jointRanges?.carbs?.min,
+                carbMaxG: candidateJoint.jointRanges?.carbs?.max,
+                fatMinG: candidateJoint.jointRanges?.fat?.min,
+                fatMaxG: candidateJoint.jointRanges?.fat?.max,
+                collapsed: candidateJoint.collapsed === true,
+                carbG: carbs,
+                fatG: fat,
+                totalKcal: originalScoringKcal
+              } : null
+            };
+          });
+          return {
+            valid: variants.some(variant => variant.valid),
+            exclusionReason: variants.some(variant => variant.valid) ? null : "no_valid_counterfactual_variants",
+            generatorContract: "fixed_36kcal_carb_fat_exchange_grid_without_residual_input",
+            variants
+          };
+        })() : null;
         return {
           sampleId,
           scoreEvaluationAttempted: true,
@@ -1679,10 +1830,16 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
             carbG: consumed.carbs,
             fatG: consumed.fat,
             totalKcal: consumed.scoringKcal
-          } : null
+          } : null,
+          ...(buildCounterfactuals ? { counterfactualFamily } : {})
         };
       });
-    }, { payload, eligibleRecords });
+    }, {
+      payload,
+      eligibleRecords,
+      counterfactualRequested,
+      counterfactualExchangeSteps: ACTUAL_COUNTERFACTUAL_EXCHANGE_STEPS
+    });
     const evaluatedBySampleId = new Map(evaluated.map(item => {
       const missingPenaltyAxes = productionPenaltyAxes.filter(key => (
         !Object.prototype.hasOwnProperty.call(item.penalties || {}, key)
@@ -1731,9 +1888,9 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
   }
 }
 
-async function extractAnonymizedActualDays(backupFilePath){
+async function extractAnonymizedActualDays(backupFilePath, options = {}){
   const payload = JSON.parse(fs.readFileSync(backupFilePath, "utf8"));
-  return extractAnonymizedActualDaysFromPayload(payload);
+  return extractAnonymizedActualDaysFromPayload(payload, options);
 }
 
 function addProductionOwnershipToActualDay(day){
@@ -2291,6 +2448,633 @@ async function buildLocalActualDayAudit(backupFilePath){
   return { summaryAudit, reviewArtifact, revealArtifact, selectionDiagnostics };
 }
 
+function getCounterfactualPairRole(left, right){
+  const leftInside = left.optionC?.valid === true && left.optionC.direction === "inside" && left.optionC.residual === 0;
+  const rightInside = right.optionC?.valid === true && right.optionC.direction === "inside" && right.optionC.residual === 0;
+  if (leftInside && rightInside) return "null_control";
+  if (leftInside === rightInside) return null;
+  const outside = leftInside ? right : left;
+  if (outside.optionC?.direction === "carb_heavy" && outside.optionC.residual > OPTION_C_EPSILON) return "contrast_carb_heavy";
+  if (outside.optionC?.direction === "fat_heavy" && outside.optionC.residual > OPTION_C_EPSILON) return "contrast_fat_heavy";
+  return null;
+}
+
+function getCounterfactualRoleAssignment(index){
+  return ["null_control", "contrast_carb_heavy", "null_control", "contrast_fat_heavy"][index % 4];
+}
+
+function getCounterfactualSelectionKey(value){
+  return crypto.createHash("sha256")
+    .update(`${ACTUAL_COUNTERFACTUAL_SEED_VERSION}|selection|${value}`)
+    .digest("hex");
+}
+
+function getCounterfactualSideSwap(pairKey){
+  const digest = crypto.createHash("sha256")
+    .update(`${ACTUAL_COUNTERFACTUAL_SEED_VERSION}|side|${pairKey}`)
+    .digest();
+  return (digest[0] & 1) === 1;
+}
+
+function buildActualAnchoredCounterfactualEvidence(days){
+  const anchors = days
+    .filter(day => day.included && day.optionC?.valid && day.nonJointPenaltyVector && day.counterfactualFamily?.valid)
+    .sort((a, b) => compareCanonicalId(a.sampleId, b.sampleId));
+  const actualMarginalSupport = new Map();
+  anchors.forEach(day => {
+    const key = `${day.goal}|${day.trainingContext}`;
+    const current = actualMarginalSupport.get(key) || { carb: [], fat: [] };
+    if (Number.isFinite(day.ratios?.carb)) current.carb.push(day.ratios.carb);
+    if (Number.isFinite(day.ratios?.fat)) current.fat.push(day.ratios.fat);
+    actualMarginalSupport.set(key, current);
+  });
+  const supportRanges = new Map([...actualMarginalSupport.entries()].map(([key, values]) => [key, {
+    carbMin: Math.min(...values.carb),
+    carbMax: Math.max(...values.carb),
+    fatMin: Math.min(...values.fat),
+    fatMax: Math.max(...values.fat)
+  }]));
+  const anchorsByStratum = new Map();
+  anchors.forEach(day => {
+    const stratumKey = `${day.goal}|${day.trainingContext}|${day.sourceValidityKey}`;
+    const list = anchorsByStratum.get(stratumKey) || [];
+    list.push(day);
+    anchorsByStratum.set(stratumKey, list);
+  });
+  const assigned = [];
+  for (const [stratumKey, stratumAnchors] of [...anchorsByStratum.entries()].sort((a, b) => compareCanonicalId(a[0], b[0]))) {
+    [...stratumAnchors].sort((a, b) => compareCanonicalId(a.sampleId, b.sampleId)).forEach((day, index) => {
+      assigned.push({ day, stratumKey, assignedRole: getCounterfactualRoleAssignment(index) });
+    });
+  }
+  const anchorExclusionReasons = {};
+  const incrementReason = reason => {
+    anchorExclusionReasons[reason] = (anchorExclusionReasons[reason] || 0) + 1;
+  };
+  const eligibleCases = [];
+  assigned.forEach(({ day, stratumKey, assignedRole }) => {
+    const anchorCoreZero = Number(day.nonJointPenaltyVector.fatRangePenalty) === 0
+      && Number(day.nonJointPenaltyVector.carbExerciseContextPenalty) === 0
+      && Number(day.nonJointPenaltyVector.dataOutlierPenalty) === 0;
+    if (!anchorCoreZero) {
+      incrementReason("anchor_core_macro_or_outlier_penalty_nonzero");
+      return;
+    }
+    const publicSupport = supportRanges.get(`${day.goal}|${day.trainingContext}`);
+    if (!publicSupport || ![publicSupport.carbMin, publicSupport.carbMax, publicSupport.fatMin, publicSupport.fatMax].every(Number.isFinite)) {
+      incrementReason("actual_marginal_support_unavailable");
+      return;
+    }
+    const variants = (day.counterfactualFamily.variants || []).filter(variant => variant.valid).map(variant => {
+      const c1 = optionC1CarbEnergyShareResidual(variant.optionCInput || {});
+      const c2 = optionC2RadialKcalPlaneResidual(variant.optionCInput || {});
+      const nonJointPenaltyVector = Object.fromEntries(productionNonJointPenaltyAxes.map(key => [key, Number(variant.penalties?.[key])]));
+      return {
+        ...variant,
+        sampleId: `${day.sampleId}::${variant.variantKey}`,
+        anchorSampleId: day.sampleId,
+        goal: day.goal,
+        trainingContext: day.trainingContext,
+        sourceValidityKey: day.sourceValidityKey,
+        nonJointPenaltyVector,
+        optionC: {
+          valid: c1.valid === true && c2.valid === true && Math.abs(Number(c1.ratio) - Number(c2.ratio)) <= 1e-12,
+          direction: c1.direction,
+          residual: c1.valid ? round(c1.ratio, 12) : null,
+          residualMagnitude: getResidualMagnitudeBand(c1.ratio)
+        }
+      };
+    }).filter(variant => {
+      const exactAnchorVector = productionNonJointPenaltyAxes.every(key => (
+        Number.isFinite(variant.nonJointPenaltyVector[key])
+        && Math.abs(variant.nonJointPenaltyVector[key] - Number(day.nonJointPenaltyVector[key])) <= 1e-12
+      ));
+      const coreZero = variant.nonJointPenaltyVector.fatRangePenalty === 0
+        && variant.nonJointPenaltyVector.carbExerciseContextPenalty === 0
+        && variant.nonJointPenaltyVector.dataOutlierPenalty === 0;
+      const supportValid = variant.ratios.carb >= publicSupport.carbMin - 1e-12
+        && variant.ratios.carb <= publicSupport.carbMax + 1e-12
+        && variant.ratios.fat >= publicSupport.fatMin - 1e-12
+        && variant.ratios.fat <= publicSupport.fatMax + 1e-12;
+      const invariant = variant.invariants || {};
+      return variant.optionC.valid
+        && exactAnchorVector
+        && coreZero
+        && supportValid
+        && Math.abs(Number(invariant.exchangeEnergyGap)) <= 1e-9
+        && Math.abs(Number(invariant.derivedScoringKcalGap)) <= 1e-9
+        && Math.abs(Number(invariant.proteinGap)) <= 1e-9
+        && invariant.syntheticMealClosureValid === true
+        && invariant.targetAuthorityValid === true
+        && invariant.targetAuthoritySource === "frozen_goal_snapshot"
+        && invariant.trainingContext === day.trainingContext;
+    });
+    const pairCandidates = [];
+    for (let leftIndex = 0; leftIndex < variants.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < variants.length; rightIndex += 1) {
+        const left = variants[leftIndex];
+        const right = variants[rightIndex];
+        const hiddenRole = getCounterfactualPairRole(left, right);
+        if (hiddenRole !== assignedRole) continue;
+        if (!productionNonJointPenaltyAxes.every(key => Math.abs(
+          left.nonJointPenaltyVector[key] - right.nonJointPenaltyVector[key]
+        ) <= 1e-12)) continue;
+        const pair = {
+          left,
+          right,
+          pairKey: [left.variantKey, right.variantKey].sort(compareCanonicalId).join("|"),
+          maximumAxisDelta: 0,
+          hiddenComparisonRole: hiddenRole
+        };
+        pair.displayContract = getActualPairDisplayContract(pair);
+        pair.offsetDisplayContract = getActualPairDisplayContract(pair, 2.5);
+        if (!pair.displayContract.judgeable || !pair.offsetDisplayContract.judgeable) continue;
+        pairCandidates.push(pair);
+      }
+    }
+    pairCandidates.sort((a, b) => {
+      const aSteps = [Math.abs(a.left.exchangeStep), Math.abs(a.right.exchangeStep)];
+      const bSteps = [Math.abs(b.left.exchangeStep), Math.abs(b.right.exchangeStep)];
+      return Math.max(...aSteps) - Math.max(...bSteps)
+        || aSteps.reduce((sum, value) => sum + value, 0) - bSteps.reduce((sum, value) => sum + value, 0)
+        || getCounterfactualSelectionKey(`${day.sampleId}|${a.pairKey}`).localeCompare(
+          getCounterfactualSelectionKey(`${day.sampleId}|${b.pairKey}`)
+        );
+    });
+    if (!pairCandidates.length) {
+      incrementReason(`no_${assignedRole}_pair_after_invariants`);
+      return;
+    }
+    eligibleCases.push({
+      anchorSampleId: day.sampleId,
+      stratumKey,
+      publicContextKey: `${day.goal}|${day.trainingContext}`,
+      assignedRole,
+      pairOptions: pairCandidates
+    });
+  });
+
+  const casesByStratum = new Map();
+  eligibleCases.forEach(item => {
+    const list = casesByStratum.get(item.stratumKey) || [];
+    list.push(item);
+    casesByStratum.set(item.stratumKey, list);
+  });
+  const blockCandidatesByDirection = {
+    contrast_carb_heavy: [],
+    contrast_fat_heavy: []
+  };
+  for (const [stratumKey, cases] of casesByStratum) {
+    const controls = cases.filter(item => item.assignedRole === "null_control");
+    for (const direction of ["contrast_carb_heavy", "contrast_fat_heavy"]) {
+      const contrasts = cases.filter(item => item.assignedRole === direction);
+      controls.forEach(control => contrasts.forEach(contrast => {
+        if (control.anchorSampleId === contrast.anchorSampleId) return;
+        const blockKey = `${stratumKey}|${control.anchorSampleId}|${contrast.anchorSampleId}`;
+        const pairSelections = control.pairOptions.flatMap(controlPair => (
+          contrast.pairOptions
+            .filter(contrastPair => (
+              controlPair.displayContract.visibleSignature !== contrastPair.displayContract.visibleSignature
+            ))
+            .map(contrastPair => ({
+              selectionKey: `${controlPair.pairKey}|${contrastPair.pairKey}`,
+              controlPair,
+              contrastPair
+            }))
+        )).sort((a, b) => getCounterfactualSelectionKey(`${blockKey}|${a.selectionKey}`)
+          .localeCompare(getCounterfactualSelectionKey(`${blockKey}|${b.selectionKey}`)));
+        if (!pairSelections.length) return;
+        blockCandidatesByDirection[direction].push({
+          blockKey,
+          stratumKey,
+          publicContextKey: control.publicContextKey,
+          control,
+          contrast,
+          pairSelections
+        });
+      }));
+    }
+  }
+  Object.values(blockCandidatesByDirection).forEach(blocks => blocks.sort((a, b) => (
+    getCounterfactualSelectionKey(a.blockKey).localeCompare(getCounterfactualSelectionKey(b.blockKey))
+  )));
+  const directionSchedule = [
+    "contrast_carb_heavy",
+    "contrast_fat_heavy",
+    "contrast_carb_heavy",
+    "contrast_fat_heavy",
+    "contrast_carb_heavy",
+    "contrast_fat_heavy"
+  ];
+  const findCompleteBalancedSelection = (
+    scheduleIndex = 0,
+    blocks = [],
+    usedAnchors = new Set(),
+    usedVisibleSignatures = new Set(),
+    contextCounts = new Map()
+  ) => {
+    if (scheduleIndex === directionSchedule.length) {
+      return contextCounts.size >= 2 ? blocks : null;
+    }
+    const direction = directionSchedule[scheduleIndex];
+    const candidates = blockCandidatesByDirection[direction]
+      .flatMap(candidate => candidate.pairSelections.map(selection => ({
+        ...candidate,
+        control: { ...candidate.control, pair: selection.controlPair },
+        contrast: { ...candidate.contrast, pair: selection.contrastPair },
+        materializedBlockKey: `${candidate.blockKey}|${selection.selectionKey}`
+      })))
+      .filter(candidate => {
+        const cases = [candidate.control, candidate.contrast];
+        return cases.every(item => !usedAnchors.has(item.anchorSampleId))
+          && cases.every(item => !usedVisibleSignatures.has(item.pair.displayContract.visibleSignature));
+      })
+      .sort((a, b) => (
+        (contextCounts.get(a.publicContextKey) || 0) - (contextCounts.get(b.publicContextKey) || 0)
+        || getCounterfactualSelectionKey(a.materializedBlockKey)
+          .localeCompare(getCounterfactualSelectionKey(b.materializedBlockKey))
+      ));
+    for (const candidate of candidates) {
+      const nextAnchors = new Set(usedAnchors);
+      const nextVisibleSignatures = new Set(usedVisibleSignatures);
+      [candidate.control, candidate.contrast].forEach(item => {
+        nextAnchors.add(item.anchorSampleId);
+        nextVisibleSignatures.add(item.pair.displayContract.visibleSignature);
+      });
+      const nextContextCounts = new Map(contextCounts);
+      nextContextCounts.set(
+        candidate.publicContextKey,
+        (nextContextCounts.get(candidate.publicContextKey) || 0) + 1
+      );
+      const complete = findCompleteBalancedSelection(
+        scheduleIndex + 1,
+        [...blocks, candidate],
+        nextAnchors,
+        nextVisibleSignatures,
+        nextContextCounts
+      );
+      if (complete) return complete;
+    }
+    return null;
+  };
+  const selectedBlocks = findCompleteBalancedSelection() || [];
+  const usedAnchors = new Set(selectedBlocks.flatMap(block => (
+    [block.control.anchorSampleId, block.contrast.anchorSampleId]
+  )));
+  const usedVisibleSignatures = new Set(selectedBlocks.flatMap(block => (
+    [block.control.pair.displayContract.visibleSignature, block.contrast.pair.displayContract.visibleSignature]
+  )));
+  const selectedCases = selectedBlocks.flatMap(block => [block.control, block.contrast]);
+  const selectedPublicContexts = new Set(selectedBlocks.map(block => block.publicContextKey));
+  const selectedRoleCounts = countBy(selectedCases, item => item.assignedRole);
+  const readinessChecks = {
+    selectedBalancedBlockCount: selectedBlocks.length === ACTUAL_COUNTERFACTUAL_MAX_BALANCED_BLOCKS,
+    selectedCaseCount: selectedCases.length === ACTUAL_COUNTERFACTUAL_MAX_BALANCED_BLOCKS * 2,
+    distinctAnchorCount: usedAnchors.size === selectedCases.length,
+    contrastControlBalanced: (selectedRoleCounts.null_control || 0) === ACTUAL_COUNTERFACTUAL_MAX_BALANCED_BLOCKS
+      && (selectedRoleCounts.contrast_carb_heavy || 0) === 3
+      && (selectedRoleCounts.contrast_fat_heavy || 0) === 3,
+    multiplePublicContexts: selectedPublicContexts.size >= 2,
+    visibleSignaturesUnique: usedVisibleSignatures.size === selectedCases.length
+  };
+  const reviewForUser = Object.values(readinessChecks).every(Boolean);
+  const preJudgmentStatus = reviewForUser
+    ? "READY_FOR_COUNTERFACTUAL_BLIND_JUDGMENT"
+    : "COUNTERFACTUAL_PACKET_INSUFFICIENT";
+  return {
+    anchors,
+    assigned,
+    eligibleCases,
+    anchorExclusionReasons,
+    blockCandidatesByDirection,
+    selectedBlocks: reviewForUser ? selectedBlocks : [],
+    selectedCases: reviewForUser ? selectedCases : [],
+    selectedPublicContexts: reviewForUser ? [...selectedPublicContexts].sort(compareCanonicalId) : [],
+    selectedRoleCounts: reviewForUser ? selectedRoleCounts : {},
+    readinessChecks,
+    reviewForUser,
+    preJudgmentStatus
+  };
+}
+
+function buildActualAnchoredCounterfactualBlindArtifacts(evidence){
+  const selected = [...evidence.selectedCases].sort((a, b) => (
+    getCounterfactualSelectionKey(`${a.anchorSampleId}|${a.pair.pairKey}`).localeCompare(
+      getCounterfactualSelectionKey(`${b.anchorSampleId}|${b.pair.pairKey}`)
+    )
+  ));
+  const contrastOutsideCaseA = new Map(
+    selected
+      .filter(item => item.assignedRole !== "null_control")
+      .sort((a, b) => getCounterfactualSelectionKey(`${a.anchorSampleId}|${a.pair.pairKey}|contrast-side`)
+        .localeCompare(getCounterfactualSelectionKey(`${b.anchorSampleId}|${b.pair.pairKey}|contrast-side`)))
+      .map((item, index) => [`${item.anchorSampleId}|${item.pair.pairKey}`, index % 2 === 0])
+  );
+  const reviewPacket = [];
+  const revealMap = [];
+  selected.forEach((item, index) => {
+    const caseId = `counterfactual_blind_case_${String(index + 1).padStart(3, "0")}`;
+    const canonical = [item.pair.left, item.pair.right]
+      .sort((a, b) => compareCanonicalId(a.variantKey, b.variantKey))
+      .map((scenario, sourceIndex) => ({ scenario, scenarioSide: `scenario_${sourceIndex + 1}` }));
+    const allocationKey = `${item.anchorSampleId}|${item.pair.pairKey}`;
+    const outsideCanonicalIndex = canonical.findIndex(({ scenario }) => scenario.optionC.direction !== "inside");
+    const desiredOutsideCaseA = contrastOutsideCaseA.get(allocationKey);
+    const shouldSwap = typeof desiredOutsideCaseA === "boolean"
+      ? (desiredOutsideCaseA ? outsideCanonicalIndex === 1 : outsideCanonicalIndex === 0)
+      : getCounterfactualSideSwap(allocationKey);
+    const randomized = shouldSwap
+      ? [canonical[1], canonical[0]]
+      : canonical;
+    const sanitizeReviewSide = ({ scenario }) => ({
+      targetRatioBands: {
+        carb: getActualRatioBand(scenario.ratios.carb),
+        fat: getActualRatioBand(scenario.ratios.fat)
+      }
+    });
+    const sanitizeRevealSide = ({ scenario, scenarioSide }) => ({
+      scenarioSide,
+      allocationOrigin: "generated_counterfactual",
+      targetRatioBands: {
+        carb: getActualRatioBand(scenario.ratios.carb),
+        fat: getActualRatioBand(scenario.ratios.fat)
+      },
+      geometryPosition: scenario.optionC.direction === "inside" ? "inside" : "outside",
+      residualDirection: scenario.optionC.direction,
+      residualMagnitude: scenario.optionC.residualMagnitude
+    });
+    reviewPacket.push({
+      caseId,
+      context: {
+        goal: item.pair.left.goal,
+        trainingContext: item.pair.left.trainingContext
+      },
+      commonTargetRatioBands: {
+        energy: getActualRatioBand(item.pair.left.ratios.energy),
+        protein: getActualRatioBand(item.pair.left.ratios.protein)
+      },
+      nonJointContract: {
+        productionAxisCount: productionNonJointPenaltyAxes.length,
+        axesMatched: true,
+        currentJointAxisExcluded: true
+      },
+      caseA: sanitizeReviewSide(randomized[0]),
+      caseB: sanitizeReviewSide(randomized[1]),
+      judgmentOptions: ["case_a_better", "case_b_better", "no_meaningful_difference", "cannot_tell"]
+    });
+    revealMap.push({
+      caseId,
+      hiddenComparisonRole: item.assignedRole,
+      caseA: sanitizeRevealSide(randomized[0]),
+      caseB: sanitizeRevealSide(randomized[1])
+    });
+  });
+  const reviewBody = {
+    schemaVersion: "actual_context_counterfactual_product_meaning_review_v1",
+    evidenceKind: "controlled_counterfactual_not_observed_prevalence",
+    randomizationSeedVersion: ACTUAL_COUNTERFACTUAL_SEED_VERSION,
+    preJudgmentStatus: evidence.preJudgmentStatus,
+    reviewForUser: evidence.reviewForUser,
+    evidenceBoundary: {
+      observedOccurrenceOutcomePreserved: "ACTUAL_EVIDENCE_INSUFFICIENT",
+      actualPrevalenceInferenceAuthorized: false,
+      policyDecisionAuthorized: false,
+      coefficientSelectionAuthorized: false
+    },
+    selectionContract: {
+      scenarioBasis: "actual_context_generated_macro_totals",
+      observedDayPair: false,
+      absoluteIntakeValuesShown: false,
+      foodOrMealReconstructionClaimed: false,
+      sampleReuseAllowed: false,
+      visibleCaseDuplicationAllowed: false,
+      targetRatioBandWidthPercentagePoints: 5,
+      reviewScope: "limited_product_meaning_only",
+      exchangeContract: "isoenergetic_carb_fat_exchange",
+      nonJointProductionAxesExact: true
+    },
+    reviewPacket
+  };
+  const reviewPacketHash = crypto.createHash("sha256").update(JSON.stringify(reviewBody)).digest("hex");
+  const reviewArtifact = { ...reviewBody, reviewPacketHash };
+  const revealBody = {
+    schemaVersion: "actual_context_counterfactual_product_meaning_reveal_v1",
+    reviewPacketHash,
+    revealOnlyAfterJudgment: true,
+    revealMap
+  };
+  const revealMapHash = crypto.createHash("sha256").update(JSON.stringify(revealBody)).digest("hex");
+  return { reviewArtifact, revealArtifact: { ...revealBody, revealMapHash } };
+}
+
+function isStrictCounterfactualRatioBand(value){
+  const match = typeof value === "string" ? value.match(/^(\d+)_to_lt_(\d+)_pct_of_target$/) : null;
+  if (!match) return false;
+  const lower = Number(match[1]);
+  const upper = Number(match[2]);
+  return Number.isInteger(lower) && lower >= 0 && lower <= 300 && lower % 5 === 0 && upper === lower + 5;
+}
+
+function isActualAnchoredCounterfactualReviewArtifactSafe(artifact){
+  if (!hasExactObjectKeys(artifact, [
+    "schemaVersion", "evidenceKind", "randomizationSeedVersion", "preJudgmentStatus", "reviewForUser",
+    "evidenceBoundary", "selectionContract", "reviewPacket", "reviewPacketHash"
+  ])) return false;
+  if (artifact.schemaVersion !== "actual_context_counterfactual_product_meaning_review_v1"
+      || artifact.evidenceKind !== "controlled_counterfactual_not_observed_prevalence"
+      || artifact.randomizationSeedVersion !== ACTUAL_COUNTERFACTUAL_SEED_VERSION
+      || !/^[a-f0-9]{64}$/.test(artifact.reviewPacketHash || "")) return false;
+  const { reviewPacketHash, ...body } = artifact;
+  if (crypto.createHash("sha256").update(JSON.stringify(body)).digest("hex") !== reviewPacketHash) return false;
+  const ready = artifact.preJudgmentStatus === "READY_FOR_COUNTERFACTUAL_BLIND_JUDGMENT";
+  if (!Array.isArray(artifact.reviewPacket)) return false;
+  if (!["READY_FOR_COUNTERFACTUAL_BLIND_JUDGMENT", "COUNTERFACTUAL_PACKET_INSUFFICIENT"].includes(artifact.preJudgmentStatus)
+      || artifact.reviewForUser !== ready
+      || artifact.reviewPacket.length !== (ready ? 12 : 0)) return false;
+  if (!hasExactObjectKeys(artifact.evidenceBoundary, [
+    "observedOccurrenceOutcomePreserved", "actualPrevalenceInferenceAuthorized", "policyDecisionAuthorized", "coefficientSelectionAuthorized"
+  ])
+      || artifact.evidenceBoundary.observedOccurrenceOutcomePreserved !== "ACTUAL_EVIDENCE_INSUFFICIENT"
+      || artifact.evidenceBoundary.actualPrevalenceInferenceAuthorized !== false
+      || artifact.evidenceBoundary.policyDecisionAuthorized !== false
+      || artifact.evidenceBoundary.coefficientSelectionAuthorized !== false) return false;
+  if (!hasExactObjectKeys(artifact.selectionContract, [
+    "scenarioBasis", "observedDayPair", "absoluteIntakeValuesShown", "foodOrMealReconstructionClaimed",
+    "sampleReuseAllowed", "visibleCaseDuplicationAllowed", "targetRatioBandWidthPercentagePoints", "reviewScope",
+    "exchangeContract", "nonJointProductionAxesExact"
+  ])
+      || artifact.selectionContract.scenarioBasis !== "actual_context_generated_macro_totals"
+      || artifact.selectionContract.observedDayPair !== false
+      || artifact.selectionContract.absoluteIntakeValuesShown !== false
+      || artifact.selectionContract.foodOrMealReconstructionClaimed !== false
+      || artifact.selectionContract.sampleReuseAllowed !== false
+      || artifact.selectionContract.visibleCaseDuplicationAllowed !== false
+      || artifact.selectionContract.targetRatioBandWidthPercentagePoints !== 5
+      || artifact.selectionContract.reviewScope !== "limited_product_meaning_only"
+      || artifact.selectionContract.exchangeContract !== "isoenergetic_carb_fat_exchange"
+      || artifact.selectionContract.nonJointProductionAxesExact !== true) return false;
+  const goals = ACTUAL_AUDIT_GOALS;
+  const contexts = new Set(["rest", "normal_resistance", "high_volume_or_long_session"]);
+  const options = ["case_a_better", "case_b_better", "no_meaningful_difference", "cannot_tell"];
+  const structural = artifact.reviewPacket.every((item, index) => (
+    hasExactObjectKeys(item, ["caseId", "context", "commonTargetRatioBands", "nonJointContract", "caseA", "caseB", "judgmentOptions"])
+    && item.caseId === `counterfactual_blind_case_${String(index + 1).padStart(3, "0")}`
+    && hasExactObjectKeys(item.context, ["goal", "trainingContext"])
+    && goals.has(item.context.goal)
+    && contexts.has(item.context.trainingContext)
+    && hasExactObjectKeys(item.commonTargetRatioBands, ["energy", "protein"])
+    && Object.values(item.commonTargetRatioBands).every(isStrictCounterfactualRatioBand)
+    && hasExactObjectKeys(item.nonJointContract, ["productionAxisCount", "axesMatched", "currentJointAxisExcluded"])
+    && item.nonJointContract.productionAxisCount === productionNonJointPenaltyAxes.length
+    && item.nonJointContract.axesMatched === true
+    && item.nonJointContract.currentJointAxisExcluded === true
+    && [item.caseA, item.caseB].every(side => (
+      hasExactObjectKeys(side, ["targetRatioBands"])
+      && hasExactObjectKeys(side.targetRatioBands, ["carb", "fat"])
+      && Object.values(side.targetRatioBands).every(isStrictCounterfactualRatioBand)
+    ))
+    && item.caseA.targetRatioBands.carb !== item.caseB.targetRatioBands.carb
+    && item.caseA.targetRatioBands.fat !== item.caseB.targetRatioBands.fat
+    && JSON.stringify(item.judgmentOptions) === JSON.stringify(options)
+  ));
+  const forbidden = /(residual|direction|magnitude|inside|outside|optionC|currentScore|finalScore|rawScore|jointPenalty|candidatePenalty|sampleId|anchorId|date|foodName|mealId|memo|absoluteG|absoluteKcal|backupPath|backupHash|scenario_[12])/i;
+  return structural && !forbidden.test(JSON.stringify(artifact));
+}
+
+function isActualAnchoredCounterfactualRevealArtifactSafe(artifact){
+  if (!hasExactObjectKeys(artifact, ["schemaVersion", "reviewPacketHash", "revealOnlyAfterJudgment", "revealMap", "revealMapHash"])) return false;
+  if (artifact.schemaVersion !== "actual_context_counterfactual_product_meaning_reveal_v1"
+      || artifact.revealOnlyAfterJudgment !== true
+      || !/^[a-f0-9]{64}$/.test(artifact.reviewPacketHash || "")
+      || !/^[a-f0-9]{64}$/.test(artifact.revealMapHash || "")) return false;
+  const { revealMapHash, ...body } = artifact;
+  if (crypto.createHash("sha256").update(JSON.stringify(body)).digest("hex") !== revealMapHash) return false;
+  if (!Array.isArray(artifact.revealMap) || ![0, 12].includes(artifact.revealMap.length)) return false;
+  const roles = new Set(["null_control", "contrast_carb_heavy", "contrast_fat_heavy"]);
+  const structural = artifact.revealMap.every((item, index) => (
+    hasExactObjectKeys(item, ["caseId", "hiddenComparisonRole", "caseA", "caseB"])
+    && item.caseId === `counterfactual_blind_case_${String(index + 1).padStart(3, "0")}`
+    && roles.has(item.hiddenComparisonRole)
+    && [item.caseA, item.caseB].every(side => (
+      hasExactObjectKeys(side, ["scenarioSide", "allocationOrigin", "targetRatioBands", "geometryPosition", "residualDirection", "residualMagnitude"])
+      && ["scenario_1", "scenario_2"].includes(side.scenarioSide)
+      && side.allocationOrigin === "generated_counterfactual"
+      && hasExactObjectKeys(side.targetRatioBands, ["carb", "fat"])
+      && Object.values(side.targetRatioBands).every(isStrictCounterfactualRatioBand)
+      && ["inside", "outside"].includes(side.geometryPosition)
+      && ["inside", "carb_heavy", "fat_heavy"].includes(side.residualDirection)
+      && ["none", "small", "moderate", "large"].includes(side.residualMagnitude)
+    ))
+    && item.caseA.scenarioSide !== item.caseB.scenarioSide
+    && (() => {
+      const sides = [item.caseA, item.caseB];
+      const isInside = side => side.geometryPosition === "inside"
+        && side.residualDirection === "inside"
+        && side.residualMagnitude === "none";
+      const expectedOutsideDirection = item.hiddenComparisonRole === "contrast_carb_heavy"
+        ? "carb_heavy"
+        : "fat_heavy";
+      if (item.hiddenComparisonRole === "null_control") return sides.every(isInside);
+      return sides.filter(isInside).length === 1
+        && sides.filter(side => side.geometryPosition === "outside"
+          && side.residualDirection === expectedOutsideDirection
+          && side.residualMagnitude !== "none").length === 1;
+    })()
+  ));
+  return structural && !/(currentScore|finalScore|rawScore|jointPenalty|candidatePenalty|sampleId|anchorId|date|foodName|mealId|memo|absoluteG|absoluteKcal|backupPath|backupHash)/i.test(JSON.stringify(artifact));
+}
+
+function assertActualAnchoredCounterfactualBundleSafe(bundle){
+  if (!isActualAnchoredCounterfactualReviewArtifactSafe(bundle?.reviewArtifact)) {
+    throw new Error("generated counterfactual review artifact failed the exact privacy allowlist");
+  }
+  if (!isActualAnchoredCounterfactualRevealArtifactSafe(bundle?.revealArtifact)) {
+    throw new Error("generated counterfactual reveal artifact failed the exact reveal allowlist");
+  }
+  const reviewIds = bundle.reviewArtifact.reviewPacket.map(item => item.caseId);
+  const revealIds = bundle.revealArtifact.revealMap.map(item => item.caseId);
+  if (bundle.revealArtifact.reviewPacketHash !== bundle.reviewArtifact.reviewPacketHash
+      || JSON.stringify(reviewIds) !== JSON.stringify(revealIds)) {
+    throw new Error("counterfactual review and reveal artifacts are not hash/case linked");
+  }
+  const sideBindingValid = bundle.reviewArtifact.reviewPacket.every((reviewCase, index) => {
+    const revealCase = bundle.revealArtifact.revealMap[index];
+    return JSON.stringify(reviewCase.caseA.targetRatioBands) === JSON.stringify(revealCase?.caseA.targetRatioBands)
+      && JSON.stringify(reviewCase.caseB.targetRatioBands) === JSON.stringify(revealCase?.caseB.targetRatioBands);
+  });
+  if (!sideBindingValid) {
+    throw new Error("counterfactual review A/B sides are not bound to the same reveal scenarios");
+  }
+  if (reviewIds.length === 12) {
+    const roleCounts = countBy(bundle.revealArtifact.revealMap, item => item.hiddenComparisonRole);
+    const contrastCases = bundle.revealArtifact.revealMap.filter(item => item.hiddenComparisonRole !== "null_control");
+    const outsideCaseACount = contrastCases.filter(item => item.caseA.geometryPosition === "outside").length;
+    if (roleCounts.null_control !== 6
+        || roleCounts.contrast_carb_heavy !== 3
+        || roleCounts.contrast_fat_heavy !== 3
+        || outsideCaseACount !== 3) {
+      throw new Error("counterfactual reveal roles or A/B outside positions are not balanced");
+    }
+  }
+  return true;
+}
+
+function assertLockedCounterfactualReviewMatchesGenerated(locked, generated){
+  if (!isActualAnchoredCounterfactualReviewArtifactSafe(locked)) {
+    throw new Error("locked counterfactual review artifact failed privacy/hash validation");
+  }
+  if (JSON.stringify(locked) !== JSON.stringify(generated)) {
+    throw new Error("locked counterfactual review artifact does not match the current backup/input");
+  }
+  return true;
+}
+
+async function buildLocalActualAnchoredCounterfactualAudit(backupFilePath){
+  const extracted = (await extractAnonymizedActualDays(backupFilePath, { counterfactualRequested: true }))
+    .map(addProductionOwnershipToActualDay);
+  const included = extracted.filter(day => day.included);
+  const excluded = extracted.filter(day => !day.included);
+  const evidence = buildActualAnchoredCounterfactualEvidence(included);
+  const artifacts = buildActualAnchoredCounterfactualBlindArtifacts(evidence);
+  assertActualAnchoredCounterfactualBundleSafe(artifacts);
+  const summaryWithoutHash = {
+    schemaVersion: "actual_context_anchored_counterfactual_audit_v1",
+    evidenceKind: "controlled_counterfactual_not_observed_prevalence",
+    observedActualOutcomePreserved: "ACTUAL_EVIDENCE_INSUFFICIENT",
+    sourceRecordCount: extracted.length,
+    sourceSafeIncludedCount: included.length,
+    sourceExcludedCount: excluded.length,
+    sourceExclusionReasonCounts: countBy(excluded, day => day.exclusionReason),
+    anchorCandidateCount: evidence.anchors.length,
+    assignedRoleCounts: countBy(evidence.assigned, item => item.assignedRole),
+    eligibleRoleCounts: countBy(evidence.eligibleCases, item => item.assignedRole),
+    anchorExclusionReasonCounts: evidence.anchorExclusionReasons,
+    blockCandidateCounts: Object.fromEntries(Object.entries(evidence.blockCandidatesByDirection).map(([key, value]) => [key, value.length])),
+    selectedBalancedBlockCount: evidence.selectedBlocks.length,
+    selectedCaseCount: evidence.selectedCases.length,
+    selectedPublicContextCount: evidence.selectedPublicContexts.length,
+    selectedRoleCounts: evidence.selectedRoleCounts,
+    readinessChecks: evidence.readinessChecks,
+    preJudgmentStatus: evidence.preJudgmentStatus,
+    reviewForUser: evidence.reviewForUser,
+    actualPrevalenceInferenceAuthorized: false,
+    policyDecisionAuthorized: false,
+    coefficientSelectionAuthorized: false,
+    reviewPacketHash: artifacts.reviewArtifact.reviewPacketHash,
+    revealMapHash: artifacts.revealArtifact.revealMapHash,
+    reviewPacketCaseCount: artifacts.reviewArtifact.reviewPacket.length,
+    revealMapCaseCount: artifacts.revealArtifact.revealMap.length,
+    separatePostJudgmentRevealRequired: true
+  };
+  return {
+    summaryAudit: {
+      ...summaryWithoutHash,
+      anonymizedCounterfactualAuditHash: crypto.createHash("sha256").update(JSON.stringify(summaryWithoutHash)).digest("hex")
+    },
+    ...artifacts
+  };
+}
+
 function buildSyntheticActualSourceSafetyPayload(){
   const target = { targetCal: 2200, protein: 150, carbs: 250, fat: 600 / 9 };
   const snapshot = {
@@ -2541,6 +3325,91 @@ function buildSyntheticMatchedEvidenceDays(){
   ];
 }
 
+function buildSyntheticCounterfactualEvidenceDays(){
+  const zeroVector = Object.fromEntries(productionNonJointPenaltyAxes.map(key => [key, 0]));
+  const allZeroPenalties = Object.fromEntries(productionPenaltyAxes.map(key => [key, 0]));
+  const makeVariant = (variantKey, exchangeStep, carbRatio, fatRatio, energyRatio, proteinRatio) => {
+    const targetCarbs = 200;
+    const targetFat = 800 / 9;
+    const carbG = targetCarbs * carbRatio;
+    const fatG = targetFat * fatRatio;
+    return {
+      variantKey,
+      exchangeStep,
+      valid: true,
+      exclusionReason: null,
+      ratios: { energy: energyRatio, protein: proteinRatio, carb: carbRatio, fat: fatRatio },
+      penalties: { ...allZeroPenalties },
+      invariants: {
+        exchangeEnergyGap: 0,
+        derivedScoringKcalGap: 0,
+        proteinGap: 0,
+        targetAuthorityValid: true,
+        targetAuthoritySource: "frozen_goal_snapshot",
+        weightSource: "goalSnapshot",
+        totalBurnSource: "snapshot_basis_unavailable",
+        trainingContext: null,
+        syntheticMealClosureValid: true
+      },
+      optionCInput: {
+        targetKcal: 2000,
+        targetProteinG: 100,
+        proteinReservedG: 100,
+        availableCarbFatKcal: 1600,
+        carbMinG: 160,
+        carbMaxG: 240,
+        fatMinG: 640 / 9,
+        fatMaxG: 960 / 9,
+        collapsed: false,
+        carbG,
+        fatG,
+        totalKcal: 2000
+      }
+    };
+  };
+  const days = [];
+  [
+    { context: "rest", source: "synthetic_cf_rest" },
+    { context: "normal_resistance", source: "synthetic_cf_normal" }
+  ].forEach(({ context, source }) => {
+    for (let index = 0; index < 12; index += 1) {
+      const energyRatio = 0.55 + index * 0.05;
+      const proteinRatio = 0.75 + index * 0.05;
+      const variants = [
+        makeVariant("inside_low", -1, 0.9, 1.1, energyRatio, proteinRatio),
+        makeVariant("inside_high", 1, 1.1, 0.9, energyRatio, proteinRatio),
+        makeVariant("carb_outside", 2, 1.4, 0.6, energyRatio, proteinRatio),
+        makeVariant("fat_outside", -2, 0.6, 1.4, energyRatio, proteinRatio)
+      ].map(variant => ({
+        ...variant,
+        invariants: { ...variant.invariants, trainingContext: context }
+      }));
+      days.push({
+        sampleId: `${source}_${String(index).padStart(2, "0")}`,
+        included: true,
+        goal: index < 6 ? "diet" : "lean_bulk",
+        trainingContext: context,
+        sourceValidityKey: source,
+        ratios: {
+          energy: energyRatio,
+          protein: proteinRatio,
+          carb: index % 2 === 0 ? 0.5 : 1.5,
+          fat: index % 2 === 0 ? 0.5 : 1.5
+        },
+        nonJointPenaltyVector: { ...zeroVector },
+        optionC: { valid: true, direction: "inside", residual: 0 },
+        counterfactualFamily: {
+          valid: true,
+          exclusionReason: null,
+          generatorContract: "synthetic_fixture_only",
+          variants
+        }
+      });
+    }
+  });
+  return days;
+}
+
 function hasExactObjectKeys(value, expectedKeys){
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const actualKeys = Object.keys(value).sort();
@@ -2682,6 +3551,16 @@ async function buildActualDaySourceSafetyFixtureAudit(){
   const reversedPayload = JSON.parse(JSON.stringify(payload));
   reversedPayload.data.records.reverse();
   const reversedExtracted = await extractAnonymizedActualDaysFromPayload(reversedPayload);
+  const counterfactualExtracted = await extractAnonymizedActualDaysFromPayload(payload, { counterfactualRequested: true });
+  const reversedCounterfactualExtracted = await extractAnonymizedActualDaysFromPayload(reversedPayload, { counterfactualRequested: true });
+  const metadataInjectedPayload = JSON.parse(JSON.stringify(payload));
+  metadataInjectedPayload.data.records.forEach(record => {
+    record.testOnlyResidualMetadata = { residual: 0.99, direction: "carb_heavy", finalScore: 1 };
+  });
+  const metadataInjectedCounterfactualExtracted = await extractAnonymizedActualDaysFromPayload(
+    metadataInjectedPayload,
+    { counterfactualRequested: true }
+  );
   const canonicalizeExtracted = items => [...items]
     .sort((a, b) => compareCanonicalId(a.sampleId, b.sampleId))
     .map(item => JSON.stringify(item));
@@ -2694,6 +3573,119 @@ async function buildActualDaySourceSafetyFixtureAudit(){
   const repeatedArtifacts = buildHypothesisBlindProductMeaningReview(buildActualMatchedEvidence(buildSyntheticMatchedEvidenceDays()));
   const reversedArtifacts = buildHypothesisBlindProductMeaningReview(buildActualMatchedEvidence([...syntheticMatchedDays].reverse()));
   const { reviewArtifact, revealArtifact } = hypothesisBlindArtifacts;
+  const syntheticCounterfactualEvidence = buildActualAnchoredCounterfactualEvidence(buildSyntheticCounterfactualEvidenceDays());
+  const syntheticCounterfactualArtifacts = buildActualAnchoredCounterfactualBlindArtifacts(syntheticCounterfactualEvidence);
+  const syntheticCounterfactualBundleSafe = assertActualAnchoredCounterfactualBundleSafe(syntheticCounterfactualArtifacts);
+  const reversedSyntheticCounterfactualArtifacts = buildActualAnchoredCounterfactualBlindArtifacts(
+    buildActualAnchoredCounterfactualEvidence([...buildSyntheticCounterfactualEvidenceDays()].reverse())
+  );
+  const lockedCounterfactualReviewSameInputAccepted = assertLockedCounterfactualReviewMatchesGenerated(
+    syntheticCounterfactualArtifacts.reviewArtifact,
+    reversedSyntheticCounterfactualArtifacts.reviewArtifact
+  );
+  const changedLockedCounterfactualReview = JSON.parse(JSON.stringify(syntheticCounterfactualArtifacts.reviewArtifact));
+  changedLockedCounterfactualReview.reviewPacket[0].caseA.targetRatioBands.carb
+    = changedLockedCounterfactualReview.reviewPacket[0].caseA.targetRatioBands.carb === "0_to_lt_5_pct_of_target"
+      ? "5_to_lt_10_pct_of_target"
+      : "0_to_lt_5_pct_of_target";
+  const { reviewPacketHash: ignoredCounterfactualHash, ...changedCounterfactualBody } = changedLockedCounterfactualReview;
+  changedLockedCounterfactualReview.reviewPacketHash = crypto.createHash("sha256")
+    .update(JSON.stringify(changedCounterfactualBody))
+    .digest("hex");
+  let changedLockedCounterfactualReviewRejected = false;
+  try {
+    assertLockedCounterfactualReviewMatchesGenerated(
+      changedLockedCounterfactualReview,
+      syntheticCounterfactualArtifacts.reviewArtifact
+    );
+  } catch {
+    changedLockedCounterfactualReviewRejected = true;
+  }
+  const partialInsufficientCounterfactualReview = JSON.parse(JSON.stringify(
+    syntheticCounterfactualArtifacts.reviewArtifact
+  ));
+  partialInsufficientCounterfactualReview.preJudgmentStatus = "COUNTERFACTUAL_PACKET_INSUFFICIENT";
+  partialInsufficientCounterfactualReview.reviewForUser = false;
+  partialInsufficientCounterfactualReview.reviewPacket = partialInsufficientCounterfactualReview.reviewPacket.slice(0, 1);
+  const { reviewPacketHash: ignoredPartialHash, ...partialReviewBody } = partialInsufficientCounterfactualReview;
+  partialInsufficientCounterfactualReview.reviewPacketHash = crypto.createHash("sha256")
+    .update(JSON.stringify(partialReviewBody))
+    .digest("hex");
+  const malformedCounterfactualReview = {
+    ...syntheticCounterfactualArtifacts.reviewArtifact,
+    reviewPacket: null
+  };
+  const { reviewPacketHash: ignoredMalformedHash, ...malformedReviewBody } = malformedCounterfactualReview;
+  malformedCounterfactualReview.reviewPacketHash = crypto.createHash("sha256")
+    .update(JSON.stringify(malformedReviewBody))
+    .digest("hex");
+  let malformedCounterfactualReviewRejectedWithoutThrow = false;
+  try {
+    malformedCounterfactualReviewRejectedWithoutThrow
+      = isActualAnchoredCounterfactualReviewArtifactSafe(malformedCounterfactualReview) === false;
+  } catch {
+    malformedCounterfactualReviewRejectedWithoutThrow = false;
+  }
+  const malformedCounterfactualReveal = {
+    ...syntheticCounterfactualArtifacts.revealArtifact,
+    revealMap: null
+  };
+  const { revealMapHash: ignoredMalformedRevealHash, ...malformedRevealBody } = malformedCounterfactualReveal;
+  malformedCounterfactualReveal.revealMapHash = crypto.createHash("sha256")
+    .update(JSON.stringify(malformedRevealBody))
+    .digest("hex");
+  let malformedCounterfactualRevealRejectedWithoutThrow = false;
+  try {
+    malformedCounterfactualRevealRejectedWithoutThrow
+      = isActualAnchoredCounterfactualRevealArtifactSafe(malformedCounterfactualReveal) === false;
+  } catch {
+    malformedCounterfactualRevealRejectedWithoutThrow = false;
+  }
+  const incoherentCounterfactualReveal = JSON.parse(JSON.stringify(
+    syntheticCounterfactualArtifacts.revealArtifact
+  ));
+  const contrastRevealCase = incoherentCounterfactualReveal.revealMap.find(
+    item => item.hiddenComparisonRole !== "null_control"
+  );
+  contrastRevealCase.hiddenComparisonRole = "null_control";
+  const { revealMapHash: ignoredIncoherentRevealHash, ...incoherentRevealBody } = incoherentCounterfactualReveal;
+  incoherentCounterfactualReveal.revealMapHash = crypto.createHash("sha256")
+    .update(JSON.stringify(incoherentRevealBody))
+    .digest("hex");
+  const swappedSideCounterfactualReveal = JSON.parse(JSON.stringify(
+    syntheticCounterfactualArtifacts.revealArtifact
+  ));
+  [swappedSideCounterfactualReveal.revealMap[0].caseA.targetRatioBands,
+    swappedSideCounterfactualReveal.revealMap[0].caseB.targetRatioBands]
+    = [swappedSideCounterfactualReveal.revealMap[0].caseB.targetRatioBands,
+      swappedSideCounterfactualReveal.revealMap[0].caseA.targetRatioBands];
+  const { revealMapHash: ignoredSwappedRevealHash, ...swappedRevealBody } = swappedSideCounterfactualReveal;
+  swappedSideCounterfactualReveal.revealMapHash = crypto.createHash("sha256")
+    .update(JSON.stringify(swappedRevealBody))
+    .digest("hex");
+  let swappedCounterfactualSideBindingRejected = false;
+  try {
+    assertActualAnchoredCounterfactualBundleSafe({
+      reviewArtifact: syntheticCounterfactualArtifacts.reviewArtifact,
+      revealArtifact: swappedSideCounterfactualReveal
+    });
+  } catch {
+    swappedCounterfactualSideBindingRejected = true;
+  }
+  const oneDirectionCounterfactualDays = buildSyntheticCounterfactualEvidenceDays().map(day => ({
+    ...day,
+    counterfactualFamily: {
+      ...day.counterfactualFamily,
+      variants: day.counterfactualFamily.variants.filter(variant => variant.variantKey !== "fat_outside")
+    }
+  }));
+  const oneDirectionCounterfactualEvidence = buildActualAnchoredCounterfactualEvidence(oneDirectionCounterfactualDays);
+  const oneDirectionCounterfactualArtifacts = buildActualAnchoredCounterfactualBlindArtifacts(
+    oneDirectionCounterfactualEvidence
+  );
+  const oneDirectionCounterfactualBundleSafe = assertActualAnchoredCounterfactualBundleSafe(
+    oneDirectionCounterfactualArtifacts
+  );
   const reviewCaseIds = reviewArtifact.reviewPacket.map(item => item.caseId);
   const revealCaseIds = revealArtifact.revealMap.map(item => item.caseId);
   const caseASources = revealArtifact.revealMap.map(item => item.caseA.originalPairSide);
@@ -2818,6 +3810,14 @@ async function buildActualDaySourceSafetyFixtureAudit(){
     return Object.prototype.hasOwnProperty.call(rawRecord.meals[0], expectedKey)
       && extracted.find(day => day.sampleId === sampleId)?.exclusionReason === "invalid_meal_non_macro_kcal";
   });
+  const canonicalizeCounterfactualFamilies = items => [...items]
+    .filter(item => item.included && item.counterfactualFamily)
+    .sort((a, b) => compareCanonicalId(a.sampleId, b.sampleId))
+    .map(item => JSON.stringify({ sampleId: item.sampleId, counterfactualFamily: item.counterfactualFamily }));
+  const validGeneratedVariants = counterfactualExtracted
+    .filter(item => item.included)
+    .flatMap(item => item.counterfactualFamily?.variants || [])
+    .filter(variant => variant.valid);
   return {
     schemaVersion: "actual_day_source_safety_fixture_audit_v4_balanced_disjoint",
     syntheticContractOnly: true,
@@ -2937,6 +3937,51 @@ async function buildActualDaySourceSafetyFixtureAudit(){
     hypothesisBlindArtifactsInputOrderInvariant: JSON.stringify(hypothesisBlindArtifacts) === JSON.stringify(reversedArtifacts),
     rawBackupRecordOrderInvariant: JSON.stringify(canonicalizeExtracted(extracted))
       === JSON.stringify(canonicalizeExtracted(reversedExtracted)),
+    counterfactualGenerationContract: validGeneratedVariants.length > 0
+      && validGeneratedVariants.every(variant => (
+        Math.abs(Number(variant.invariants?.exchangeEnergyGap)) <= 1e-9
+        && Math.abs(Number(variant.invariants?.derivedScoringKcalGap)) <= 1e-9
+        && Math.abs(Number(variant.invariants?.proteinGap)) <= 1e-9
+        && variant.invariants?.syntheticMealClosureValid === true
+        && variant.invariants?.targetAuthoritySource === "frozen_goal_snapshot"
+      )),
+    counterfactualRawOrderInvariant: JSON.stringify(canonicalizeCounterfactualFamilies(counterfactualExtracted))
+      === JSON.stringify(canonicalizeCounterfactualFamilies(reversedCounterfactualExtracted)),
+    counterfactualGeneratorIgnoresInjectedHypothesisMetadata: JSON.stringify(canonicalizeCounterfactualFamilies(counterfactualExtracted))
+      === JSON.stringify(canonicalizeCounterfactualFamilies(metadataInjectedCounterfactualExtracted)),
+    counterfactualBalancedFixtureReady: syntheticCounterfactualEvidence.preJudgmentStatus === "READY_FOR_COUNTERFACTUAL_BLIND_JUDGMENT"
+      && syntheticCounterfactualEvidence.reviewForUser === true
+      && syntheticCounterfactualEvidence.selectedBlocks.length === 6
+      && syntheticCounterfactualEvidence.selectedCases.length === 12
+      && syntheticCounterfactualEvidence.selectedPublicContexts.length >= 2
+      && syntheticCounterfactualEvidence.selectedRoleCounts.null_control === 6
+      && syntheticCounterfactualEvidence.selectedRoleCounts.contrast_carb_heavy === 3
+      && syntheticCounterfactualEvidence.selectedRoleCounts.contrast_fat_heavy === 3,
+    counterfactualReviewPacketSafe: syntheticCounterfactualArtifacts.reviewArtifact.reviewPacket.length === 12
+      && syntheticCounterfactualArtifacts.revealArtifact.revealMap.length === 12
+      && syntheticCounterfactualBundleSafe === true,
+    counterfactualSelectionInputOrderInvariant: JSON.stringify(syntheticCounterfactualArtifacts)
+      === JSON.stringify(reversedSyntheticCounterfactualArtifacts),
+    counterfactualAlternativePairOptionsExercised:
+      syntheticCounterfactualEvidence.eligibleCases.some(item => item.pairOptions.length > 1)
+      && syntheticCounterfactualEvidence.selectedCases.some(item => (
+        item.pair.pairKey !== item.pairOptions[0].pairKey
+      )),
+    counterfactualLockedReviewGuard: lockedCounterfactualReviewSameInputAccepted === true
+      && changedLockedCounterfactualReviewRejected === true,
+    counterfactualMalformedAndPartialArtifactsFailClosed:
+      isActualAnchoredCounterfactualReviewArtifactSafe(partialInsufficientCounterfactualReview) === false
+      && malformedCounterfactualReviewRejectedWithoutThrow === true
+      && malformedCounterfactualRevealRejectedWithoutThrow === true,
+    counterfactualRevealCoherenceAndSideBindingGuard:
+      isActualAnchoredCounterfactualRevealArtifactSafe(incoherentCounterfactualReveal) === false
+      && swappedCounterfactualSideBindingRejected === true,
+    counterfactualOneDirectionFailsClosed: oneDirectionCounterfactualEvidence.preJudgmentStatus
+        === "COUNTERFACTUAL_PACKET_INSUFFICIENT"
+      && oneDirectionCounterfactualEvidence.reviewForUser === false
+      && oneDirectionCounterfactualArtifacts.reviewArtifact.reviewPacket.length === 0
+      && oneDirectionCounterfactualArtifacts.revealArtifact.revealMap.length === 0
+      && oneDirectionCounterfactualBundleSafe === true,
     deterministicShuffleBothOrientationsCovered: caseASources.includes("source_1") && caseASources.includes("source_2"),
     narrowestToleranceOwnsDeduplicatedPairs: reviewArtifact.reviewPacket.length === 6
       && reviewContractCounts.exact === 2
@@ -3607,7 +4652,17 @@ function makeAssertion(name, pass, detail){
     makeAssertion("standalone review and post-judgment reveal artifacts use exact privacy allowlists and linked case hashes", actualDaySourceSafetyFixtureAudit.reviewPacketCaseCount > 0 && actualDaySourceSafetyFixtureAudit.reviewPacketCaseCount === actualDaySourceSafetyFixtureAudit.revealMapCaseCount && actualDaySourceSafetyFixtureAudit.reviewPacketExactAllowlistSafe === true && actualDaySourceSafetyFixtureAudit.revealMapExactAllowlistSafe === true && actualDaySourceSafetyFixtureAudit.reviewRevealHashLinked === true && actualDaySourceSafetyFixtureAudit.reviewRevealCaseIdsLinked === true && actualDaySourceSafetyFixtureAudit.reviewRevealSideMappingPreserved === true && actualDaySourceSafetyFixtureAudit.reviewAndRevealPhysicallySeparable === true && actualDaySourceSafetyFixtureAudit.generatedArtifactBundleSafe === true && actualDaySourceSafetyFixtureAudit.actualOutputDebugPathPolicyCovered === true, `review=${actualDaySourceSafetyFixtureAudit.reviewPacketCaseCount},reveal=${actualDaySourceSafetyFixtureAudit.revealMapCaseCount},reviewSafe=${actualDaySourceSafetyFixtureAudit.reviewPacketExactAllowlistSafe},revealSafe=${actualDaySourceSafetyFixtureAudit.revealMapExactAllowlistSafe},hashLinked=${actualDaySourceSafetyFixtureAudit.reviewRevealHashLinked},caseLinked=${actualDaySourceSafetyFixtureAudit.reviewRevealCaseIdsLinked},sideLinked=${actualDaySourceSafetyFixtureAudit.reviewRevealSideMappingPreserved},separate=${actualDaySourceSafetyFixtureAudit.reviewAndRevealPhysicallySeparable},runtimeGuard=${actualDaySourceSafetyFixtureAudit.generatedArtifactBundleSafe},debugOnly=${actualDaySourceSafetyFixtureAudit.actualOutputDebugPathPolicyCovered}`),
     makeAssertion("post-judgment reveal accepts only the locked matching review and distinct input/output paths", actualDaySourceSafetyFixtureAudit.lockedReviewSameInputAccepted === true && actualDaySourceSafetyFixtureAudit.changedLockedReviewRejected === true && actualDaySourceSafetyFixtureAudit.actualInputOutputCollisionRejected === true, `sameAccepted=${actualDaySourceSafetyFixtureAudit.lockedReviewSameInputAccepted},changedRejected=${actualDaySourceSafetyFixtureAudit.changedLockedReviewRejected},collisionRejected=${actualDaySourceSafetyFixtureAudit.actualInputOutputCollisionRejected}`),
     makeAssertion("hypothesis-blind shuffle is deterministic, raw-record/input-order invariant, and covers both A/B orientations", actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsDeterministic === true && actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsInputOrderInvariant === true && actualDaySourceSafetyFixtureAudit.rawBackupRecordOrderInvariant === true && actualDaySourceSafetyFixtureAudit.deterministicShuffleBothOrientationsCovered === true, `repeat=${actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsDeterministic},dayReverse=${actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsInputOrderInvariant},rawReverse=${actualDaySourceSafetyFixtureAudit.rawBackupRecordOrderInvariant},bothOrientations=${actualDaySourceSafetyFixtureAudit.deterministicShuffleBothOrientationsCovered}`),
-    makeAssertion("hypothesis-blind review deduplicates pairs under their narrowest tolerance", actualDaySourceSafetyFixtureAudit.narrowestToleranceOwnsDeduplicatedPairs === true, `owned=${actualDaySourceSafetyFixtureAudit.narrowestToleranceOwnsDeduplicatedPairs}`)
+    makeAssertion("hypothesis-blind review deduplicates pairs under their narrowest tolerance", actualDaySourceSafetyFixtureAudit.narrowestToleranceOwnsDeduplicatedPairs === true, `owned=${actualDaySourceSafetyFixtureAudit.narrowestToleranceOwnsDeduplicatedPairs}`),
+    makeAssertion("actual-context counterfactual generation preserves isoenergetic exchange, protein, synthetic meal closure, and frozen target authority", actualDaySourceSafetyFixtureAudit.counterfactualGenerationContract === true, `contract=${actualDaySourceSafetyFixtureAudit.counterfactualGenerationContract}`),
+    makeAssertion("counterfactual generation is raw-record-order invariant and ignores injected residual/final-score metadata", actualDaySourceSafetyFixtureAudit.counterfactualRawOrderInvariant === true && actualDaySourceSafetyFixtureAudit.counterfactualGeneratorIgnoresInjectedHypothesisMetadata === true, `rawReverse=${actualDaySourceSafetyFixtureAudit.counterfactualRawOrderInvariant},metadataBlind=${actualDaySourceSafetyFixtureAudit.counterfactualGeneratorIgnoresInjectedHypothesisMetadata}`),
+    makeAssertion("counterfactual fixture requires six balanced blocks, twelve distinct anchors, both directions, and multiple contexts", actualDaySourceSafetyFixtureAudit.counterfactualBalancedFixtureReady === true, `ready=${actualDaySourceSafetyFixtureAudit.counterfactualBalancedFixtureReady}`),
+    makeAssertion("counterfactual review and post-judgment reveal use separate exact allowlists and linked twelve-case hashes", actualDaySourceSafetyFixtureAudit.counterfactualReviewPacketSafe === true, `safe=${actualDaySourceSafetyFixtureAudit.counterfactualReviewPacketSafe}`),
+    makeAssertion("counterfactual selection and A/B randomization are input-order invariant", actualDaySourceSafetyFixtureAudit.counterfactualSelectionInputOrderInvariant === true, `stable=${actualDaySourceSafetyFixtureAudit.counterfactualSelectionInputOrderInvariant}`),
+    makeAssertion("counterfactual balanced selection explores alternate display-pair options within each anchor", actualDaySourceSafetyFixtureAudit.counterfactualAlternativePairOptionsExercised === true, `exercised=${actualDaySourceSafetyFixtureAudit.counterfactualAlternativePairOptionsExercised}`),
+    makeAssertion("counterfactual reveal accepts only the unchanged locked review", actualDaySourceSafetyFixtureAudit.counterfactualLockedReviewGuard === true, `guard=${actualDaySourceSafetyFixtureAudit.counterfactualLockedReviewGuard}`),
+    makeAssertion("counterfactual malformed and partial insufficient artifacts fail closed without parser exceptions", actualDaySourceSafetyFixtureAudit.counterfactualMalformedAndPartialArtifactsFailClosed === true, `failClosed=${actualDaySourceSafetyFixtureAudit.counterfactualMalformedAndPartialArtifactsFailClosed}`),
+    makeAssertion("counterfactual reveal roles are coherent and remain bound to the reviewed A/B sides", actualDaySourceSafetyFixtureAudit.counterfactualRevealCoherenceAndSideBindingGuard === true, `guard=${actualDaySourceSafetyFixtureAudit.counterfactualRevealCoherenceAndSideBindingGuard}`),
+    makeAssertion("one-direction-only counterfactual evidence fails closed with empty review and reveal maps", actualDaySourceSafetyFixtureAudit.counterfactualOneDirectionFailsClosed === true, `failClosed=${actualDaySourceSafetyFixtureAudit.counterfactualOneDirectionFailsClosed}`)
   ];
 
   const ledgerWithoutHash = {
@@ -3688,6 +4743,8 @@ function makeAssertion(name, pass, detail){
       optionalPrivateAuditFlag: "--actual-backup",
       standaloneReviewOutputFlag: "--actual-review-output",
       postJudgmentRevealFlag: "--post-judgment-reveal + --actual-reveal-output",
+      counterfactualReviewOutputFlag: "--actual-counterfactual-review-output",
+      counterfactualPostJudgmentRevealFlag: "--post-counterfactual-judgment-reveal + --actual-counterfactual-reveal-output",
       actualOutputsIgnoredDebugOnly: true,
       explicitBackupRequired: true,
       evidenceStatusWithoutFlag: "source_safety_corrected_awaiting_explicit_backup",
@@ -3697,7 +4754,16 @@ function makeAssertion(name, pass, detail){
     assertions
   };
   const deterministicHash = crypto.createHash("sha256").update(JSON.stringify(ledgerWithoutHash)).digest("hex");
-  if (!actualBackupPath && (actualReviewOutputPath || actualRevealOutputPath || postJudgmentReveal)) {
+  const observedLaneRequested = !!(actualReviewOutputPath || actualRevealOutputPath || postJudgmentReveal);
+  const counterfactualLaneRequested = !!(
+    actualCounterfactualReviewOutputPath
+    || actualCounterfactualRevealOutputPath
+    || postCounterfactualJudgmentReveal
+  );
+  if (observedLaneRequested && counterfactualLaneRequested) {
+    throw new Error("observed actual-day and actual-context counterfactual lanes must run separately");
+  }
+  if (!actualBackupPath && (observedLaneRequested || counterfactualLaneRequested)) {
     throw new Error("actual review/reveal flags require --actual-backup");
   }
   let actualOutputPaths = null;
@@ -3705,27 +4771,39 @@ function makeAssertion(name, pass, detail){
     if (outputFormat !== "json") throw new Error("--actual-backup supports JSON output only");
     const backupInput = path.resolve(root, actualBackupPath);
     const ledgerOutput = resolveActualAuditOutputPath(outputPath, "--output");
-    const reviewOutput = resolveActualAuditOutputPath(actualReviewOutputPath, "--actual-review-output");
-    if (actualRevealOutputPath && !postJudgmentReveal) {
+    const lane = counterfactualLaneRequested ? "counterfactual" : "observed";
+    const reviewOutput = lane === "counterfactual"
+      ? resolveActualAuditOutputPath(actualCounterfactualReviewOutputPath, "--actual-counterfactual-review-output")
+      : resolveActualAuditOutputPath(actualReviewOutputPath, "--actual-review-output");
+    if (lane === "observed" && actualRevealOutputPath && !postJudgmentReveal) {
       throw new Error("--actual-reveal-output requires --post-judgment-reveal after judgment is fixed");
     }
-    const revealOutput = postJudgmentReveal
-      ? resolveActualAuditOutputPath(actualRevealOutputPath, "--actual-reveal-output")
-      : null;
-    assertDistinctFilePaths([backupInput, ledgerOutput, reviewOutput, revealOutput]);
-    if (postJudgmentReveal && !fs.existsSync(reviewOutput)) {
-      throw new Error("post-judgment reveal requires the existing locked --actual-review-output file");
+    if (lane === "counterfactual" && actualCounterfactualRevealOutputPath && !postCounterfactualJudgmentReveal) {
+      throw new Error("--actual-counterfactual-reveal-output requires --post-counterfactual-judgment-reveal");
     }
-    if (!postJudgmentReveal && fs.existsSync(reviewOutput)) {
+    const revealOutput = lane === "counterfactual"
+      ? (postCounterfactualJudgmentReveal
+        ? resolveActualAuditOutputPath(actualCounterfactualRevealOutputPath, "--actual-counterfactual-reveal-output")
+        : null)
+      : (postJudgmentReveal ? resolveActualAuditOutputPath(actualRevealOutputPath, "--actual-reveal-output") : null);
+    const postMode = lane === "counterfactual" ? postCounterfactualJudgmentReveal : postJudgmentReveal;
+    assertDistinctFilePaths([backupInput, ledgerOutput, reviewOutput, revealOutput]);
+    if (postMode && !fs.existsSync(reviewOutput)) {
+      throw new Error(`${lane} post-judgment reveal requires the existing locked review file`);
+    }
+    if (!postMode && fs.existsSync(reviewOutput)) {
       throw new Error("pre-judgment review output already exists; preserve it or choose a new path");
     }
     if (revealOutput && fs.existsSync(revealOutput)) {
       throw new Error("post-judgment reveal output already exists; preserve it or choose a new path");
     }
-    actualOutputPaths = { backupInput, ledgerOutput, reviewOutput, revealOutput };
+    actualOutputPaths = { lane, postMode, backupInput, ledgerOutput, reviewOutput, revealOutput };
   }
-  const localActualDayAuditBundle = actualBackupPath
+  const localActualDayAuditBundle = actualBackupPath && actualOutputPaths?.lane === "observed"
     ? await buildLocalActualDayAudit(path.resolve(root, actualBackupPath))
+    : null;
+  const localCounterfactualAuditBundle = actualBackupPath && actualOutputPaths?.lane === "counterfactual"
+    ? await buildLocalActualAnchoredCounterfactualAudit(path.resolve(root, actualBackupPath))
     : null;
   if (localActualDayAuditBundle && actualOutputPaths) {
     assertHypothesisBlindArtifactBundleSafe(localActualDayAuditBundle);
@@ -3737,10 +4815,26 @@ function makeAssertion(name, pass, detail){
       assertLockedReviewMatchesGenerated(lockedReviewArtifact, localActualDayAuditBundle.reviewArtifact);
     }
   }
+  if (localCounterfactualAuditBundle && actualOutputPaths) {
+    assertActualAnchoredCounterfactualBundleSafe(localCounterfactualAuditBundle);
+    if (postCounterfactualJudgmentReveal) {
+      if (localCounterfactualAuditBundle.reviewArtifact.reviewForUser !== true) {
+        throw new Error("counterfactual reveal is blocked because no review-ready balanced packet exists");
+      }
+      const lockedReviewArtifact = JSON.parse(fs.readFileSync(actualOutputPaths.reviewOutput, "utf8"));
+      assertLockedCounterfactualReviewMatchesGenerated(
+        lockedReviewArtifact,
+        localCounterfactualAuditBundle.reviewArtifact
+      );
+    }
+  }
   const ledger = {
     ...ledgerWithoutHash,
     deterministicHash,
-    ...(localActualDayAuditBundle ? { localActualDayAudit: localActualDayAuditBundle.summaryAudit } : {})
+    ...(localActualDayAuditBundle ? { localActualDayAudit: localActualDayAuditBundle.summaryAudit } : {}),
+    ...(localCounterfactualAuditBundle
+      ? { localActualAnchoredCounterfactualAudit: localCounterfactualAuditBundle.summaryAudit }
+      : {})
   };
   const output = outputFormat === "csv" ? toCsv(ledger) : `${JSON.stringify(ledger, null, 2)}\n`;
   if (outputPath) {
@@ -3751,12 +4845,13 @@ function makeAssertion(name, pass, detail){
   } else {
     process.stdout.write(output);
   }
-  if (localActualDayAuditBundle && actualOutputPaths) {
-    if (!postJudgmentReveal) {
+  const localReviewBundle = localActualDayAuditBundle || localCounterfactualAuditBundle;
+  if (localReviewBundle && actualOutputPaths) {
+    if (!actualOutputPaths.postMode) {
       fs.mkdirSync(path.dirname(actualOutputPaths.reviewOutput), { recursive: true });
       fs.writeFileSync(
         actualOutputPaths.reviewOutput,
-        `${JSON.stringify(localActualDayAuditBundle.reviewArtifact, null, 2)}\n`,
+        `${JSON.stringify(localReviewBundle.reviewArtifact, null, 2)}\n`,
         { encoding: "utf8", flag: "wx" }
       );
     }
@@ -3764,7 +4859,7 @@ function makeAssertion(name, pass, detail){
       fs.mkdirSync(path.dirname(actualOutputPaths.revealOutput), { recursive: true });
       fs.writeFileSync(
         actualOutputPaths.revealOutput,
-        `${JSON.stringify(localActualDayAuditBundle.revealArtifact, null, 2)}\n`,
+        `${JSON.stringify(localReviewBundle.revealArtifact, null, 2)}\n`,
         { encoding: "utf8", flag: "wx" }
       );
     }
