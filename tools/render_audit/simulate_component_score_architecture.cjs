@@ -471,7 +471,7 @@ function evaluateOptionCCurveProbes(residualRatio){
   };
 }
 
-function individualCorePenalty(input){
+function simplifiedHistoricalCorePenalty(input){
   const targetRatio = input.totalKcal / input.targetKcal;
   const energyPenalty = targetRatio < 1
     ? interpolateAnchors(1 - targetRatio, currentEnergyUnderAnchors)
@@ -545,7 +545,7 @@ function evaluateJointFixture(input){
   const c2 = optionC2RadialKcalPlaneResidual(input);
   const c3 = optionC3LegacyNormalizedCarbBaseline(input);
   const candidatePenalties = evaluateOptionCCurveProbes(c1.ratio);
-  const core = individualCorePenalty(input);
+  const core = simplifiedHistoricalCorePenalty(input);
   const residualPositive = c1.valid && Number(c1.ratio) > OPTION_C_EPSILON;
   const coreAxisOverlap = {
     energy: Number(core.energyPenalty) > OPTION_C_EPSILON,
@@ -638,7 +638,7 @@ function evaluateJointFixture(input){
       },
       option_d_current_thresholded: { penalty: round(currentPenalty) }
     },
-    individualCorePenalty: {
+    simplifiedHistoricalCorePenalty: {
       energy: round(core.energyPenalty),
       carb: round(core.carbPenalty),
       fat: round(core.fatPenalty),
@@ -915,8 +915,10 @@ async function buildTargetMatrix(){
         "alcoholPhysiologyPenalty",
         "dataOutlierPenalty"
       ];
+      const nonJointPenaltyKeys = penaltyKeys.filter(key => key !== "carbFatExchangeFailurePenalty");
       const rows = [];
       const crossProfileRows = [];
+      const productionOwnershipRows = [];
 
       function applyContext(name, profile = {}){
         const contextConfig = name === "rest"
@@ -1016,6 +1018,149 @@ async function buildTargetMatrix(){
         return { checks, valid: Object.values(checks).every(Boolean), macroKcalGap: macroKcal - Number(result.targetCal) };
       }
 
+      function buildProductionOwnershipRows({ caseId, matrixKind, target, summary }){
+        const geometry = summary.scoringContext?.jointAllocationModel || null;
+        const rawCarbs = geometry?.rawRanges?.carbs;
+        const rawFat = geometry?.rawRanges?.fat;
+        const required = [
+          target?.targetCal,
+          target?.protein,
+          target?.carbs,
+          target?.fat,
+          geometry?.proteinReservedG,
+          geometry?.availableCarbFatKcal,
+          rawCarbs?.min,
+          rawCarbs?.max,
+          rawFat?.min,
+          rawFat?.max
+        ].map(Number);
+        if (!geometry || !required.every(Number.isFinite)) return [];
+
+        const fractions = [0, 0.25, 0.5, 0.75, 1];
+        const neutralZoneScales = [0.98, 1, 1.02];
+        const availableKcal = Number(geometry.availableCarbFatKcal);
+        const proteinReservedG = Number(geometry.proteinReservedG);
+        const points = new Map();
+        const roundNine = value => Math.round(Number(value) * 1e9) / 1e9;
+        const addPoint = (pointId, carbG, fatG, source) => {
+          if (![carbG, fatG].every(Number.isFinite) || carbG < 0 || fatG < 0) return;
+          const key = `${roundNine(carbG)}|${roundNine(fatG)}`;
+          if (!points.has(key)) points.set(key, { pointId, carbG, fatG, source });
+        };
+        fractions.forEach((carbFraction, carbIndex) => {
+          const carbG = Number(rawCarbs.min) + (Number(rawCarbs.max) - Number(rawCarbs.min)) * carbFraction;
+          fractions.forEach((fatFraction, fatIndex) => {
+            const fatG = Number(rawFat.min) + (Number(rawFat.max) - Number(rawFat.min)) * fatFraction;
+            addPoint(`raw_${carbIndex}_${fatIndex}`, carbG, fatG, "raw_rectangle_grid");
+          });
+          neutralZoneScales.forEach((scale, scaleIndex) => {
+            const fatG = (availableKcal * scale - carbG * 4) / 9;
+            if (fatG >= Number(rawFat.min) - 1e-9 && fatG <= Number(rawFat.max) + 1e-9) {
+              addPoint(`neutral_c_${carbIndex}_${scaleIndex}`, carbG, fatG, "target_energy_neutral_zone");
+            }
+          });
+        });
+        fractions.forEach((fatFraction, fatIndex) => {
+          const fatG = Number(rawFat.min) + (Number(rawFat.max) - Number(rawFat.min)) * fatFraction;
+          neutralZoneScales.forEach((scale, scaleIndex) => {
+            const carbG = (availableKcal * scale - fatG * 9) / 4;
+            if (carbG >= Number(rawCarbs.min) - 1e-9 && carbG <= Number(rawCarbs.max) + 1e-9) {
+              addPoint(`neutral_f_${fatIndex}_${scaleIndex}`, carbG, fatG, "target_energy_neutral_zone");
+            }
+          });
+        });
+
+        return [...points.values()].map(point => {
+          const scoringKcal = proteinReservedG * 4 + point.carbG * 4 + point.fatG * 9;
+          const balance = {
+            target: {
+              kcal: target.targetCal,
+              protein: target.protein,
+              carbs: target.carbs,
+              fat: target.fat
+            },
+            consumed: {
+              scoringKcal,
+              totalKcal: scoringKcal,
+              kcal: scoringKcal,
+              protein: proteinReservedG,
+              carbs: point.carbG,
+              fat: point.fatG,
+              alcoholKcal: 0,
+              otherKcal: 0
+            }
+          };
+          const productionSummary = getMacroRangeProductionScoreSummary(balance, target, {});
+          const breakdown = productionSummary?.penaltyBreakdown;
+          const actualPenaltyAxes = breakdown && typeof breakdown === "object"
+            ? Object.keys(breakdown).sort()
+            : [];
+          const expectedPenaltyAxes = [...penaltyKeys].sort();
+          const scoringContext = productionSummary?.scoringContext;
+          const targetAuthority = scoringContext?.targetAuthority;
+          const missingPenaltyAxes = penaltyKeys.filter(key => (
+            !Object.prototype.hasOwnProperty.call(breakdown || {}, key)
+            || !Number.isFinite(breakdown?.[key])
+            || breakdown[key] < 0
+          ));
+          const missingNonJointPenaltyAxes = nonJointPenaltyKeys.filter(key => missingPenaltyAxes.includes(key));
+          const unexpectedPenaltyAxes = actualPenaltyAxes.filter(key => !penaltyKeys.includes(key));
+          const penaltyAxisKeySetExact = actualPenaltyAxes.length === expectedPenaltyAxes.length
+            && actualPenaltyAxes.every((key, index) => key === expectedPenaltyAxes[index]);
+          const authorityChecks = targetAuthority?.checks && typeof targetAuthority.checks === "object"
+            ? Object.values(targetAuthority.checks)
+            : [];
+          const targetAuthorityComplete = targetAuthority?.valid === true
+            && typeof targetAuthority.source === "string"
+            && targetAuthority.source.length > 0
+            && typeof targetAuthority.correctionVersion === "string"
+            && targetAuthority.correctionVersion.length > 0
+            && authorityChecks.length > 0
+            && authorityChecks.every(value => value === true)
+            && Array.isArray(targetAuthority.failedChecks)
+            && targetAuthority.failedChecks.length === 0;
+          const scoreSourceComplete = Number.isFinite(productionSummary?.percent)
+            && Number.isFinite(productionSummary?.rawScore)
+            && productionSummary?.blockedReason === null
+            && !!scoringContext
+            && typeof scoringContext.totalBurnSource === "string"
+            && scoringContext.totalBurnSource.length > 0
+            && typeof scoringContext.weightSource === "string"
+            && scoringContext.weightSource.length > 0
+            && missingPenaltyAxes.length === 0
+            && unexpectedPenaltyAxes.length === 0
+            && penaltyAxisKeySetExact;
+          return {
+            sampleId: `${caseId}::${point.pointId}`,
+            caseId,
+            pointId: point.pointId,
+            matrixKind,
+            source: point.source,
+            coordinate: { carbG: roundNine(point.carbG), fatG: roundNine(point.fatG) },
+            productionSource: "getMacroRangeProductionScoreSummary",
+            penaltyBreakdown: breakdown
+              ? Object.fromEntries(penaltyKeys.map(key => [key, breakdown[key]]))
+              : null,
+            sourceAuthority: {
+              scoreSourceComplete,
+              penaltyBreakdownComplete: missingPenaltyAxes.length === 0,
+              nonJointPenaltyBreakdownComplete: missingNonJointPenaltyAxes.length === 0,
+              penaltyAxisKeySetExact,
+              missingPenaltyAxes,
+              missingNonJointPenaltyAxes,
+              unexpectedPenaltyAxes,
+              totalBurnSource: scoringContext?.totalBurnSource || null,
+              weightSource: scoringContext?.weightSource || null,
+              targetAuthorityComplete,
+              targetAuthorityValid: targetAuthority?.valid === true,
+              targetAuthoritySource: targetAuthority?.source || null,
+              targetAuthorityCorrectionVersion: targetAuthority?.correctionVersion || null,
+              targetAuthorityFailedChecks: Array.isArray(targetAuthority?.failedChecks) ? targetAuthority.failedChecks : null
+            }
+          };
+        });
+      }
+
       function buildProductionRow({ id, goal, contextName, proteinLevel, profile = {}, matrixKind }){
         applyContext(contextName, profile);
         state.goal = goal;
@@ -1039,6 +1184,7 @@ async function buildTargetMatrix(){
         const summary = getMacroRangeProductionScoreSummary(balance, target, {});
         const validity = targetValidity(target);
         const joint = summary.scoringContext?.jointAllocationModel || null;
+        productionOwnershipRows.push(...buildProductionOwnershipRows({ caseId: id, matrixKind, target, summary }));
         return {
           id,
           matrixKind,
@@ -1108,7 +1254,7 @@ async function buildTargetMatrix(){
           });
         });
       });
-      return { targetCases: rows, crossProfileCases: crossProfileRows };
+      return { targetCases: rows, crossProfileCases: crossProfileRows, productionOwnershipRows };
     });
   } finally {
     if (context) await context.close();
@@ -1117,10 +1263,127 @@ async function buildTargetMatrix(){
   }
 }
 
-async function extractAnonymizedActualDays(backupFilePath){
-  const payload = JSON.parse(fs.readFileSync(backupFilePath, "utf8"));
-  const backupData = payload && typeof payload.data === "object" ? payload.data : payload;
-  if (!Array.isArray(backupData?.records)) throw new Error("actual backup does not contain data.records");
+const ACTUAL_AUDIT_GOALS = new Set(["diet", "cut", "recomp", "maintain", "lean_bulk", "bulk"]);
+const ACTUAL_AUDIT_EXERCISE_MODES = new Set(["general", "exercise"]);
+const ACTUAL_AUDIT_EXERCISE_PROFILES = new Set(["bodybuilding", "powerbuilding", "strength", "running", "mixed"]);
+const ACTUAL_AUDIT_CARDIO_TYPES = new Set(["treadmill_walk", "treadmill_run", "outdoor_run"]);
+const ACTUAL_MATCH_TOLERANCES = Object.freeze([
+  Object.freeze({ id: "exact", maxAxisDelta: 0 }),
+  Object.freeze({ id: "tolerance_0_25", maxAxisDelta: 0.25 }),
+  Object.freeze({ id: "tolerance_1_00", maxAxisDelta: 1 })
+]);
+
+function validateRawActualBackupEnvelope(payload){
+  if (!payload || payload.app !== "macro-engine" || payload.kind !== "full-backup" || Number(payload.backupVersion) !== 1 || !payload.data) {
+    throw new Error("actual_backup_requires_supported_full_backup_envelope");
+  }
+  if (!payload.data.settings || typeof payload.data.settings !== "object" || Array.isArray(payload.data.settings) || Object.keys(payload.data.settings).length === 0) {
+    throw new Error("actual_backup_requires_explicit_settings");
+  }
+  if (!Array.isArray(payload.data.records)) throw new Error("actual_backup_requires_records_array");
+  return payload;
+}
+
+function isExplicitRawFiniteNumber(value){
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string" && value.trim() === "") return false;
+  return Number.isFinite(Number(value));
+}
+
+function isSemanticallyValidActualRecordDate(value){
+  const raw = typeof value === "string" ? value : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const parsed = new Date(`${raw}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === raw;
+}
+
+function getRawActualRecordExclusionReason(record){
+  if (!record || typeof record !== "object") return "invalid_record";
+  if (!isSemanticallyValidActualRecordDate(record.date)) return "invalid_record_date";
+  const meals = Array.isArray(record.meals) ? record.meals : [];
+  if (meals.length < 2) return "insufficient_full_day";
+  const snapshot = record.goalSnapshot;
+  if (!snapshot || typeof snapshot !== "object") return "snapshotless";
+  const rawTargetValues = [snapshot.targetCal, snapshot.protein, snapshot.carbs, snapshot.fat];
+  if (!rawTargetValues.every(isExplicitRawFiniteNumber)) return "invalid_snapshot_target";
+  const targetValues = rawTargetValues.map(Number);
+  if (!targetValues.every(Number.isFinite)
+      || targetValues[0] <= 0
+      || targetValues[1] <= 0
+      || targetValues[2] < 0
+      || targetValues[3] < 0) return "invalid_snapshot_target";
+  const macroKcal = targetValues[1] * 4 + targetValues[2] * 4 + targetValues[3] * 9;
+  if (Math.abs(macroKcal - targetValues[0]) > 8) return "invalid_snapshot_target_authority";
+  if (!ACTUAL_AUDIT_GOALS.has(String(snapshot.goal || ""))) return "incomplete_snapshot_goal_provenance";
+  if (!isExplicitRawFiniteNumber(snapshot.weight) || !(Number(snapshot.weight) > 0)) return "incomplete_snapshot_weight_provenance";
+  const trainingNumbers = [snapshot.weeklyTrainingDays, snapshot.weightDuration, snapshot.cardioDuration];
+  if (!ACTUAL_AUDIT_EXERCISE_MODES.has(String(snapshot.exerciseManagementMode || ""))
+      || typeof snapshot.routine !== "string"
+      || !snapshot.routine.trim()
+      || !trainingNumbers.every(isExplicitRawFiniteNumber)
+      || !Number.isInteger(Number(snapshot.weeklyTrainingDays))
+      || Number(snapshot.weeklyTrainingDays) < 0
+      || Number(snapshot.weeklyTrainingDays) > 14
+      || Number(snapshot.weightDuration) < 0
+      || Number(snapshot.cardioDuration) < 0) {
+    return "incomplete_snapshot_training_provenance";
+  }
+  if (snapshot.exerciseManagementMode === "exercise") {
+    if (!ACTUAL_AUDIT_EXERCISE_PROFILES.has(String(snapshot.exerciseProfile || ""))
+        || typeof snapshot.generalAdvancedSettings !== "boolean"
+        || typeof snapshot.generalLowDigestCarbs !== "boolean"
+        || !isExplicitRawFiniteNumber(snapshot.expertLbmAlpha)
+        || Number(snapshot.expertLbmAlpha) < 0.50
+        || Number(snapshot.expertLbmAlpha) > 0.90
+        || !isExplicitRawFiniteNumber(snapshot.intensityOverride)
+        || Number(snapshot.intensityOverride) < 0
+        || Number(snapshot.intensityOverride) > 1) {
+      return "incomplete_snapshot_training_provenance";
+    }
+    if (Number(snapshot.cardioDuration) > 0
+        && (!ACTUAL_AUDIT_CARDIO_TYPES.has(String(snapshot.cardioType || ""))
+          || !isExplicitRawFiniteNumber(snapshot.cardioSpeed)
+          || Number(snapshot.cardioSpeed) <= 0
+          || !isExplicitRawFiniteNumber(snapshot.cardioIncline)
+          || Number(snapshot.cardioIncline) < 0)) {
+      return "incomplete_snapshot_cardio_provenance";
+    }
+  }
+  const rawMacrosValid = meals.every(meal => [meal?.carbs, meal?.protein, meal?.fat].every(value => (
+    value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) && Number(value) >= 0
+  )));
+  if (!rawMacrosValid) return "invalid_meal_macros";
+  const consumedMacroKcal = meals.reduce((sum, meal) => (
+    sum + Number(meal.carbs) * 4 + Number(meal.protein) * 4 + Number(meal.fat) * 9
+  ), 0);
+  if (!(consumedMacroKcal / targetValues[0] >= 0.30)) return "insufficient_full_day";
+  return null;
+}
+
+function countBy(items, selector){
+  return items.reduce((counts, item) => {
+    const key = String(selector(item) || "unknown");
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+async function extractAnonymizedActualDaysFromPayload(rawPayload){
+  const payload = validateRawActualBackupEnvelope(rawPayload);
+  const rawRecords = payload.data.records;
+  const recordDateCounts = rawRecords.reduce((counts, record) => {
+    const date = isSemanticallyValidActualRecordDate(record?.date) ? record.date : null;
+    if (date) counts.set(date, (counts.get(date) || 0) + 1);
+    return counts;
+  }, new Map());
+  const rawEligibility = rawRecords.map((record, index) => ({
+    index,
+    sampleId: `actual_day_${String(index + 1).padStart(3, "0")}`,
+    exclusionReason: isSemanticallyValidActualRecordDate(record?.date) && recordDateCounts.get(record.date) > 1
+      ? "duplicate_record_date"
+      : getRawActualRecordExclusionReason(record)
+  }));
+  const eligibleIndexes = rawEligibility.filter(item => !item.exclusionReason).map(item => item.index);
   const server = createStaticServer();
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const port = server.address().port;
@@ -1131,16 +1394,90 @@ async function extractAnonymizedActualDays(backupFilePath){
     const page = context.pages()[0] || await context.newPage();
     await page.goto(`http://127.0.0.1:${port}/index.html?codexInternalTests=1`, { waitUntil: "domcontentloaded", timeout: 90000 });
     await page.waitForFunction(() => typeof calculate === "function" && typeof getDailyAdherenceScore === "function", null, { timeout: 90000 });
-    return await page.evaluate(data => {
-      const normalizedSettings = normalizeSettingsBackup(data.settings || {});
-      Object.assign(state, normalizedSettings);
-      applyStateToInputs();
-      recordsState.items = normalizeRecordsCollection(data.records || []);
-      const currentResult = calculate();
-      return recordsState.items.map((record, index) => {
-        const score = getDailyAdherenceScore(record.date, currentResult, {
-          goalSnapshot: record.goalSnapshot,
-          useStoredAdherence: false
+    const evaluated = await page.evaluate(({ payload: data, eligibleIndexes: indexes }) => {
+      const normalizedBackup = normalizeFullBackupPayload(data);
+      const rawRecords = data.data.records;
+      recordsState.items = indexes.map(index => normalizeRecord(rawRecords[index])).filter(record => record?.date);
+      return indexes.map(index => {
+        const rawRecord = rawRecords[index];
+        const rawSnapshot = rawRecord.goalSnapshot;
+        const record = normalizeRecord(rawRecord);
+        const snapshot = normalizeGoalSnapshot(rawSnapshot);
+        const snapshotTarget = getGoalSnapshotTarget(snapshot);
+        const exerciseEnabled = isExerciseManagementEnabled(rawSnapshot.exerciseManagementMode);
+        const trainingState = {
+          weight: Number(rawSnapshot.weight),
+          exerciseManagementMode: rawSnapshot.exerciseManagementMode,
+          exerciseProfile: rawSnapshot.exerciseProfile || "bodybuilding",
+          routine: rawSnapshot.routine,
+          weeklyTrainingDays: Number(rawSnapshot.weeklyTrainingDays),
+          weightDuration: Number(rawSnapshot.weightDuration),
+          intensityOverride: Number(rawSnapshot.intensityOverride) || 0,
+          cardioType: rawSnapshot.cardioType || "treadmill_walk",
+          cardioDuration: Number(rawSnapshot.cardioDuration),
+          cardioSpeed: Number(rawSnapshot.cardioSpeed) || 0,
+          cardioIncline: Number(rawSnapshot.cardioIncline) || 0,
+          generalAdvancedSettings: rawSnapshot.generalAdvancedSettings === true,
+          generalLowDigestCarbs: rawSnapshot.generalLowDigestCarbs === true,
+          expertLbmAlpha: Number(rawSnapshot.expertLbmAlpha),
+          bodyFat: null,
+          skeletal: null,
+          bodyCompositionConfirmed: false,
+          homeInbody: false
+        };
+        let cardioKcal = 0;
+        let weightKcal = 0;
+        if (exerciseEnabled) {
+          const cardio = calcCardio(trainingState);
+          cardioKcal = Number(cardio.kcal) || 0;
+          const isRestDay = trainingState.routine === "REST";
+          const usesDetailedRoutineIntensity = shouldUseDetailedRoutineControls(
+            trainingState.exerciseProfile,
+            trainingState.generalAdvancedSettings
+          );
+          const usesSimpleProfileDefaultIntensity = !usesDetailedRoutineIntensity
+            && trainingState.exerciseProfile !== "bodybuilding"
+            && hasProfileRoutineScheme(trainingState.exerciseProfile)
+            && !isRestDay;
+          const usesSessionIntensity = usesDetailedRoutineIntensity || usesSimpleProfileDefaultIntensity;
+          const modeCfg = resolveModeFreeRuntimeConfig(trainingState);
+          let xw = 0;
+          if (!isRestDay) {
+            if (!usesSessionIntensity && modeCfg.inputDepth === "basic" && !modeCfg.advancedTuning) {
+              xw = clamp(0.70 + getGeneralWeeklyTrainingAdj(trainingState.weeklyTrainingDays), 0, 1);
+            } else {
+              const baseXw = Number(trainingState.intensityOverride);
+              xw = baseXw <= 0 ? 0 : clamp(baseXw + getAthleteWeeklyTrainingAdj(trainingState.weeklyTrainingDays), 0, 1);
+            }
+          }
+          weightKcal = calcWeightTrainingKcal(trainingState, xw);
+        }
+        const snapshotOwnedResult = {
+          isCalculable: false,
+          targetCal: snapshotTarget?.kcal,
+          protein: snapshotTarget?.protein,
+          carbs: snapshotTarget?.carbs,
+          fat: snapshotTarget?.fat,
+          s: {
+            goal: rawSnapshot.goal,
+            weight: Number(rawSnapshot.weight),
+            exerciseManagementMode: rawSnapshot.exerciseManagementMode,
+            routine: rawSnapshot.routine,
+            weeklyTrainingDays: Number(rawSnapshot.weeklyTrainingDays),
+            weightDuration: Number(rawSnapshot.weightDuration)
+          },
+          cardio: { kcal: cardioKcal },
+          weightKcal
+        };
+        const score = getDailyAdherenceScore(record.date, snapshotOwnedResult, {
+          goalSnapshot: snapshot,
+          useStoredAdherence: false,
+          exerciseManagementMode: rawSnapshot.exerciseManagementMode,
+          routine: rawSnapshot.routine,
+          weeklyTrainingDays: Number(rawSnapshot.weeklyTrainingDays),
+          weightDuration: Number(rawSnapshot.weightDuration),
+          cardioKcal,
+          weightKcal
         });
         const target = score.detail?.target || {};
         const consumed = score.detail?.consumed || {};
@@ -1152,14 +1489,24 @@ async function extractAnonymizedActualDays(backupFilePath){
           : null;
         return {
           sampleId: `actual_day_${String(index + 1).padStart(3, "0")}`,
+          scoreEvaluationAttempted: true,
           mealCount: Array.isArray(record.meals) ? record.meals.length : 0,
-          goal: record.goalSnapshot?.goal || null,
-          routine: record.goalSnapshot?.routine || null,
-          exerciseManagementMode: record.goalSnapshot?.exerciseManagementMode || null,
+          goal: rawSnapshot.goal,
+          routine: rawSnapshot.routine,
+          exerciseManagementMode: rawSnapshot.exerciseManagementMode,
           trainingContext: scoringContext.trainingContext || null,
           available: score.isAvailable === true,
           status: score.status,
-          score: Number.isFinite(score.percent) ? score.percent : null,
+          sourceValidity: {
+            targetAuthorityValid: scoringContext.targetAuthority?.valid === true,
+            targetAuthoritySource: scoringContext.targetAuthority?.source || null,
+            weightSource: scoringContext.weightSource || null,
+            totalBurnSource: scoringContext.totalBurnSource || null,
+            snapshotGoalOwned: snapshotOwnedResult.s.goal === rawSnapshot.goal,
+            trainingEnergySource: "raw_goal_snapshot_production_helpers",
+            currentResultFallbackUsed: String(scoringContext.weightSource || "").startsWith("currentResult")
+              || String(scoringContext.totalBurnSource || "").startsWith("currentResult")
+          },
           ratios: {
             energy: ratio(consumed.scoringKcal, target.kcal),
             protein: ratio(consumed.protein, target.protein),
@@ -1184,7 +1531,47 @@ async function extractAnonymizedActualDays(backupFilePath){
           } : null
         };
       });
-    }, backupData);
+    }, { payload, eligibleIndexes });
+    const evaluatedBySampleId = new Map(evaluated.map(item => {
+      const missingPenaltyAxes = productionPenaltyAxes.filter(key => (
+        !Object.prototype.hasOwnProperty.call(item.penalties || {}, key)
+        || !Number.isFinite(Number(item.penalties?.[key]))
+        || Number(item.penalties[key]) < 0
+      ));
+      const source = item.sourceValidity || {};
+      let exclusionReason = null;
+      if (!item.available || item.status !== "available") exclusionReason = `score_${item.status || "unavailable"}`;
+      else if (source.targetAuthorityValid !== true || source.targetAuthoritySource !== "frozen_goal_snapshot") exclusionReason = "non_authoritative_snapshot_target";
+      else if (source.weightSource !== "goalSnapshot") exclusionReason = "current_result_weight_fallback";
+      else if (source.currentResultFallbackUsed === true || String(source.totalBurnSource || "").startsWith("currentResult")) exclusionReason = "current_result_source_fallback";
+      else if (source.snapshotGoalOwned !== true) exclusionReason = "current_goal_fallback";
+      else if (!item.trainingContext || item.trainingContext === "unknown") exclusionReason = "unresolved_training_context";
+      else if (missingPenaltyAxes.length) exclusionReason = "incomplete_penalty_breakdown";
+      else if (!item.optionCInput) exclusionReason = "joint_model_unavailable";
+      const sourceValidityKey = exclusionReason
+        ? null
+        : `${source.targetAuthoritySource}|${source.weightSource}|${source.totalBurnSource}|snapshot_goal|snapshot_training`;
+      return [item.sampleId, {
+        ...item,
+        included: !exclusionReason,
+        exclusionReason,
+        missingPenaltyAxes,
+        sourceValidityKey
+      }];
+    }));
+    return rawEligibility.map(item => item.exclusionReason
+      ? {
+          sampleId: item.sampleId,
+          included: false,
+          exclusionReason: item.exclusionReason,
+          scoreEvaluationAttempted: false
+        }
+      : evaluatedBySampleId.get(item.sampleId) || {
+          sampleId: item.sampleId,
+          included: false,
+          exclusionReason: "normalized_record_missing",
+          scoreEvaluationAttempted: false
+        });
   } finally {
     if (context) await context.close();
     await new Promise(resolve => server.close(resolve));
@@ -1192,79 +1579,36 @@ async function extractAnonymizedActualDays(backupFilePath){
   }
 }
 
-function addAggregationProbesToActualDay(day){
-  if (!day.available || !day.penalties) return { ...day, domainScores: null, aggregationProbes: null, optionC: null };
-  const penalties = day.penalties;
-  const grouped = {
-    energy: (penalties.targetEnergyDeviationPenalty || 0) + (penalties.tdeeOverloadPenalty || 0),
-    protein: (penalties.proteinShortagePenalty || 0) + (penalties.proteinExcessEfficiencyPenalty || 0),
-    fat: penalties.fatRangePenalty || 0,
-    carb: penalties.carbExerciseContextPenalty || 0,
-    joint: penalties.carbFatExchangeFailurePenalty || 0,
-    alcohol: penalties.alcoholPhysiologyPenalty || 0
-  };
-  const domainScores = Object.fromEntries(Object.entries(grouped).map(([key, value]) => [key, round(clamp(100 - value))]));
-  const activeScores = Object.entries(domainScores)
-    .filter(([key, value]) => ["carb", "protein", "fat", "energy"].includes(key) || value < 100)
-    .map(([, value]) => value);
+async function extractAnonymizedActualDays(backupFilePath){
+  const payload = JSON.parse(fs.readFileSync(backupFilePath, "utf8"));
+  return extractAnonymizedActualDaysFromPayload(payload);
+}
+
+function addProductionOwnershipToActualDay(day){
+  if (!day.included || !day.penalties || !day.optionCInput) return { ...day, optionC: null };
   const c1 = optionC1CarbEnergyShareResidual(day.optionCInput || {});
   const c2 = optionC2RadialKcalPlaneResidual(day.optionCInput || {});
   const residualPositive = c1.valid && Number(c1.ratio) > OPTION_C_EPSILON;
-  const coreAxes = {
-    energy: grouped.energy > OPTION_C_EPSILON,
-    carb: grouped.carb > OPTION_C_EPSILON,
-    fat: grouped.fat > OPTION_C_EPSILON
-  };
-  const overlap = residualPositive && Object.values(coreAxes).some(Boolean);
+  const nonJointPenaltyVector = Object.fromEntries(productionNonJointPenaltyAxes.map(key => [
+    key,
+    Number(day.penalties[key])
+  ]));
+  const activeNonJointAxes = productionNonJointPenaltyAxes.filter(key => nonJointPenaltyVector[key] > OPTION_C_EPSILON);
+  const overlap = residualPositive && activeNonJointAxes.length > 0;
   return {
     ...day,
-    domainScores,
-    aggregationProbes: {
-      rawProduct: round(rawProduct(activeScores)),
-      softminP4: round(negativePowerMean(activeScores, -4)),
-      minimumResidual10: round(minimumWithBoundedResidual(activeScores, 0.1))
-    },
+    nonJointPenaltyVector,
     optionC: {
       valid: c1.valid,
       status: c1.status,
       direction: c1.direction,
       residual: round(c1.ratio, 12),
       c1C2AbsoluteDelta: c1.valid && c2.valid ? round(Math.abs(c1.ratio - c2.ratio), 15) : null,
-      coreOverlap: {
-        axes: coreAxes,
-        overlap,
-        uniqueResidual: residualPositive && !overlap
-      }
+      residualPositive,
+      productionCoreOverlap: overlap,
+      productionCoreUnique: residualPositive && !overlap,
+      activeNonJointAxes
     }
-  };
-}
-
-function selectActualSample(days, predicate, sorter){
-  const matches = days.filter(day => day.available && predicate(day));
-  matches.sort(sorter);
-  return matches[0] || null;
-}
-
-function sanitizeSelectedActualSample(category, day){
-  if (!day) return null;
-  return {
-    category,
-    sampleId: day.sampleId,
-    mealCount: day.mealCount,
-    goal: day.goal,
-    trainingContext: day.trainingContext,
-    currentScore: round(day.score),
-    ratios: Object.fromEntries(Object.entries(day.ratios).map(([key, value]) => [key, round(value)])),
-    standardDrinks: round(day.standardDrinks),
-    domainScores: day.domainScores,
-    aggregationProbes: day.aggregationProbes,
-    optionC: day.optionC ? {
-      valid: day.optionC.valid,
-      status: day.optionC.status,
-      direction: day.optionC.direction,
-      residual: day.optionC.residual,
-      coreOverlap: day.optionC.coreOverlap
-    } : null
   };
 }
 
@@ -1285,142 +1629,319 @@ function summarizePlainValues(values){
   };
 }
 
-function summarizeActualValues(days, selector){
-  const pairs = days
-    .map(day => ({ current: day.score, value: selector(day) }))
-    .filter(item => Number.isFinite(item.current) && Number.isFinite(item.value))
-    .sort((a, b) => a.value - b.value);
-  if (!pairs.length) return null;
-  const values = pairs.map(item => item.value);
-  const median = values.length % 2
-    ? values[(values.length - 1) / 2]
-    : (values[values.length / 2 - 1] + values[values.length / 2]) / 2;
-  const bands = {};
-  for (const value of values) bands[scoreBand(value)] = (bands[scoreBand(value)] || 0) + 1;
-  return {
-    count: values.length,
-    min: round(values[0]),
-    median: round(median),
-    mean: round(values.reduce((sum, value) => sum + value, 0) / values.length),
-    max: round(values[values.length - 1]),
-    meanDeltaFromCurrent: round(pairs.reduce((sum, item) => sum + item.value - item.current, 0) / pairs.length),
-    bandCounts: bands
-  };
+function getActualRatioBand(value){
+  if (!Number.isFinite(value)) return "unavailable";
+  if (value < 0.80) return "far_below";
+  if (value < 0.95) return "below";
+  if (value <= 1.05) return "near_target";
+  if (value <= 1.20) return "above";
+  return "far_above";
+}
+
+function getResidualMagnitudeBand(value){
+  if (!Number.isFinite(value) || value <= OPTION_C_EPSILON) return "none";
+  if (value < 0.05) return "small";
+  if (value < 0.15) return "moderate";
+  return "large";
+}
+
+function buildActualMatchedEvidence(days){
+  const candidates = days.filter(day => day.included && day.optionC?.valid && day.nonJointPenaltyVector);
+  const toleranceResults = ACTUAL_MATCH_TOLERANCES.map(config => {
+    const pairs = [];
+    const matchedIds = new Set();
+    for (let leftIndex = 0; leftIndex < candidates.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < candidates.length; rightIndex += 1) {
+        const left = candidates[leftIndex];
+        const right = candidates[rightIndex];
+        if (left.goal !== right.goal
+            || left.trainingContext !== right.trainingContext
+            || left.sourceValidityKey !== right.sourceValidityKey) continue;
+        const axisDeltas = productionNonJointPenaltyAxes.map(key => Math.abs(
+          Number(left.nonJointPenaltyVector[key]) - Number(right.nonJointPenaltyVector[key])
+        ));
+        const maximumAxisDelta = Math.max(...axisDeltas);
+        if (maximumAxisDelta > config.maxAxisDelta + 1e-12) continue;
+        const residualDelta = Math.abs(Number(left.optionC.residual) - Number(right.optionC.residual));
+        if (!(residualDelta > OPTION_C_EPSILON)
+            || !(left.optionC.residualPositive || right.optionC.residualPositive)) continue;
+        matchedIds.add(left.sampleId);
+        matchedIds.add(right.sampleId);
+        pairs.push({ left, right, maximumAxisDelta, residualDelta });
+      }
+    }
+    pairs.sort((a, b) => b.residualDelta - a.residualDelta || a.left.sampleId.localeCompare(b.left.sampleId));
+    return {
+      id: config.id,
+      maximumAxisDelta: config.maxAxisDelta,
+      pairCount: pairs.length,
+      matchedRecordCount: matchedIds.size,
+      unmatchedRecordCount: Math.max(0, candidates.length - matchedIds.size),
+      coverage: candidates.length ? round(matchedIds.size / candidates.length, 6) : 0,
+      pairs
+    };
+  });
+  return { candidates, toleranceResults };
+}
+
+function buildBlindedProductMeaningCases(matchedEvidence, maximumCases = 12){
+  const seen = new Set();
+  const cases = [];
+  for (const result of matchedEvidence.toleranceResults) {
+    for (const pair of result.pairs) {
+      const pairKey = [pair.left.sampleId, pair.right.sampleId].sort().join("|");
+      if (seen.has(pairKey)) continue;
+      seen.add(pairKey);
+      const sanitizeSide = day => ({
+        targetRatioBands: Object.fromEntries(Object.entries(day.ratios || {}).map(([key, value]) => [key, getActualRatioBand(value)])),
+        residualDirection: day.optionC.direction,
+        residualMagnitude: getResidualMagnitudeBand(day.optionC.residual)
+      });
+      cases.push({
+        caseId: `blinded_case_${String(cases.length + 1).padStart(3, "0")}`,
+        matchContract: result.id,
+        context: {
+          goal: pair.left.goal,
+          trainingContext: pair.left.trainingContext,
+          sourceValidity: pair.left.sourceValidityKey
+        },
+        nonJointSimilarity: {
+          axisCount: productionNonJointPenaltyAxes.length,
+          maximumAxisDelta: round(pair.maximumAxisDelta, 6)
+        },
+        caseA: sanitizeSide(pair.left),
+        caseB: sanitizeSide(pair.right),
+        judgmentOptions: ["separate_joint_meaning", "existing_core_is_sufficient", "indeterminate"]
+      });
+      if (cases.length >= maximumCases) return cases;
+    }
+  }
+  return cases;
 }
 
 async function buildLocalActualDayAudit(backupFilePath){
-  const extracted = (await extractAnonymizedActualDays(backupFilePath)).map(addAggregationProbesToActualDay);
-  const available = extracted.filter(day => day.available);
-  const byClosestEnergy = (a, b) => Math.abs(a.ratios.energy - 1) - Math.abs(b.ratios.energy - 1);
-  const normal = selectActualSample(
-    available,
-    day => day.standardDrinks === 0 && day.ratios.energy >= 0.9 && day.ratios.energy <= 1.1,
-    (a, b) => b.score - a.score
-  );
-  const under = selectActualSample(available, day => Number.isFinite(day.ratios.energy), (a, b) => a.ratios.energy - b.ratios.energy);
-  const over = selectActualSample(available, day => Number.isFinite(day.ratios.energy), (a, b) => b.ratios.energy - a.ratios.energy);
-  const exercise = selectActualSample(
-    available,
-    day => day.trainingContext && day.trainingContext !== "rest",
-    byClosestEnergy
-  );
-  const alcohol = selectActualSample(available, day => day.standardDrinks > 0, (a, b) => b.standardDrinks - a.standardDrinks);
-  const exchange = selectActualSample(
-    available,
-    day => day.ratios.energy >= 0.85 && day.ratios.energy <= 1.15 && day.ratios.carb > 1 && day.ratios.fat < 1,
-    (a, b) => ((b.ratios.carb - 1) + (1 - b.ratios.fat)) - ((a.ratios.carb - 1) + (1 - a.ratios.fat))
-  );
-  const multiModerate = selectActualSample(
-    available,
-    day => {
-      const core = [day.domainScores?.energy, day.domainScores?.protein, day.domainScores?.fat, day.domainScores?.carb];
-      return core.every(score => Number.isFinite(score) && score >= 80)
-        && core.filter(score => score < 95).length >= 2;
-    },
-    (a, b) => a.aggregationProbes.rawProduct - b.aggregationProbes.rawProduct
-  );
-  const optionCFat = selectActualSample(
-    available,
-    day => day.optionC?.valid && day.optionC.direction === "fat_heavy",
-    (a, b) => b.optionC.residual - a.optionC.residual
-  );
-  const optionCCarb = selectActualSample(
-    available,
-    day => day.optionC?.valid && day.optionC.direction === "carb_heavy",
-    (a, b) => b.optionC.residual - a.optionC.residual
-  );
-  const optionCOverlap = selectActualSample(
-    available,
-    day => day.optionC?.coreOverlap?.overlap === true,
-    (a, b) => b.optionC.residual - a.optionC.residual
-  );
-  const optionCUnique = selectActualSample(
-    available,
-    day => day.optionC?.coreOverlap?.uniqueResidual === true,
-    (a, b) => b.optionC.residual - a.optionC.residual
-  );
-  const selectedSamples = [
-    sanitizeSelectedActualSample("normal", normal),
-    sanitizeSelectedActualSample("under", under),
-    sanitizeSelectedActualSample("over", over),
-    sanitizeSelectedActualSample("exercise", exercise),
-    sanitizeSelectedActualSample("alcohol", alcohol),
-    sanitizeSelectedActualSample("same_kcal_exchange_candidate", exchange),
-    sanitizeSelectedActualSample("multi_moderate", multiModerate),
-    sanitizeSelectedActualSample("option_c_fat_heavy", optionCFat),
-    sanitizeSelectedActualSample("option_c_carb_heavy", optionCCarb),
-    sanitizeSelectedActualSample("option_c_core_overlap", optionCOverlap),
-    sanitizeSelectedActualSample("option_c_unique_residual", optionCUnique)
-  ].filter(Boolean);
-  const requestedCategories = [
-    "normal",
-    "under",
-    "over",
-    "exercise",
-    "alcohol",
-    "same_kcal_exchange_candidate",
-    "multi_moderate",
-    "option_c_fat_heavy",
-    "option_c_carb_heavy",
-    "option_c_core_overlap",
-    "option_c_unique_residual"
-  ];
-  const validOptionC = available.filter(day => day.optionC?.valid === true);
+  const extracted = (await extractAnonymizedActualDays(backupFilePath)).map(addProductionOwnershipToActualDay);
+  const included = extracted.filter(day => day.included);
+  const excluded = extracted.filter(day => !day.included);
+  const validOptionC = included.filter(day => day.optionC?.valid === true);
   const residualPositive = validOptionC.filter(day => Number(day.optionC.residual) > OPTION_C_EPSILON);
-  const directionCounts = validOptionC.reduce((counts, day) => {
-    const direction = day.optionC.direction || "invalid";
-    counts[direction] = (counts[direction] || 0) + 1;
-    return counts;
-  }, {});
+  const matchedEvidence = buildActualMatchedEvidence(included);
+  const blindedReviewCases = buildBlindedProductMeaningCases(matchedEvidence);
   const auditWithoutHash = {
-    schemaVersion: "component_score_local_actual_day_audit_v2",
-    privacyContract: "No dates, food names, memo text, meal ids, absolute macro grams, absolute kcal values, backup path, or raw backup payload are emitted.",
+    schemaVersion: "component_score_local_actual_day_audit_v3_source_safe",
+    evidenceRole: "source_safe_joint_ownership_and_blinded_product_meaning_only",
+    privacyContract: "No dates, food names, memo text, meal ids, absolute macro grams, absolute kcal values, backup path, raw backup payload, current final score, current joint penalty, or candidate penalty are emitted.",
     sourceRecordCount: extracted.length,
-    availableScoreCount: available.length,
-    selectedCategoryCount: selectedSamples.length,
-    missingCategories: requestedCategories
-      .filter(category => !selectedSamples.some(sample => sample.category === category)),
-    allDayAggregationSummary: {
-      current: summarizeActualValues(available, day => day.score),
-      rawProduct: summarizeActualValues(available, day => day.aggregationProbes?.rawProduct),
-      softminP4: summarizeActualValues(available, day => day.aggregationProbes?.softminP4),
-      minimumResidual10: summarizeActualValues(available, day => day.aggregationProbes?.minimumResidual10)
+    includedRecordCount: included.length,
+    excludedRecordCount: excluded.length,
+    exclusionReasonCounts: countBy(excluded, day => day.exclusionReason),
+    coverage: {
+      includedShare: extracted.length ? round(included.length / extracted.length, 6) : 0,
+      goals: countBy(included, day => day.goal),
+      trainingContexts: countBy(included, day => day.trainingContext),
+      sourceValidity: countBy(included, day => day.sourceValidityKey)
     },
-    optionCResidualSummary: {
+    productionOwnershipSummary: {
+      nonJointAxisCount: productionNonJointPenaltyAxes.length,
+      jointAxisExcluded: !productionNonJointPenaltyAxes.includes("carbFatExchangeFailurePenalty"),
       validCount: validOptionC.length,
-      invalidCount: available.length - validOptionC.length,
+      invalidCount: included.length - validOptionC.length,
       residualPositiveCount: residualPositive.length,
-      uniqueResidualCaseCount: residualPositive.filter(day => day.optionC.coreOverlap.uniqueResidual).length,
-      coreOverlapCount: residualPositive.filter(day => day.optionC.coreOverlap.overlap).length,
-      directionCounts,
+      productionCoreUniqueCount: residualPositive.filter(day => day.optionC.productionCoreUnique).length,
+      productionCoreOverlapCount: residualPositive.filter(day => day.optionC.productionCoreOverlap).length,
+      directionCounts: countBy(validOptionC, day => day.optionC.direction),
       residualDistribution: summarizePlainValues(validOptionC.map(day => day.optionC.residual)),
       c1C2DeltaDistribution: summarizePlainValues(validOptionC.map(day => day.optionC.c1C2AbsoluteDelta))
     },
-    selectedSamples
+    matchedEvidence: matchedEvidence.toleranceResults.map(result => ({
+      id: result.id,
+      maximumAxisDelta: result.maximumAxisDelta,
+      pairCount: result.pairCount,
+      matchedRecordCount: result.matchedRecordCount,
+      unmatchedRecordCount: result.unmatchedRecordCount,
+      coverage: result.coverage
+    })),
+    residualDirectionCounts: countBy(validOptionC, day => day.optionC.direction),
+    blindedReviewCases,
+    blindedJudgmentContract: {
+      allowedChoices: ["separate_joint_meaning", "existing_core_is_sufficient", "indeterminate"],
+      coefficientSelectionRequested: false,
+      currentScoreUsedAsOracle: false,
+      currentJointPenaltyUsedAsOracle: false
+    }
   };
   return {
     ...auditWithoutHash,
     anonymizedAuditHash: crypto.createHash("sha256").update(JSON.stringify(auditWithoutHash)).digest("hex")
+  };
+}
+
+function buildSyntheticActualSourceSafetyPayload(){
+  const target = { targetCal: 2200, protein: 150, carbs: 250, fat: 600 / 9 };
+  const snapshot = {
+    ...target,
+    goal: "diet",
+    weight: 75,
+    exerciseManagementMode: "general",
+    exerciseProfile: "bodybuilding",
+    routine: "REST",
+    weeklyTrainingDays: 0,
+    weightDuration: 0,
+    intensityOverride: 0,
+    cardioType: "treadmill_walk",
+    cardioDuration: 0,
+    cardioSpeed: 0,
+    cardioIncline: 0,
+    generalAdvancedSettings: false,
+    generalLowDigestCarbs: false,
+    expertLbmAlpha: 0.75
+  };
+  const meals = [1, 2].map(index => ({
+    id: `synthetic_meal_${index}`,
+    carbs: 125,
+    protein: 75,
+    fat: 300 / 9
+  }));
+  const record = (date, overrides = {}) => ({
+    date,
+    recordMode: "detailed",
+    meals: meals.map(meal => ({ ...meal })),
+    goalSnapshot: { ...snapshot },
+    ...overrides
+  });
+  return {
+    app: "macro-engine",
+    kind: "full-backup",
+    backupVersion: 1,
+    appVersion: "v8.3",
+    data: {
+      settings: { goal: "bulk", weight: 90 },
+      records: [
+        record("2026-01-01"),
+        record("2026-01-02", { goalSnapshot: null }),
+        record("2026-01-03", { goalSnapshot: { ...snapshot, targetCal: 1800 } }),
+        record("2026-01-04", { goalSnapshot: { ...snapshot, weight: null } }),
+        record("2026-01-05", { goalSnapshot: { ...snapshot, routine: null } }),
+        record("2026-01-06", { meals: [{ ...meals[0], carbs: -1 }, meals[1]] }),
+        record("2026-01-07", { goalSnapshot: null, adherenceSource: "auto", adherencePercent: 99 }),
+        record("2026-01-08", { meals: [meals[0]] }),
+        record("2026-01-09", {
+          goalSnapshot: {
+            ...snapshot,
+            exerciseManagementMode: "exercise",
+            routine: "REST",
+            cardioType: "treadmill_run",
+            cardioDuration: 30,
+            cardioSpeed: 8.5,
+            cardioIncline: 0
+          }
+        }),
+        record("2026-01-10", { goalSnapshot: { ...snapshot, targetCal: 1200, carbs: null } }),
+        record("2026-01-11", { goalSnapshot: { ...snapshot, targetCal: 1600, fat: "" } }),
+        record("2026-01-12", { goalSnapshot: { ...snapshot, weeklyTrainingDays: null } }),
+        record("2026-01-13", { goalSnapshot: { ...snapshot, weightDuration: "" } }),
+        record("2026-01-14", { goalSnapshot: { ...snapshot, cardioDuration: null } }),
+        record("2026-99-99"),
+        record("2026-01-15"),
+        record("2026-01-15")
+      ]
+    }
+  };
+}
+
+function buildSyntheticMatchedEvidenceDays(){
+  const zeroVector = Object.fromEntries(productionNonJointPenaltyAxes.map(key => [key, 0]));
+  const makeDay = (sampleId, overrides = {}) => ({
+    sampleId,
+    included: true,
+    goal: "diet",
+    trainingContext: "rest",
+    sourceValidityKey: "frozen_goal_snapshot|goalSnapshot|snapshot_basis_unavailable|snapshot_goal|snapshot_training",
+    ratios: { energy: 1, protein: 1, carb: 1, fat: 1 },
+    nonJointPenaltyVector: { ...zeroVector },
+    optionC: {
+      valid: true,
+      direction: "inside",
+      residual: 0,
+      residualPositive: false
+    },
+    ...overrides
+  });
+  return [
+    makeDay("matched_a"),
+    makeDay("matched_b", { optionC: { valid: true, direction: "carb_heavy", residual: 0.20, residualPositive: true } }),
+    makeDay("tolerance_only", {
+      nonJointPenaltyVector: { ...zeroVector, targetEnergyDeviationPenalty: 0.10 },
+      optionC: { valid: true, direction: "fat_heavy", residual: 0.25, residualPositive: true }
+    }),
+    makeDay("different_context", {
+      goal: "bulk",
+      optionC: { valid: true, direction: "carb_heavy", residual: 0.30, residualPositive: true }
+    })
+  ];
+}
+
+async function buildActualDaySourceSafetyFixtureAudit(){
+  let invalidEnvelopeRejected = false;
+  let missingSettingsRejected = false;
+  try {
+    validateRawActualBackupEnvelope({ records: [] });
+  } catch {
+    invalidEnvelopeRejected = true;
+  }
+  try {
+    validateRawActualBackupEnvelope({ app: "macro-engine", kind: "full-backup", backupVersion: 1, data: { records: [] } });
+  } catch {
+    missingSettingsRejected = true;
+  }
+  const extracted = await extractAnonymizedActualDaysFromPayload(buildSyntheticActualSourceSafetyPayload());
+  const included = extracted.filter(day => day.included);
+  const excluded = extracted.filter(day => !day.included);
+  const exclusionReasonCounts = countBy(excluded, day => day.exclusionReason);
+  const matchedEvidence = buildActualMatchedEvidence(buildSyntheticMatchedEvidenceDays());
+  const blinded = buildBlindedProductMeaningCases(matchedEvidence);
+  const blindedJson = JSON.stringify(blinded);
+  const matchContractIds = matchedEvidence.toleranceResults.map(item => item.id);
+  const tolerancePairCounts = Object.fromEntries(matchedEvidence.toleranceResults.map(item => [item.id, item.pairCount]));
+  const toleranceCoverageMonotonic = matchedEvidence.toleranceResults.every((item, index, items) => (
+    index === 0
+    || (item.pairCount >= items[index - 1].pairCount
+      && item.matchedRecordCount >= items[index - 1].matchedRecordCount
+      && item.coverage >= items[index - 1].coverage)
+  ));
+  return {
+    schemaVersion: "actual_day_source_safety_fixture_audit_v2",
+    syntheticContractOnly: true,
+    sourceRecordCount: extracted.length,
+    includedRecordCount: included.length,
+    excludedRecordCount: excluded.length,
+    exclusionReasonCounts,
+    invalidEnvelopeRejected,
+    missingSettingsRejected,
+    validSnapshotGoalOwned: included.length > 0 && included.every(day => day.goal === "diet" && day.sourceValidity?.snapshotGoalOwned === true),
+    validSnapshotSources: {
+      allFrozenTarget: included.length > 0 && included.every(day => day.sourceValidity?.targetAuthoritySource === "frozen_goal_snapshot"),
+      allSnapshotWeight: included.length > 0 && included.every(day => day.sourceValidity?.weightSource === "goalSnapshot"),
+      allRawTrainingEnergy: included.length > 0 && included.every(day => day.sourceValidity?.trainingEnergySource === "raw_goal_snapshot_production_helpers"),
+      noCurrentResultFallback: included.length > 0 && included.every(day => day.sourceValidity?.currentResultFallbackUsed === false)
+    },
+    cardioOnlyTrainingContextOwned: included.some(day => day.trainingContext === "normal_resistance"),
+    snapshotlessScoreCallsPrevented: extracted
+      .filter(day => day.exclusionReason === "snapshotless")
+      .every(day => day.scoreEvaluationAttempted === false),
+    invalidDateScoreCallsPrevented: extracted
+      .filter(day => day.exclusionReason === "invalid_record_date")
+      .every(day => day.scoreEvaluationAttempted === false),
+    duplicateDateScoreCallsPrevented: extracted
+      .filter(day => day.exclusionReason === "duplicate_record_date")
+      .every(day => day.scoreEvaluationAttempted === false),
+    rawNumericCoercionBypassPrevented: exclusionReasonCounts.invalid_snapshot_target === 2
+      && exclusionReasonCounts.incomplete_snapshot_training_provenance === 4,
+    matchContractIds,
+    tolerancePairCounts,
+    toleranceCoverageMonotonic,
+    blindedCaseCount: blinded.length,
+    blindedOutputForbiddenFieldFree: !/(currentScore|finalScore|jointPenalty|candidatePenalty|mealId|foodName|memo|absoluteMacro|backupPath|sampleId)/i.test(blindedJson)
   };
 }
 
@@ -1453,12 +1974,54 @@ function summarizeTargetMatrix(cases){
   };
 }
 
-function buildProductionGeometrySweep(cases){
+const productionPenaltyAxes = Object.freeze([
+  "targetEnergyDeviationPenalty",
+  "tdeeOverloadPenalty",
+  "proteinShortagePenalty",
+  "proteinExcessEfficiencyPenalty",
+  "fatRangePenalty",
+  "carbExerciseContextPenalty",
+  "carbFatExchangeFailurePenalty",
+  "alcoholPhysiologyPenalty",
+  "dataOutlierPenalty"
+]);
+const productionNonJointPenaltyAxes = Object.freeze(
+  productionPenaltyAxes.filter(key => key !== "carbFatExchangeFailurePenalty")
+);
+
+function buildProductionGeometrySweep(cases, productionOwnershipRows = []){
   const fractions = [0, 0.25, 0.5, 0.75, 1];
   const neutralZoneScales = [0.98, 1, 1.02];
   const perGeometry = [];
   const allEvaluated = [];
   const coreMatchedExamples = [];
+  const historicalCoreMatchedExamples = [];
+  const duplicateProductionSampleIds = [];
+  const productionBySampleId = new Map();
+  for (const row of productionOwnershipRows) {
+    if (productionBySampleId.has(row.sampleId)) duplicateProductionSampleIds.push(row.sampleId);
+    else productionBySampleId.set(row.sampleId, row);
+  }
+
+  const findMatchedPair = (evaluated, signatureKey, completenessKey) => {
+    const groups = new Map();
+    evaluated.filter(item => item.valid && item[completenessKey]).forEach(item => {
+      const list = groups.get(item[signatureKey]) || [];
+      list.push(item);
+      groups.set(item[signatureKey], list);
+    });
+    for (const [coreSignature, group] of groups) {
+      const sorted = [...group].sort((a, b) => a.residual - b.residual || (a.pointId < b.pointId ? -1 : 1));
+      if (sorted.length > 1 && sorted[sorted.length - 1].residual - sorted[0].residual > 1e-9) {
+        return {
+          coreSignature,
+          lowerResidualPoint: { pointId: sorted[0].pointId, residual: round(sorted[0].residual, 12), direction: sorted[0].direction },
+          higherResidualPoint: { pointId: sorted[sorted.length - 1].pointId, residual: round(sorted[sorted.length - 1].residual, 12), direction: sorted[sorted.length - 1].direction }
+        };
+      }
+    }
+    return null;
+  };
 
   for (const productionCase of cases) {
     const geometry = productionCase.jointGeometry;
@@ -1548,11 +2111,65 @@ function buildProductionGeometrySweep(cases){
       };
       const c1 = optionC1CarbEnergyShareResidual(input);
       const c2 = optionC2RadialKcalPlaneResidual(input);
-      const core = individualCorePenalty(input);
+      const historicalCore = simplifiedHistoricalCorePenalty(input);
       const residualPositive = c1.valid && c1.ratio > OPTION_C_EPSILON;
-      const coreAllZero = [core.energyPenalty, core.carbPenalty, core.fatPenalty]
+      const historicalCoreAllZero = [historicalCore.energyPenalty, historicalCore.carbPenalty, historicalCore.fatPenalty]
         .every(value => Number.isFinite(value) && Math.abs(value) <= OPTION_C_EPSILON);
+      const sampleId = `${productionCase.id}::${point.id}`;
+      const productionEvaluation = productionBySampleId.get(sampleId) || null;
+      const coordinateMatches = !!productionEvaluation
+        && productionEvaluation.coordinate?.carbG === round(point.carbG, 9)
+        && productionEvaluation.coordinate?.fatG === round(point.fatG, 9);
+      const productionPenaltyBreakdown = productionEvaluation?.penaltyBreakdown || null;
+      const productionNonJointPenalties = Object.fromEntries(productionNonJointPenaltyAxes.map(key => [
+        key,
+        Number(productionPenaltyBreakdown?.[key])
+      ]));
+      const productionActiveNonJointAxes = productionNonJointPenaltyAxes.filter(key => (
+        Number.isFinite(productionNonJointPenalties[key])
+        && productionNonJointPenalties[key] > OPTION_C_EPSILON
+      ));
+      const productionOwnershipComplete = !!productionEvaluation
+        && coordinateMatches
+        && productionEvaluation.productionSource === "getMacroRangeProductionScoreSummary"
+        && productionEvaluation.sourceAuthority?.scoreSourceComplete === true
+        && productionEvaluation.sourceAuthority?.nonJointPenaltyBreakdownComplete === true
+        && productionEvaluation.sourceAuthority?.targetAuthorityComplete === true
+        && productionNonJointPenaltyAxes.every(key => (
+          Number.isFinite(productionNonJointPenalties[key])
+          && productionNonJointPenalties[key] >= 0
+        ));
+      const productionCoreAllZero = productionOwnershipComplete
+        && productionActiveNonJointAxes.length === 0;
+      const historicalActiveAxes = [
+        ["energy", historicalCore.energyPenalty],
+        ["carb", historicalCore.carbPenalty],
+        ["fat", historicalCore.fatPenalty]
+      ].filter(([, value]) => Number(value) > OPTION_C_EPSILON).map(([key]) => key);
+      const historicalClassification = !residualPositive
+        ? "residual_zero"
+        : (historicalCoreAllZero ? "core_unique" : "core_overlap");
+      const productionClassification = !residualPositive
+        ? "residual_zero"
+        : (!productionOwnershipComplete
+          ? "unclassified_source_incomplete"
+          : (productionCoreAllZero ? "core_unique" : "core_overlap"));
+      const ownershipChanged = residualPositive
+        && productionOwnershipComplete
+        && historicalClassification !== productionClassification;
+      const driftReasons = ownershipChanged
+        ? [
+            `${historicalClassification}_to_${productionClassification}`,
+            productionActiveNonJointAxes.length
+              ? `production_active_non_joint_axes:${productionActiveNonJointAxes.join("|")}`
+              : "production_non_joint_8_axis_vector_all_zero",
+            historicalActiveAxes.length
+              ? `historical_simplified_active_axes:${historicalActiveAxes.join("|")}`
+              : "historical_simplified_energy_carb_fat_all_zero"
+          ]
+        : [];
       return {
+        sampleId,
         caseId: productionCase.id,
         matrixKind: productionCase.matrixKind,
         pointId: point.id,
@@ -1562,39 +2179,42 @@ function buildProductionGeometrySweep(cases){
         direction: c1.direction,
         availableKcalSource: c1.feasible?.availableKcalSource || null,
         c1C2Delta: c1.valid && c2.valid ? Math.abs(c1.ratio - c2.ratio) : null,
-        core: {
-          energy: core.energyPenalty,
-          carb: core.carbPenalty,
-          fat: core.fatPenalty,
-          total: core.total
+        productionOwnership: {
+          source: productionEvaluation?.productionSource || null,
+          complete: productionOwnershipComplete,
+          coordinateMatches,
+          nonJointPenaltyAxes: productionNonJointPenalties,
+          activeNonJointPenaltyAxes: productionActiveNonJointAxes,
+          classification: productionClassification,
+          targetAuthoritySource: productionEvaluation?.sourceAuthority?.targetAuthoritySource || null,
+          targetAuthorityCorrectionVersion: productionEvaluation?.sourceAuthority?.targetAuthorityCorrectionVersion || null
         },
+        historicalSimplifiedCore: {
+          energy: historicalCore.energyPenalty,
+          carb: historicalCore.carbPenalty,
+          fat: historicalCore.fatPenalty,
+          total: historicalCore.total,
+          activeAxes: historicalActiveAxes,
+          classification: historicalClassification
+        },
+        productionOwnershipComplete,
+        ownershipChanged,
+        driftReasons,
         residualPositive,
-        uniqueResidual: residualPositive && coreAllZero,
-        coreOverlap: residualPositive && !coreAllZero,
-        coreSignature: [core.energyPenalty, core.carbPenalty, core.fatPenalty].map(value => round(value, 9)).join("|")
+        uniqueResidual: residualPositive && productionOwnershipComplete && productionCoreAllZero,
+        coreOverlap: residualPositive && productionOwnershipComplete && !productionCoreAllZero,
+        productionCoreSignature: productionNonJointPenaltyAxes.map(key => round(productionNonJointPenalties[key], 9)).join("|"),
+        historicalUniqueResidual: residualPositive && historicalCoreAllZero,
+        historicalCoreOverlap: residualPositive && !historicalCoreAllZero,
+        historicalCoreSignature: [historicalCore.energyPenalty, historicalCore.carbPenalty, historicalCore.fatPenalty]
+          .map(value => round(value, 9)).join("|")
       };
     });
     allEvaluated.push(...evaluated);
-    const groups = new Map();
-    evaluated.filter(item => item.valid).forEach(item => {
-      const list = groups.get(item.coreSignature) || [];
-      list.push(item);
-      groups.set(item.coreSignature, list);
-    });
-    let matchedPair = null;
-    for (const [coreSignature, group] of groups) {
-      const sorted = [...group].sort((a, b) => a.residual - b.residual || (a.pointId < b.pointId ? -1 : 1));
-      if (sorted.length > 1 && sorted[sorted.length - 1].residual - sorted[0].residual > 1e-9) {
-        matchedPair = {
-          caseId: productionCase.id,
-          coreSignature,
-          lowerResidualPoint: { pointId: sorted[0].pointId, residual: round(sorted[0].residual, 12), direction: sorted[0].direction },
-          higherResidualPoint: { pointId: sorted[sorted.length - 1].pointId, residual: round(sorted[sorted.length - 1].residual, 12), direction: sorted[sorted.length - 1].direction }
-        };
-        coreMatchedExamples.push(matchedPair);
-        break;
-      }
-    }
+    const matchedPair = findMatchedPair(evaluated, "productionCoreSignature", "productionOwnershipComplete");
+    if (matchedPair) coreMatchedExamples.push({ caseId: productionCase.id, ...matchedPair });
+    const historicalMatchedPair = findMatchedPair(evaluated, "historicalCoreSignature", "valid");
+    if (historicalMatchedPair) historicalCoreMatchedExamples.push({ caseId: productionCase.id, ...historicalMatchedPair });
     const positive = evaluated.filter(item => item.residualPositive);
     const availableKcalSources = [...new Set(evaluated.map(item => item.availableKcalSource))];
     perGeometry.push({
@@ -1607,7 +2227,12 @@ function buildProductionGeometrySweep(cases){
       residualPositiveCount: positive.length,
       uniqueResidualCaseCount: positive.filter(item => item.uniqueResidual).length,
       coreOverlapCount: positive.filter(item => item.coreOverlap).length,
+      productionUnclassifiedCount: positive.filter(item => !item.productionOwnership.complete).length,
+      historicalSimplifiedUniqueResidualCaseCount: positive.filter(item => item.historicalUniqueResidual).length,
+      historicalSimplifiedCoreOverlapCount: positive.filter(item => item.historicalCoreOverlap).length,
+      ownershipChangedCount: positive.filter(item => item.ownershipChanged).length,
       coreMatchedPairFound: !!matchedPair,
+      historicalSimplifiedCoreMatchedPairFound: !!historicalMatchedPair,
       availableKcalSource: availableKcalSources.length === 1 ? availableKcalSources[0] : "mixed_or_invalid",
       maximumResidual: round(Math.max(0, ...evaluated.map(item => Number(item.residual) || 0)), 12),
       maximumC1C2Delta: round(Math.max(0, ...evaluated.map(item => Number(item.c1C2Delta) || 0)), 15)
@@ -1617,6 +2242,38 @@ function buildProductionGeometrySweep(cases){
   const positive = allEvaluated.filter(item => item.residualPositive);
   const uniquePositive = positive.filter(item => item.uniqueResidual);
   const overlappingPositive = positive.filter(item => item.coreOverlap);
+  const productionUnclassifiedPositive = positive.filter(item => !item.productionOwnership.complete);
+  const historicalUniquePositive = positive.filter(item => item.historicalUniqueResidual);
+  const historicalOverlappingPositive = positive.filter(item => item.historicalCoreOverlap);
+  const changed = positive.filter(item => item.ownershipChanged);
+  const unchanged = positive.filter(item => item.productionOwnership.complete && !item.ownershipChanged);
+  const expectedSampleIds = new Set(allEvaluated.map(item => item.sampleId));
+  const returnedSampleIds = new Set(productionOwnershipRows.map(item => item.sampleId));
+  const missingProductionSampleIds = [...expectedSampleIds].filter(id => !returnedSampleIds.has(id));
+  const unexpectedProductionSampleIds = [...returnedSampleIds].filter(id => !expectedSampleIds.has(id));
+  const coordinateMismatchIds = allEvaluated
+    .filter(item => !item.productionOwnership.coordinateMatches)
+    .map(item => item.sampleId);
+  const sourceIncompleteIds = allEvaluated
+    .filter(item => productionBySampleId.get(item.sampleId)?.sourceAuthority?.scoreSourceComplete !== true)
+    .map(item => item.sampleId);
+  const nonJointAxisIncompleteIds = allEvaluated
+    .filter(item => productionBySampleId.get(item.sampleId)?.sourceAuthority?.nonJointPenaltyBreakdownComplete !== true)
+    .map(item => item.sampleId);
+  const penaltyAxisKeySetIncompleteIds = allEvaluated
+    .filter(item => productionBySampleId.get(item.sampleId)?.sourceAuthority?.penaltyAxisKeySetExact !== true)
+    .map(item => item.sampleId);
+  const targetAuthorityIncompleteIds = allEvaluated
+    .filter(item => productionBySampleId.get(item.sampleId)?.sourceAuthority?.targetAuthorityComplete !== true)
+    .map(item => item.sampleId);
+  const productionSourceMismatchIds = allEvaluated
+    .filter(item => productionBySampleId.get(item.sampleId)?.productionSource !== "getMacroRangeProductionScoreSummary")
+    .map(item => item.sampleId);
+  const driftTransitions = changed.reduce((counts, item) => {
+    const key = `${item.historicalSimplifiedCore.classification}_to_${item.productionOwnership.classification}`;
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
   const curvePenaltyDistributions = Object.fromEntries(Object.keys(optionCCurveProbeDefinitions).map(name => [
     name,
     {
@@ -1625,7 +2282,11 @@ function buildProductionGeometrySweep(cases){
     }
   ]));
   return {
-    schemaVersion: "option_c_production_geometry_sweep_v1",
+    schemaVersion: "option_c_production_geometry_sweep_v2",
+    ownershipPrimary: "production_exact_getMacroRangeProductionScoreSummary_non_joint_8_axis_vector",
+    ownershipSecondary: "historical_simplified_energy_carb_fat_helper",
+    productionPenaltyAxes,
+    productionNonJointPenaltyAxes,
     geometryCount: cases.length,
     validGeometryCount: perGeometry.filter(item => item.valid).length,
     sampleCount: allEvaluated.length,
@@ -1633,8 +2294,66 @@ function buildProductionGeometrySweep(cases){
     residualPositiveCount: positive.length,
     uniqueResidualCaseCount: uniquePositive.length,
     coreOverlapCount: overlappingPositive.length,
-    overlapAccountingComplete: positive.every(item => item.uniqueResidual !== item.coreOverlap),
+    productionUnclassifiedCount: productionUnclassifiedPositive.length,
+    overlapAccountingComplete: productionUnclassifiedPositive.length === 0
+      && positive.every(item => item.uniqueResidual !== item.coreOverlap),
     coreMatchedGeometryCount: perGeometry.filter(item => item.coreMatchedPairFound).length,
+    historicalSimplified: {
+      residualPositiveCount: positive.length,
+      uniqueResidualCaseCount: historicalUniquePositive.length,
+      coreOverlapCount: historicalOverlappingPositive.length,
+      overlapAccountingComplete: positive.every(item => item.historicalUniqueResidual !== item.historicalCoreOverlap),
+      coreMatchedGeometryCount: perGeometry.filter(item => item.historicalSimplifiedCoreMatchedPairFound).length,
+      coreMatchedExamples: historicalCoreMatchedExamples.slice(0, 12)
+    },
+    productionSourceAuthorityCompleteness: {
+      productionSource: "getMacroRangeProductionScoreSummary",
+      expectedSampleCount: allEvaluated.length,
+      returnedSampleCount: productionOwnershipRows.length,
+      matchedSampleIdCount: allEvaluated.length - missingProductionSampleIds.length,
+      missingProductionSampleIds,
+      unexpectedProductionSampleIds,
+      duplicateProductionSampleIds,
+      coordinateMatchCount: allEvaluated.length - coordinateMismatchIds.length,
+      coordinateMismatchIds,
+      scoreSourceCompleteCount: allEvaluated.length - sourceIncompleteIds.length,
+      scoreSourceIncompleteIds: sourceIncompleteIds,
+      nonJointPenaltyAxesCompleteCount: allEvaluated.length - nonJointAxisIncompleteIds.length,
+      nonJointPenaltyAxesIncompleteIds: nonJointAxisIncompleteIds,
+      exactNinePenaltyAxisKeySetCount: allEvaluated.length - penaltyAxisKeySetIncompleteIds.length,
+      penaltyAxisKeySetIncompleteIds,
+      targetAuthorityCompleteCount: allEvaluated.length - targetAuthorityIncompleteIds.length,
+      targetAuthorityIncompleteIds,
+      productionSourceMatchCount: allEvaluated.length - productionSourceMismatchIds.length,
+      productionSourceMismatchIds,
+      complete: missingProductionSampleIds.length === 0
+        && unexpectedProductionSampleIds.length === 0
+        && duplicateProductionSampleIds.length === 0
+        && coordinateMismatchIds.length === 0
+        && sourceIncompleteIds.length === 0
+        && nonJointAxisIncompleteIds.length === 0
+        && penaltyAxisKeySetIncompleteIds.length === 0
+        && targetAuthorityIncompleteIds.length === 0
+        && productionSourceMismatchIds.length === 0
+    },
+    ownershipDrift: {
+      comparisonCount: changed.length + unchanged.length,
+      changedSampleCount: changed.length,
+      unchangedSampleCount: unchanged.length,
+      transitions: driftTransitions,
+      accountingComplete: changed.length + unchanged.length + productionUnclassifiedPositive.length === positive.length,
+      changedSamples: changed.map(item => ({
+        sampleId: item.sampleId,
+        caseId: item.caseId,
+        pointId: item.pointId,
+        source: item.source,
+        historicalClassification: item.historicalSimplifiedCore.classification,
+        productionClassification: item.productionOwnership.classification,
+        reasons: item.driftReasons,
+        historicalActiveAxes: item.historicalSimplifiedCore.activeAxes,
+        productionActiveNonJointAxes: item.productionOwnership.activeNonJointPenaltyAxes
+      }))
+    },
     jointModelAuthorityGeometryCount: perGeometry.filter(item => item.availableKcalSource === "joint_allocation_model").length,
     c1C2MaximumAbsoluteDelta: round(Math.max(0, ...allEvaluated.map(item => Number(item.c1C2Delta) || 0)), 15),
     residualDistributions: {
@@ -1729,7 +2448,7 @@ function toCsv(ledger){
   }
   for (const fixture of ledger.jointFixtures) {
     for (const [model, result] of Object.entries(fixture.results)) {
-      rows.push(["joint", fixture.id, model, result.penalty, "", `core=${fixture.individualCorePenalty.total}`]);
+      rows.push(["joint", fixture.id, model, result.penalty, "", `historicalSimplifiedCore=${fixture.simplifiedHistoricalCorePenalty.total}`]);
     }
     for (const [model, penalty] of Object.entries(fixture.candidatePenalties || {})) {
       rows.push(["option_c_curve", fixture.id, model, penalty, "", `residual=${fixture.residuals.c1_carb_energy_share.ratio}`]);
@@ -1761,7 +2480,11 @@ function makeAssertion(name, pass, detail){
   const targetSummary = summarizeTargetMatrix(targetCases);
   const crossProfileSummary = summarizeTargetMatrix(crossProfileCases);
   const optionCDecisionEvidence = buildOptionCDecisionEvidence(jointFixtures);
-  const productionGeometrySweep = buildProductionGeometrySweep([...targetCases, ...crossProfileCases]);
+  const productionGeometrySweep = buildProductionGeometrySweep(
+    [...targetCases, ...crossProfileCases],
+    productionMatrices.productionOwnershipRows
+  );
+  const actualDaySourceSafetyFixtureAudit = await buildActualDaySourceSafetyFixtureAudit();
   const userBefore = jointFixtures.find(item => item.id === "user_reproduced_before");
   const userAfter = jointFixtures.find(item => item.id === "user_reproduced_after");
   const thresholdBelow = jointFixtures.find(item => item.id === "threshold_fat_34_carb_26");
@@ -1828,7 +2551,7 @@ function makeAssertion(name, pass, detail){
     makeAssertion("drop curve stays zero", jointFixtures.filter(item => item.candidatePenalties).every(item => item.candidatePenalties.drop_curve === 0), "all valid curve probes use zero drop reference"),
     makeAssertion("invalid, collapsed, authority-invalid, and endpoint-mismatched Option C geometry fails closed", invalidEmpty?.residuals.c1_carb_energy_share.valid === false && invalidEmpty?.residuals.c1_carb_energy_share.ratio === null && collapsed?.residuals.c1_carb_energy_share.valid === false && collapsed?.residuals.c1_carb_energy_share.ratio === null && invalidEndpointAuthority?.residuals.c1_carb_energy_share.valid === false && invalidEndpointAuthority?.residuals.c1_carb_energy_share.status === "joint_endpoint_authority_mismatch" && invalidAvailableKcalAuthorityStatuses.every(status => status === "invalid_available_kcal_authority"), `empty=${invalidEmpty?.residuals.c1_carb_energy_share.status},collapsed=${collapsed?.residuals.c1_carb_energy_share.status},endpoint=${invalidEndpointAuthority?.residuals.c1_carb_energy_share.status},availableAuthority=${invalidAvailableKcalAuthorityStatuses.join("|")}`),
     makeAssertion("synthetic overlap evidence accounts for every positive residual", optionCDecisionEvidence.overlapAccountingComplete, `positive=${optionCDecisionEvidence.residualPositiveCount},unique=${optionCDecisionEvidence.uniqueResidualCaseCount},overlap=${optionCDecisionEvidence.coreOverlapCount}`),
-    makeAssertion("non-aligned raw rectangle exposes a core-matched interaction distinction", JSON.stringify(nonAlignedOutside?.individualCorePenalty) === JSON.stringify(nonAlignedInside?.individualCorePenalty) && nonAlignedOutside?.residuals.c1_carb_energy_share.ratio > 0 && nonAlignedInside?.residuals.c1_carb_energy_share.ratio === 0, `outside=${nonAlignedOutside?.residuals.c1_carb_energy_share.ratio},inside=${nonAlignedInside?.residuals.c1_carb_energy_share.ratio},core=${JSON.stringify(nonAlignedOutside?.individualCorePenalty)}`),
+    makeAssertion("non-aligned raw rectangle exposes a historical simplified-core matched interaction distinction", JSON.stringify(nonAlignedOutside?.simplifiedHistoricalCorePenalty) === JSON.stringify(nonAlignedInside?.simplifiedHistoricalCorePenalty) && nonAlignedOutside?.residuals.c1_carb_energy_share.ratio > 0 && nonAlignedInside?.residuals.c1_carb_energy_share.ratio === 0, `outside=${nonAlignedOutside?.residuals.c1_carb_energy_share.ratio},inside=${nonAlignedInside?.residuals.c1_carb_energy_share.ratio},historicalSimplifiedCore=${JSON.stringify(nonAlignedOutside?.simplifiedHistoricalCorePenalty)}`),
     makeAssertion("target matrix has 54 cases", targetSummary.caseCount === 54, `count=${targetSummary.caseCount}`),
     makeAssertion("current target matrix produces finite scores", currentTargetScoresAreFinite, `finite=${targetCases.filter(item => Number.isFinite(item.current.percent)).length}/${targetCases.length}`),
     makeAssertion("current production restores exact generated targets", targetSummary.currentNon100Count === 0, `non100=${targetSummary.currentNon100Count}`),
@@ -1839,8 +2562,19 @@ function makeAssertion(name, pass, detail){
     makeAssertion("cross-profile smoke produces finite exact scores", crossProfileScoresAreFinite && crossProfileSummary.currentNon100Count === 0, `finite=${crossProfileCases.filter(item => Number.isFinite(item.current.percent)).length}/${crossProfileCases.length},non100=${crossProfileSummary.currentNon100Count}`),
     makeAssertion("cross-profile target authority and nine penalties pass", crossProfileSummary.productionAuthorityFailCount === 0 && crossProfileSummary.ninePenaltyAxesNonZeroCount === 0, `authorityInvalid=${crossProfileSummary.productionAuthorityFailCount},nonzero=${crossProfileSummary.ninePenaltyAxesNonZeroCount}`),
     makeAssertion("production geometry sweep covers all 54 plus 12 cross-profile geometries with joint-model authority", productionGeometrySweep.geometryCount === 66 && productionGeometrySweep.validGeometryCount === 66 && productionGeometrySweep.jointModelAuthorityGeometryCount === 66, `geometry=${productionGeometrySweep.geometryCount},valid=${productionGeometrySweep.validGeometryCount},jointModelAuthority=${productionGeometrySweep.jointModelAuthorityGeometryCount}`),
+    makeAssertion("production geometry sweep preserves the historical 3,058 sample identity and simplified counts", productionGeometrySweep.sampleCount === 3058 && productionGeometrySweep.historicalSimplified.uniqueResidualCaseCount === 237 && productionGeometrySweep.historicalSimplified.coreOverlapCount === 240, `samples=${productionGeometrySweep.sampleCount},historicalUnique=${productionGeometrySweep.historicalSimplified.uniqueResidualCaseCount},historicalOverlap=${productionGeometrySweep.historicalSimplified.coreOverlapCount}`),
+    makeAssertion("production ownership source covers every sample with the exact nine-axis key set and eight non-joint axes", productionGeometrySweep.productionPenaltyAxes.length === 9 && productionGeometrySweep.productionNonJointPenaltyAxes.length === 8 && !productionGeometrySweep.productionNonJointPenaltyAxes.includes("carbFatExchangeFailurePenalty") && productionGeometrySweep.productionSourceAuthorityCompleteness.exactNinePenaltyAxisKeySetCount === productionGeometrySweep.sampleCount && productionGeometrySweep.productionSourceAuthorityCompleteness.complete, `allAxes=${productionGeometrySweep.productionPenaltyAxes.join("|")},nonJointAxes=${productionGeometrySweep.productionNonJointPenaltyAxes.join("|")},keySetExact=${productionGeometrySweep.productionSourceAuthorityCompleteness.exactNinePenaltyAxisKeySetCount}/${productionGeometrySweep.sampleCount},sourceComplete=${productionGeometrySweep.productionSourceAuthorityCompleteness.scoreSourceCompleteCount}/${productionGeometrySweep.sampleCount},authorityComplete=${productionGeometrySweep.productionSourceAuthorityCompleteness.targetAuthorityCompleteCount}/${productionGeometrySweep.sampleCount}`),
+    makeAssertion("production versus historical ownership drift is explicit and fully accounted", productionGeometrySweep.ownershipDrift.accountingComplete && productionGeometrySweep.ownershipDrift.comparisonCount === productionGeometrySweep.residualPositiveCount && productionGeometrySweep.ownershipDrift.changedSampleCount > 0, `positive=${productionGeometrySweep.residualPositiveCount},compared=${productionGeometrySweep.ownershipDrift.comparisonCount},changed=${productionGeometrySweep.ownershipDrift.changedSampleCount},transitions=${JSON.stringify(productionGeometrySweep.ownershipDrift.transitions)}`),
     makeAssertion("production geometry sweep preserves C1/C2 equivalence", productionGeometrySweep.c1C2MaximumAbsoluteDelta <= 1e-12, `maxDelta=${productionGeometrySweep.c1C2MaximumAbsoluteDelta}`),
-    makeAssertion("production geometry overlap evidence is fully accounted", productionGeometrySweep.overlapAccountingComplete, `positive=${productionGeometrySweep.residualPositiveCount},unique=${productionGeometrySweep.uniqueResidualCaseCount},overlap=${productionGeometrySweep.coreOverlapCount}`)
+    makeAssertion("production-exact geometry overlap evidence is fully accounted", productionGeometrySweep.overlapAccountingComplete, `positive=${productionGeometrySweep.residualPositiveCount},unique=${productionGeometrySweep.uniqueResidualCaseCount},overlap=${productionGeometrySweep.coreOverlapCount},unclassified=${productionGeometrySweep.productionUnclassifiedCount}`),
+    makeAssertion("actual-day audit rejects invalid envelopes and missing settings", actualDaySourceSafetyFixtureAudit.invalidEnvelopeRejected && actualDaySourceSafetyFixtureAudit.missingSettingsRejected, `invalidEnvelope=${actualDaySourceSafetyFixtureAudit.invalidEnvelopeRejected},missingSettings=${actualDaySourceSafetyFixtureAudit.missingSettingsRejected}`),
+    makeAssertion("actual-day source safety includes only complete snapshot fixtures", actualDaySourceSafetyFixtureAudit.sourceRecordCount === 17 && actualDaySourceSafetyFixtureAudit.includedRecordCount === 2 && actualDaySourceSafetyFixtureAudit.excludedRecordCount === 15, `source=${actualDaySourceSafetyFixtureAudit.sourceRecordCount},included=${actualDaySourceSafetyFixtureAudit.includedRecordCount},excluded=${actualDaySourceSafetyFixtureAudit.excludedRecordCount},reasons=${JSON.stringify(actualDaySourceSafetyFixtureAudit.exclusionReasonCounts)}`),
+    makeAssertion("snapshotless actual-day records are excluded before scoring", actualDaySourceSafetyFixtureAudit.snapshotlessScoreCallsPrevented === true && actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.snapshotless === 2, `prevented=${actualDaySourceSafetyFixtureAudit.snapshotlessScoreCallsPrevented},count=${actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.snapshotless}`),
+    makeAssertion("invalid and duplicate dates are excluded before scoring", actualDaySourceSafetyFixtureAudit.invalidDateScoreCallsPrevented === true && actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.invalid_record_date === 1 && actualDaySourceSafetyFixtureAudit.duplicateDateScoreCallsPrevented === true && actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.duplicate_record_date === 2, JSON.stringify(actualDaySourceSafetyFixtureAudit.exclusionReasonCounts)),
+    makeAssertion("raw null and blank numeric authority cannot pass through Number coercion", actualDaySourceSafetyFixtureAudit.rawNumericCoercionBypassPrevented === true, JSON.stringify(actualDaySourceSafetyFixtureAudit.exclusionReasonCounts)),
+    makeAssertion("actual-day included fixtures remain snapshot-owned without current-result fallback", actualDaySourceSafetyFixtureAudit.validSnapshotGoalOwned === true && actualDaySourceSafetyFixtureAudit.validSnapshotSources?.allFrozenTarget === true && actualDaySourceSafetyFixtureAudit.validSnapshotSources?.allSnapshotWeight === true && actualDaySourceSafetyFixtureAudit.validSnapshotSources?.allRawTrainingEnergy === true && actualDaySourceSafetyFixtureAudit.validSnapshotSources?.noCurrentResultFallback === true, JSON.stringify(actualDaySourceSafetyFixtureAudit.validSnapshotSources)),
+    makeAssertion("cardio-only snapshot training is derived from raw snapshot energy instead of rest fallback", actualDaySourceSafetyFixtureAudit.cardioOnlyTrainingContextOwned === true, `owned=${actualDaySourceSafetyFixtureAudit.cardioOnlyTrainingContextOwned}`),
+    makeAssertion("matched evidence tests exact, 0.25, and 1.0 contracts with monotonic coverage while blinded output hides score fields", JSON.stringify(actualDaySourceSafetyFixtureAudit.matchContractIds) === JSON.stringify(["exact", "tolerance_0_25", "tolerance_1_00"]) && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.exact > 0 && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_0_25 > actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.exact && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_1_00 >= actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_0_25 && actualDaySourceSafetyFixtureAudit.toleranceCoverageMonotonic === true && actualDaySourceSafetyFixtureAudit.blindedCaseCount > 0 && actualDaySourceSafetyFixtureAudit.blindedOutputForbiddenFieldFree === true, `contracts=${actualDaySourceSafetyFixtureAudit.matchContractIds?.join("|")},pairs=${JSON.stringify(actualDaySourceSafetyFixtureAudit.tolerancePairCounts)},monotonic=${actualDaySourceSafetyFixtureAudit.toleranceCoverageMonotonic},blinded=${actualDaySourceSafetyFixtureAudit.blindedCaseCount},privacy=${actualDaySourceSafetyFixtureAudit.blindedOutputForbiddenFieldFree}`)
   ];
 
   const ledgerWithoutHash = {
@@ -1878,20 +2612,31 @@ function makeAssertion(name, pass, detail){
       c3LegacyBaseline: { name: "normalized_carb_boundary_ratio", disposition: "DROP" },
       curveProbeDefinitions: optionCCurveProbeDefinitions,
       decisionEvidence: {
-        syntheticFixtures: optionCDecisionEvidence,
+        syntheticNonAuthoritativeDiagnostics: {
+          evidenceRole: "historical_test_local_helper_diagnostics_only",
+          ownershipSource: "simplifiedHistoricalCorePenalty",
+          ...optionCDecisionEvidence
+        },
         productionGeometry: {
+          ownershipPrimary: productionGeometrySweep.ownershipPrimary,
           geometryCount: productionGeometrySweep.geometryCount,
           sampleCount: productionGeometrySweep.sampleCount,
           residualPositiveCount: productionGeometrySweep.residualPositiveCount,
           uniqueResidualCaseCount: productionGeometrySweep.uniqueResidualCaseCount,
           coreOverlapCount: productionGeometrySweep.coreOverlapCount,
+          productionUnclassifiedCount: productionGeometrySweep.productionUnclassifiedCount,
+          historicalSimplified: {
+            uniqueResidualCaseCount: productionGeometrySweep.historicalSimplified.uniqueResidualCaseCount,
+            coreOverlapCount: productionGeometrySweep.historicalSimplified.coreOverlapCount
+          },
+          ownershipDrift: {
+            changedSampleCount: productionGeometrySweep.ownershipDrift.changedSampleCount,
+            transitions: productionGeometrySweep.ownershipDrift.transitions,
+            accountingComplete: productionGeometrySweep.ownershipDrift.accountingComplete
+          },
+          sourceAuthorityComplete: productionGeometrySweep.productionSourceAuthorityCompleteness.complete,
           coreMatchedGeometryCount: productionGeometrySweep.coreMatchedGeometryCount,
           overlapAccountingComplete: productionGeometrySweep.overlapAccountingComplete
-        },
-        combinedResidualEvidence: {
-          residualPositiveCount: optionCDecisionEvidence.residualPositiveCount + productionGeometrySweep.residualPositiveCount,
-          uniqueResidualCaseCount: optionCDecisionEvidence.uniqueResidualCaseCount + productionGeometrySweep.uniqueResidualCaseCount,
-          coreOverlapCount: optionCDecisionEvidence.coreOverlapCount + productionGeometrySweep.coreOverlapCount
         }
       },
       productionGeometrySweep,
@@ -1908,6 +2653,9 @@ function makeAssertion(name, pass, detail){
       userReproducedAnonymizedTransitionIncluded: true,
       deterministicHarnessLoadsPrivateBackup: false,
       optionalPrivateAuditFlag: "--actual-backup",
+      explicitBackupRequired: true,
+      evidenceStatusWithoutFlag: "source_safety_corrected_awaiting_explicit_backup",
+      sourceSafetyFixtureAudit: actualDaySourceSafetyFixtureAudit,
       productionReadinessFromDeterministicFixturesAlone: "NO"
     },
     assertions
