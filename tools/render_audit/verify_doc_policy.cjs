@@ -320,8 +320,8 @@ if (failures.length === 0) {
     "v8.3.1 adaptive-target stable help implementation: implemented",
     "v8.4 component-score architecture falsification decision: closed",
     "narrow target/scoring authoritative-reference correction decision/implementation: implemented and release blocker closed",
-    "v8.4 Option C joint-allocation residual exact-formula simulation: closed with outcome MORE_EVIDENCE_REQUIRED",
-    "privacy-safe actual-day joint ownership evidence: pending",
+    "v8.4 Option C joint-allocation residual exact-formula simulation: original geometry decision closed with outcome MORE_EVIDENCE_REQUIRED",
+    "v8.4 production-authoritative joint ownership/source-safety correction: closed with outcome",
     "replacement, removal, aggregation, production 구현을 열지 않는다",
     "v8.3.1_target_authority_continuous_macro_score_v2",
     "valid 54개 target 모두 exact 100",
@@ -381,9 +381,9 @@ if (failures.length === 0) {
     "v8.3.1_target_authority_continuous_macro_score_v2",
     "current production은 54/54 exact 100",
     "production formula/UI/storage implementation을 열지 않는다",
-    "outcome은 `MORE_EVIDENCE_REQUIRED`",
-    "core-unique 237개와 core-overlap 240개",
-    "privacy-safe actual-day joint ownership evidence",
+    "production joint 제외 8축",
+    "snapshotless/current-Settings hidden recompute를 금지",
+    "명시적으로 제공한 full-backup",
     "DailyCoach semantic v2 phase 1",
   ];
   for (const text of currentTruthRequirements) {
@@ -428,10 +428,9 @@ if (failures.length === 0) {
     "narrow target/scoring authoritative-reference correction decision/implementation: implemented and release blocker closed",
     "v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md",
     "valid target 54/54 exact 100",
-    "v8.4 Option C joint-allocation residual exact-formula simulation: closed with outcome MORE_EVIDENCE_REQUIRED",
+    "v8.4 Option C joint-allocation residual exact-formula simulation: original geometry decision closed with outcome MORE_EVIDENCE_REQUIRED",
+    "v8.4 production-authoritative joint ownership/source-safety correction: closed with outcome",
     "v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md",
-    "privacy-safe actual-day joint ownership evidence: pending",
-    "blocked until joint ownership evidence",
     "v8.3.1 DailyCoach semantic v2 phase 1: paused",
     "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
     "required result-log format: active",
@@ -1295,10 +1294,9 @@ if (failures.length === 0) {
   if (!statusIndex.includes(`상태: implemented and release blocker closed by docs/${targetScoringAuthorityCorrectionRoute}`)) {
     fail("status index must mark target/scoring authority correction implemented and closed");
   }
-  if (!statusIndex.includes(`상태: closed with outcome \`MORE_EVIDENCE_REQUIRED\` by docs/${optionCJointResidualSimulationRoute}`)) {
-    fail("status index must close Option C simulation with MORE_EVIDENCE_REQUIRED");
+  if (!statusIndex.includes(`상태: original geometry decision closed with outcome \`MORE_EVIDENCE_REQUIRED\` by docs/${optionCJointResidualSimulationRoute}`)) {
+    fail("status index must preserve the original Option C MORE_EVIDENCE_REQUIRED decision as historical geometry evidence");
   }
-
   const targetScoringAuthorityCorrectionRequirements = [
     "DOCUMENT ROLE",
     "- implementation_log",
@@ -1341,17 +1339,17 @@ if (failures.length === 0) {
     "### 사용자가 큰 틀에서 확인해야 할 판단점",
     "### 테스트에서 무엇을 검증했는지",
     "## 기술 검증",
-    "production geometry: 54",
-    "cross-profile geometry: 12",
-    "samples: 3,058",
-    "residual-positive: 477",
-    "core-unique: 237",
-    "core-overlap: 240",
     "최대 차이 `1e-15`",
     "22.449점",
     "`0.354111`에서 `0.458886`",
     "`5.702점`에서 `9.147점`",
-    "privacy-safe actual-day joint ownership evidence",
+    "production-authority correction",
+    "production-authority correction outcome:",
+    "historical 잠정치",
+    "joint 제외 8축",
+    "snapshotless",
+    "explicit backup",
+    "blinded product-meaning",
     "coefficient tuning",
     "실제 private backup은 이 작업공간에 없어서",
     "scoring formula/version, UI, storage/schema, backup, Records, DailyCoach, v8.3 tag를 바꾸지 않았다",
@@ -1364,7 +1362,23 @@ if (failures.length === 0) {
   }
   const optionCOverallOutcomeLines = optionCJointResidualSimulationDecision.match(/^overall outcome:\s*.+$/gm) || [];
   if (optionCOverallOutcomeLines.length !== 1 || optionCOverallOutcomeLines[0] !== "overall outcome: MORE_EVIDENCE_REQUIRED") {
-    fail("Option C result log must declare exactly one overall outcome: MORE_EVIDENCE_REQUIRED");
+    fail("Option C result log must preserve the original historical overall outcome exactly once");
+  }
+  const correctionOutcomeLines = optionCJointResidualSimulationDecision.match(/^production-authority correction outcome:\s*.+$/gm) || [];
+  const allowedCorrectionOutcomes = new Set([
+    "AUTHORITY_CORRECTED_AWAITING_EXPLICIT_BACKUP",
+    "MORE_EVIDENCE_REQUIRED",
+    "DROP_JOINT_AXIS_CANDIDATE",
+    "RESIDUAL_JOINT_CANDIDATE",
+  ]);
+  const correctionOutcome = correctionOutcomeLines.length === 1
+    ? correctionOutcomeLines[0].split(":").slice(1).join(":").trim()
+    : null;
+  if (!allowedCorrectionOutcomes.has(correctionOutcome)) {
+    fail("Option C correction must declare exactly one allowed, falsifiable production-authority correction outcome");
+  }
+  if (!statusIndex.includes(`상태: closed with outcome \`${correctionOutcome}\` by the append-only production-authority correction section`)) {
+    fail("status index must expose the same falsifiable production-authority correction outcome as the result log");
   }
   for (const [label, text] of [
     ["00_READ_FIRST", readFirst],
@@ -1374,15 +1388,26 @@ if (failures.length === 0) {
   ]) {
     for (const required of [
       optionCJointResidualSimulationRoute,
-      "MORE_EVIDENCE_REQUIRED",
-      "privacy-safe actual-day joint ownership evidence",
+      correctionOutcome,
     ]) {
       if (!text.includes(required)) fail(`${label} missing current Option C outcome route: ${required}`);
     }
   }
-  if (!statusIndex.includes("55. component-score actual-day aggregation re-evaluation.")
-      || !statusIndex.includes("상태: blocked until item 54 closes.")) {
-    fail("status index must block component aggregation until actual-day joint ownership evidence closes");
+  if (correctionOutcome === "AUTHORITY_CORRECTED_AWAITING_EXPLICIT_BACKUP") {
+    for (const [label, text] of [
+      ["00_READ_FIRST", readFirst],
+      ["02_macro_range_current_truth", currentTruth],
+      ["04_document_status_index", statusIndex],
+      ["README", readme],
+    ]) {
+      if (!text.includes("explicit-backup")) fail(`${label} must route the awaiting-backup outcome to explicit-backup evidence`);
+    }
+    if (!readFirst.includes("explicit-backup privacy-safe actual-day joint ownership evidence: pending test/docs-only gate")
+        || !statusIndex.includes("explicit-backup privacy-safe actual-day joint ownership evidence: pending")
+        || !statusIndex.includes("56. component-score actual-day aggregation re-evaluation.")
+        || !statusIndex.includes("상태: blocked until authoritative evidence in item 55 closes.")) {
+      fail("awaiting-backup outcome must keep explicit-backup evidence pending and component aggregation blocked");
+    }
   }
 
   const targetAuthorityIndexHtml = read("index.html");
@@ -1432,6 +1457,10 @@ if (failures.length === 0) {
     "function optionC2RadialKcalPlaneResidual",
     "function optionC3LegacyNormalizedCarbBaseline",
     "productionGeometrySweep",
+    "productionOwnership",
+    "historicalSimplified",
+    "ownershipDrift",
+    "nonJointPenaltyBreakdownComplete",
     "availableCarbFatKcal",
     "invalid_available_kcal_authority",
     "joint_endpoint_authority_mismatch",
@@ -1440,6 +1469,15 @@ if (failures.length === 0) {
     "coreOverlapCount",
     "--actual-backup",
     "privacyContract",
+    "function validateRawActualBackupEnvelope",
+    "function getRawActualRecordExclusionReason",
+    "normalizeFullBackupPayload",
+    "snapshotless",
+    "current_result_source_fallback",
+    "ACTUAL_MATCH_TOLERANCES",
+    "function buildActualMatchedEvidence",
+    "function buildBlindedProductMeaningCases",
+    "source_safety_corrected_awaiting_explicit_backup",
     "deterministicHash",
     "target matrix has 54 cases",
     "current target matrix produces finite scores",
@@ -1453,7 +1491,12 @@ if (failures.length === 0) {
     "C1 and C2 are numerically equivalent",
     "C3 legacy normalized-carb baseline is marked DROP and diverges",
     "production geometry sweep covers all 54 plus 12 cross-profile geometries with joint-model authority",
-    "production geometry overlap evidence is fully accounted",
+    "production ownership source covers every sample with the exact nine-axis key set and eight non-joint axes",
+    "raw null and blank numeric authority cannot pass through Number coercion",
+    "invalid and duplicate dates are excluded before scoring",
+    "cardio-only snapshot training is derived from raw snapshot energy instead of rest fallback",
+    "historical_test_local_helper_diagnostics_only",
+    "production versus historical ownership drift is explicit and fully accounted",
   ];
   for (const text of simulationToolRequirements) {
     if (!componentScoreArchitectureSimulationTool.includes(text)) {
@@ -1490,10 +1533,11 @@ if (failures.length === 0) {
     "50. component score architecture feasibility / simulation decision.",
     "51. v8.4 component-score architecture falsification decision.",
     "53. v8.4 Option C joint-allocation residual exact-formula simulation.",
-    "54. privacy-safe actual-day joint ownership evidence.",
-    "55. component-score actual-day aggregation re-evaluation.",
-    "56. component-score candidate selection or rejection.",
-    "57. v8.3.1 DailyCoach semantic v2 phase 1.",
+    "54. v8.4 production-authoritative joint ownership/source-safety correction.",
+    "55. explicit-backup privacy-safe actual-day joint ownership evidence.",
+    "56. component-score actual-day aggregation re-evaluation.",
+    "57. component-score candidate selection or rejection.",
+    "58. v8.3.1 DailyCoach semantic v2 phase 1.",
     "v8.3.1 DailyCoach semantic v2 phase 1.",
     "selectable Coach voice decision / implementation.",
     "필요 시 broad tooltip/glossary spec.",

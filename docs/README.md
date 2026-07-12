@@ -359,9 +359,10 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 - `v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md`
   - production formula를 바꾸지 않고 Option C residual geometry를 66개 production/cross-profile 조건과 존재 반증용 3,058 deterministic grid samples에서 반증한 test/docs-only decision이다. 이 비율은 actual-day prevalence가 아니다.
   - C1 carb-energy-share와 C2 radial-kcal-plane 표현은 최대 차이 `1e-15`로 동치이고 연속·단조·대칭·bounded를 통과했다. C3 asymmetric legacy baseline은 superseded했고 모든 curve coefficient는 unapproved다.
-  - residual-positive 477개는 core-unique 237개와 core-overlap 240개를 모두 포함한다. 따라서 outcome은 `MORE_EVIDENCE_REQUIRED`이며 current joint replacement와 joint-axis removal은 모두 미승인이다.
+  - 원래 `237 core-unique / 240 core-overlap`은 test-local energy/carb/fat helper 기준 historical 잠정치다. 같은 477개 residual-positive를 production의 반올림된 joint 제외 8축으로 직접 평가한 correction은 `242 production-core-unique / 235 production-core-overlap`이며, 5개가 0.001 미만 helper 감점의 production 반올림 차이로 이동했다.
+  - 원래 outcome `MORE_EVIDENCE_REQUIRED`는 성급한 교체/삭제를 막은 historical 결정으로 유지한다. current production-authority correction outcome은 `AUTHORITY_CORRECTED_AWAITING_EXPLICIT_BACKUP`이고 current joint replacement와 joint-axis removal은 모두 미승인이다.
   - production target 54/54와 cross-profile 12/12가 exact 100, authority pass, 9개 penalty zero를 유지했다. production formula/version/UI/storage/schema/Records/DailyCoach/tag는 변경하지 않았다.
-  - 다음 gate는 coefficient tuning이나 aggregation이 아니라 privacy-safe actual-day joint ownership evidence다. 현재 workspace에는 명시적으로 제공된 private backup이 없어 optional sanitizer만 준비됐다.
+  - actual audit은 full-backup envelope와 raw goalSnapshot 권한을 score 호출 전에 검사한다. snapshotless/current Settings fallback, raw `null`/빈 값 numeric coercion, 비정상·중복 날짜는 이유별로 제외하고 운동 맥락은 raw snapshot의 production helper 결과로 소유한다. `explicit-backup` 경로가 있을 때만 production 8축 + goal/training/source-validity exact/복수 tolerance와 blinded product-meaning 사례를 만든다. 현재 workspace에는 명시된 backup 경로가 없다.
 
 ## legacy / 참고 문서
 
