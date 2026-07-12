@@ -48,7 +48,24 @@ function readArgValue(name){
 const outputFormat = (readArgValue("--format") || "json").toLowerCase();
 const outputPath = readArgValue("--output");
 const actualBackupPath = readArgValue("--actual-backup");
+const actualReviewOutputPath = readArgValue("--actual-review-output");
+const actualRevealOutputPath = readArgValue("--actual-reveal-output");
+const postJudgmentReveal = process.argv.includes("--post-judgment-reveal");
 const assertMode = process.argv.includes("--assert");
+
+function isPathInsideDirectory(candidatePath, parentPath){
+  const relative = path.relative(parentPath, candidatePath);
+  return relative !== "" && !relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative);
+}
+
+function resolveActualAuditOutputPath(rawPath, flagName){
+  if (!rawPath) throw new Error(`${flagName} is required with --actual-backup`);
+  const resolved = path.resolve(root, rawPath);
+  if (!isPathInsideDirectory(resolved, debugDir)) {
+    throw new Error(`${flagName} must stay inside tools/render_audit/_debug`);
+  }
+  return resolved;
+}
 
 function clamp(value, min = 0, max = 100){
   return Math.min(max, Math.max(min, Number(value) || 0));
@@ -1254,7 +1271,18 @@ async function buildTargetMatrix(){
           });
         });
       });
-      return { targetCases: rows, crossProfileCases: crossProfileRows, productionOwnershipRows };
+      const actualAuditRoutineVocabulary = {
+        simple: getGeneralRoutineItems().map(item => item.value).sort(),
+        advancedByProfile: {
+          bodybuilding: [...new Set(Object.values(ROUTINE_SCHEMES).flatMap(scheme => scheme.items.map(item => item.value)))].sort()
+        }
+      };
+      Object.entries(PROFILE_ROUTINE_PLANS).forEach(([profile, config]) => {
+        actualAuditRoutineVocabulary.advancedByProfile[profile] = [...new Set(
+          Object.values(config.plans || {}).flatMap(plan => plan.items.map(item => item.value))
+        )].sort();
+      });
+      return { targetCases: rows, crossProfileCases: crossProfileRows, productionOwnershipRows, actualAuditRoutineVocabulary };
     });
   } finally {
     if (context) await context.close();
@@ -1267,6 +1295,18 @@ const ACTUAL_AUDIT_GOALS = new Set(["diet", "cut", "recomp", "maintain", "lean_b
 const ACTUAL_AUDIT_EXERCISE_MODES = new Set(["general", "exercise"]);
 const ACTUAL_AUDIT_EXERCISE_PROFILES = new Set(["bodybuilding", "powerbuilding", "strength", "running", "mixed"]);
 const ACTUAL_AUDIT_CARDIO_TYPES = new Set(["treadmill_walk", "treadmill_run", "outdoor_run"]);
+const ACTUAL_AUDIT_SIMPLE_ROUTINES = new Set(["REST", "PUSH"]);
+const ACTUAL_AUDIT_ADVANCED_ROUTINES_BY_PROFILE = new Map([
+  ["bodybuilding", new Set(["REST", "PUSH", "PULL", "LEGS", "UPPER", "LOWER", "CHEST", "BACK", "SHOULDER", "ARM", "ARMS"])],
+  ["powerbuilding", new Set(["REST", "powerbuilding_upper", "powerbuilding_lower", "powerbuilding_accessory", "powerbuilding_push", "powerbuilding_pull"])],
+  ["strength", new Set(["REST", "strength_heavy_upper", "strength_heavy_lower", "strength_volume", "strength_technique", "strength_deload"])],
+  ["running", new Set(["REST", "running_easy", "running_tempo", "running_interval", "running_long", "running_recovery"])],
+  ["mixed", new Set(["REST", "mixed_strength_cardio", "mixed_strength_focus", "mixed_cardio_focus", "mixed_circuit", "mixed_recovery"])]
+]);
+const ACTUAL_AUDIT_ALL_ROUTINES = new Set(
+  [...ACTUAL_AUDIT_SIMPLE_ROUTINES, ...[...ACTUAL_AUDIT_ADVANCED_ROUTINES_BY_PROFILE.values()].flatMap(items => [...items])]
+);
+const ACTUAL_BLIND_SHUFFLE_SEED_VERSION = "v8.4_joint_actual_day_hypothesis_blind_v1";
 const ACTUAL_MATCH_TOLERANCES = Object.freeze([
   Object.freeze({ id: "exact", maxAxisDelta: 0 }),
   Object.freeze({ id: "tolerance_0_25", maxAxisDelta: 0.25 }),
@@ -1274,7 +1314,7 @@ const ACTUAL_MATCH_TOLERANCES = Object.freeze([
 ]);
 
 function validateRawActualBackupEnvelope(payload){
-  if (!payload || payload.app !== "macro-engine" || payload.kind !== "full-backup" || Number(payload.backupVersion) !== 1 || !payload.data) {
+  if (!payload || payload.app !== "macro-engine" || payload.kind !== "full-backup" || payload.backupVersion !== 1 || !payload.data) {
     throw new Error("actual_backup_requires_supported_full_backup_envelope");
   }
   if (!payload.data.settings || typeof payload.data.settings !== "object" || Array.isArray(payload.data.settings) || Object.keys(payload.data.settings).length === 0) {
@@ -1285,9 +1325,7 @@ function validateRawActualBackupEnvelope(payload){
 }
 
 function isExplicitRawFiniteNumber(value){
-  if (value === null || value === undefined) return false;
-  if (typeof value === "string" && value.trim() === "") return false;
-  return Number.isFinite(Number(value));
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function isSemanticallyValidActualRecordDate(value){
@@ -1295,6 +1333,12 @@ function isSemanticallyValidActualRecordDate(value){
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
   const parsed = new Date(`${raw}T00:00:00.000Z`);
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === raw;
+}
+
+function isValidOptionalRawNonMacroKcal(meal, key){
+  if (!meal || typeof meal !== "object") return false;
+  if (!Object.prototype.hasOwnProperty.call(meal, key)) return true;
+  return isExplicitRawFiniteNumber(meal[key]) && Number(meal[key]) >= 0;
 }
 
 function getRawActualRecordExclusionReason(record){
@@ -1317,9 +1361,16 @@ function getRawActualRecordExclusionReason(record){
   if (!ACTUAL_AUDIT_GOALS.has(String(snapshot.goal || ""))) return "incomplete_snapshot_goal_provenance";
   if (!isExplicitRawFiniteNumber(snapshot.weight) || !(Number(snapshot.weight) > 0)) return "incomplete_snapshot_weight_provenance";
   const trainingNumbers = [snapshot.weeklyTrainingDays, snapshot.weightDuration, snapshot.cardioDuration];
+  const exerciseMode = String(snapshot.exerciseManagementMode || "");
+  const exerciseProfile = String(snapshot.exerciseProfile || "");
+  const routine = typeof snapshot.routine === "string" ? snapshot.routine.trim() : "";
+  const routineAllowed = exerciseMode === "exercise"
+    ? (snapshot.generalAdvancedSettings === true
+      ? ACTUAL_AUDIT_ADVANCED_ROUTINES_BY_PROFILE.get(exerciseProfile)?.has(routine) === true
+      : ACTUAL_AUDIT_SIMPLE_ROUTINES.has(routine))
+    : ACTUAL_AUDIT_ALL_ROUTINES.has(routine);
   if (!ACTUAL_AUDIT_EXERCISE_MODES.has(String(snapshot.exerciseManagementMode || ""))
-      || typeof snapshot.routine !== "string"
-      || !snapshot.routine.trim()
+      || !routineAllowed
       || !trainingNumbers.every(isExplicitRawFiniteNumber)
       || !Number.isInteger(Number(snapshot.weeklyTrainingDays))
       || Number(snapshot.weeklyTrainingDays) < 0
@@ -1329,7 +1380,7 @@ function getRawActualRecordExclusionReason(record){
     return "incomplete_snapshot_training_provenance";
   }
   if (snapshot.exerciseManagementMode === "exercise") {
-    if (!ACTUAL_AUDIT_EXERCISE_PROFILES.has(String(snapshot.exerciseProfile || ""))
+    if (!ACTUAL_AUDIT_EXERCISE_PROFILES.has(exerciseProfile)
         || typeof snapshot.generalAdvancedSettings !== "boolean"
         || typeof snapshot.generalLowDigestCarbs !== "boolean"
         || !isExplicitRawFiniteNumber(snapshot.expertLbmAlpha)
@@ -1350,13 +1401,25 @@ function getRawActualRecordExclusionReason(record){
     }
   }
   const rawMacrosValid = meals.every(meal => [meal?.carbs, meal?.protein, meal?.fat].every(value => (
-    value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) && Number(value) >= 0
+    isExplicitRawFiniteNumber(value) && Number(value) >= 0
   )));
   if (!rawMacrosValid) return "invalid_meal_macros";
-  const consumedMacroKcal = meals.reduce((sum, meal) => (
-    sum + Number(meal.carbs) * 4 + Number(meal.protein) * 4 + Number(meal.fat) * 9
-  ), 0);
-  if (!(consumedMacroKcal / targetValues[0] >= 0.30)) return "insufficient_full_day";
+  const rawNonMacroKcalValid = meals.every(meal => (
+    isValidOptionalRawNonMacroKcal(meal, "alcoholKcal")
+    && isValidOptionalRawNonMacroKcal(meal, "otherKcal")
+  ));
+  if (!rawNonMacroKcalValid) return "invalid_meal_non_macro_kcal";
+  const mealEnergyTotals = meals.map(meal => (
+    meal.carbs * 4
+      + meal.protein * 4
+      + meal.fat * 9
+      + (Object.prototype.hasOwnProperty.call(meal, "alcoholKcal") ? meal.alcoholKcal : 0)
+      + (Object.prototype.hasOwnProperty.call(meal, "otherKcal") ? meal.otherKcal : 0)
+  ));
+  if (!mealEnergyTotals.every(Number.isFinite)) return "non_finite_meal_energy_total";
+  const consumedScoringKcal = mealEnergyTotals.reduce((sum, value) => sum + value, 0);
+  if (!Number.isFinite(consumedScoringKcal)) return "non_finite_meal_energy_total";
+  if (!(consumedScoringKcal / targetValues[0] >= 0.30)) return "insufficient_full_day";
   return null;
 }
 
@@ -1670,7 +1733,8 @@ function buildActualMatchedEvidence(days){
         pairs.push({ left, right, maximumAxisDelta, residualDelta });
       }
     }
-    pairs.sort((a, b) => b.residualDelta - a.residualDelta || a.left.sampleId.localeCompare(b.left.sampleId));
+    const canonicalPairKey = pair => [pair.left.sampleId, pair.right.sampleId].sort().join("|");
+    pairs.sort((a, b) => b.residualDelta - a.residualDelta || canonicalPairKey(a).localeCompare(canonicalPairKey(b)));
     return {
       id: config.id,
       maximumAxisDelta: config.maxAxisDelta,
@@ -1684,39 +1748,99 @@ function buildActualMatchedEvidence(days){
   return { candidates, toleranceResults };
 }
 
-function buildBlindedProductMeaningCases(matchedEvidence, maximumCases = 12){
+function shouldSwapHypothesisBlindPair(pairKey){
+  const digest = crypto.createHash("sha256")
+    .update(`${ACTUAL_BLIND_SHUFFLE_SEED_VERSION}|side|${pairKey}`)
+    .digest();
+  return (digest[0] & 1) === 1;
+}
+
+function getHypothesisBlindPresentationKey(pairKey){
+  return crypto.createHash("sha256")
+    .update(`${ACTUAL_BLIND_SHUFFLE_SEED_VERSION}|order|${pairKey}`)
+    .digest("hex");
+}
+
+function buildHypothesisBlindProductMeaningReview(matchedEvidence, maximumCases = 12){
   const seen = new Set();
-  const cases = [];
+  const selected = [];
+  outer:
   for (const result of matchedEvidence.toleranceResults) {
     for (const pair of result.pairs) {
       const pairKey = [pair.left.sampleId, pair.right.sampleId].sort().join("|");
       if (seen.has(pairKey)) continue;
       seen.add(pairKey);
-      const sanitizeSide = day => ({
-        targetRatioBands: Object.fromEntries(Object.entries(day.ratios || {}).map(([key, value]) => [key, getActualRatioBand(value)])),
+      selected.push({ pairKey, pair, matchContract: result.id });
+      if (selected.length >= maximumCases) break outer;
+    }
+  }
+  selected.sort((a, b) => (
+    getHypothesisBlindPresentationKey(a.pairKey).localeCompare(getHypothesisBlindPresentationKey(b.pairKey))
+  ));
+  const reviewPacket = [];
+  const revealMap = [];
+  selected.forEach(({ pairKey, pair, matchContract }, index) => {
+      const caseId = `blind_review_case_${String(index + 1).padStart(3, "0")}`;
+      const canonical = [pair.left, pair.right]
+        .sort((a, b) => a.sampleId.localeCompare(b.sampleId))
+        .map((day, sourceIndex) => ({ day, originalPairSide: `source_${sourceIndex + 1}` }));
+      const swap = shouldSwapHypothesisBlindPair(pairKey);
+      const randomized = swap
+        ? [canonical[1], canonical[0]]
+        : canonical;
+      const sanitizeReviewSide = ({ day }) => ({
+        targetRatioBands: {
+          energy: getActualRatioBand(day.ratios?.energy),
+          protein: getActualRatioBand(day.ratios?.protein),
+          carb: getActualRatioBand(day.ratios?.carb),
+          fat: getActualRatioBand(day.ratios?.fat)
+        }
+      });
+      const sanitizeRevealSide = ({ day, originalPairSide }) => ({
+        originalPairSide,
         residualDirection: day.optionC.direction,
         residualMagnitude: getResidualMagnitudeBand(day.optionC.residual)
       });
-      cases.push({
-        caseId: `blinded_case_${String(cases.length + 1).padStart(3, "0")}`,
-        matchContract: result.id,
+      reviewPacket.push({
+        caseId,
+        matchContract,
         context: {
-          goal: pair.left.goal,
-          trainingContext: pair.left.trainingContext,
-          sourceValidity: pair.left.sourceValidityKey
+          goal: canonical[0].day.goal,
+          trainingContext: canonical[0].day.trainingContext,
+          sourceValidity: canonical[0].day.sourceValidityKey
         },
         nonJointSimilarity: {
           axisCount: productionNonJointPenaltyAxes.length,
           maximumAxisDelta: round(pair.maximumAxisDelta, 6)
         },
-        caseA: sanitizeSide(pair.left),
-        caseB: sanitizeSide(pair.right),
+        caseA: sanitizeReviewSide(randomized[0]),
+        caseB: sanitizeReviewSide(randomized[1]),
         judgmentOptions: ["separate_joint_meaning", "existing_core_is_sufficient", "indeterminate"]
       });
-      if (cases.length >= maximumCases) return cases;
-    }
-  }
-  return cases;
+      revealMap.push({
+        caseId,
+        caseA: sanitizeRevealSide(randomized[0]),
+        caseB: sanitizeRevealSide(randomized[1])
+      });
+  });
+  const reviewBody = {
+    schemaVersion: "hypothesis_blind_product_meaning_review_v1",
+    randomizationSeedVersion: ACTUAL_BLIND_SHUFFLE_SEED_VERSION,
+    reviewPacket
+  };
+  const reviewPacketHash = crypto.createHash("sha256").update(JSON.stringify(reviewBody)).digest("hex");
+  const reviewArtifact = { ...reviewBody, reviewPacketHash };
+  const revealBody = {
+    schemaVersion: "hypothesis_blind_product_meaning_reveal_v1",
+    reviewPacketHash,
+    revealOnlyAfterJudgment: true,
+    revealMap
+  };
+  const revealMapHash = crypto.createHash("sha256").update(JSON.stringify(revealBody)).digest("hex");
+  return {
+    reviewArtifact,
+    revealArtifact: { ...revealBody, revealMapHash }
+  };
 }
 
 async function buildLocalActualDayAudit(backupFilePath){
@@ -1726,11 +1850,12 @@ async function buildLocalActualDayAudit(backupFilePath){
   const validOptionC = included.filter(day => day.optionC?.valid === true);
   const residualPositive = validOptionC.filter(day => Number(day.optionC.residual) > OPTION_C_EPSILON);
   const matchedEvidence = buildActualMatchedEvidence(included);
-  const blindedReviewCases = buildBlindedProductMeaningCases(matchedEvidence);
+  const hypothesisBlindArtifacts = buildHypothesisBlindProductMeaningReview(matchedEvidence);
+  const { reviewArtifact, revealArtifact } = hypothesisBlindArtifacts;
   const auditWithoutHash = {
-    schemaVersion: "component_score_local_actual_day_audit_v3_source_safe",
-    evidenceRole: "source_safe_joint_ownership_and_blinded_product_meaning_only",
-    privacyContract: "No dates, food names, memo text, meal ids, absolute macro grams, absolute kcal values, backup path, raw backup payload, current final score, current joint penalty, or candidate penalty are emitted.",
+    schemaVersion: "component_score_local_actual_day_audit_v4_hypothesis_blind",
+    evidenceRole: "source_safe_joint_ownership_and_hypothesis_blind_product_meaning_only",
+    privacyContract: "The standalone review artifact emits no residual hypothesis, dates, food names, memo text, meal ids, absolute macro grams, absolute kcal values, backup path, raw backup payload, current final score, current joint penalty, or candidate penalty. The separately written reveal artifact is available only through the explicit post-judgment flag.",
     sourceRecordCount: extracted.length,
     includedRecordCount: included.length,
     excludedRecordCount: excluded.length,
@@ -1762,18 +1887,29 @@ async function buildLocalActualDayAudit(backupFilePath){
       coverage: result.coverage
     })),
     residualDirectionCounts: countBy(validOptionC, day => day.optionC.direction),
-    blindedReviewCases,
-    blindedJudgmentContract: {
+    hypothesisBlindArtifactSummary: {
+      reviewPacketHash: reviewArtifact.reviewPacketHash,
+      revealMapHash: revealArtifact.revealMapHash,
+      reviewPacketCaseCount: reviewArtifact.reviewPacket.length,
+      revealMapCaseCount: revealArtifact.revealMap.length,
+      standaloneReviewOutputRequired: true,
+      separatePostJudgmentRevealOutput: true
+    },
+    hypothesisBlindJudgmentContract: {
       allowedChoices: ["separate_joint_meaning", "existing_core_is_sufficient", "indeterminate"],
+      randomizationSeedVersion: reviewArtifact.randomizationSeedVersion,
+      revealOnlyAfterJudgment: true,
+      reviewPacketHidesResidualHypothesis: true,
       coefficientSelectionRequested: false,
       currentScoreUsedAsOracle: false,
       currentJointPenaltyUsedAsOracle: false
     }
   };
-  return {
+  const summaryAudit = {
     ...auditWithoutHash,
     anonymizedAuditHash: crypto.createHash("sha256").update(JSON.stringify(auditWithoutHash)).digest("hex")
   };
+  return { summaryAudit, reviewArtifact, revealArtifact };
 }
 
 function buildSyntheticActualSourceSafetyPayload(){
@@ -1802,12 +1938,23 @@ function buildSyntheticActualSourceSafetyPayload(){
     protein: 75,
     fat: 300 / 9
   }));
+  const productionThresholdMeals = [1, 2].map(index => ({
+    id: `synthetic_threshold_meal_${index}`,
+    carbs: 25,
+    protein: 25,
+    fat: 75 / 9,
+    alcoholKcal: 98,
+    otherKcal: 12
+  }));
   const record = (date, overrides = {}) => ({
     date,
     recordMode: "detailed",
     meals: meals.map(meal => ({ ...meal })),
     goalSnapshot: { ...snapshot },
     ...overrides
+  });
+  const invalidNonMacroRecord = (date, key, value) => record(date, {
+    meals: meals.map((meal, index) => index === 0 ? { ...meal, [key]: value } : { ...meal })
   });
   return {
     app: "macro-engine",
@@ -1843,7 +1990,32 @@ function buildSyntheticActualSourceSafetyPayload(){
         record("2026-01-14", { goalSnapshot: { ...snapshot, cardioDuration: null } }),
         record("2026-99-99"),
         record("2026-01-15"),
-        record("2026-01-15")
+        record("2026-01-15"),
+        record("2026-01-16", { meals: productionThresholdMeals.map(meal => ({ ...meal })) }),
+        record("2026-01-17", {
+          meals: productionThresholdMeals.map(({ alcoholKcal, otherKcal, ...meal }) => meal)
+        }),
+        invalidNonMacroRecord("2026-01-18", "alcoholKcal", null),
+        invalidNonMacroRecord("2026-01-19", "alcoholKcal", ""),
+        invalidNonMacroRecord("2026-01-20", "alcoholKcal", "abc"),
+        invalidNonMacroRecord("2026-01-21", "alcoholKcal", -1),
+        invalidNonMacroRecord("2026-01-22", "otherKcal", null),
+        invalidNonMacroRecord("2026-01-23", "otherKcal", ""),
+        invalidNonMacroRecord("2026-01-24", "otherKcal", "abc"),
+        invalidNonMacroRecord("2026-01-25", "otherKcal", -1),
+        record("2026-01-26", {
+          meals: meals.map(meal => ({ ...meal, otherKcal: Number.MAX_VALUE }))
+        }),
+        record("2026-01-27", { goalSnapshot: { ...snapshot, routine: "CORRUPT_ROUTINE" } }),
+        record("2026-01-28", {
+          goalSnapshot: {
+            ...snapshot,
+            exerciseManagementMode: "exercise",
+            exerciseProfile: "running",
+            routine: "PUSH",
+            generalAdvancedSettings: false
+          }
+        })
       ]
     }
   };
@@ -1868,22 +2040,124 @@ function buildSyntheticMatchedEvidenceDays(){
     ...overrides
   });
   return [
-    makeDay("matched_a"),
-    makeDay("matched_b", { optionC: { valid: true, direction: "carb_heavy", residual: 0.20, residualPositive: true } }),
+    makeDay("matched_a", { ratios: { energy: 1, protein: 1, carb: 0.85, fat: 1.15 } }),
+    makeDay("matched_b", {
+      ratios: { energy: 1, protein: 1, carb: 1.25, fat: 0.75 },
+      optionC: { valid: true, direction: "carb_heavy", residual: 0.20, residualPositive: true }
+    }),
     makeDay("tolerance_only", {
+      ratios: { energy: 1, protein: 1, carb: 0.65, fat: 1.35 },
       nonJointPenaltyVector: { ...zeroVector, targetEnergyDeviationPenalty: 0.10 },
       optionC: { valid: true, direction: "fat_heavy", residual: 0.25, residualPositive: true }
     }),
     makeDay("different_context", {
       goal: "bulk",
+      ratios: { energy: 1, protein: 1, carb: 1.35, fat: 0.65 },
       optionC: { valid: true, direction: "carb_heavy", residual: 0.30, residualPositive: true }
     })
   ];
 }
 
+function hasExactObjectKeys(value, expectedKeys){
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const actualKeys = Object.keys(value).sort();
+  return JSON.stringify(actualKeys) === JSON.stringify([...expectedKeys].sort());
+}
+
+function isHypothesisBlindReviewArtifactSafe(artifact){
+  if (!hasExactObjectKeys(artifact, ["schemaVersion", "randomizationSeedVersion", "reviewPacket", "reviewPacketHash"])) return false;
+  if (!/^[a-f0-9]{64}$/.test(artifact.reviewPacketHash || "")) return false;
+  const { reviewPacketHash, ...reviewBody } = artifact;
+  if (crypto.createHash("sha256").update(JSON.stringify(reviewBody)).digest("hex") !== reviewPacketHash) return false;
+  const expectedChoices = ["separate_joint_meaning", "existing_core_is_sufficient", "indeterminate"];
+  const allowedRatioBands = new Set(["unavailable", "far_below", "below", "near_target", "above", "far_above"]);
+  const allowedMatchContracts = new Set(ACTUAL_MATCH_TOLERANCES.map(item => item.id));
+  const structurallySafe = Array.isArray(artifact.reviewPacket) && artifact.reviewPacket.every(item => (
+    hasExactObjectKeys(item, ["caseId", "matchContract", "context", "nonJointSimilarity", "caseA", "caseB", "judgmentOptions"])
+    && /^blind_review_case_\d{3}$/.test(item.caseId)
+    && allowedMatchContracts.has(item.matchContract)
+    && hasExactObjectKeys(item.context, ["goal", "trainingContext", "sourceValidity"])
+    && Object.values(item.context).every(value => typeof value === "string" && value.length > 0)
+    && hasExactObjectKeys(item.nonJointSimilarity, ["axisCount", "maximumAxisDelta"])
+    && item.nonJointSimilarity.axisCount === productionNonJointPenaltyAxes.length
+    && Number.isFinite(item.nonJointSimilarity.maximumAxisDelta)
+    && item.nonJointSimilarity.maximumAxisDelta >= 0
+    && [item.caseA, item.caseB].every(side => (
+      hasExactObjectKeys(side, ["targetRatioBands"])
+      && hasExactObjectKeys(side.targetRatioBands, ["energy", "protein", "carb", "fat"])
+      && Object.values(side.targetRatioBands).every(value => allowedRatioBands.has(value))
+    ))
+    && JSON.stringify(item.judgmentOptions) === JSON.stringify(expectedChoices)
+  ));
+  const caseIds = artifact.reviewPacket.map(item => item.caseId);
+  const forbiddenFieldFree = !/(residual|direction|magnitude|optionC|currentScore|finalScore|rawScore|jointPenalty|candidatePenalty|sampleId|date|food|memo|mealId|absolute|Kcal|backupPath|originalPairSide|source_[12])/i.test(JSON.stringify(artifact));
+  return structurallySafe && new Set(caseIds).size === caseIds.length && forbiddenFieldFree;
+}
+
+function isPostJudgmentRevealArtifactSafe(artifact){
+  if (!hasExactObjectKeys(artifact, ["schemaVersion", "reviewPacketHash", "revealOnlyAfterJudgment", "revealMap", "revealMapHash"])) return false;
+  if (!/^[a-f0-9]{64}$/.test(artifact.reviewPacketHash || "") || !/^[a-f0-9]{64}$/.test(artifact.revealMapHash || "")) return false;
+  const { revealMapHash, ...revealBody } = artifact;
+  if (crypto.createHash("sha256").update(JSON.stringify(revealBody)).digest("hex") !== revealMapHash) return false;
+  const allowedDirections = new Set(["inside", "carb_heavy", "fat_heavy"]);
+  const allowedMagnitudes = new Set(["none", "small", "moderate", "large"]);
+  const structurallySafe = artifact.revealOnlyAfterJudgment === true
+    && Array.isArray(artifact.revealMap)
+    && artifact.revealMap.every(item => (
+      hasExactObjectKeys(item, ["caseId", "caseA", "caseB"])
+      && /^blind_review_case_\d{3}$/.test(item.caseId)
+      && [item.caseA, item.caseB].every(side => (
+        hasExactObjectKeys(side, ["originalPairSide", "residualDirection", "residualMagnitude"])
+        && ["source_1", "source_2"].includes(side.originalPairSide)
+        && allowedDirections.has(side.residualDirection)
+        && allowedMagnitudes.has(side.residualMagnitude)
+      ))
+      && new Set([item.caseA.originalPairSide, item.caseB.originalPairSide]).size === 2
+    ));
+  const caseIds = artifact.revealMap.map(item => item.caseId);
+  return structurallySafe
+    && new Set(caseIds).size === caseIds.length
+    && !/(currentScore|finalScore|rawScore|jointPenalty|candidatePenalty|sampleId|date|food|memo|mealId|absolute|Kcal|backupPath)/i.test(JSON.stringify(artifact));
+}
+
+function assertHypothesisBlindArtifactBundleSafe(bundle){
+  if (!isHypothesisBlindReviewArtifactSafe(bundle?.reviewArtifact)) {
+    throw new Error("generated actual review artifact failed the privacy allowlist");
+  }
+  if (!isPostJudgmentRevealArtifactSafe(bundle?.revealArtifact)) {
+    throw new Error("generated actual reveal artifact failed the post-judgment allowlist");
+  }
+  const reviewCaseIds = bundle.reviewArtifact.reviewPacket.map(item => item.caseId);
+  const revealCaseIds = bundle.revealArtifact.revealMap.map(item => item.caseId);
+  if (bundle.revealArtifact.reviewPacketHash !== bundle.reviewArtifact.reviewPacketHash
+      || JSON.stringify(reviewCaseIds) !== JSON.stringify(revealCaseIds)) {
+    throw new Error("actual review and reveal artifacts are not hash/case linked");
+  }
+  return true;
+}
+
+function assertLockedReviewMatchesGenerated(lockedReviewArtifact, generatedReviewArtifact){
+  if (!isHypothesisBlindReviewArtifactSafe(lockedReviewArtifact)) {
+    throw new Error("locked review artifact failed the privacy/hash allowlist");
+  }
+  if (JSON.stringify(lockedReviewArtifact) !== JSON.stringify(generatedReviewArtifact)) {
+    throw new Error("locked review artifact does not match the current backup/input");
+  }
+  return true;
+}
+
+function assertDistinctFilePaths(paths){
+  const normalized = paths.filter(Boolean).map(item => path.resolve(item).toLowerCase());
+  if (new Set(normalized).size !== normalized.length) {
+    throw new Error("actual backup, ledger, review, and reveal paths must all be distinct");
+  }
+  return true;
+}
+
 async function buildActualDaySourceSafetyFixtureAudit(){
   let invalidEnvelopeRejected = false;
   let missingSettingsRejected = false;
+  let coercedBackupVersionRejected = false;
   try {
     validateRawActualBackupEnvelope({ records: [] });
   } catch {
@@ -1894,13 +2168,76 @@ async function buildActualDaySourceSafetyFixtureAudit(){
   } catch {
     missingSettingsRejected = true;
   }
-  const extracted = await extractAnonymizedActualDaysFromPayload(buildSyntheticActualSourceSafetyPayload());
+  try {
+    validateRawActualBackupEnvelope({ app: "macro-engine", kind: "full-backup", backupVersion: "1", data: { settings: { goal: "diet" }, records: [] } });
+  } catch {
+    coercedBackupVersionRejected = true;
+  }
+  const payload = buildSyntheticActualSourceSafetyPayload();
+  const extracted = await extractAnonymizedActualDaysFromPayload(payload);
   const included = extracted.filter(day => day.included);
   const excluded = extracted.filter(day => !day.included);
   const exclusionReasonCounts = countBy(excluded, day => day.exclusionReason);
-  const matchedEvidence = buildActualMatchedEvidence(buildSyntheticMatchedEvidenceDays());
-  const blinded = buildBlindedProductMeaningCases(matchedEvidence);
-  const blindedJson = JSON.stringify(blinded);
+  const syntheticMatchedDays = buildSyntheticMatchedEvidenceDays();
+  const matchedEvidence = buildActualMatchedEvidence(syntheticMatchedDays);
+  const hypothesisBlindArtifacts = buildHypothesisBlindProductMeaningReview(matchedEvidence);
+  const repeatedArtifacts = buildHypothesisBlindProductMeaningReview(buildActualMatchedEvidence(buildSyntheticMatchedEvidenceDays()));
+  const reversedArtifacts = buildHypothesisBlindProductMeaningReview(buildActualMatchedEvidence([...syntheticMatchedDays].reverse()));
+  const { reviewArtifact, revealArtifact } = hypothesisBlindArtifacts;
+  const reviewCaseIds = reviewArtifact.reviewPacket.map(item => item.caseId);
+  const revealCaseIds = revealArtifact.revealMap.map(item => item.caseId);
+  const caseASources = revealArtifact.revealMap.map(item => item.caseA.originalPairSide);
+  const generatedArtifactBundleSafe = assertHypothesisBlindArtifactBundleSafe(hypothesisBlindArtifacts);
+  const lockedReviewSameInputAccepted = assertLockedReviewMatchesGenerated(reviewArtifact, repeatedArtifacts.reviewArtifact);
+  const changedLockedReview = JSON.parse(JSON.stringify(reviewArtifact));
+  changedLockedReview.reviewPacket[0].caseA.targetRatioBands.carb = changedLockedReview.reviewPacket[0].caseA.targetRatioBands.carb === "far_above"
+    ? "far_below"
+    : "far_above";
+  const { reviewPacketHash: ignoredChangedHash, ...changedReviewBody } = changedLockedReview;
+  changedLockedReview.reviewPacketHash = crypto.createHash("sha256").update(JSON.stringify(changedReviewBody)).digest("hex");
+  let changedLockedReviewRejected = false;
+  try {
+    assertLockedReviewMatchesGenerated(changedLockedReview, reviewArtifact);
+  } catch {
+    changedLockedReviewRejected = true;
+  }
+  let actualInputOutputCollisionRejected = false;
+  try {
+    const collisionProbe = path.join(debugDir, "collision_probe.json");
+    assertDistinctFilePaths([collisionProbe, collisionProbe]);
+  } catch {
+    actualInputOutputCollisionRejected = true;
+  }
+  const ratioBandSignature = day => JSON.stringify({
+    energy: getActualRatioBand(day.ratios?.energy),
+    protein: getActualRatioBand(day.ratios?.protein),
+    carb: getActualRatioBand(day.ratios?.carb),
+    fat: getActualRatioBand(day.ratios?.fat)
+  });
+  const expectedSourcesByPairSignature = new Map();
+  const seenExpectedPairs = new Set();
+  for (const result of matchedEvidence.toleranceResults) {
+    for (const pair of result.pairs) {
+      const canonical = [pair.left, pair.right].sort((a, b) => a.sampleId.localeCompare(b.sampleId));
+      const pairKey = canonical.map(day => day.sampleId).join("|");
+      if (seenExpectedPairs.has(pairKey)) continue;
+      seenExpectedPairs.add(pairKey);
+      const sideSignatures = canonical.map(ratioBandSignature);
+      expectedSourcesByPairSignature.set([...sideSignatures].sort().join("||"), new Map([
+        [sideSignatures[0], "source_1"],
+        [sideSignatures[1], "source_2"]
+      ]));
+    }
+  }
+  const reviewRevealSideMappingPreserved = revealArtifact.revealMap.every(revealCase => {
+    const reviewCase = reviewArtifact.reviewPacket.find(item => item.caseId === revealCase.caseId);
+    if (!reviewCase) return false;
+    const caseASignature = JSON.stringify(reviewCase.caseA.targetRatioBands);
+    const caseBSignature = JSON.stringify(reviewCase.caseB.targetRatioBands);
+    const expectedSources = expectedSourcesByPairSignature.get([caseASignature, caseBSignature].sort().join("||"));
+    return expectedSources?.get(caseASignature) === revealCase.caseA.originalPairSide
+      && expectedSources?.get(caseBSignature) === revealCase.caseB.originalPairSide;
+  });
   const matchContractIds = matchedEvidence.toleranceResults.map(item => item.id);
   const tolerancePairCounts = Object.fromEntries(matchedEvidence.toleranceResults.map(item => [item.id, item.pairCount]));
   const toleranceCoverageMonotonic = matchedEvidence.toleranceResults.every((item, index, items) => (
@@ -1909,8 +2246,23 @@ async function buildActualDaySourceSafetyFixtureAudit(){
       && item.matchedRecordCount >= items[index - 1].matchedRecordCount
       && item.coverage >= items[index - 1].coverage)
   ));
+  const positiveNonMacroDay = extracted.find(day => day.sampleId === "actual_day_018");
+  const macroOnlyThresholdDay = extracted.find(day => day.sampleId === "actual_day_019");
+  const invalidNonMacroDays = extracted.filter(day => day.exclusionReason === "invalid_meal_non_macro_kcal");
+  const nonFiniteMealEnergyDays = extracted.filter(day => day.exclusionReason === "non_finite_meal_energy_total");
+  const invalidRoutineDay = extracted.find(day => day.sampleId === "actual_day_029");
+  const simpleProfileRoutineDay = extracted.find(day => day.sampleId === "actual_day_030");
+  const extendedInvalidOptionalValues = [null, "", " ", "abc", -1, NaN, Infinity, -Infinity, true, false, [], [1], {}];
+  const reviewContractCounts = countBy(reviewArtifact.reviewPacket, item => item.matchContract);
+  const invalidVariantIds = Array.from({ length: 8 }, (_, index) => `actual_day_${String(index + 20).padStart(3, "0")}`);
+  const invalidVariantFieldCoverageStable = invalidVariantIds.every((sampleId, index) => {
+    const rawRecord = payload.data.records[19 + index];
+    const expectedKey = index < 4 ? "alcoholKcal" : "otherKcal";
+    return Object.prototype.hasOwnProperty.call(rawRecord.meals[0], expectedKey)
+      && extracted.find(day => day.sampleId === sampleId)?.exclusionReason === "invalid_meal_non_macro_kcal";
+  });
   return {
-    schemaVersion: "actual_day_source_safety_fixture_audit_v2",
+    schemaVersion: "actual_day_source_safety_fixture_audit_v3_hypothesis_blind",
     syntheticContractOnly: true,
     sourceRecordCount: extracted.length,
     includedRecordCount: included.length,
@@ -1918,6 +2270,7 @@ async function buildActualDaySourceSafetyFixtureAudit(){
     exclusionReasonCounts,
     invalidEnvelopeRejected,
     missingSettingsRejected,
+    coercedBackupVersionRejected,
     validSnapshotGoalOwned: included.length > 0 && included.every(day => day.goal === "diet" && day.sourceValidity?.snapshotGoalOwned === true),
     validSnapshotSources: {
       allFrozenTarget: included.length > 0 && included.every(day => day.sourceValidity?.targetAuthoritySource === "frozen_goal_snapshot"),
@@ -1935,13 +2288,65 @@ async function buildActualDaySourceSafetyFixtureAudit(){
     duplicateDateScoreCallsPrevented: extracted
       .filter(day => day.exclusionReason === "duplicate_record_date")
       .every(day => day.scoreEvaluationAttempted === false),
-    rawNumericCoercionBypassPrevented: exclusionReasonCounts.invalid_snapshot_target === 2
-      && exclusionReasonCounts.incomplete_snapshot_training_provenance === 4,
+    rawProvenanceCoercionBypassPrevented: exclusionReasonCounts.invalid_snapshot_target === 2
+      && ["actual_day_005", "actual_day_012", "actual_day_013", "actual_day_014"].every(sampleId => (
+        extracted.find(day => day.sampleId === sampleId)?.exclusionReason === "incomplete_snapshot_training_provenance"
+      )),
+    strictRawNumberCoercionsRejected: ["1", true, false, [], [1], {}].every(value => !isExplicitRawFiniteNumber(value)),
+    legacyMissingNonMacroKcalAllowed: ["alcoholKcal", "otherKcal"].every(key => (
+      !Object.prototype.hasOwnProperty.call(payload.data.records[0].meals[0], key)
+      && isValidOptionalRawNonMacroKcal(payload.data.records[0].meals[0], key)
+    )) && extracted.find(day => day.sampleId === "actual_day_001")?.included === true
+      && Math.abs(extracted.find(day => day.sampleId === "actual_day_001")?.ratios?.energy - 1) <= 1e-12
+      && extracted.find(day => day.sampleId === "actual_day_001")?.standardDrinks === 0,
+    explicitFiniteNonMacroKcalAllowed: ["alcoholKcal", "otherKcal"].every(key => (
+      isValidOptionalRawNonMacroKcal(payload.data.records[17].meals[0], key)
+    )) && positiveNonMacroDay?.included === true,
+    extendedInvalidOptionalValuesRejected: extendedInvalidOptionalValues.every(value => (
+      !isValidOptionalRawNonMacroKcal({ alcoholKcal: value }, "alcoholKcal")
+    )),
+    invalidNonMacroVariantCoverage: invalidNonMacroDays.length,
+    invalidNonMacroVariantFieldCoverageStable: invalidVariantFieldCoverageStable,
+    invalidNonMacroScoreCallsPrevented: invalidNonMacroDays.length > 0
+      && invalidNonMacroDays.every(day => day.scoreEvaluationAttempted === false),
+    nonFiniteMealEnergyScoreCallsPrevented: nonFiniteMealEnergyDays.length === 1
+      && nonFiniteMealEnergyDays.every(day => day.scoreEvaluationAttempted === false),
+    allowedRoutineProvenanceEnforced: invalidRoutineDay?.exclusionReason === "incomplete_snapshot_training_provenance"
+      && invalidRoutineDay.scoreEvaluationAttempted === false,
+    productionSimpleProfileRoutineIncluded: simpleProfileRoutineDay?.included === true
+      && simpleProfileRoutineDay.scoreEvaluationAttempted === true,
+    productionScoringKcalThresholdAligned: positiveNonMacroDay?.included === true
+      && Math.abs(positiveNonMacroDay.ratios?.energy - 0.35) <= 1e-12
+      && Math.abs(positiveNonMacroDay.standardDrinks - 2) <= 1e-12,
+    macroOnlyBelowThresholdPrevented: macroOnlyThresholdDay?.included === false
+      && macroOnlyThresholdDay.exclusionReason === "insufficient_full_day"
+      && macroOnlyThresholdDay.scoreEvaluationAttempted === false,
+    sourceCountBalanced: extracted.length === included.length + excluded.length,
     matchContractIds,
     tolerancePairCounts,
     toleranceCoverageMonotonic,
-    blindedCaseCount: blinded.length,
-    blindedOutputForbiddenFieldFree: !/(currentScore|finalScore|jointPenalty|candidatePenalty|mealId|foodName|memo|absoluteMacro|backupPath|sampleId)/i.test(blindedJson)
+    reviewPacketCaseCount: reviewArtifact.reviewPacket.length,
+    revealMapCaseCount: revealArtifact.revealMap.length,
+    reviewPacketExactAllowlistSafe: isHypothesisBlindReviewArtifactSafe(reviewArtifact),
+    revealMapExactAllowlistSafe: isPostJudgmentRevealArtifactSafe(revealArtifact),
+    reviewRevealHashLinked: revealArtifact.reviewPacketHash === reviewArtifact.reviewPacketHash,
+    reviewRevealCaseIdsLinked: JSON.stringify(reviewCaseIds) === JSON.stringify(revealCaseIds),
+    reviewRevealSideMappingPreserved,
+    hypothesisBlindArtifactsDeterministic: JSON.stringify(hypothesisBlindArtifacts) === JSON.stringify(repeatedArtifacts),
+    hypothesisBlindArtifactsInputOrderInvariant: JSON.stringify(hypothesisBlindArtifacts) === JSON.stringify(reversedArtifacts),
+    deterministicShuffleBothOrientationsCovered: caseASources.includes("source_1") && caseASources.includes("source_2"),
+    narrowestToleranceOwnsDeduplicatedPairs: reviewArtifact.reviewPacket.length === 3
+      && reviewContractCounts.exact === 1
+      && reviewContractCounts.tolerance_0_25 === 2
+      && !reviewContractCounts.tolerance_1_00,
+    reviewAndRevealPhysicallySeparable: !Object.prototype.hasOwnProperty.call(reviewArtifact, "revealMap")
+      && !Object.prototype.hasOwnProperty.call(revealArtifact, "reviewPacket"),
+    generatedArtifactBundleSafe,
+    lockedReviewSameInputAccepted,
+    changedLockedReviewRejected,
+    actualInputOutputCollisionRejected,
+    actualOutputDebugPathPolicyCovered: isPathInsideDirectory(path.join(debugDir, "fixture.json"), debugDir)
+      && !isPathInsideDirectory(path.join(root, "docs", "fixture.json"), debugDir)
   };
 }
 
@@ -2477,6 +2882,14 @@ function makeAssertion(name, pass, detail){
   const productionMatrices = await buildTargetMatrix();
   const targetCases = productionMatrices.targetCases;
   const crossProfileCases = productionMatrices.crossProfileCases;
+  const actualAuditRoutineVocabulary = {
+    simple: [...ACTUAL_AUDIT_SIMPLE_ROUTINES].sort(),
+    advancedByProfile: Object.fromEntries(
+      [...ACTUAL_AUDIT_ADVANCED_ROUTINES_BY_PROFILE.entries()].map(([profile, routines]) => [profile, [...routines].sort()])
+    )
+  };
+  const actualAuditRoutineVocabularyMatchesProduction = JSON.stringify(actualAuditRoutineVocabulary)
+    === JSON.stringify(productionMatrices.actualAuditRoutineVocabulary);
   const targetSummary = summarizeTargetMatrix(targetCases);
   const crossProfileSummary = summarizeTargetMatrix(crossProfileCases);
   const optionCDecisionEvidence = buildOptionCDecisionEvidence(jointFixtures);
@@ -2567,14 +2980,25 @@ function makeAssertion(name, pass, detail){
     makeAssertion("production versus historical ownership drift is explicit and fully accounted", productionGeometrySweep.ownershipDrift.accountingComplete && productionGeometrySweep.ownershipDrift.comparisonCount === productionGeometrySweep.residualPositiveCount && productionGeometrySweep.ownershipDrift.changedSampleCount > 0, `positive=${productionGeometrySweep.residualPositiveCount},compared=${productionGeometrySweep.ownershipDrift.comparisonCount},changed=${productionGeometrySweep.ownershipDrift.changedSampleCount},transitions=${JSON.stringify(productionGeometrySweep.ownershipDrift.transitions)}`),
     makeAssertion("production geometry sweep preserves C1/C2 equivalence", productionGeometrySweep.c1C2MaximumAbsoluteDelta <= 1e-12, `maxDelta=${productionGeometrySweep.c1C2MaximumAbsoluteDelta}`),
     makeAssertion("production-exact geometry overlap evidence is fully accounted", productionGeometrySweep.overlapAccountingComplete, `positive=${productionGeometrySweep.residualPositiveCount},unique=${productionGeometrySweep.uniqueResidualCaseCount},overlap=${productionGeometrySweep.coreOverlapCount},unclassified=${productionGeometrySweep.productionUnclassifiedCount}`),
-    makeAssertion("actual-day audit rejects invalid envelopes and missing settings", actualDaySourceSafetyFixtureAudit.invalidEnvelopeRejected && actualDaySourceSafetyFixtureAudit.missingSettingsRejected, `invalidEnvelope=${actualDaySourceSafetyFixtureAudit.invalidEnvelopeRejected},missingSettings=${actualDaySourceSafetyFixtureAudit.missingSettingsRejected}`),
-    makeAssertion("actual-day source safety includes only complete snapshot fixtures", actualDaySourceSafetyFixtureAudit.sourceRecordCount === 17 && actualDaySourceSafetyFixtureAudit.includedRecordCount === 2 && actualDaySourceSafetyFixtureAudit.excludedRecordCount === 15, `source=${actualDaySourceSafetyFixtureAudit.sourceRecordCount},included=${actualDaySourceSafetyFixtureAudit.includedRecordCount},excluded=${actualDaySourceSafetyFixtureAudit.excludedRecordCount},reasons=${JSON.stringify(actualDaySourceSafetyFixtureAudit.exclusionReasonCounts)}`),
+    makeAssertion("actual-day audit rejects invalid envelopes, missing settings, and coerced backup versions", actualDaySourceSafetyFixtureAudit.invalidEnvelopeRejected && actualDaySourceSafetyFixtureAudit.missingSettingsRejected && actualDaySourceSafetyFixtureAudit.coercedBackupVersionRejected, `invalidEnvelope=${actualDaySourceSafetyFixtureAudit.invalidEnvelopeRejected},missingSettings=${actualDaySourceSafetyFixtureAudit.missingSettingsRejected},coercedVersion=${actualDaySourceSafetyFixtureAudit.coercedBackupVersionRejected}`),
+    makeAssertion("actual-day source safety includes only complete snapshot fixtures", actualDaySourceSafetyFixtureAudit.sourceRecordCount === 30 && actualDaySourceSafetyFixtureAudit.includedRecordCount === 4 && actualDaySourceSafetyFixtureAudit.excludedRecordCount === 26 && actualDaySourceSafetyFixtureAudit.sourceCountBalanced === true, `source=${actualDaySourceSafetyFixtureAudit.sourceRecordCount},included=${actualDaySourceSafetyFixtureAudit.includedRecordCount},excluded=${actualDaySourceSafetyFixtureAudit.excludedRecordCount},balanced=${actualDaySourceSafetyFixtureAudit.sourceCountBalanced},reasons=${JSON.stringify(actualDaySourceSafetyFixtureAudit.exclusionReasonCounts)}`),
     makeAssertion("snapshotless actual-day records are excluded before scoring", actualDaySourceSafetyFixtureAudit.snapshotlessScoreCallsPrevented === true && actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.snapshotless === 2, `prevented=${actualDaySourceSafetyFixtureAudit.snapshotlessScoreCallsPrevented},count=${actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.snapshotless}`),
     makeAssertion("invalid and duplicate dates are excluded before scoring", actualDaySourceSafetyFixtureAudit.invalidDateScoreCallsPrevented === true && actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.invalid_record_date === 1 && actualDaySourceSafetyFixtureAudit.duplicateDateScoreCallsPrevented === true && actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.duplicate_record_date === 2, JSON.stringify(actualDaySourceSafetyFixtureAudit.exclusionReasonCounts)),
-    makeAssertion("raw null and blank numeric authority cannot pass through Number coercion", actualDaySourceSafetyFixtureAudit.rawNumericCoercionBypassPrevented === true, JSON.stringify(actualDaySourceSafetyFixtureAudit.exclusionReasonCounts)),
+    makeAssertion("raw numeric authority accepts native finite numbers only", actualDaySourceSafetyFixtureAudit.rawProvenanceCoercionBypassPrevented === true && actualDaySourceSafetyFixtureAudit.strictRawNumberCoercionsRejected === true, `reasonCoverage=${actualDaySourceSafetyFixtureAudit.rawProvenanceCoercionBypassPrevented},strictCoercions=${actualDaySourceSafetyFixtureAudit.strictRawNumberCoercionsRejected}`),
+    makeAssertion("legacy-absent and explicit finite non-macro kcal remain eligible", actualDaySourceSafetyFixtureAudit.legacyMissingNonMacroKcalAllowed === true && actualDaySourceSafetyFixtureAudit.explicitFiniteNonMacroKcalAllowed === true, `legacyAbsent=${actualDaySourceSafetyFixtureAudit.legacyMissingNonMacroKcalAllowed},explicitFinite=${actualDaySourceSafetyFixtureAudit.explicitFiniteNonMacroKcalAllowed}`),
+    makeAssertion("present-invalid alcohol and other kcal variants are excluded before scoring", actualDaySourceSafetyFixtureAudit.invalidNonMacroVariantCoverage === 8 && actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.invalid_meal_non_macro_kcal === 8 && actualDaySourceSafetyFixtureAudit.invalidNonMacroVariantFieldCoverageStable === true && actualDaySourceSafetyFixtureAudit.extendedInvalidOptionalValuesRejected === true && actualDaySourceSafetyFixtureAudit.invalidNonMacroScoreCallsPrevented === true, `fixtureVariants=${actualDaySourceSafetyFixtureAudit.invalidNonMacroVariantCoverage},reasonCount=${actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.invalid_meal_non_macro_kcal},fieldCoverage=${actualDaySourceSafetyFixtureAudit.invalidNonMacroVariantFieldCoverageStable},extendedInvalid=${actualDaySourceSafetyFixtureAudit.extendedInvalidOptionalValuesRejected},prevented=${actualDaySourceSafetyFixtureAudit.invalidNonMacroScoreCallsPrevented}`),
+    makeAssertion("non-finite derived meal/day energy totals are excluded before scoring", actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.non_finite_meal_energy_total === 1 && actualDaySourceSafetyFixtureAudit.nonFiniteMealEnergyScoreCallsPrevented === true, `reasonCount=${actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.non_finite_meal_energy_total},prevented=${actualDaySourceSafetyFixtureAudit.nonFiniteMealEnergyScoreCallsPrevented}`),
+    makeAssertion("actual-day training provenance accepts production simple routines and rejects values outside its vocabulary", actualDaySourceSafetyFixtureAudit.allowedRoutineProvenanceEnforced === true && actualDaySourceSafetyFixtureAudit.productionSimpleProfileRoutineIncluded === true, `invalidRejected=${actualDaySourceSafetyFixtureAudit.allowedRoutineProvenanceEnforced},simpleIncluded=${actualDaySourceSafetyFixtureAudit.productionSimpleProfileRoutineIncluded}`),
+    makeAssertion("actual-day routine vocabulary mirrors production simple and advanced profile routines", actualAuditRoutineVocabularyMatchesProduction === true, `profiles=${Object.keys(actualAuditRoutineVocabulary.advancedByProfile).join("|")},matches=${actualAuditRoutineVocabularyMatchesProduction}`),
+    makeAssertion("actual-day full-day threshold uses production scoring kcal including valid non-macro energy", actualDaySourceSafetyFixtureAudit.productionScoringKcalThresholdAligned === true, `aligned=${actualDaySourceSafetyFixtureAudit.productionScoringKcalThresholdAligned}`),
+    makeAssertion("macro-only intake below the production full-day threshold is excluded before scoring", actualDaySourceSafetyFixtureAudit.macroOnlyBelowThresholdPrevented === true, `prevented=${actualDaySourceSafetyFixtureAudit.macroOnlyBelowThresholdPrevented}`),
     makeAssertion("actual-day included fixtures remain snapshot-owned without current-result fallback", actualDaySourceSafetyFixtureAudit.validSnapshotGoalOwned === true && actualDaySourceSafetyFixtureAudit.validSnapshotSources?.allFrozenTarget === true && actualDaySourceSafetyFixtureAudit.validSnapshotSources?.allSnapshotWeight === true && actualDaySourceSafetyFixtureAudit.validSnapshotSources?.allRawTrainingEnergy === true && actualDaySourceSafetyFixtureAudit.validSnapshotSources?.noCurrentResultFallback === true, JSON.stringify(actualDaySourceSafetyFixtureAudit.validSnapshotSources)),
     makeAssertion("cardio-only snapshot training is derived from raw snapshot energy instead of rest fallback", actualDaySourceSafetyFixtureAudit.cardioOnlyTrainingContextOwned === true, `owned=${actualDaySourceSafetyFixtureAudit.cardioOnlyTrainingContextOwned}`),
-    makeAssertion("matched evidence tests exact, 0.25, and 1.0 contracts with monotonic coverage while blinded output hides score fields", JSON.stringify(actualDaySourceSafetyFixtureAudit.matchContractIds) === JSON.stringify(["exact", "tolerance_0_25", "tolerance_1_00"]) && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.exact > 0 && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_0_25 > actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.exact && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_1_00 >= actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_0_25 && actualDaySourceSafetyFixtureAudit.toleranceCoverageMonotonic === true && actualDaySourceSafetyFixtureAudit.blindedCaseCount > 0 && actualDaySourceSafetyFixtureAudit.blindedOutputForbiddenFieldFree === true, `contracts=${actualDaySourceSafetyFixtureAudit.matchContractIds?.join("|")},pairs=${JSON.stringify(actualDaySourceSafetyFixtureAudit.tolerancePairCounts)},monotonic=${actualDaySourceSafetyFixtureAudit.toleranceCoverageMonotonic},blinded=${actualDaySourceSafetyFixtureAudit.blindedCaseCount},privacy=${actualDaySourceSafetyFixtureAudit.blindedOutputForbiddenFieldFree}`)
+    makeAssertion("matched evidence tests exact, 0.25, and 1.0 contracts with monotonic coverage", JSON.stringify(actualDaySourceSafetyFixtureAudit.matchContractIds) === JSON.stringify(["exact", "tolerance_0_25", "tolerance_1_00"]) && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.exact > 0 && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_0_25 > actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.exact && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_1_00 >= actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_0_25 && actualDaySourceSafetyFixtureAudit.toleranceCoverageMonotonic === true, `contracts=${actualDaySourceSafetyFixtureAudit.matchContractIds?.join("|")},pairs=${JSON.stringify(actualDaySourceSafetyFixtureAudit.tolerancePairCounts)},monotonic=${actualDaySourceSafetyFixtureAudit.toleranceCoverageMonotonic}`),
+    makeAssertion("standalone review and post-judgment reveal artifacts use exact privacy allowlists and linked case hashes", actualDaySourceSafetyFixtureAudit.reviewPacketCaseCount > 0 && actualDaySourceSafetyFixtureAudit.reviewPacketCaseCount === actualDaySourceSafetyFixtureAudit.revealMapCaseCount && actualDaySourceSafetyFixtureAudit.reviewPacketExactAllowlistSafe === true && actualDaySourceSafetyFixtureAudit.revealMapExactAllowlistSafe === true && actualDaySourceSafetyFixtureAudit.reviewRevealHashLinked === true && actualDaySourceSafetyFixtureAudit.reviewRevealCaseIdsLinked === true && actualDaySourceSafetyFixtureAudit.reviewRevealSideMappingPreserved === true && actualDaySourceSafetyFixtureAudit.reviewAndRevealPhysicallySeparable === true && actualDaySourceSafetyFixtureAudit.generatedArtifactBundleSafe === true && actualDaySourceSafetyFixtureAudit.actualOutputDebugPathPolicyCovered === true, `review=${actualDaySourceSafetyFixtureAudit.reviewPacketCaseCount},reveal=${actualDaySourceSafetyFixtureAudit.revealMapCaseCount},reviewSafe=${actualDaySourceSafetyFixtureAudit.reviewPacketExactAllowlistSafe},revealSafe=${actualDaySourceSafetyFixtureAudit.revealMapExactAllowlistSafe},hashLinked=${actualDaySourceSafetyFixtureAudit.reviewRevealHashLinked},caseLinked=${actualDaySourceSafetyFixtureAudit.reviewRevealCaseIdsLinked},sideLinked=${actualDaySourceSafetyFixtureAudit.reviewRevealSideMappingPreserved},separate=${actualDaySourceSafetyFixtureAudit.reviewAndRevealPhysicallySeparable},runtimeGuard=${actualDaySourceSafetyFixtureAudit.generatedArtifactBundleSafe},debugOnly=${actualDaySourceSafetyFixtureAudit.actualOutputDebugPathPolicyCovered}`),
+    makeAssertion("post-judgment reveal accepts only the locked matching review and distinct input/output paths", actualDaySourceSafetyFixtureAudit.lockedReviewSameInputAccepted === true && actualDaySourceSafetyFixtureAudit.changedLockedReviewRejected === true && actualDaySourceSafetyFixtureAudit.actualInputOutputCollisionRejected === true, `sameAccepted=${actualDaySourceSafetyFixtureAudit.lockedReviewSameInputAccepted},changedRejected=${actualDaySourceSafetyFixtureAudit.changedLockedReviewRejected},collisionRejected=${actualDaySourceSafetyFixtureAudit.actualInputOutputCollisionRejected}`),
+    makeAssertion("hypothesis-blind shuffle is deterministic, input-order invariant, and covers both A/B orientations", actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsDeterministic === true && actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsInputOrderInvariant === true && actualDaySourceSafetyFixtureAudit.deterministicShuffleBothOrientationsCovered === true, `repeat=${actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsDeterministic},reverse=${actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsInputOrderInvariant},bothOrientations=${actualDaySourceSafetyFixtureAudit.deterministicShuffleBothOrientationsCovered}`),
+    makeAssertion("hypothesis-blind review deduplicates pairs under their narrowest tolerance", actualDaySourceSafetyFixtureAudit.narrowestToleranceOwnsDeduplicatedPairs === true, `owned=${actualDaySourceSafetyFixtureAudit.narrowestToleranceOwnsDeduplicatedPairs}`)
   ];
 
   const ledgerWithoutHash = {
@@ -2653,6 +3077,9 @@ function makeAssertion(name, pass, detail){
       userReproducedAnonymizedTransitionIncluded: true,
       deterministicHarnessLoadsPrivateBackup: false,
       optionalPrivateAuditFlag: "--actual-backup",
+      standaloneReviewOutputFlag: "--actual-review-output",
+      postJudgmentRevealFlag: "--post-judgment-reveal + --actual-reveal-output",
+      actualOutputsIgnoredDebugOnly: true,
       explicitBackupRequired: true,
       evidenceStatusWithoutFlag: "source_safety_corrected_awaiting_explicit_backup",
       sourceSafetyFixtureAudit: actualDaySourceSafetyFixtureAudit,
@@ -2661,22 +3088,74 @@ function makeAssertion(name, pass, detail){
     assertions
   };
   const deterministicHash = crypto.createHash("sha256").update(JSON.stringify(ledgerWithoutHash)).digest("hex");
-  const localActualDayAudit = actualBackupPath
+  if (!actualBackupPath && (actualReviewOutputPath || actualRevealOutputPath || postJudgmentReveal)) {
+    throw new Error("actual review/reveal flags require --actual-backup");
+  }
+  let actualOutputPaths = null;
+  if (actualBackupPath) {
+    if (outputFormat !== "json") throw new Error("--actual-backup supports JSON output only");
+    const backupInput = path.resolve(root, actualBackupPath);
+    const ledgerOutput = resolveActualAuditOutputPath(outputPath, "--output");
+    const reviewOutput = resolveActualAuditOutputPath(actualReviewOutputPath, "--actual-review-output");
+    if (actualRevealOutputPath && !postJudgmentReveal) {
+      throw new Error("--actual-reveal-output requires --post-judgment-reveal after judgment is fixed");
+    }
+    const revealOutput = postJudgmentReveal
+      ? resolveActualAuditOutputPath(actualRevealOutputPath, "--actual-reveal-output")
+      : null;
+    assertDistinctFilePaths([backupInput, ledgerOutput, reviewOutput, revealOutput]);
+    if (postJudgmentReveal && !fs.existsSync(reviewOutput)) {
+      throw new Error("post-judgment reveal requires the existing locked --actual-review-output file");
+    }
+    if (!postJudgmentReveal && fs.existsSync(reviewOutput)) {
+      throw new Error("pre-judgment review output already exists; preserve it or choose a new path");
+    }
+    if (revealOutput && fs.existsSync(revealOutput)) {
+      throw new Error("post-judgment reveal output already exists; preserve it or choose a new path");
+    }
+    actualOutputPaths = { backupInput, ledgerOutput, reviewOutput, revealOutput };
+  }
+  const localActualDayAuditBundle = actualBackupPath
     ? await buildLocalActualDayAudit(path.resolve(root, actualBackupPath))
     : null;
+  if (localActualDayAuditBundle && actualOutputPaths) {
+    assertHypothesisBlindArtifactBundleSafe(localActualDayAuditBundle);
+    if (postJudgmentReveal) {
+      const lockedReviewArtifact = JSON.parse(fs.readFileSync(actualOutputPaths.reviewOutput, "utf8"));
+      assertLockedReviewMatchesGenerated(lockedReviewArtifact, localActualDayAuditBundle.reviewArtifact);
+    }
+  }
   const ledger = {
     ...ledgerWithoutHash,
     deterministicHash,
-    ...(localActualDayAudit ? { localActualDayAudit } : {})
+    ...(localActualDayAuditBundle ? { localActualDayAudit: localActualDayAuditBundle.summaryAudit } : {})
   };
   const output = outputFormat === "csv" ? toCsv(ledger) : `${JSON.stringify(ledger, null, 2)}\n`;
   if (outputPath) {
-    const resolvedOutputPath = path.resolve(root, outputPath);
+    const resolvedOutputPath = actualOutputPaths?.ledgerOutput || path.resolve(root, outputPath);
     if (!resolvedOutputPath.startsWith(root + path.sep)) throw new Error("--output must stay inside the repository");
     fs.mkdirSync(path.dirname(resolvedOutputPath), { recursive: true });
     fs.writeFileSync(resolvedOutputPath, output, "utf8");
   } else {
     process.stdout.write(output);
+  }
+  if (localActualDayAuditBundle && actualOutputPaths) {
+    if (!postJudgmentReveal) {
+      fs.mkdirSync(path.dirname(actualOutputPaths.reviewOutput), { recursive: true });
+      fs.writeFileSync(
+        actualOutputPaths.reviewOutput,
+        `${JSON.stringify(localActualDayAuditBundle.reviewArtifact, null, 2)}\n`,
+        { encoding: "utf8", flag: "wx" }
+      );
+    }
+    if (actualOutputPaths.revealOutput) {
+      fs.mkdirSync(path.dirname(actualOutputPaths.revealOutput), { recursive: true });
+      fs.writeFileSync(
+        actualOutputPaths.revealOutput,
+        `${JSON.stringify(localActualDayAuditBundle.revealArtifact, null, 2)}\n`,
+        { encoding: "utf8", flag: "wx" }
+      );
+    }
   }
   if (assertMode && assertions.some(assertion => !assertion.pass)) process.exitCode = 1;
 })().catch(error => {

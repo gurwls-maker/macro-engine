@@ -37,7 +37,8 @@ node .\tools\render_audit\run_internal_tests.cjs
 node .\tools\render_audit\run_internal_tests.cjs --mobile
 node .\tools\render_audit\simulate_component_score_architecture.cjs --assert
 node .\tools\render_audit\simulate_component_score_architecture.cjs --format=csv --output=tools\render_audit\_debug\component_score_ledger.csv
-node .\tools\render_audit\simulate_component_score_architecture.cjs --assert --actual-backup=user-data\macro-engine-full-backup.json --output=tools\render_audit\_debug\component_score_actual_audit.json
+node .\tools\render_audit\simulate_component_score_architecture.cjs --assert --actual-backup=user-data\macro-engine-full-backup.json --output=tools\render_audit\_debug\component_score_actual_audit.json --actual-review-output=tools\render_audit\_debug\component_score_actual_review.json
+node .\tools\render_audit\simulate_component_score_architecture.cjs --assert --actual-backup=user-data\macro-engine-full-backup.json --output=tools\render_audit\_debug\component_score_actual_audit.json --actual-review-output=tools\render_audit\_debug\component_score_actual_review.json --post-judgment-reveal --actual-reveal-output=tools\render_audit\_debug\component_score_actual_reveal.json
 node .\tools\render_audit\capture_render_audit.cjs
 node .\tools\render_audit\analyze_render_audit.cjs
 node .\tools\render_audit\run_v8_full_cartesian_shard.cjs --start=0 --limit=8 --max-cases=8
@@ -101,7 +102,11 @@ It deterministically produces:
 
 Generated ledgers belong under ignored `_debug/`. They must not contain raw Records, dates, or food names. Passing this tool is architecture evidence only and never opens production scoring implementation by itself.
 
-`--actual-backup` is optional and local-only. It reads an ignored full backup transiently, emits only anonymous day ids plus numeric ratios/domain outputs, and adds a separate anonymized-audit hash. The deterministic architecture hash intentionally excludes this private audit section, so another machine can reproduce the synthetic and target-matrix evidence without access to personal Records.
+`--actual-backup` is optional and local-only. It reads only the explicitly supplied full backup. Missing meal `alcoholKcal`/`otherKcal` keys are treated as legacy zero, while present values must be native finite nonnegative numbers or the day is excluded before scoring as `invalid_meal_non_macro_kcal`. Derived meal/day energy totals must remain finite. The full-day 30% gate uses production scoring kcal, including valid alcohol/other kcal. Routine provenance follows the production simple common vocabulary or the selected advanced profile vocabulary.
+
+Actual-backup runs require the audit ledger and standalone `--actual-review-output` under ignored `tools/render_audit/_debug/`; paths elsewhere fail closed. The raw backup and all output paths must be distinct. The review artifact contains randomized A/B ratio bands and context but no residual, score, source id, date, food, memo, absolute intake, or backup path. Canonical A/B assignment and presentation order use a fixed deterministic seed, and the artifact includes a stable review hash. Do not pass the audit ledger or residual summary to the product-meaning reviewer.
+
+The first review run refuses to overwrite an existing review file. After the reviewer has fixed a judgment, rerun with `--post-judgment-reveal` and a distinct `--actual-reveal-output` under `_debug/`. The tool reads the locked review artifact, validates its privacy allowlist/hash, requires an exact match with the same backup/input, and never rewrites it. A changed backup or packet fails before reveal output. The separate hash-linked reveal artifact is the only output containing the A/B residual direction and magnitude. Without the post-judgment flag, no reveal file is written. Raw backup, audit ledger, review artifact, and reveal artifact must not be committed. The deterministic architecture hash intentionally excludes private actual-day evidence, so another machine can reproduce the synthetic and target-matrix evidence without personal Records.
 
 ## V8 Full Cartesian Shard Pilot
 

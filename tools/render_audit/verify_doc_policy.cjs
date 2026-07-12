@@ -382,12 +382,18 @@ if (failures.length === 0) {
     "current production은 54/54 exact 100",
     "production formula/UI/storage implementation을 열지 않는다",
     "production joint 제외 8축",
-    "snapshotless/current-Settings hidden recompute를 금지",
+    "snapshotless/current-Settings hidden recompute",
     "명시적으로 제공한 full-backup",
     "DailyCoach semantic v2 phase 1",
   ];
   for (const text of currentTruthRequirements) {
     if (!currentTruth.includes(text)) fail(`02_macro_range_current_truth missing: ${text}`);
+  }
+  const hiddenRecomputeGuardLine = currentTruth.split(/\r?\n/).find(line => (
+    line.includes("snapshotless/current-Settings hidden recompute")
+  ));
+  if (!hiddenRecomputeGuardLine || !/(금지|차단|허용하지)/.test(hiddenRecomputeGuardLine)) {
+    fail("02_macro_range_current_truth must prohibit snapshotless/current-Settings hidden recompute in the same routing clause");
   }
 
   const statusRequirements = [
@@ -1350,6 +1356,12 @@ if (failures.length === 0) {
     "snapshotless",
     "explicit backup",
     "blinded product-meaning",
+    "actual-day evidence preflight hardening",
+    "hypothesis-blind",
+    "invalid_meal_non_macro_kcal",
+    "non_finite_meal_energy_total",
+    "production scoring kcal",
+    "post-judgment",
     "coefficient tuning",
     "실제 private backup은 이 작업공간에 없어서",
     "scoring formula/version, UI, storage/schema, backup, Records, DailyCoach, v8.3 tag를 바꾸지 않았다",
@@ -1402,8 +1414,17 @@ if (failures.length === 0) {
     ]) {
       if (!text.includes("explicit-backup")) fail(`${label} must route the awaiting-backup outcome to explicit-backup evidence`);
     }
-    if (!readFirst.includes("explicit-backup privacy-safe actual-day joint ownership evidence: pending test/docs-only gate")
-        || !statusIndex.includes("explicit-backup privacy-safe actual-day joint ownership evidence: pending")
+    const hasAwaitingActualEvidenceSemantics = text => {
+      const routeLine = text.split(/\r?\n/).find(line => (
+        line.includes("explicit-backup privacy-safe actual-day joint ownership evidence:")
+      ));
+      return !!routeLine
+        && /preflight closed/i.test(routeLine)
+        && /explicit backup input/i.test(routeLine)
+        && /judgment pending/i.test(routeLine);
+    };
+    if (!hasAwaitingActualEvidenceSemantics(readFirst)
+        || !hasAwaitingActualEvidenceSemantics(statusIndex)
         || !statusIndex.includes("56. component-score actual-day aggregation re-evaluation.")
         || !statusIndex.includes("상태: blocked until authoritative evidence in item 55 closes.")) {
       fail("awaiting-backup outcome must keep explicit-backup evidence pending and component aggregation blocked");
@@ -1476,7 +1497,18 @@ if (failures.length === 0) {
     "current_result_source_fallback",
     "ACTUAL_MATCH_TOLERANCES",
     "function buildActualMatchedEvidence",
-    "function buildBlindedProductMeaningCases",
+    "function buildHypothesisBlindProductMeaningReview",
+    "function isValidOptionalRawNonMacroKcal",
+    "ACTUAL_AUDIT_SIMPLE_ROUTINES",
+    "ACTUAL_AUDIT_ADVANCED_ROUTINES_BY_PROFILE",
+    "invalid_meal_non_macro_kcal",
+    "--actual-review-output",
+    "--actual-reveal-output",
+    "--post-judgment-reveal",
+    "function isHypothesisBlindReviewArtifactSafe",
+    "function isPostJudgmentRevealArtifactSafe",
+    "function assertLockedReviewMatchesGenerated",
+    "function assertDistinctFilePaths",
     "source_safety_corrected_awaiting_explicit_backup",
     "deterministicHash",
     "target matrix has 54 cases",
@@ -1492,7 +1524,14 @@ if (failures.length === 0) {
     "C3 legacy normalized-carb baseline is marked DROP and diverges",
     "production geometry sweep covers all 54 plus 12 cross-profile geometries with joint-model authority",
     "production ownership source covers every sample with the exact nine-axis key set and eight non-joint axes",
-    "raw null and blank numeric authority cannot pass through Number coercion",
+    "raw numeric authority accepts native finite numbers only",
+    "present-invalid alcohol and other kcal variants are excluded before scoring",
+    "non-finite derived meal/day energy totals are excluded before scoring",
+    "actual-day routine vocabulary mirrors production simple and advanced profile routines",
+    "actual-day full-day threshold uses production scoring kcal including valid non-macro energy",
+    "standalone review and post-judgment reveal artifacts use exact privacy allowlists and linked case hashes",
+    "post-judgment reveal accepts only the locked matching review and distinct input/output paths",
+    "hypothesis-blind shuffle is deterministic, input-order invariant, and covers both A/B orientations",
     "invalid and duplicate dates are excluded before scoring",
     "cardio-only snapshot training is derived from raw snapshot energy instead of rest fallback",
     "historical_test_local_helper_diagnostics_only",
