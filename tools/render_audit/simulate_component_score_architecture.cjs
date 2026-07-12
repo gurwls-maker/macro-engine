@@ -1295,6 +1295,14 @@ const ACTUAL_AUDIT_GOALS = new Set(["diet", "cut", "recomp", "maintain", "lean_b
 const ACTUAL_AUDIT_EXERCISE_MODES = new Set(["general", "exercise"]);
 const ACTUAL_AUDIT_EXERCISE_PROFILES = new Set(["bodybuilding", "powerbuilding", "strength", "running", "mixed"]);
 const ACTUAL_AUDIT_CARDIO_TYPES = new Set(["treadmill_walk", "treadmill_run", "outdoor_run"]);
+const ACTUAL_AUDIT_SNAPSHOT_SOURCES = new Set([
+  "saved_at_entry",
+  "generated_on_late_meal_add",
+  "legacy_import",
+  "today_auto_sync",
+  "today_manual_confirm",
+  "record_detail_edit"
+]);
 const ACTUAL_AUDIT_SIMPLE_ROUTINES = new Set(["REST", "PUSH"]);
 const ACTUAL_AUDIT_ADVANCED_ROUTINES_BY_PROFILE = new Map([
   ["bodybuilding", new Set(["REST", "PUSH", "PULL", "LEGS", "UPPER", "LOWER", "CHEST", "BACK", "SHOULDER", "ARM", "ARMS"])],
@@ -1303,10 +1311,10 @@ const ACTUAL_AUDIT_ADVANCED_ROUTINES_BY_PROFILE = new Map([
   ["running", new Set(["REST", "running_easy", "running_tempo", "running_interval", "running_long", "running_recovery"])],
   ["mixed", new Set(["REST", "mixed_strength_cardio", "mixed_strength_focus", "mixed_cardio_focus", "mixed_circuit", "mixed_recovery"])]
 ]);
-const ACTUAL_AUDIT_ALL_ROUTINES = new Set(
-  [...ACTUAL_AUDIT_SIMPLE_ROUTINES, ...[...ACTUAL_AUDIT_ADVANCED_ROUTINES_BY_PROFILE.values()].flatMap(items => [...items])]
-);
-const ACTUAL_BLIND_SHUFFLE_SEED_VERSION = "v8.4_joint_actual_day_hypothesis_blind_v1";
+const ACTUAL_AUDIT_LEGACY_BODYBUILDING_ROUTINES = new Set([
+  "PUSH", "PULL", "LEGS", "UPPER", "LOWER", "CHEST", "BACK", "SHOULDER", "ARM", "ARMS"
+]);
+const ACTUAL_BLIND_SHUFFLE_SEED_VERSION = "v8.4_joint_actual_day_hypothesis_blind_v2_balanced_disjoint";
 const ACTUAL_MATCH_TOLERANCES = Object.freeze([
   Object.freeze({ id: "exact", maxAxisDelta: 0 }),
   Object.freeze({ id: "tolerance_0_25", maxAxisDelta: 0.25 }),
@@ -1341,7 +1349,81 @@ function isValidOptionalRawNonMacroKcal(meal, key){
   return isExplicitRawFiniteNumber(meal[key]) && Number(meal[key]) >= 0;
 }
 
-function getRawActualRecordExclusionReason(record){
+function getStableActualSampleId(record){
+  const rawDate = typeof record?.date === "string" ? record.date : "";
+  const identity = isSemanticallyValidActualRecordDate(rawDate)
+    ? `valid_date|${rawDate}`
+    : `invalid_record|${JSON.stringify(record)}`;
+  return `actual_day_${crypto.createHash("sha256")
+    .update(`${ACTUAL_BLIND_SHUFFLE_SEED_VERSION}|identity|${identity}`)
+    .digest("hex")
+    .slice(0, 16)}`;
+}
+
+function getActualSnapshotMarkerStatus(record){
+  const raw = typeof record?.snapshotSource === "string" ? record.snapshotSource.trim() : "";
+  if (!raw) return "markerless_snapshot_source";
+  return ACTUAL_AUDIT_SNAPSHOT_SOURCES.has(raw)
+    ? "recognized_snapshot_source"
+    : "unrecognized_snapshot_source";
+}
+
+function resolveActualTrainingProfileProvenance(record){
+  const snapshot = record?.goalSnapshot;
+  const snapshotMarkerStatus = getActualSnapshotMarkerStatus(record);
+  if (!snapshot || typeof snapshot !== "object") {
+    return { valid: false, exclusionReason: "snapshotless", snapshotMarkerStatus };
+  }
+  if (snapshotMarkerStatus === "unrecognized_snapshot_source") {
+    return { valid: false, exclusionReason: "invalid_snapshot_source_marker", snapshotMarkerStatus };
+  }
+  const exerciseMode = String(snapshot.exerciseManagementMode || "");
+  if (!ACTUAL_AUDIT_EXERCISE_MODES.has(exerciseMode)) {
+    return { valid: false, exclusionReason: "incomplete_snapshot_training_provenance", snapshotMarkerStatus };
+  }
+  const rawProfile = typeof snapshot.exerciseProfile === "string" ? snapshot.exerciseProfile.trim() : "";
+  const routine = typeof snapshot.routine === "string" ? snapshot.routine.trim() : "";
+  if (!routine) {
+    return { valid: false, exclusionReason: "incomplete_snapshot_training_provenance", snapshotMarkerStatus };
+  }
+  if (ACTUAL_AUDIT_EXERCISE_PROFILES.has(rawProfile)) {
+    const routineAllowed = snapshot.generalAdvancedSettings === true
+      ? ACTUAL_AUDIT_ADVANCED_ROUTINES_BY_PROFILE.get(rawProfile)?.has(routine) === true
+      : ACTUAL_AUDIT_SIMPLE_ROUTINES.has(routine);
+    return routineAllowed
+      ? {
+          valid: true,
+          effectiveExerciseProfile: rawProfile,
+          effectiveAdvanced: snapshot.generalAdvancedSettings === true,
+          trainingProfileSource: "snapshot_profile_explicit_current_schema",
+          snapshotMarkerStatus
+        }
+      : { valid: false, exclusionReason: "incomplete_snapshot_training_provenance", snapshotMarkerStatus };
+  }
+  if (rawProfile) {
+    return { valid: false, exclusionReason: "incomplete_snapshot_training_provenance", snapshotMarkerStatus };
+  }
+  if (exerciseMode === "exercise" && (routine === "REST" || ACTUAL_AUDIT_LEGACY_BODYBUILDING_ROUTINES.has(routine))) {
+    return {
+      valid: true,
+      effectiveExerciseProfile: "bodybuilding",
+      effectiveAdvanced: true,
+      trainingProfileSource: routine === "REST"
+        ? "legacy_profileless_rest_profile_irrelevant"
+        : "legacy_profile_absent_expert_bodybuilding",
+      snapshotMarkerStatus
+    };
+  }
+  return {
+    valid: false,
+    exclusionReason: exerciseMode === "exercise" && routine.includes("+")
+      ? "ambiguous_legacy_compound_routine"
+      : "incomplete_snapshot_profile_provenance",
+    snapshotMarkerStatus
+  };
+}
+
+function getRawActualRecordExclusionReason(record, trainingProfileProvenance = resolveActualTrainingProfileProvenance(record)){
   if (!record || typeof record !== "object") return "invalid_record";
   if (!isSemanticallyValidActualRecordDate(record.date)) return "invalid_record_date";
   const meals = Array.isArray(record.meals) ? record.meals : [];
@@ -1361,16 +1443,10 @@ function getRawActualRecordExclusionReason(record){
   if (!ACTUAL_AUDIT_GOALS.has(String(snapshot.goal || ""))) return "incomplete_snapshot_goal_provenance";
   if (!isExplicitRawFiniteNumber(snapshot.weight) || !(Number(snapshot.weight) > 0)) return "incomplete_snapshot_weight_provenance";
   const trainingNumbers = [snapshot.weeklyTrainingDays, snapshot.weightDuration, snapshot.cardioDuration];
-  const exerciseMode = String(snapshot.exerciseManagementMode || "");
-  const exerciseProfile = String(snapshot.exerciseProfile || "");
-  const routine = typeof snapshot.routine === "string" ? snapshot.routine.trim() : "";
-  const routineAllowed = exerciseMode === "exercise"
-    ? (snapshot.generalAdvancedSettings === true
-      ? ACTUAL_AUDIT_ADVANCED_ROUTINES_BY_PROFILE.get(exerciseProfile)?.has(routine) === true
-      : ACTUAL_AUDIT_SIMPLE_ROUTINES.has(routine))
-    : ACTUAL_AUDIT_ALL_ROUTINES.has(routine);
+  if (trainingProfileProvenance?.valid !== true) {
+    return trainingProfileProvenance?.exclusionReason || "incomplete_snapshot_training_provenance";
+  }
   if (!ACTUAL_AUDIT_EXERCISE_MODES.has(String(snapshot.exerciseManagementMode || ""))
-      || !routineAllowed
       || !trainingNumbers.every(isExplicitRawFiniteNumber)
       || !Number.isInteger(Number(snapshot.weeklyTrainingDays))
       || Number(snapshot.weeklyTrainingDays) < 0
@@ -1380,8 +1456,7 @@ function getRawActualRecordExclusionReason(record){
     return "incomplete_snapshot_training_provenance";
   }
   if (snapshot.exerciseManagementMode === "exercise") {
-    if (!ACTUAL_AUDIT_EXERCISE_PROFILES.has(exerciseProfile)
-        || typeof snapshot.generalAdvancedSettings !== "boolean"
+    if (typeof snapshot.generalAdvancedSettings !== "boolean"
         || typeof snapshot.generalLowDigestCarbs !== "boolean"
         || !isExplicitRawFiniteNumber(snapshot.expertLbmAlpha)
         || Number(snapshot.expertLbmAlpha) < 0.50
@@ -1439,14 +1514,24 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
     if (date) counts.set(date, (counts.get(date) || 0) + 1);
     return counts;
   }, new Map());
-  const rawEligibility = rawRecords.map((record, index) => ({
-    index,
-    sampleId: `actual_day_${String(index + 1).padStart(3, "0")}`,
-    exclusionReason: isSemanticallyValidActualRecordDate(record?.date) && recordDateCounts.get(record.date) > 1
-      ? "duplicate_record_date"
-      : getRawActualRecordExclusionReason(record)
-  }));
-  const eligibleIndexes = rawEligibility.filter(item => !item.exclusionReason).map(item => item.index);
+  const rawEligibility = rawRecords.map((record, index) => {
+    const trainingProfileProvenance = resolveActualTrainingProfileProvenance(record);
+    return {
+      index,
+      sampleId: getStableActualSampleId(record),
+      trainingProfileProvenance,
+      exclusionReason: isSemanticallyValidActualRecordDate(record?.date) && recordDateCounts.get(record.date) > 1
+        ? "duplicate_record_date"
+        : getRawActualRecordExclusionReason(record, trainingProfileProvenance)
+    };
+  });
+  const eligibleRecords = rawEligibility
+    .filter(item => !item.exclusionReason)
+    .map(item => ({
+      index: item.index,
+      sampleId: item.sampleId,
+      trainingProfileProvenance: item.trainingProfileProvenance
+    }));
   const server = createStaticServer();
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const port = server.address().port;
@@ -1457,11 +1542,11 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
     const page = context.pages()[0] || await context.newPage();
     await page.goto(`http://127.0.0.1:${port}/index.html?codexInternalTests=1`, { waitUntil: "domcontentloaded", timeout: 90000 });
     await page.waitForFunction(() => typeof calculate === "function" && typeof getDailyAdherenceScore === "function", null, { timeout: 90000 });
-    const evaluated = await page.evaluate(({ payload: data, eligibleIndexes: indexes }) => {
+    const evaluated = await page.evaluate(({ payload: data, eligibleRecords: eligible }) => {
       const normalizedBackup = normalizeFullBackupPayload(data);
       const rawRecords = data.data.records;
-      recordsState.items = indexes.map(index => normalizeRecord(rawRecords[index])).filter(record => record?.date);
-      return indexes.map(index => {
+      recordsState.items = eligible.map(item => normalizeRecord(rawRecords[item.index])).filter(record => record?.date);
+      return eligible.map(({ index, sampleId, trainingProfileProvenance }) => {
         const rawRecord = rawRecords[index];
         const rawSnapshot = rawRecord.goalSnapshot;
         const record = normalizeRecord(rawRecord);
@@ -1471,7 +1556,7 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
         const trainingState = {
           weight: Number(rawSnapshot.weight),
           exerciseManagementMode: rawSnapshot.exerciseManagementMode,
-          exerciseProfile: rawSnapshot.exerciseProfile || "bodybuilding",
+          exerciseProfile: trainingProfileProvenance.effectiveExerciseProfile,
           routine: rawSnapshot.routine,
           weeklyTrainingDays: Number(rawSnapshot.weeklyTrainingDays),
           weightDuration: Number(rawSnapshot.weightDuration),
@@ -1480,7 +1565,7 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
           cardioDuration: Number(rawSnapshot.cardioDuration),
           cardioSpeed: Number(rawSnapshot.cardioSpeed) || 0,
           cardioIncline: Number(rawSnapshot.cardioIncline) || 0,
-          generalAdvancedSettings: rawSnapshot.generalAdvancedSettings === true,
+          generalAdvancedSettings: trainingProfileProvenance.effectiveAdvanced === true,
           generalLowDigestCarbs: rawSnapshot.generalLowDigestCarbs === true,
           expertLbmAlpha: Number(rawSnapshot.expertLbmAlpha),
           bodyFat: null,
@@ -1525,6 +1610,7 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
             goal: rawSnapshot.goal,
             weight: Number(rawSnapshot.weight),
             exerciseManagementMode: rawSnapshot.exerciseManagementMode,
+            exerciseProfile: trainingProfileProvenance.effectiveExerciseProfile,
             routine: rawSnapshot.routine,
             weeklyTrainingDays: Number(rawSnapshot.weeklyTrainingDays),
             weightDuration: Number(rawSnapshot.weightDuration)
@@ -1551,7 +1637,7 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
           ? Number(actual) / Number(expected)
           : null;
         return {
-          sampleId: `actual_day_${String(index + 1).padStart(3, "0")}`,
+          sampleId,
           scoreEvaluationAttempted: true,
           mealCount: Array.isArray(record.meals) ? record.meals.length : 0,
           goal: rawSnapshot.goal,
@@ -1567,6 +1653,8 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
             totalBurnSource: scoringContext.totalBurnSource || null,
             snapshotGoalOwned: snapshotOwnedResult.s.goal === rawSnapshot.goal,
             trainingEnergySource: "raw_goal_snapshot_production_helpers",
+            trainingProfileSource: trainingProfileProvenance.trainingProfileSource,
+            snapshotMarkerStatus: trainingProfileProvenance.snapshotMarkerStatus,
             currentResultFallbackUsed: String(scoringContext.weightSource || "").startsWith("currentResult")
               || String(scoringContext.totalBurnSource || "").startsWith("currentResult")
           },
@@ -1594,7 +1682,7 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
           } : null
         };
       });
-    }, { payload, eligibleIndexes });
+    }, { payload, eligibleRecords });
     const evaluatedBySampleId = new Map(evaluated.map(item => {
       const missingPenaltyAxes = productionPenaltyAxes.filter(key => (
         !Object.prototype.hasOwnProperty.call(item.penalties || {}, key)
@@ -1608,12 +1696,13 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload){
       else if (source.weightSource !== "goalSnapshot") exclusionReason = "current_result_weight_fallback";
       else if (source.currentResultFallbackUsed === true || String(source.totalBurnSource || "").startsWith("currentResult")) exclusionReason = "current_result_source_fallback";
       else if (source.snapshotGoalOwned !== true) exclusionReason = "current_goal_fallback";
+      else if (typeof source.trainingProfileSource !== "string" || typeof source.snapshotMarkerStatus !== "string") exclusionReason = "incomplete_training_profile_source";
       else if (!item.trainingContext || item.trainingContext === "unknown") exclusionReason = "unresolved_training_context";
       else if (missingPenaltyAxes.length) exclusionReason = "incomplete_penalty_breakdown";
       else if (!item.optionCInput) exclusionReason = "joint_model_unavailable";
       const sourceValidityKey = exclusionReason
         ? null
-        : `${source.targetAuthoritySource}|${source.weightSource}|${source.totalBurnSource}|snapshot_goal|snapshot_training`;
+        : `${source.targetAuthoritySource}|${source.weightSource}|${source.totalBurnSource}|snapshot_goal|${source.trainingProfileSource}|${source.snapshotMarkerStatus}`;
       return [item.sampleId, {
         ...item,
         included: !exclusionReason,
@@ -1692,13 +1781,15 @@ function summarizePlainValues(values){
   };
 }
 
-function getActualRatioBand(value){
-  if (!Number.isFinite(value)) return "unavailable";
-  if (value < 0.80) return "far_below";
-  if (value < 0.95) return "below";
-  if (value <= 1.05) return "near_target";
-  if (value <= 1.20) return "above";
-  return "far_above";
+function getActualRatioBand(value, offsetPercentagePoints = 0){
+  if (!Number.isFinite(value) || value < 0) return "unavailable";
+  const percentage = value * 100;
+  const lower = Math.floor((percentage - offsetPercentagePoints + 1e-9) / 5) * 5 + offsetPercentagePoints;
+  const upper = lower + 5;
+  const labelNumber = number => Number.isInteger(number)
+    ? String(number)
+    : String(number).replace(".", "_");
+  return `${labelNumber(lower)}_to_lt_${labelNumber(upper)}_pct_of_target`;
 }
 
 function getResidualMagnitudeBand(value){
@@ -1708,11 +1799,186 @@ function getResidualMagnitudeBand(value){
   return "large";
 }
 
+function compareCanonicalId(left, right){
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function maximumCardinalityMatching(vertexIds, rawEdges){
+  if (!Array.isArray(vertexIds) || vertexIds.some(id => typeof id !== "string" || !id)) {
+    throw new Error("matching_requires_nonempty_string_vertex_ids");
+  }
+  if (new Set(vertexIds).size !== vertexIds.length) throw new Error("matching_requires_unique_vertex_ids");
+  const ids = [...vertexIds].sort(compareCanonicalId);
+  const indexById = new Map(ids.map((id, index) => [id, index]));
+  const neighborSets = Array.from({ length: ids.length }, () => new Set());
+  rawEdges.forEach(edge => {
+    if (!Array.isArray(edge) || edge.length !== 2) throw new Error("matching_requires_two_endpoint_edges");
+    const left = indexById.get(edge[0]);
+    const right = indexById.get(edge[1]);
+    if (left === undefined || right === undefined) throw new Error("matching_edge_has_unknown_vertex");
+    if (left === right) throw new Error("matching_self_edge_is_invalid");
+    neighborSets[left].add(right);
+    neighborSets[right].add(left);
+  });
+  const adjacency = neighborSets.map(set => [...set].sort((a, b) => compareCanonicalId(ids[a], ids[b])));
+  const n = ids.length;
+  const mate = Array(n).fill(-1);
+  const parent = Array(n).fill(-1);
+  const base = Array.from({ length: n }, (_, index) => index);
+  const used = Array(n).fill(false);
+  const blossom = Array(n).fill(false);
+  const leastCommonAncestor = (leftStart, rightStart) => {
+    let left = leftStart;
+    let right = rightStart;
+    const seen = Array(n).fill(false);
+    while (true) {
+      left = base[left];
+      seen[left] = true;
+      if (mate[left] === -1) break;
+      left = parent[mate[left]];
+    }
+    while (true) {
+      right = base[right];
+      if (seen[right]) return right;
+      right = parent[mate[right]];
+    }
+  };
+  const markBlossomPath = (start, blossomBase, initialChild) => {
+    let vertex = start;
+    let child = initialChild;
+    while (base[vertex] !== blossomBase) {
+      blossom[base[vertex]] = true;
+      blossom[base[mate[vertex]]] = true;
+      parent[vertex] = child;
+      child = mate[vertex];
+      vertex = parent[mate[vertex]];
+    }
+  };
+  const augmentFrom = rootVertex => {
+    parent.fill(-1);
+    used.fill(false);
+    for (let index = 0; index < n; index += 1) base[index] = index;
+    const queue = [rootVertex];
+    let head = 0;
+    used[rootVertex] = true;
+    while (head < queue.length) {
+      const vertex = queue[head++];
+      for (const neighbor of adjacency[vertex]) {
+        if (base[vertex] === base[neighbor] || mate[vertex] === neighbor) continue;
+        if (neighbor === rootVertex || (mate[neighbor] !== -1 && parent[mate[neighbor]] !== -1)) {
+          const blossomBase = leastCommonAncestor(vertex, neighbor);
+          blossom.fill(false);
+          markBlossomPath(vertex, blossomBase, neighbor);
+          markBlossomPath(neighbor, blossomBase, vertex);
+          for (let index = 0; index < n; index += 1) {
+            if (!blossom[base[index]]) continue;
+            base[index] = blossomBase;
+            if (!used[index]) {
+              used[index] = true;
+              queue.push(index);
+            }
+          }
+        } else if (parent[neighbor] === -1) {
+          parent[neighbor] = vertex;
+          if (mate[neighbor] === -1) {
+            let current = neighbor;
+            while (current !== -1) {
+              const previous = parent[current];
+              const next = previous === -1 ? -1 : mate[previous];
+              mate[current] = previous;
+              if (previous !== -1) mate[previous] = current;
+              current = next;
+            }
+            return true;
+          }
+          const next = mate[neighbor];
+          used[next] = true;
+          queue.push(next);
+        }
+      }
+    }
+    return false;
+  };
+  for (let vertex = 0; vertex < n; vertex += 1) {
+    if (mate[vertex] === -1) augmentFrom(vertex);
+  }
+  const pairs = [];
+  for (let left = 0; left < n; left += 1) {
+    if (mate[left] > left) pairs.push([ids[left], ids[mate[left]]]);
+  }
+  pairs.sort((a, b) => compareCanonicalId(a[0], b[0]) || compareCanonicalId(a[1], b[1]));
+  return { cardinality: pairs.length, pairs };
+}
+
+function getActualPairKey(left, right){
+  return [left.sampleId, right.sampleId].sort(compareCanonicalId).join("|");
+}
+
+function getActualPairDisplayContract(pair, offsetPercentagePoints = 0){
+  const bands = day => ({
+    energy: getActualRatioBand(day.ratios?.energy, offsetPercentagePoints),
+    protein: getActualRatioBand(day.ratios?.protein, offsetPercentagePoints),
+    carb: getActualRatioBand(day.ratios?.carb, offsetPercentagePoints),
+    fat: getActualRatioBand(day.ratios?.fat, offsetPercentagePoints)
+  });
+  const left = bands(pair.left);
+  const right = bands(pair.right);
+  const available = [...Object.values(left), ...Object.values(right)].every(value => value !== "unavailable");
+  let exclusionReason = null;
+  if (!available) exclusionReason = "unavailable_target_ratio_band";
+  else if (left.energy !== right.energy || left.protein !== right.protein) exclusionReason = "energy_or_protein_display_confounded";
+  else if (left.carb === right.carb && left.fat === right.fat) exclusionReason = "carb_fat_display_identical";
+  else if (left.carb === right.carb || left.fat === right.fat) exclusionReason = "one_macro_display_axis_only";
+  const stratumKey = `${pair.left.goal}|${pair.left.trainingContext}|${pair.left.sourceValidityKey}`;
+  const visibleBody = {
+    goal: pair.left.goal,
+    trainingContext: pair.left.trainingContext,
+    sourceCohort: "same_snapshot_provenance_cohort",
+    energy: left.energy,
+    protein: left.protein,
+    carbFatSides: [
+      `${left.carb}|${left.fat}`,
+      `${right.carb}|${right.fat}`
+    ].sort(compareCanonicalId)
+  };
+  return {
+    judgeable: exclusionReason === null,
+    exclusionReason,
+    left,
+    right,
+    stratumKey,
+    visibleSignature: crypto.createHash("sha256").update(JSON.stringify(visibleBody)).digest("hex")
+  };
+}
+
+function summarizeActualPairSet(candidates, pairs){
+  const matchedIds = new Set(pairs.flatMap(pair => [pair.left.sampleId, pair.right.sampleId]));
+  const maximum = maximumCardinalityMatching(
+    candidates.map(day => day.sampleId),
+    pairs.map(pair => [pair.left.sampleId, pair.right.sampleId])
+  );
+  return {
+    pairCount: pairs.length,
+    matchedRecordCount: matchedIds.size,
+    unmatchedRecordCount: Math.max(0, candidates.length - matchedIds.size),
+    coverage: candidates.length ? round(matchedIds.size / candidates.length, 6) : 0,
+    maximumDisjointPairCount: maximum.cardinality
+  };
+}
+
+function getActualHiddenComparisonRole(left, right){
+  return left.optionC.direction === right.optionC.direction
+    && getResidualMagnitudeBand(left.optionC.residual) === getResidualMagnitudeBand(right.optionC.residual)
+    ? "control"
+    : "contrast";
+}
+
 function buildActualMatchedEvidence(days){
-  const candidates = days.filter(day => day.included && day.optionC?.valid && day.nonJointPenaltyVector);
+  const candidates = days
+    .filter(day => day.included && day.optionC?.valid && day.nonJointPenaltyVector)
+    .sort((a, b) => compareCanonicalId(a.sampleId, b.sampleId));
   const toleranceResults = ACTUAL_MATCH_TOLERANCES.map(config => {
     const pairs = [];
-    const matchedIds = new Set();
     for (let leftIndex = 0; leftIndex < candidates.length; leftIndex += 1) {
       for (let rightIndex = leftIndex + 1; rightIndex < candidates.length; rightIndex += 1) {
         const left = candidates[leftIndex];
@@ -1726,22 +1992,36 @@ function buildActualMatchedEvidence(days){
         const maximumAxisDelta = Math.max(...axisDeltas);
         if (maximumAxisDelta > config.maxAxisDelta + 1e-12) continue;
         const residualDelta = Math.abs(Number(left.optionC.residual) - Number(right.optionC.residual));
-        if (!(residualDelta > OPTION_C_EPSILON)
-            || !(left.optionC.residualPositive || right.optionC.residualPositive)) continue;
-        matchedIds.add(left.sampleId);
-        matchedIds.add(right.sampleId);
-        pairs.push({ left, right, maximumAxisDelta, residualDelta });
+        const pair = {
+          left,
+          right,
+          pairKey: getActualPairKey(left, right),
+          maximumAxisDelta,
+          residualDelta,
+          hiddenComparisonRole: getActualHiddenComparisonRole(left, right)
+        };
+        pair.displayContract = getActualPairDisplayContract(pair);
+        pair.offsetDisplayContract = getActualPairDisplayContract(pair, 2.5);
+        pairs.push(pair);
       }
     }
-    const canonicalPairKey = pair => [pair.left.sampleId, pair.right.sampleId].sort().join("|");
-    pairs.sort((a, b) => b.residualDelta - a.residualDelta || canonicalPairKey(a).localeCompare(canonicalPairKey(b)));
+    pairs.sort((a, b) => compareCanonicalId(a.pairKey, b.pairKey));
+    const judgeablePairs = pairs.filter(pair => pair.displayContract.judgeable);
+    const contrastPairs = judgeablePairs.filter(pair => pair.hiddenComparisonRole === "contrast");
+    const controlPairs = judgeablePairs.filter(pair => pair.hiddenComparisonRole === "control");
     return {
       id: config.id,
       maximumAxisDelta: config.maxAxisDelta,
-      pairCount: pairs.length,
-      matchedRecordCount: matchedIds.size,
-      unmatchedRecordCount: Math.max(0, candidates.length - matchedIds.size),
-      coverage: candidates.length ? round(matchedIds.size / candidates.length, 6) : 0,
+      baseCore: summarizeActualPairSet(candidates, pairs),
+      judgeable: {
+        ...summarizeActualPairSet(candidates, judgeablePairs),
+        exclusionReasonCounts: countBy(pairs.filter(pair => !pair.displayContract.judgeable), pair => pair.displayContract.exclusionReason),
+        offsetSensitivityFlipCount: pairs.filter(pair => pair.displayContract.judgeable !== pair.offsetDisplayContract.judgeable).length
+      },
+      hiddenRolePotential: {
+        contrast: summarizeActualPairSet(candidates, contrastPairs),
+        control: summarizeActualPairSet(candidates, controlPairs)
+      },
       pairs
     };
   });
@@ -1762,21 +2042,89 @@ function getHypothesisBlindPresentationKey(pairKey){
 }
 
 function buildHypothesisBlindProductMeaningReview(matchedEvidence, maximumCases = 12){
-  const seen = new Set();
-  const selected = [];
-  outer:
-  for (const result of matchedEvidence.toleranceResults) {
-    for (const pair of result.pairs) {
-      const pairKey = [pair.left.sampleId, pair.right.sampleId].sort().join("|");
-      if (seen.has(pairKey)) continue;
-      seen.add(pairKey);
-      selected.push({ pairKey, pair, matchContract: result.id });
-      if (selected.length >= maximumCases) break outer;
+  const toleranceRank = new Map(ACTUAL_MATCH_TOLERANCES.map((item, index) => [item.id, index]));
+  const narrowestByPair = new Map();
+  matchedEvidence.toleranceResults.forEach(result => {
+    result.pairs.filter(pair => pair.displayContract.judgeable).forEach(pair => {
+      if (!narrowestByPair.has(pair.pairKey)) {
+        narrowestByPair.set(pair.pairKey, { pairKey: pair.pairKey, pair, matchContract: result.id });
+      }
+    });
+  });
+  const representativeByVisibleSignature = new Map();
+  [...narrowestByPair.values()]
+    .sort((a, b) => (
+      toleranceRank.get(a.matchContract) - toleranceRank.get(b.matchContract)
+      || a.pair.maximumAxisDelta - b.pair.maximumAxisDelta
+      || getHypothesisBlindPresentationKey(a.pairKey).localeCompare(getHypothesisBlindPresentationKey(b.pairKey))
+    ))
+    .forEach(candidate => {
+      if (!representativeByVisibleSignature.has(candidate.pair.displayContract.visibleSignature)) {
+        representativeByVisibleSignature.set(candidate.pair.displayContract.visibleSignature, candidate);
+      }
+    });
+  const eligible = [...representativeByVisibleSignature.values()];
+  const byStratum = new Map();
+  eligible.forEach(candidate => {
+    const stratumKey = candidate.pair.displayContract.stratumKey;
+    const list = byStratum.get(stratumKey) || [];
+    list.push(candidate);
+    byStratum.set(stratumKey, list);
+  });
+  const blocksByStratum = new Map();
+  for (const [stratumKey, candidates] of byStratum) {
+    const contrasts = candidates.filter(item => item.pair.hiddenComparisonRole === "contrast");
+    const controls = candidates.filter(item => item.pair.hiddenComparisonRole === "control");
+    const blocks = [];
+    contrasts.forEach(contrast => controls.forEach(control => {
+      const sampleIds = [
+        contrast.pair.left.sampleId,
+        contrast.pair.right.sampleId,
+        control.pair.left.sampleId,
+        control.pair.right.sampleId
+      ];
+      if (new Set(sampleIds).size !== 4) return;
+      const blockKey = [contrast.pairKey, control.pairKey].sort(compareCanonicalId).join("||");
+      blocks.push({ stratumKey, contrast, control, sampleIds, blockKey });
+    }));
+    blocks.sort((a, b) => (
+      getHypothesisBlindPresentationKey(a.blockKey).localeCompare(getHypothesisBlindPresentationKey(b.blockKey))
+    ));
+    if (blocks.length) blocksByStratum.set(stratumKey, blocks);
+  }
+  const selectedBlocks = [];
+  const usedSampleIds = new Set();
+  const usedVisibleSignatures = new Set();
+  const maximumBlocks = Math.floor(maximumCases / 2);
+  const stratumKeys = [...blocksByStratum.keys()].sort((a, b) => (
+    getHypothesisBlindPresentationKey(a).localeCompare(getHypothesisBlindPresentationKey(b))
+  ));
+  let madeProgress = true;
+  while (selectedBlocks.length < maximumBlocks && madeProgress) {
+    madeProgress = false;
+    for (const stratumKey of stratumKeys) {
+      if (selectedBlocks.length >= maximumBlocks) break;
+      const block = blocksByStratum.get(stratumKey).find(candidate => (
+        candidate.sampleIds.every(sampleId => !usedSampleIds.has(sampleId))
+        && [candidate.contrast, candidate.control].every(item => (
+          !usedVisibleSignatures.has(item.pair.displayContract.visibleSignature)
+        ))
+      ));
+      if (!block) continue;
+      selectedBlocks.push(block);
+      block.sampleIds.forEach(sampleId => usedSampleIds.add(sampleId));
+      [block.contrast, block.control].forEach(item => usedVisibleSignatures.add(item.pair.displayContract.visibleSignature));
+      madeProgress = true;
     }
   }
+  const selected = selectedBlocks.flatMap(block => [block.contrast, block.control]);
   selected.sort((a, b) => (
     getHypothesisBlindPresentationKey(a.pairKey).localeCompare(getHypothesisBlindPresentationKey(b.pairKey))
   ));
+  const preJudgmentStatus = selectedBlocks.length > 0
+    ? "READY_FOR_LIMITED_BLIND_JUDGMENT"
+    : "NO_BALANCED_JUDGEABLE_BLOCK";
+  const reviewForUser = selectedBlocks.length > 0;
   const reviewPacket = [];
   const revealMap = [];
   selected.forEach(({ pairKey, pair, matchContract }, index) => {
@@ -1790,8 +2138,6 @@ function buildHypothesisBlindProductMeaningReview(matchedEvidence, maximumCases 
         : canonical;
       const sanitizeReviewSide = ({ day }) => ({
         targetRatioBands: {
-          energy: getActualRatioBand(day.ratios?.energy),
-          protein: getActualRatioBand(day.ratios?.protein),
           carb: getActualRatioBand(day.ratios?.carb),
           fat: getActualRatioBand(day.ratios?.fat)
         }
@@ -1807,7 +2153,11 @@ function buildHypothesisBlindProductMeaningReview(matchedEvidence, maximumCases 
         context: {
           goal: canonical[0].day.goal,
           trainingContext: canonical[0].day.trainingContext,
-          sourceValidity: canonical[0].day.sourceValidityKey
+          sourceCohort: "same_snapshot_provenance_cohort"
+        },
+        commonTargetRatioBands: {
+          energy: getActualRatioBand(canonical[0].day.ratios?.energy),
+          protein: getActualRatioBand(canonical[0].day.ratios?.protein)
         },
         nonJointSimilarity: {
           axisCount: productionNonJointPenaltyAxes.length,
@@ -1824,14 +2174,23 @@ function buildHypothesisBlindProductMeaningReview(matchedEvidence, maximumCases 
       });
   });
   const reviewBody = {
-    schemaVersion: "hypothesis_blind_product_meaning_review_v1",
+    schemaVersion: "hypothesis_blind_product_meaning_review_v2_balanced_disjoint",
     randomizationSeedVersion: ACTUAL_BLIND_SHUFFLE_SEED_VERSION,
+    preJudgmentStatus,
+    reviewForUser,
+    selectionContract: {
+      targetRatioBandWidthPercentagePoints: 5,
+      sampleReuseAllowed: false,
+      visibleCaseDuplicationAllowed: false,
+      reviewScope: "limited_product_meaning_only",
+      policyDecisionAuthorized: false
+    },
     reviewPacket
   };
   const reviewPacketHash = crypto.createHash("sha256").update(JSON.stringify(reviewBody)).digest("hex");
   const reviewArtifact = { ...reviewBody, reviewPacketHash };
   const revealBody = {
-    schemaVersion: "hypothesis_blind_product_meaning_reveal_v1",
+    schemaVersion: "hypothesis_blind_product_meaning_reveal_v2_balanced_disjoint",
     reviewPacketHash,
     revealOnlyAfterJudgment: true,
     revealMap
@@ -1839,7 +2198,24 @@ function buildHypothesisBlindProductMeaningReview(matchedEvidence, maximumCases 
   const revealMapHash = crypto.createHash("sha256").update(JSON.stringify(revealBody)).digest("hex");
   return {
     reviewArtifact,
-    revealArtifact: { ...revealBody, revealMapHash }
+    revealArtifact: { ...revealBody, revealMapHash },
+    selectionDiagnostics: {
+      preJudgmentStatus,
+      reviewForUser,
+      authorizesPolicyDecision: false,
+      selectionOptimality: "deterministic_disjoint_balanced_lower_bound",
+      mixedRoleGlobalOptimal: false,
+      narrowestJudgeablePairCount: narrowestByPair.size,
+      visibleDeduplicatedPairCount: eligible.length,
+      visibleDuplicatePairCount: narrowestByPair.size - eligible.length,
+      balancedBlockCandidateCount: [...blocksByStratum.values()].reduce((sum, blocks) => sum + blocks.length, 0),
+      selectedBalancedBlockCount: selectedBlocks.length,
+      selectedCaseCount: selected.length,
+      selectedSampleCount: usedSampleIds.size,
+      participatingStrata: [...new Set(selectedBlocks.map(block => block.stratumKey))].sort(compareCanonicalId),
+      noSampleReuse: usedSampleIds.size === selected.length * 2,
+      visibleSignaturesUnique: usedVisibleSignatures.size === selected.length
+    }
   };
 }
 
@@ -1851,11 +2227,11 @@ async function buildLocalActualDayAudit(backupFilePath){
   const residualPositive = validOptionC.filter(day => Number(day.optionC.residual) > OPTION_C_EPSILON);
   const matchedEvidence = buildActualMatchedEvidence(included);
   const hypothesisBlindArtifacts = buildHypothesisBlindProductMeaningReview(matchedEvidence);
-  const { reviewArtifact, revealArtifact } = hypothesisBlindArtifacts;
+  const { reviewArtifact, revealArtifact, selectionDiagnostics } = hypothesisBlindArtifacts;
   const auditWithoutHash = {
-    schemaVersion: "component_score_local_actual_day_audit_v4_hypothesis_blind",
-    evidenceRole: "source_safe_joint_ownership_and_hypothesis_blind_product_meaning_only",
-    privacyContract: "The standalone review artifact emits no residual hypothesis, dates, food names, memo text, meal ids, absolute macro grams, absolute kcal values, backup path, raw backup payload, current final score, current joint penalty, or candidate penalty. The separately written reveal artifact is available only through the explicit post-judgment flag.",
+    schemaVersion: "component_score_local_actual_day_audit_v5_balanced_disjoint",
+    evidenceRole: "source_safe_joint_ownership_and_balanced_hypothesis_blind_product_meaning_only",
+    privacyContract: "The standalone review artifact emits no residual hypothesis, dates, food names, memo text, meal ids, absolute macro grams, absolute kcal values, backup path, raw backup payload, current final score, current joint penalty, or candidate penalty. It contains cases only when a same-stratum disjoint contrast/control block exists. The separately written reveal artifact remains blocked until a review-ready judgment is fixed and the explicit post-judgment flag is used.",
     sourceRecordCount: extracted.length,
     includedRecordCount: included.length,
     excludedRecordCount: excluded.length,
@@ -1881,10 +2257,9 @@ async function buildLocalActualDayAudit(backupFilePath){
     matchedEvidence: matchedEvidence.toleranceResults.map(result => ({
       id: result.id,
       maximumAxisDelta: result.maximumAxisDelta,
-      pairCount: result.pairCount,
-      matchedRecordCount: result.matchedRecordCount,
-      unmatchedRecordCount: result.unmatchedRecordCount,
-      coverage: result.coverage
+      baseCore: result.baseCore,
+      judgeable: result.judgeable,
+      hiddenRolePotential: result.hiddenRolePotential
     })),
     residualDirectionCounts: countBy(validOptionC, day => day.optionC.direction),
     hypothesisBlindArtifactSummary: {
@@ -1892,6 +2267,10 @@ async function buildLocalActualDayAudit(backupFilePath){
       revealMapHash: revealArtifact.revealMapHash,
       reviewPacketCaseCount: reviewArtifact.reviewPacket.length,
       revealMapCaseCount: revealArtifact.revealMap.length,
+      preJudgmentStatus: selectionDiagnostics.preJudgmentStatus,
+      reviewForUser: selectionDiagnostics.reviewForUser,
+      authorizesPolicyDecision: selectionDiagnostics.authorizesPolicyDecision,
+      selectionDiagnostics,
       standaloneReviewOutputRequired: true,
       separatePostJudgmentRevealOutput: true
     },
@@ -1909,7 +2288,7 @@ async function buildLocalActualDayAudit(backupFilePath){
     ...auditWithoutHash,
     anonymizedAuditHash: crypto.createHash("sha256").update(JSON.stringify(auditWithoutHash)).digest("hex")
   };
-  return { summaryAudit, reviewArtifact, revealArtifact };
+  return { summaryAudit, reviewArtifact, revealArtifact, selectionDiagnostics };
 }
 
 function buildSyntheticActualSourceSafetyPayload(){
@@ -2015,6 +2394,53 @@ function buildSyntheticActualSourceSafetyPayload(){
             routine: "PUSH",
             generalAdvancedSettings: false
           }
+        }),
+        record("2026-01-29", {
+          snapshotSource: "saved_at_entry",
+          goalSnapshot: {
+            ...snapshot,
+            exerciseManagementMode: "exercise",
+            exerciseProfile: null,
+            routine: "PULL",
+            generalAdvancedSettings: false
+          }
+        }),
+        record("2026-01-30", {
+          snapshotSource: "saved_at_entry",
+          goalSnapshot: {
+            ...snapshot,
+            exerciseManagementMode: "exercise",
+            exerciseProfile: null,
+            routine: "PULL+LEGS",
+            generalAdvancedSettings: false
+          }
+        }),
+        record("2026-01-31", {
+          goalSnapshot: {
+            ...snapshot,
+            exerciseManagementMode: "general",
+            exerciseProfile: null,
+            routine: "REST"
+          }
+        }),
+        record("2026-02-01", { snapshotSource: "not_a_production_marker" }),
+        record("2026-02-02", {
+          goalSnapshot: {
+            ...snapshot,
+            exerciseManagementMode: "exercise",
+            exerciseProfile: null,
+            routine: "REST",
+            generalAdvancedSettings: false
+          }
+        }),
+        record("2026-02-03", {
+          goalSnapshot: {
+            ...snapshot,
+            exerciseManagementMode: "exercise",
+            exerciseProfile: "unknown_profile",
+            routine: "PUSH",
+            generalAdvancedSettings: false
+          }
         })
       ]
     }
@@ -2023,12 +2449,16 @@ function buildSyntheticActualSourceSafetyPayload(){
 
 function buildSyntheticMatchedEvidenceDays(){
   const zeroVector = Object.fromEntries(productionNonJointPenaltyAxes.map(key => [key, 0]));
+  const vectorAt = (base, delta = 0) => ({
+    ...zeroVector,
+    targetEnergyDeviationPenalty: base + delta
+  });
   const makeDay = (sampleId, overrides = {}) => ({
     sampleId,
     included: true,
     goal: "diet",
     trainingContext: "rest",
-    sourceValidityKey: "frozen_goal_snapshot|goalSnapshot|snapshot_basis_unavailable|snapshot_goal|snapshot_training",
+    sourceValidityKey: "synthetic_exact_source",
     ratios: { energy: 1, protein: 1, carb: 1, fat: 1 },
     nonJointPenaltyVector: { ...zeroVector },
     optionC: {
@@ -2040,15 +2470,68 @@ function buildSyntheticMatchedEvidenceDays(){
     ...overrides
   });
   return [
-    makeDay("matched_a", { ratios: { energy: 1, protein: 1, carb: 0.85, fat: 1.15 } }),
-    makeDay("matched_b", {
+    makeDay("exact_contrast_a", { ratios: { energy: 1, protein: 1, carb: 0.85, fat: 1.15 } }),
+    makeDay("exact_contrast_b", {
       ratios: { energy: 1, protein: 1, carb: 1.25, fat: 0.75 },
       optionC: { valid: true, direction: "carb_heavy", residual: 0.20, residualPositive: true }
     }),
-    makeDay("tolerance_only", {
-      ratios: { energy: 1, protein: 1, carb: 0.65, fat: 1.35 },
-      nonJointPenaltyVector: { ...zeroVector, targetEnergyDeviationPenalty: 0.10 },
+    makeDay("exact_control_a", {
+      ratios: { energy: 0.9, protein: 1.1, carb: 0.60, fat: 1.40 },
+      nonJointPenaltyVector: vectorAt(2),
+      optionC: { valid: true, direction: "fat_heavy", residual: 0.20, residualPositive: true }
+    }),
+    makeDay("exact_control_b", {
+      ratios: { energy: 0.9, protein: 1.1, carb: 0.90, fat: 1.10 },
+      nonJointPenaltyVector: vectorAt(2),
       optionC: { valid: true, direction: "fat_heavy", residual: 0.25, residualPositive: true }
+    }),
+    makeDay("tolerance_contrast_a", {
+      sourceValidityKey: "synthetic_tolerance_source",
+      ratios: { energy: 1.1, protein: 0.9, carb: 0.70, fat: 1.30 },
+      nonJointPenaltyVector: vectorAt(0),
+      optionC: { valid: true, direction: "inside", residual: 0, residualPositive: false }
+    }),
+    makeDay("tolerance_contrast_b", {
+      sourceValidityKey: "synthetic_tolerance_source",
+      ratios: { energy: 1.1, protein: 0.9, carb: 1.10, fat: 0.90 },
+      nonJointPenaltyVector: vectorAt(0, 0.10),
+      optionC: { valid: true, direction: "carb_heavy", residual: 0.25, residualPositive: true }
+    }),
+    makeDay("tolerance_control_a", {
+      sourceValidityKey: "synthetic_tolerance_source",
+      ratios: { energy: 0.8, protein: 1.2, carb: 0.55, fat: 1.45 },
+      nonJointPenaltyVector: vectorAt(2),
+      optionC: { valid: true, direction: "fat_heavy", residual: 0.15, residualPositive: true }
+    }),
+    makeDay("tolerance_control_b", {
+      sourceValidityKey: "synthetic_tolerance_source",
+      ratios: { energy: 0.8, protein: 1.2, carb: 0.95, fat: 1.05 },
+      nonJointPenaltyVector: vectorAt(2, 0.10),
+      optionC: { valid: true, direction: "fat_heavy", residual: 0.30, residualPositive: true }
+    }),
+    makeDay("wide_contrast_a", {
+      sourceValidityKey: "synthetic_wide_source",
+      ratios: { energy: 1.2, protein: 0.8, carb: 0.75, fat: 1.25 },
+      nonJointPenaltyVector: vectorAt(0),
+      optionC: { valid: true, direction: "inside", residual: 0, residualPositive: false }
+    }),
+    makeDay("wide_contrast_b", {
+      sourceValidityKey: "synthetic_wide_source",
+      ratios: { energy: 1.2, protein: 0.8, carb: 1.35, fat: 0.65 },
+      nonJointPenaltyVector: vectorAt(0, 0.75),
+      optionC: { valid: true, direction: "carb_heavy", residual: 0.35, residualPositive: true }
+    }),
+    makeDay("wide_control_a", {
+      sourceValidityKey: "synthetic_wide_source",
+      ratios: { energy: 0.7, protein: 1.3, carb: 0.50, fat: 1.50 },
+      nonJointPenaltyVector: vectorAt(2),
+      optionC: { valid: true, direction: "fat_heavy", residual: 0.20, residualPositive: true }
+    }),
+    makeDay("wide_control_b", {
+      sourceValidityKey: "synthetic_wide_source",
+      ratios: { energy: 0.7, protein: 1.3, carb: 1.00, fat: 1.00 },
+      nonJointPenaltyVector: vectorAt(2, 0.75),
+      optionC: { valid: true, direction: "fat_heavy", residual: 0.40, residualPositive: true }
     }),
     makeDay("different_context", {
       goal: "bulk",
@@ -2065,33 +2548,53 @@ function hasExactObjectKeys(value, expectedKeys){
 }
 
 function isHypothesisBlindReviewArtifactSafe(artifact){
-  if (!hasExactObjectKeys(artifact, ["schemaVersion", "randomizationSeedVersion", "reviewPacket", "reviewPacketHash"])) return false;
+  if (!hasExactObjectKeys(artifact, ["schemaVersion", "randomizationSeedVersion", "preJudgmentStatus", "reviewForUser", "selectionContract", "reviewPacket", "reviewPacketHash"])) return false;
   if (!/^[a-f0-9]{64}$/.test(artifact.reviewPacketHash || "")) return false;
   const { reviewPacketHash, ...reviewBody } = artifact;
   if (crypto.createHash("sha256").update(JSON.stringify(reviewBody)).digest("hex") !== reviewPacketHash) return false;
   const expectedChoices = ["separate_joint_meaning", "existing_core_is_sufficient", "indeterminate"];
-  const allowedRatioBands = new Set(["unavailable", "far_below", "below", "near_target", "above", "far_above"]);
+  const validRatioBand = value => typeof value === "string" && /^\d+_to_lt_\d+_pct_of_target$/.test(value);
   const allowedMatchContracts = new Set(ACTUAL_MATCH_TOLERANCES.map(item => item.id));
+  const statusValid = ["READY_FOR_LIMITED_BLIND_JUDGMENT", "NO_BALANCED_JUDGEABLE_BLOCK"].includes(artifact.preJudgmentStatus)
+    && artifact.reviewForUser === (artifact.preJudgmentStatus === "READY_FOR_LIMITED_BLIND_JUDGMENT")
+    && artifact.reviewForUser === (Array.isArray(artifact.reviewPacket) && artifact.reviewPacket.length > 0);
+  const selectionContractValid = hasExactObjectKeys(artifact.selectionContract, [
+    "targetRatioBandWidthPercentagePoints",
+    "sampleReuseAllowed",
+    "visibleCaseDuplicationAllowed",
+    "reviewScope",
+    "policyDecisionAuthorized"
+  ])
+    && artifact.selectionContract.targetRatioBandWidthPercentagePoints === 5
+    && artifact.selectionContract.sampleReuseAllowed === false
+    && artifact.selectionContract.visibleCaseDuplicationAllowed === false
+    && artifact.selectionContract.reviewScope === "limited_product_meaning_only"
+    && artifact.selectionContract.policyDecisionAuthorized === false;
   const structurallySafe = Array.isArray(artifact.reviewPacket) && artifact.reviewPacket.every(item => (
-    hasExactObjectKeys(item, ["caseId", "matchContract", "context", "nonJointSimilarity", "caseA", "caseB", "judgmentOptions"])
+    hasExactObjectKeys(item, ["caseId", "matchContract", "context", "commonTargetRatioBands", "nonJointSimilarity", "caseA", "caseB", "judgmentOptions"])
     && /^blind_review_case_\d{3}$/.test(item.caseId)
     && allowedMatchContracts.has(item.matchContract)
-    && hasExactObjectKeys(item.context, ["goal", "trainingContext", "sourceValidity"])
+    && hasExactObjectKeys(item.context, ["goal", "trainingContext", "sourceCohort"])
     && Object.values(item.context).every(value => typeof value === "string" && value.length > 0)
+    && item.context.sourceCohort === "same_snapshot_provenance_cohort"
+    && hasExactObjectKeys(item.commonTargetRatioBands, ["energy", "protein"])
+    && Object.values(item.commonTargetRatioBands).every(validRatioBand)
     && hasExactObjectKeys(item.nonJointSimilarity, ["axisCount", "maximumAxisDelta"])
     && item.nonJointSimilarity.axisCount === productionNonJointPenaltyAxes.length
     && Number.isFinite(item.nonJointSimilarity.maximumAxisDelta)
     && item.nonJointSimilarity.maximumAxisDelta >= 0
     && [item.caseA, item.caseB].every(side => (
       hasExactObjectKeys(side, ["targetRatioBands"])
-      && hasExactObjectKeys(side.targetRatioBands, ["energy", "protein", "carb", "fat"])
-      && Object.values(side.targetRatioBands).every(value => allowedRatioBands.has(value))
+      && hasExactObjectKeys(side.targetRatioBands, ["carb", "fat"])
+      && Object.values(side.targetRatioBands).every(validRatioBand)
     ))
+    && item.caseA.targetRatioBands.carb !== item.caseB.targetRatioBands.carb
+    && item.caseA.targetRatioBands.fat !== item.caseB.targetRatioBands.fat
     && JSON.stringify(item.judgmentOptions) === JSON.stringify(expectedChoices)
   ));
   const caseIds = artifact.reviewPacket.map(item => item.caseId);
   const forbiddenFieldFree = !/(residual|direction|magnitude|optionC|currentScore|finalScore|rawScore|jointPenalty|candidatePenalty|sampleId|date|food|memo|mealId|absolute|Kcal|backupPath|originalPairSide|source_[12])/i.test(JSON.stringify(artifact));
-  return structurallySafe && new Set(caseIds).size === caseIds.length && forbiddenFieldFree;
+  return statusValid && selectionContractValid && structurallySafe && new Set(caseIds).size === caseIds.length && forbiddenFieldFree;
 }
 
 function isPostJudgmentRevealArtifactSafe(artifact){
@@ -2174,7 +2677,14 @@ async function buildActualDaySourceSafetyFixtureAudit(){
     coercedBackupVersionRejected = true;
   }
   const payload = buildSyntheticActualSourceSafetyPayload();
+  const fixtureSampleId = date => getStableActualSampleId({ date });
   const extracted = await extractAnonymizedActualDaysFromPayload(payload);
+  const reversedPayload = JSON.parse(JSON.stringify(payload));
+  reversedPayload.data.records.reverse();
+  const reversedExtracted = await extractAnonymizedActualDaysFromPayload(reversedPayload);
+  const canonicalizeExtracted = items => [...items]
+    .sort((a, b) => compareCanonicalId(a.sampleId, b.sampleId))
+    .map(item => JSON.stringify(item));
   const included = extracted.filter(day => day.included);
   const excluded = extracted.filter(day => !day.included);
   const exclusionReasonCounts = countBy(excluded, day => day.exclusionReason);
@@ -2190,9 +2700,9 @@ async function buildActualDaySourceSafetyFixtureAudit(){
   const generatedArtifactBundleSafe = assertHypothesisBlindArtifactBundleSafe(hypothesisBlindArtifacts);
   const lockedReviewSameInputAccepted = assertLockedReviewMatchesGenerated(reviewArtifact, repeatedArtifacts.reviewArtifact);
   const changedLockedReview = JSON.parse(JSON.stringify(reviewArtifact));
-  changedLockedReview.reviewPacket[0].caseA.targetRatioBands.carb = changedLockedReview.reviewPacket[0].caseA.targetRatioBands.carb === "far_above"
-    ? "far_below"
-    : "far_above";
+  changedLockedReview.reviewPacket[0].caseA.targetRatioBands.carb = changedLockedReview.reviewPacket[0].caseA.targetRatioBands.carb === "0_to_lt_5_pct_of_target"
+    ? "5_to_lt_10_pct_of_target"
+    : "0_to_lt_5_pct_of_target";
   const { reviewPacketHash: ignoredChangedHash, ...changedReviewBody } = changedLockedReview;
   changedLockedReview.reviewPacketHash = crypto.createHash("sha256").update(JSON.stringify(changedReviewBody)).digest("hex");
   let changedLockedReviewRejected = false;
@@ -2232,29 +2742,76 @@ async function buildActualDaySourceSafetyFixtureAudit(){
   const reviewRevealSideMappingPreserved = revealArtifact.revealMap.every(revealCase => {
     const reviewCase = reviewArtifact.reviewPacket.find(item => item.caseId === revealCase.caseId);
     if (!reviewCase) return false;
-    const caseASignature = JSON.stringify(reviewCase.caseA.targetRatioBands);
-    const caseBSignature = JSON.stringify(reviewCase.caseB.targetRatioBands);
+    const caseASignature = JSON.stringify({
+      ...reviewCase.commonTargetRatioBands,
+      ...reviewCase.caseA.targetRatioBands
+    });
+    const caseBSignature = JSON.stringify({
+      ...reviewCase.commonTargetRatioBands,
+      ...reviewCase.caseB.targetRatioBands
+    });
     const expectedSources = expectedSourcesByPairSignature.get([caseASignature, caseBSignature].sort().join("||"));
     return expectedSources?.get(caseASignature) === revealCase.caseA.originalPairSide
       && expectedSources?.get(caseBSignature) === revealCase.caseB.originalPairSide;
   });
   const matchContractIds = matchedEvidence.toleranceResults.map(item => item.id);
-  const tolerancePairCounts = Object.fromEntries(matchedEvidence.toleranceResults.map(item => [item.id, item.pairCount]));
+  const tolerancePairCounts = Object.fromEntries(matchedEvidence.toleranceResults.map(item => [item.id, item.baseCore.pairCount]));
   const toleranceCoverageMonotonic = matchedEvidence.toleranceResults.every((item, index, items) => (
     index === 0
-    || (item.pairCount >= items[index - 1].pairCount
-      && item.matchedRecordCount >= items[index - 1].matchedRecordCount
-      && item.coverage >= items[index - 1].coverage)
+    || (item.baseCore.pairCount >= items[index - 1].baseCore.pairCount
+      && item.baseCore.matchedRecordCount >= items[index - 1].baseCore.matchedRecordCount
+      && item.baseCore.coverage >= items[index - 1].baseCore.coverage)
   ));
-  const positiveNonMacroDay = extracted.find(day => day.sampleId === "actual_day_018");
-  const macroOnlyThresholdDay = extracted.find(day => day.sampleId === "actual_day_019");
+  const positiveNonMacroDay = extracted.find(day => day.sampleId === fixtureSampleId("2026-01-16"));
+  const macroOnlyThresholdDay = extracted.find(day => day.sampleId === fixtureSampleId("2026-01-17"));
   const invalidNonMacroDays = extracted.filter(day => day.exclusionReason === "invalid_meal_non_macro_kcal");
   const nonFiniteMealEnergyDays = extracted.filter(day => day.exclusionReason === "non_finite_meal_energy_total");
-  const invalidRoutineDay = extracted.find(day => day.sampleId === "actual_day_029");
-  const simpleProfileRoutineDay = extracted.find(day => day.sampleId === "actual_day_030");
+  const invalidRoutineDay = extracted.find(day => day.sampleId === fixtureSampleId("2026-01-27"));
+  const simpleProfileRoutineDay = extracted.find(day => day.sampleId === fixtureSampleId("2026-01-28"));
+  const legacyDetailedDay = extracted.find(day => day.sampleId === fixtureSampleId("2026-01-29"));
+  const legacyCompoundDay = extracted.find(day => day.sampleId === fixtureSampleId("2026-01-30"));
+  const profilelessGeneralDay = extracted.find(day => day.sampleId === fixtureSampleId("2026-01-31"));
+  const invalidMarkerDay = extracted.find(day => day.sampleId === fixtureSampleId("2026-02-01"));
+  const legacyRestDay = extracted.find(day => day.sampleId === fixtureSampleId("2026-02-02"));
+  const legacyDetailedProvenance = resolveActualTrainingProfileProvenance(payload.data.records[30]);
+  const legacyRestProvenance = resolveActualTrainingProfileProvenance(payload.data.records[34]);
+  const explicitProvenance = resolveActualTrainingProfileProvenance(payload.data.records[0]);
+  const blossomFixtures = {
+    triangle: maximumCardinalityMatching(["c", "a", "b"], [["b", "c"], ["c", "a"], ["a", "b"]]),
+    path4: maximumCardinalityMatching(["d", "b", "a", "c"], [["c", "d"], ["b", "c"], ["a", "b"]]),
+    cycle5: maximumCardinalityMatching(["e", "d", "c", "b", "a"], [["e", "a"], ["d", "e"], ["c", "d"], ["b", "c"], ["a", "b"]]),
+    cycle5Reversed: maximumCardinalityMatching(["a", "b", "c", "d", "e"], [["b", "a"], ["c", "b"], ["d", "c"], ["e", "d"], ["a", "e"]])
+  };
+  const contrastOnlyArtifacts = buildHypothesisBlindProductMeaningReview(buildActualMatchedEvidence(
+    syntheticMatchedDays.filter(day => day.sampleId.includes("contrast"))
+  ));
+  const separatedRoleDays = syntheticMatchedDays
+    .filter(day => day.sampleId.startsWith("exact_"))
+    .map(day => day.sampleId.includes("control") ? { ...day, sourceValidityKey: "synthetic_separate_control_source" } : day);
+  const separatedRoleArtifacts = buildHypothesisBlindProductMeaningReview(buildActualMatchedEvidence(separatedRoleDays));
+  const displayProbe = (leftRatios, rightRatios) => getActualPairDisplayContract({
+    left: { sampleId: "display_left", goal: "diet", trainingContext: "rest", sourceValidityKey: "display_source", ratios: leftRatios },
+    right: { sampleId: "display_right", goal: "diet", trainingContext: "rest", sourceValidityKey: "display_source", ratios: rightRatios }
+  });
+  const displayConfounded = displayProbe(
+    { energy: 1, protein: 1, carb: 0.8, fat: 1.2 },
+    { energy: 1.1, protein: 1, carb: 1.2, fat: 0.8 }
+  );
+  const displayOneAxisOnly = displayProbe(
+    { energy: 1, protein: 1, carb: 0.8, fat: 1.2 },
+    { energy: 1, protein: 1, carb: 1.2, fat: 1.2 }
+  );
+  const visibleAcrossSourceA = getActualPairDisplayContract({
+    left: { sampleId: "source_a_left", goal: "diet", trainingContext: "rest", sourceValidityKey: "private_source_a", ratios: { energy: 1, protein: 1, carb: 0.8, fat: 1.2 } },
+    right: { sampleId: "source_a_right", goal: "diet", trainingContext: "rest", sourceValidityKey: "private_source_a", ratios: { energy: 1, protein: 1, carb: 1.2, fat: 0.8 } }
+  });
+  const visibleAcrossSourceB = getActualPairDisplayContract({
+    left: { sampleId: "source_b_left", goal: "diet", trainingContext: "rest", sourceValidityKey: "private_source_b", ratios: { energy: 1, protein: 1, carb: 0.8, fat: 1.2 } },
+    right: { sampleId: "source_b_right", goal: "diet", trainingContext: "rest", sourceValidityKey: "private_source_b", ratios: { energy: 1, protein: 1, carb: 1.2, fat: 0.8 } }
+  });
   const extendedInvalidOptionalValues = [null, "", " ", "abc", -1, NaN, Infinity, -Infinity, true, false, [], [1], {}];
   const reviewContractCounts = countBy(reviewArtifact.reviewPacket, item => item.matchContract);
-  const invalidVariantIds = Array.from({ length: 8 }, (_, index) => `actual_day_${String(index + 20).padStart(3, "0")}`);
+  const invalidVariantIds = Array.from({ length: 8 }, (_, index) => fixtureSampleId(`2026-01-${String(index + 18).padStart(2, "0")}`));
   const invalidVariantFieldCoverageStable = invalidVariantIds.every((sampleId, index) => {
     const rawRecord = payload.data.records[19 + index];
     const expectedKey = index < 4 ? "alcoholKcal" : "otherKcal";
@@ -2262,7 +2819,7 @@ async function buildActualDaySourceSafetyFixtureAudit(){
       && extracted.find(day => day.sampleId === sampleId)?.exclusionReason === "invalid_meal_non_macro_kcal";
   });
   return {
-    schemaVersion: "actual_day_source_safety_fixture_audit_v3_hypothesis_blind",
+    schemaVersion: "actual_day_source_safety_fixture_audit_v4_balanced_disjoint",
     syntheticContractOnly: true,
     sourceRecordCount: extracted.length,
     includedRecordCount: included.length,
@@ -2289,16 +2846,16 @@ async function buildActualDaySourceSafetyFixtureAudit(){
       .filter(day => day.exclusionReason === "duplicate_record_date")
       .every(day => day.scoreEvaluationAttempted === false),
     rawProvenanceCoercionBypassPrevented: exclusionReasonCounts.invalid_snapshot_target === 2
-      && ["actual_day_005", "actual_day_012", "actual_day_013", "actual_day_014"].every(sampleId => (
+      && ["2026-01-05", "2026-01-12", "2026-01-13", "2026-01-14"].map(fixtureSampleId).every(sampleId => (
         extracted.find(day => day.sampleId === sampleId)?.exclusionReason === "incomplete_snapshot_training_provenance"
       )),
     strictRawNumberCoercionsRejected: ["1", true, false, [], [1], {}].every(value => !isExplicitRawFiniteNumber(value)),
     legacyMissingNonMacroKcalAllowed: ["alcoholKcal", "otherKcal"].every(key => (
       !Object.prototype.hasOwnProperty.call(payload.data.records[0].meals[0], key)
       && isValidOptionalRawNonMacroKcal(payload.data.records[0].meals[0], key)
-    )) && extracted.find(day => day.sampleId === "actual_day_001")?.included === true
-      && Math.abs(extracted.find(day => day.sampleId === "actual_day_001")?.ratios?.energy - 1) <= 1e-12
-      && extracted.find(day => day.sampleId === "actual_day_001")?.standardDrinks === 0,
+    )) && extracted.find(day => day.sampleId === fixtureSampleId("2026-01-01"))?.included === true
+      && Math.abs(extracted.find(day => day.sampleId === fixtureSampleId("2026-01-01"))?.ratios?.energy - 1) <= 1e-12
+      && extracted.find(day => day.sampleId === fixtureSampleId("2026-01-01"))?.standardDrinks === 0,
     explicitFiniteNonMacroKcalAllowed: ["alcoholKcal", "otherKcal"].every(key => (
       isValidOptionalRawNonMacroKcal(payload.data.records[17].meals[0], key)
     )) && positiveNonMacroDay?.included === true,
@@ -2315,6 +2872,21 @@ async function buildActualDaySourceSafetyFixtureAudit(){
       && invalidRoutineDay.scoreEvaluationAttempted === false,
     productionSimpleProfileRoutineIncluded: simpleProfileRoutineDay?.included === true
       && simpleProfileRoutineDay.scoreEvaluationAttempted === true,
+    legacyProfileRecoveryContractEnforced: legacyDetailedDay?.included === true
+      && legacyRestDay?.included === true
+      && legacyDetailedProvenance.valid === true
+      && legacyDetailedProvenance.effectiveExerciseProfile === "bodybuilding"
+      && legacyDetailedProvenance.effectiveAdvanced === true
+      && legacyDetailedProvenance.trainingProfileSource === "legacy_profile_absent_expert_bodybuilding"
+      && legacyRestProvenance.trainingProfileSource === "legacy_profileless_rest_profile_irrelevant"
+      && explicitProvenance.trainingProfileSource === "snapshot_profile_explicit_current_schema"
+      && legacyDetailedDay.sourceValidityKey !== extracted.find(day => day.sampleId === fixtureSampleId("2026-01-01"))?.sourceValidityKey,
+    ambiguousLegacyAndInvalidSourceFailClosed: legacyCompoundDay?.exclusionReason === "ambiguous_legacy_compound_routine"
+      && legacyCompoundDay.scoreEvaluationAttempted === false
+      && profilelessGeneralDay?.exclusionReason === "incomplete_snapshot_profile_provenance"
+      && profilelessGeneralDay.scoreEvaluationAttempted === false
+      && invalidMarkerDay?.exclusionReason === "invalid_snapshot_source_marker"
+      && invalidMarkerDay.scoreEvaluationAttempted === false,
     productionScoringKcalThresholdAligned: positiveNonMacroDay?.included === true
       && Math.abs(positiveNonMacroDay.ratios?.energy - 0.35) <= 1e-12
       && Math.abs(positiveNonMacroDay.standardDrinks - 2) <= 1e-12,
@@ -2325,6 +2897,35 @@ async function buildActualDaySourceSafetyFixtureAudit(){
     matchContractIds,
     tolerancePairCounts,
     toleranceCoverageMonotonic,
+    baseCoreRetainsControls: matchedEvidence.toleranceResults[0].hiddenRolePotential.control.pairCount > 0
+      && matchedEvidence.toleranceResults[0].baseCore.pairCount
+        === matchedEvidence.toleranceResults[0].hiddenRolePotential.control.pairCount
+          + matchedEvidence.toleranceResults[0].hiddenRolePotential.contrast.pairCount,
+    hiddenRoleUsesDirectionAndMagnitudeClass: getActualHiddenComparisonRole(
+      { optionC: { direction: "fat_heavy", residual: 0.01 } },
+      { optionC: { direction: "fat_heavy", residual: 0.20 } }
+    ) === "contrast" && getActualHiddenComparisonRole(
+      { optionC: { direction: "fat_heavy", residual: 0.20 } },
+      { optionC: { direction: "fat_heavy", residual: 0.30 } }
+    ) === "control",
+    maximumMatchingFixturesPass: blossomFixtures.triangle.cardinality === 1
+      && blossomFixtures.path4.cardinality === 2
+      && blossomFixtures.cycle5.cardinality === 2
+      && JSON.stringify(blossomFixtures.cycle5) === JSON.stringify(blossomFixtures.cycle5Reversed),
+    judgeabilityRejectsConfoundedAndOneAxisOnly: displayConfounded.exclusionReason === "energy_or_protein_display_confounded"
+      && displayOneAxisOnly.exclusionReason === "one_macro_display_axis_only",
+    emittedVisibleSignatureIgnoresHiddenSourceCohort: visibleAcrossSourceA.visibleSignature === visibleAcrossSourceB.visibleSignature,
+    fivePointBandBoundariesStable: getActualRatioBand(0.949999) === "90_to_lt_95_pct_of_target"
+      && getActualRatioBand(0.95) === "95_to_lt_100_pct_of_target"
+      && getActualRatioBand(1.049999) === "100_to_lt_105_pct_of_target"
+      && getActualRatioBand(1.05) === "105_to_lt_110_pct_of_target",
+    balancedReadinessContract: hypothesisBlindArtifacts.selectionDiagnostics.preJudgmentStatus === "READY_FOR_LIMITED_BLIND_JUDGMENT"
+      && hypothesisBlindArtifacts.selectionDiagnostics.reviewForUser === true
+      && hypothesisBlindArtifacts.selectionDiagnostics.authorizesPolicyDecision === false
+      && hypothesisBlindArtifacts.selectionDiagnostics.noSampleReuse === true
+      && hypothesisBlindArtifacts.selectionDiagnostics.visibleSignaturesUnique === true
+      && contrastOnlyArtifacts.selectionDiagnostics.preJudgmentStatus === "NO_BALANCED_JUDGEABLE_BLOCK"
+      && separatedRoleArtifacts.selectionDiagnostics.preJudgmentStatus === "NO_BALANCED_JUDGEABLE_BLOCK",
     reviewPacketCaseCount: reviewArtifact.reviewPacket.length,
     revealMapCaseCount: revealArtifact.revealMap.length,
     reviewPacketExactAllowlistSafe: isHypothesisBlindReviewArtifactSafe(reviewArtifact),
@@ -2334,11 +2935,13 @@ async function buildActualDaySourceSafetyFixtureAudit(){
     reviewRevealSideMappingPreserved,
     hypothesisBlindArtifactsDeterministic: JSON.stringify(hypothesisBlindArtifacts) === JSON.stringify(repeatedArtifacts),
     hypothesisBlindArtifactsInputOrderInvariant: JSON.stringify(hypothesisBlindArtifacts) === JSON.stringify(reversedArtifacts),
+    rawBackupRecordOrderInvariant: JSON.stringify(canonicalizeExtracted(extracted))
+      === JSON.stringify(canonicalizeExtracted(reversedExtracted)),
     deterministicShuffleBothOrientationsCovered: caseASources.includes("source_1") && caseASources.includes("source_2"),
-    narrowestToleranceOwnsDeduplicatedPairs: reviewArtifact.reviewPacket.length === 3
-      && reviewContractCounts.exact === 1
+    narrowestToleranceOwnsDeduplicatedPairs: reviewArtifact.reviewPacket.length === 6
+      && reviewContractCounts.exact === 2
       && reviewContractCounts.tolerance_0_25 === 2
-      && !reviewContractCounts.tolerance_1_00,
+      && reviewContractCounts.tolerance_1_00 === 2,
     reviewAndRevealPhysicallySeparable: !Object.prototype.hasOwnProperty.call(reviewArtifact, "revealMap")
       && !Object.prototype.hasOwnProperty.call(revealArtifact, "reviewPacket"),
     generatedArtifactBundleSafe,
@@ -2981,7 +3584,7 @@ function makeAssertion(name, pass, detail){
     makeAssertion("production geometry sweep preserves C1/C2 equivalence", productionGeometrySweep.c1C2MaximumAbsoluteDelta <= 1e-12, `maxDelta=${productionGeometrySweep.c1C2MaximumAbsoluteDelta}`),
     makeAssertion("production-exact geometry overlap evidence is fully accounted", productionGeometrySweep.overlapAccountingComplete, `positive=${productionGeometrySweep.residualPositiveCount},unique=${productionGeometrySweep.uniqueResidualCaseCount},overlap=${productionGeometrySweep.coreOverlapCount},unclassified=${productionGeometrySweep.productionUnclassifiedCount}`),
     makeAssertion("actual-day audit rejects invalid envelopes, missing settings, and coerced backup versions", actualDaySourceSafetyFixtureAudit.invalidEnvelopeRejected && actualDaySourceSafetyFixtureAudit.missingSettingsRejected && actualDaySourceSafetyFixtureAudit.coercedBackupVersionRejected, `invalidEnvelope=${actualDaySourceSafetyFixtureAudit.invalidEnvelopeRejected},missingSettings=${actualDaySourceSafetyFixtureAudit.missingSettingsRejected},coercedVersion=${actualDaySourceSafetyFixtureAudit.coercedBackupVersionRejected}`),
-    makeAssertion("actual-day source safety includes only complete snapshot fixtures", actualDaySourceSafetyFixtureAudit.sourceRecordCount === 30 && actualDaySourceSafetyFixtureAudit.includedRecordCount === 4 && actualDaySourceSafetyFixtureAudit.excludedRecordCount === 26 && actualDaySourceSafetyFixtureAudit.sourceCountBalanced === true, `source=${actualDaySourceSafetyFixtureAudit.sourceRecordCount},included=${actualDaySourceSafetyFixtureAudit.includedRecordCount},excluded=${actualDaySourceSafetyFixtureAudit.excludedRecordCount},balanced=${actualDaySourceSafetyFixtureAudit.sourceCountBalanced},reasons=${JSON.stringify(actualDaySourceSafetyFixtureAudit.exclusionReasonCounts)}`),
+    makeAssertion("actual-day source safety includes only complete snapshot fixtures", actualDaySourceSafetyFixtureAudit.sourceRecordCount === 36 && actualDaySourceSafetyFixtureAudit.includedRecordCount === 6 && actualDaySourceSafetyFixtureAudit.excludedRecordCount === 30 && actualDaySourceSafetyFixtureAudit.sourceCountBalanced === true, `source=${actualDaySourceSafetyFixtureAudit.sourceRecordCount},included=${actualDaySourceSafetyFixtureAudit.includedRecordCount},excluded=${actualDaySourceSafetyFixtureAudit.excludedRecordCount},balanced=${actualDaySourceSafetyFixtureAudit.sourceCountBalanced},reasons=${JSON.stringify(actualDaySourceSafetyFixtureAudit.exclusionReasonCounts)}`),
     makeAssertion("snapshotless actual-day records are excluded before scoring", actualDaySourceSafetyFixtureAudit.snapshotlessScoreCallsPrevented === true && actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.snapshotless === 2, `prevented=${actualDaySourceSafetyFixtureAudit.snapshotlessScoreCallsPrevented},count=${actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.snapshotless}`),
     makeAssertion("invalid and duplicate dates are excluded before scoring", actualDaySourceSafetyFixtureAudit.invalidDateScoreCallsPrevented === true && actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.invalid_record_date === 1 && actualDaySourceSafetyFixtureAudit.duplicateDateScoreCallsPrevented === true && actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.duplicate_record_date === 2, JSON.stringify(actualDaySourceSafetyFixtureAudit.exclusionReasonCounts)),
     makeAssertion("raw numeric authority accepts native finite numbers only", actualDaySourceSafetyFixtureAudit.rawProvenanceCoercionBypassPrevented === true && actualDaySourceSafetyFixtureAudit.strictRawNumberCoercionsRejected === true, `reasonCoverage=${actualDaySourceSafetyFixtureAudit.rawProvenanceCoercionBypassPrevented},strictCoercions=${actualDaySourceSafetyFixtureAudit.strictRawNumberCoercionsRejected}`),
@@ -2989,15 +3592,21 @@ function makeAssertion(name, pass, detail){
     makeAssertion("present-invalid alcohol and other kcal variants are excluded before scoring", actualDaySourceSafetyFixtureAudit.invalidNonMacroVariantCoverage === 8 && actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.invalid_meal_non_macro_kcal === 8 && actualDaySourceSafetyFixtureAudit.invalidNonMacroVariantFieldCoverageStable === true && actualDaySourceSafetyFixtureAudit.extendedInvalidOptionalValuesRejected === true && actualDaySourceSafetyFixtureAudit.invalidNonMacroScoreCallsPrevented === true, `fixtureVariants=${actualDaySourceSafetyFixtureAudit.invalidNonMacroVariantCoverage},reasonCount=${actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.invalid_meal_non_macro_kcal},fieldCoverage=${actualDaySourceSafetyFixtureAudit.invalidNonMacroVariantFieldCoverageStable},extendedInvalid=${actualDaySourceSafetyFixtureAudit.extendedInvalidOptionalValuesRejected},prevented=${actualDaySourceSafetyFixtureAudit.invalidNonMacroScoreCallsPrevented}`),
     makeAssertion("non-finite derived meal/day energy totals are excluded before scoring", actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.non_finite_meal_energy_total === 1 && actualDaySourceSafetyFixtureAudit.nonFiniteMealEnergyScoreCallsPrevented === true, `reasonCount=${actualDaySourceSafetyFixtureAudit.exclusionReasonCounts.non_finite_meal_energy_total},prevented=${actualDaySourceSafetyFixtureAudit.nonFiniteMealEnergyScoreCallsPrevented}`),
     makeAssertion("actual-day training provenance accepts production simple routines and rejects values outside its vocabulary", actualDaySourceSafetyFixtureAudit.allowedRoutineProvenanceEnforced === true && actualDaySourceSafetyFixtureAudit.productionSimpleProfileRoutineIncluded === true, `invalidRejected=${actualDaySourceSafetyFixtureAudit.allowedRoutineProvenanceEnforced},simpleIncluded=${actualDaySourceSafetyFixtureAudit.productionSimpleProfileRoutineIncluded}`),
+    makeAssertion("legacy profile-absent expert snapshots recover historical bodybuilding advanced ownership without crossing current-profile source cohorts", actualDaySourceSafetyFixtureAudit.legacyProfileRecoveryContractEnforced === true, `recovered=${actualDaySourceSafetyFixtureAudit.legacyProfileRecoveryContractEnforced}`),
+    makeAssertion("ambiguous compound legacy routines, profileless general records, and invalid source markers fail before scoring", actualDaySourceSafetyFixtureAudit.ambiguousLegacyAndInvalidSourceFailClosed === true, `failClosed=${actualDaySourceSafetyFixtureAudit.ambiguousLegacyAndInvalidSourceFailClosed},reasons=${JSON.stringify(actualDaySourceSafetyFixtureAudit.exclusionReasonCounts)}`),
     makeAssertion("actual-day routine vocabulary mirrors production simple and advanced profile routines", actualAuditRoutineVocabularyMatchesProduction === true, `profiles=${Object.keys(actualAuditRoutineVocabulary.advancedByProfile).join("|")},matches=${actualAuditRoutineVocabularyMatchesProduction}`),
     makeAssertion("actual-day full-day threshold uses production scoring kcal including valid non-macro energy", actualDaySourceSafetyFixtureAudit.productionScoringKcalThresholdAligned === true, `aligned=${actualDaySourceSafetyFixtureAudit.productionScoringKcalThresholdAligned}`),
     makeAssertion("macro-only intake below the production full-day threshold is excluded before scoring", actualDaySourceSafetyFixtureAudit.macroOnlyBelowThresholdPrevented === true, `prevented=${actualDaySourceSafetyFixtureAudit.macroOnlyBelowThresholdPrevented}`),
     makeAssertion("actual-day included fixtures remain snapshot-owned without current-result fallback", actualDaySourceSafetyFixtureAudit.validSnapshotGoalOwned === true && actualDaySourceSafetyFixtureAudit.validSnapshotSources?.allFrozenTarget === true && actualDaySourceSafetyFixtureAudit.validSnapshotSources?.allSnapshotWeight === true && actualDaySourceSafetyFixtureAudit.validSnapshotSources?.allRawTrainingEnergy === true && actualDaySourceSafetyFixtureAudit.validSnapshotSources?.noCurrentResultFallback === true, JSON.stringify(actualDaySourceSafetyFixtureAudit.validSnapshotSources)),
     makeAssertion("cardio-only snapshot training is derived from raw snapshot energy instead of rest fallback", actualDaySourceSafetyFixtureAudit.cardioOnlyTrainingContextOwned === true, `owned=${actualDaySourceSafetyFixtureAudit.cardioOnlyTrainingContextOwned}`),
-    makeAssertion("matched evidence tests exact, 0.25, and 1.0 contracts with monotonic coverage", JSON.stringify(actualDaySourceSafetyFixtureAudit.matchContractIds) === JSON.stringify(["exact", "tolerance_0_25", "tolerance_1_00"]) && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.exact > 0 && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_0_25 > actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.exact && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_1_00 >= actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_0_25 && actualDaySourceSafetyFixtureAudit.toleranceCoverageMonotonic === true, `contracts=${actualDaySourceSafetyFixtureAudit.matchContractIds?.join("|")},pairs=${JSON.stringify(actualDaySourceSafetyFixtureAudit.tolerancePairCounts)},monotonic=${actualDaySourceSafetyFixtureAudit.toleranceCoverageMonotonic}`),
+    makeAssertion("matched evidence separates residual-free base coverage from control and contrast potential across exact, 0.25, and 1.0 contracts", JSON.stringify(actualDaySourceSafetyFixtureAudit.matchContractIds) === JSON.stringify(["exact", "tolerance_0_25", "tolerance_1_00"]) && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.exact > 0 && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_0_25 > actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.exact && actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_1_00 > actualDaySourceSafetyFixtureAudit.tolerancePairCounts?.tolerance_0_25 && actualDaySourceSafetyFixtureAudit.toleranceCoverageMonotonic === true && actualDaySourceSafetyFixtureAudit.baseCoreRetainsControls === true, `contracts=${actualDaySourceSafetyFixtureAudit.matchContractIds?.join("|")},pairs=${JSON.stringify(actualDaySourceSafetyFixtureAudit.tolerancePairCounts)},monotonic=${actualDaySourceSafetyFixtureAudit.toleranceCoverageMonotonic},controlsRetained=${actualDaySourceSafetyFixtureAudit.baseCoreRetainsControls}`),
+    makeAssertion("hidden review roles separate both residual direction and existing magnitude class", actualDaySourceSafetyFixtureAudit.hiddenRoleUsesDirectionAndMagnitudeClass === true, `classified=${actualDaySourceSafetyFixtureAudit.hiddenRoleUsesDirectionAndMagnitudeClass}`),
+    makeAssertion("general-graph maximum matching is deterministic for triangle, path, and odd-cycle fixtures", actualDaySourceSafetyFixtureAudit.maximumMatchingFixturesPass === true, `pass=${actualDaySourceSafetyFixtureAudit.maximumMatchingFixturesPass}`),
+    makeAssertion("review judgeability requires shared energy/protein bands, visible differences on both carb and fat, and emitted-field deduplication", actualDaySourceSafetyFixtureAudit.judgeabilityRejectsConfoundedAndOneAxisOnly === true && actualDaySourceSafetyFixtureAudit.fivePointBandBoundariesStable === true && actualDaySourceSafetyFixtureAudit.emittedVisibleSignatureIgnoresHiddenSourceCohort === true, `judgeability=${actualDaySourceSafetyFixtureAudit.judgeabilityRejectsConfoundedAndOneAxisOnly},bands=${actualDaySourceSafetyFixtureAudit.fivePointBandBoundariesStable},visibleDedup=${actualDaySourceSafetyFixtureAudit.emittedVisibleSignatureIgnoresHiddenSourceCohort}`),
+    makeAssertion("blind review readiness requires a same-stratum disjoint contrast/control block and never authorizes policy", actualDaySourceSafetyFixtureAudit.balancedReadinessContract === true, `readyContract=${actualDaySourceSafetyFixtureAudit.balancedReadinessContract}`),
     makeAssertion("standalone review and post-judgment reveal artifacts use exact privacy allowlists and linked case hashes", actualDaySourceSafetyFixtureAudit.reviewPacketCaseCount > 0 && actualDaySourceSafetyFixtureAudit.reviewPacketCaseCount === actualDaySourceSafetyFixtureAudit.revealMapCaseCount && actualDaySourceSafetyFixtureAudit.reviewPacketExactAllowlistSafe === true && actualDaySourceSafetyFixtureAudit.revealMapExactAllowlistSafe === true && actualDaySourceSafetyFixtureAudit.reviewRevealHashLinked === true && actualDaySourceSafetyFixtureAudit.reviewRevealCaseIdsLinked === true && actualDaySourceSafetyFixtureAudit.reviewRevealSideMappingPreserved === true && actualDaySourceSafetyFixtureAudit.reviewAndRevealPhysicallySeparable === true && actualDaySourceSafetyFixtureAudit.generatedArtifactBundleSafe === true && actualDaySourceSafetyFixtureAudit.actualOutputDebugPathPolicyCovered === true, `review=${actualDaySourceSafetyFixtureAudit.reviewPacketCaseCount},reveal=${actualDaySourceSafetyFixtureAudit.revealMapCaseCount},reviewSafe=${actualDaySourceSafetyFixtureAudit.reviewPacketExactAllowlistSafe},revealSafe=${actualDaySourceSafetyFixtureAudit.revealMapExactAllowlistSafe},hashLinked=${actualDaySourceSafetyFixtureAudit.reviewRevealHashLinked},caseLinked=${actualDaySourceSafetyFixtureAudit.reviewRevealCaseIdsLinked},sideLinked=${actualDaySourceSafetyFixtureAudit.reviewRevealSideMappingPreserved},separate=${actualDaySourceSafetyFixtureAudit.reviewAndRevealPhysicallySeparable},runtimeGuard=${actualDaySourceSafetyFixtureAudit.generatedArtifactBundleSafe},debugOnly=${actualDaySourceSafetyFixtureAudit.actualOutputDebugPathPolicyCovered}`),
     makeAssertion("post-judgment reveal accepts only the locked matching review and distinct input/output paths", actualDaySourceSafetyFixtureAudit.lockedReviewSameInputAccepted === true && actualDaySourceSafetyFixtureAudit.changedLockedReviewRejected === true && actualDaySourceSafetyFixtureAudit.actualInputOutputCollisionRejected === true, `sameAccepted=${actualDaySourceSafetyFixtureAudit.lockedReviewSameInputAccepted},changedRejected=${actualDaySourceSafetyFixtureAudit.changedLockedReviewRejected},collisionRejected=${actualDaySourceSafetyFixtureAudit.actualInputOutputCollisionRejected}`),
-    makeAssertion("hypothesis-blind shuffle is deterministic, input-order invariant, and covers both A/B orientations", actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsDeterministic === true && actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsInputOrderInvariant === true && actualDaySourceSafetyFixtureAudit.deterministicShuffleBothOrientationsCovered === true, `repeat=${actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsDeterministic},reverse=${actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsInputOrderInvariant},bothOrientations=${actualDaySourceSafetyFixtureAudit.deterministicShuffleBothOrientationsCovered}`),
+    makeAssertion("hypothesis-blind shuffle is deterministic, raw-record/input-order invariant, and covers both A/B orientations", actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsDeterministic === true && actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsInputOrderInvariant === true && actualDaySourceSafetyFixtureAudit.rawBackupRecordOrderInvariant === true && actualDaySourceSafetyFixtureAudit.deterministicShuffleBothOrientationsCovered === true, `repeat=${actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsDeterministic},dayReverse=${actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsInputOrderInvariant},rawReverse=${actualDaySourceSafetyFixtureAudit.rawBackupRecordOrderInvariant},bothOrientations=${actualDaySourceSafetyFixtureAudit.deterministicShuffleBothOrientationsCovered}`),
     makeAssertion("hypothesis-blind review deduplicates pairs under their narrowest tolerance", actualDaySourceSafetyFixtureAudit.narrowestToleranceOwnsDeduplicatedPairs === true, `owned=${actualDaySourceSafetyFixtureAudit.narrowestToleranceOwnsDeduplicatedPairs}`)
   ];
 
@@ -3121,6 +3730,9 @@ function makeAssertion(name, pass, detail){
   if (localActualDayAuditBundle && actualOutputPaths) {
     assertHypothesisBlindArtifactBundleSafe(localActualDayAuditBundle);
     if (postJudgmentReveal) {
+      if (localActualDayAuditBundle.reviewArtifact.reviewForUser !== true) {
+        throw new Error("post-judgment reveal is blocked because no review-ready balanced packet exists");
+      }
       const lockedReviewArtifact = JSON.parse(fs.readFileSync(actualOutputPaths.reviewOutput, "utf8"));
       assertLockedReviewMatchesGenerated(lockedReviewArtifact, localActualDayAuditBundle.reviewArtifact);
     }
