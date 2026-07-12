@@ -354,7 +354,14 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 단백질은 generated target-aligned range, 에너지 overload는 유효 target과 physical TDEE 중 높은 기준을 사용한다. physical TDEE ratio와 data-outlier 판정은 유지한다.
   - invalid target/rate/EA/protein/external-application ownership은 numeric score 없이 차단하며, frozen snapshot은 전체 계산 basis가 같을 때만 current burn을 빌린다.
   - v6.1/pre-correction v1/version-null stored auto score는 passive 조회에서 보존하고 explicit regrade/persistence에서만 v2로 전환한다. UI/storage/schema/backup migration, component production, DailyCoach, v8.3 tag는 변경하지 않았다.
-  - 다음 gate는 `v8.4 Option C joint-allocation residual exact-formula simulation`이며, 그 뒤 actual-day aggregation 재비교와 component path 선택/폐기를 거친다.
+  - 당시 다음 gate였던 `v8.4 Option C joint-allocation residual exact-formula simulation`은 아래 결과문서로 닫혔다.
+
+- `v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md`
+  - production formula를 바꾸지 않고 Option C residual geometry를 66개 production/cross-profile 조건과 존재 반증용 3,058 deterministic grid samples에서 반증한 test/docs-only decision이다. 이 비율은 actual-day prevalence가 아니다.
+  - C1 carb-energy-share와 C2 radial-kcal-plane 표현은 최대 차이 `1e-15`로 동치이고 연속·단조·대칭·bounded를 통과했다. C3 asymmetric legacy baseline은 superseded했고 모든 curve coefficient는 unapproved다.
+  - residual-positive 477개는 core-unique 237개와 core-overlap 240개를 모두 포함한다. 따라서 outcome은 `MORE_EVIDENCE_REQUIRED`이며 current joint replacement와 joint-axis removal은 모두 미승인이다.
+  - production target 54/54와 cross-profile 12/12가 exact 100, authority pass, 9개 penalty zero를 유지했다. production formula/version/UI/storage/schema/Records/DailyCoach/tag는 변경하지 않았다.
+  - 다음 gate는 coefficient tuning이나 aggregation이 아니라 privacy-safe actual-day joint ownership evidence다. 현재 workspace에는 명시적으로 제공된 private backup이 없어 optional sanitizer만 준비됐다.
 
 ## legacy / 참고 문서
 

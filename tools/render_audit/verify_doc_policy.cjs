@@ -79,6 +79,7 @@ const requiredFiles = [
   "docs/component_score_architecture_simulation_decision_2026-07-11.md",
   "docs/v8.4_component_score_architecture_falsification_decision_2026-07-11.md",
   "docs/v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md",
+  "docs/v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md",
   "tools/render_audit/simulate_component_score_architecture.cjs",
   "package.json",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
@@ -152,6 +153,7 @@ if (failures.length === 0) {
   const componentScoreArchitectureSimulationDecision = read("docs/component_score_architecture_simulation_decision_2026-07-11.md");
   const componentScoreArchitectureFalsificationDecision = read("docs/v8.4_component_score_architecture_falsification_decision_2026-07-11.md");
   const targetScoringAuthorityCorrectionImplementation = read("docs/v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md");
+  const optionCJointResidualSimulationDecision = read("docs/v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md");
   const componentScoreArchitectureSimulationTool = read("tools/render_audit/simulate_component_score_architecture.cjs");
   const packageJson = JSON.parse(read("package.json"));
   const onboardingArchiveReadme = read("docs/archive/onboarding/README.md");
@@ -318,7 +320,9 @@ if (failures.length === 0) {
     "v8.3.1 adaptive-target stable help implementation: implemented",
     "v8.4 component-score architecture falsification decision: closed",
     "narrow target/scoring authoritative-reference correction decision/implementation: implemented and release blocker closed",
-    "v8.4 Option C joint-allocation residual exact-formula simulation: pending",
+    "v8.4 Option C joint-allocation residual exact-formula simulation: closed with outcome MORE_EVIDENCE_REQUIRED",
+    "privacy-safe actual-day joint ownership evidence: pending",
+    "replacement, removal, aggregation, production 구현을 열지 않는다",
     "v8.3.1_target_authority_continuous_macro_score_v2",
     "valid 54개 target 모두 exact 100",
     "v8.3.1 DailyCoach semantic v2 phase 1: paused",
@@ -373,10 +377,13 @@ if (failures.length === 0) {
     "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
     "v8.4_component_score_architecture_falsification_decision_2026-07-11.md",
     "v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md",
+    "v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md",
     "v8.3.1_target_authority_continuous_macro_score_v2",
     "current production은 54/54 exact 100",
-    "production formula/UI/storage implementation은 열지 않는다",
-    "v8.4 Option C joint-allocation residual exact-formula simulation",
+    "production formula/UI/storage implementation을 열지 않는다",
+    "outcome은 `MORE_EVIDENCE_REQUIRED`",
+    "core-unique 237개와 core-overlap 240개",
+    "privacy-safe actual-day joint ownership evidence",
     "DailyCoach semantic v2 phase 1",
   ];
   for (const text of currentTruthRequirements) {
@@ -421,7 +428,10 @@ if (failures.length === 0) {
     "narrow target/scoring authoritative-reference correction decision/implementation: implemented and release blocker closed",
     "v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md",
     "valid target 54/54 exact 100",
-    "v8.4 Option C joint-allocation residual exact-formula simulation",
+    "v8.4 Option C joint-allocation residual exact-formula simulation: closed with outcome MORE_EVIDENCE_REQUIRED",
+    "v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md",
+    "privacy-safe actual-day joint ownership evidence: pending",
+    "blocked until joint ownership evidence",
     "v8.3.1 DailyCoach semantic v2 phase 1: paused",
     "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
     "required result-log format: active",
@@ -1228,6 +1238,7 @@ if (failures.length === 0) {
   const componentScoreArchitectureRoute = "component_score_architecture_simulation_decision_2026-07-11.md";
   const componentScoreArchitectureFalsificationRoute = "v8.4_component_score_architecture_falsification_decision_2026-07-11.md";
   const targetScoringAuthorityCorrectionRoute = "v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md";
+  const optionCJointResidualSimulationRoute = "v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md";
   for (const [label, text] of [
     ["00_READ_FIRST", readFirst],
     ["02_macro_range_current_truth", currentTruth],
@@ -1243,6 +1254,9 @@ if (failures.length === 0) {
     if (!text.includes(targetScoringAuthorityCorrectionRoute)) {
       fail(`${label} missing target/scoring authority correction route`);
     }
+    if (!text.includes(optionCJointResidualSimulationRoute)) {
+      fail(`${label} missing Option C joint residual simulation route`);
+    }
   }
   for (const [label, text] of [
     ["00_READ_FIRST", readFirst],
@@ -1251,7 +1265,7 @@ if (failures.length === 0) {
     ["README", readme],
   ]) {
     if (!text.includes("release blocker") && !text.includes("release-blocker")) {
-      fail(`${label} must keep the unresolved target/scoring mismatch visible as a release blocker`);
+      fail(`${label} must keep the target/scoring release-blocker history and closure visible`);
     }
     if (text.includes("v8.4 candidate component-score scoring-version implementation decision")) {
       fail(`${label} still exposes the superseded exact component-score implementation gate`);
@@ -1266,6 +1280,7 @@ if (failures.length === 0) {
       "mismatch는 OPEN",
       "narrow target/scoring authoritative-reference correction decision/implementation: pending release-blocker",
       "current formula/version/UI/storage는 unchanged",
+      "v8.4 Option C joint-allocation residual exact-formula simulation: pending",
     ]) {
       if (text.includes(stalePhrase)) fail(`${label} retains stale target/scoring correction state: ${stalePhrase}`);
     }
@@ -1279,6 +1294,9 @@ if (failures.length === 0) {
   }
   if (!statusIndex.includes(`상태: implemented and release blocker closed by docs/${targetScoringAuthorityCorrectionRoute}`)) {
     fail("status index must mark target/scoring authority correction implemented and closed");
+  }
+  if (!statusIndex.includes(`상태: closed with outcome \`MORE_EVIDENCE_REQUIRED\` by docs/${optionCJointResidualSimulationRoute}`)) {
+    fail("status index must close Option C simulation with MORE_EVIDENCE_REQUIRED");
   }
 
   const targetScoringAuthorityCorrectionRequirements = [
@@ -1306,6 +1324,65 @@ if (failures.length === 0) {
     if (!targetScoringAuthorityCorrectionImplementation.includes(text)) {
       fail(`target/scoring authority correction implementation log missing: ${text}`);
     }
+  }
+
+  const optionCJointResidualSimulationRequirements = [
+    "DOCUMENT ROLE",
+    "- test/docs-only Option C exact-formula simulation result log",
+    "overall outcome: MORE_EVIDENCE_REQUIRED",
+    "CURRENT_JOINT_REPLACEMENT_READY: 선택하지 않음",
+    "DROP_JOINT_AXIS_READY: 선택하지 않음",
+    "## 비개발자용 설명",
+    "### 무엇을 바꿨는지",
+    "### 왜 바꿨는지",
+    "### 실제 사용자 화면이나 계산 결과가 어떻게 달라지는지",
+    "### 정책, 산식, 데이터 해석이 바뀌었는지",
+    "### 바꾸지 않은 범위와 보류한 내용",
+    "### 사용자가 큰 틀에서 확인해야 할 판단점",
+    "### 테스트에서 무엇을 검증했는지",
+    "## 기술 검증",
+    "production geometry: 54",
+    "cross-profile geometry: 12",
+    "samples: 3,058",
+    "residual-positive: 477",
+    "core-unique: 237",
+    "core-overlap: 240",
+    "최대 차이 `1e-15`",
+    "22.449점",
+    "`0.354111`에서 `0.458886`",
+    "`5.702점`에서 `9.147점`",
+    "privacy-safe actual-day joint ownership evidence",
+    "coefficient tuning",
+    "실제 private backup은 이 작업공간에 없어서",
+    "scoring formula/version, UI, storage/schema, backup, Records, DailyCoach, v8.3 tag를 바꾸지 않았다",
+    "PROMPT_SCOPE_AUDIT",
+  ];
+  for (const text of optionCJointResidualSimulationRequirements) {
+    if (!optionCJointResidualSimulationDecision.includes(text)) {
+      fail(`Option C joint residual simulation result missing: ${text}`);
+    }
+  }
+  const optionCOverallOutcomeLines = optionCJointResidualSimulationDecision.match(/^overall outcome:\s*.+$/gm) || [];
+  if (optionCOverallOutcomeLines.length !== 1 || optionCOverallOutcomeLines[0] !== "overall outcome: MORE_EVIDENCE_REQUIRED") {
+    fail("Option C result log must declare exactly one overall outcome: MORE_EVIDENCE_REQUIRED");
+  }
+  for (const [label, text] of [
+    ["00_READ_FIRST", readFirst],
+    ["02_macro_range_current_truth", currentTruth],
+    ["04_document_status_index", statusIndex],
+    ["README", readme],
+  ]) {
+    for (const required of [
+      optionCJointResidualSimulationRoute,
+      "MORE_EVIDENCE_REQUIRED",
+      "privacy-safe actual-day joint ownership evidence",
+    ]) {
+      if (!text.includes(required)) fail(`${label} missing current Option C outcome route: ${required}`);
+    }
+  }
+  if (!statusIndex.includes("55. component-score actual-day aggregation re-evaluation.")
+      || !statusIndex.includes("상태: blocked until item 54 closes.")) {
+    fail("status index must block component aggregation until actual-day joint ownership evidence closes");
   }
 
   const targetAuthorityIndexHtml = read("index.html");
@@ -1345,12 +1422,22 @@ if (failures.length === 0) {
   }
 
   const simulationToolRequirements = [
-    "component_score_architecture_falsification_v1",
+    "component_score_architecture_falsification_v2",
     "model_d_raw_product",
     "model_e_softmin_p_minus_4",
     "model_f_geometric_worst_guard_35",
     "model_g_min_residual_10",
     "option_c_joint_allocation_residual",
+    "function optionC1CarbEnergyShareResidual",
+    "function optionC2RadialKcalPlaneResidual",
+    "function optionC3LegacyNormalizedCarbBaseline",
+    "productionGeometrySweep",
+    "availableCarbFatKcal",
+    "invalid_available_kcal_authority",
+    "joint_endpoint_authority_mismatch",
+    "isStrictlyIncreasingFinite",
+    "uniqueResidualCaseCount",
+    "coreOverlapCount",
     "--actual-backup",
     "privacyContract",
     "deterministicHash",
@@ -1361,6 +1448,12 @@ if (failures.length === 0) {
     "finiteNonNegativeMacros",
     "proteinSelectionMatchesIndependentRequest",
     "target validity envelope passes generated targets",
+    "C1 capacity normalization is direction symmetric",
+    "C1 residual is bounded from zero to one",
+    "C1 and C2 are numerically equivalent",
+    "C3 legacy normalized-carb baseline is marked DROP and diverges",
+    "production geometry sweep covers all 54 plus 12 cross-profile geometries with joint-model authority",
+    "production geometry overlap evidence is fully accounted",
   ];
   for (const text of simulationToolRequirements) {
     if (!componentScoreArchitectureSimulationTool.includes(text)) {
@@ -1396,6 +1489,11 @@ if (failures.length === 0) {
     "49. v8.3.1 adaptive-target stable help implementation.",
     "50. component score architecture feasibility / simulation decision.",
     "51. v8.4 component-score architecture falsification decision.",
+    "53. v8.4 Option C joint-allocation residual exact-formula simulation.",
+    "54. privacy-safe actual-day joint ownership evidence.",
+    "55. component-score actual-day aggregation re-evaluation.",
+    "56. component-score candidate selection or rejection.",
+    "57. v8.3.1 DailyCoach semantic v2 phase 1.",
     "v8.3.1 DailyCoach semantic v2 phase 1.",
     "selectable Coach voice decision / implementation.",
     "필요 시 broad tooltip/glossary spec.",
