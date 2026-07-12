@@ -1362,6 +1362,15 @@ if (failures.length === 0) {
     "non_finite_meal_energy_total",
     "production scoring kcal",
     "post-judgment",
+    "explicit-backup actual-day evidence closeout",
+    "actual-day evidence outcome: ACTUAL_EVIDENCE_INSUFFICIENT",
+    "NO_BALANCED_JUDGEABLE_BLOCK",
+    "reviewForUser: false",
+    "reviewPacket: []",
+    "source records: 98",
+    "source-safe included: 96",
+    "balanced block candidates: 0",
+    "actual same-input two-run: audit/review 모두 byte-identical",
     "coefficient tuning",
     "실제 private backup은 이 작업공간에 없어서",
     "scoring formula/version, UI, storage/schema, backup, Records, DailyCoach, v8.3 tag를 바꾸지 않았다",
@@ -1389,6 +1398,17 @@ if (failures.length === 0) {
   if (!allowedCorrectionOutcomes.has(correctionOutcome)) {
     fail("Option C correction must declare exactly one allowed, falsifiable production-authority correction outcome");
   }
+  const actualEvidenceOutcomeLines = optionCJointResidualSimulationDecision.match(/^actual-day evidence outcome:\s*.+$/gm) || [];
+  const allowedActualEvidenceOutcomes = new Set([
+    "ACTUAL_EVIDENCE_INSUFFICIENT",
+    "READY_FOR_LIMITED_BLIND_JUDGMENT",
+  ]);
+  const actualEvidenceOutcome = actualEvidenceOutcomeLines.length === 1
+    ? actualEvidenceOutcomeLines[0].split(":").slice(1).join(":").trim()
+    : null;
+  if (!allowedActualEvidenceOutcomes.has(actualEvidenceOutcome)) {
+    fail("Option C actual-day evidence must declare exactly one allowed, falsifiable outcome");
+  }
   if (!statusIndex.includes(`상태: closed with outcome \`${correctionOutcome}\` by the append-only production-authority correction section`)) {
     fail("status index must expose the same falsifiable production-authority correction outcome as the result log");
   }
@@ -1405,29 +1425,28 @@ if (failures.length === 0) {
       if (!text.includes(required)) fail(`${label} missing current Option C outcome route: ${required}`);
     }
   }
-  if (correctionOutcome === "AUTHORITY_CORRECTED_AWAITING_EXPLICIT_BACKUP") {
+  if (actualEvidenceOutcome === "ACTUAL_EVIDENCE_INSUFFICIENT") {
     for (const [label, text] of [
       ["00_READ_FIRST", readFirst],
       ["02_macro_range_current_truth", currentTruth],
       ["04_document_status_index", statusIndex],
       ["README", readme],
     ]) {
-      if (!text.includes("explicit-backup")) fail(`${label} must route the awaiting-backup outcome to explicit-backup evidence`);
+      if (!text.includes(actualEvidenceOutcome)) fail(`${label} must route the actual evidence insufficiency outcome`);
     }
-    const hasAwaitingActualEvidenceSemantics = text => {
+    const hasClosedInsufficientActualEvidenceSemantics = text => {
       const routeLine = text.split(/\r?\n/).find(line => (
         line.includes("explicit-backup privacy-safe actual-day joint ownership evidence:")
       ));
       return !!routeLine
-        && /preflight closed/i.test(routeLine)
-        && /explicit backup input/i.test(routeLine)
-        && /judgment pending/i.test(routeLine);
+        && /closed with outcome/i.test(routeLine)
+        && routeLine.includes("ACTUAL_EVIDENCE_INSUFFICIENT");
     };
-    if (!hasAwaitingActualEvidenceSemantics(readFirst)
-        || !hasAwaitingActualEvidenceSemantics(statusIndex)
+    if (!hasClosedInsufficientActualEvidenceSemantics(readFirst)
+        || !hasClosedInsufficientActualEvidenceSemantics(statusIndex)
         || !statusIndex.includes("56. component-score actual-day aggregation re-evaluation.")
-        || !statusIndex.includes("상태: blocked until authoritative evidence in item 55 closes.")) {
-      fail("awaiting-backup outcome must keep explicit-backup evidence pending and component aggregation blocked");
+        || !statusIndex.includes("상태: blocked because item 55 closed `ACTUAL_EVIDENCE_INSUFFICIENT`.")) {
+      fail("actual evidence insufficiency must close item 55 without review/reveal and keep component aggregation blocked");
     }
   }
 
@@ -1497,6 +1516,11 @@ if (failures.length === 0) {
     "current_result_source_fallback",
     "ACTUAL_MATCH_TOLERANCES",
     "function buildActualMatchedEvidence",
+    "function maximumCardinalityMatching",
+    "function getStableActualSampleId",
+    "READY_FOR_LIMITED_BLIND_JUDGMENT",
+    "NO_BALANCED_JUDGEABLE_BLOCK",
+    "post-judgment reveal is blocked because no review-ready balanced packet exists",
     "function buildHypothesisBlindProductMeaningReview",
     "function isValidOptionalRawNonMacroKcal",
     "ACTUAL_AUDIT_SIMPLE_ROUTINES",
@@ -1531,7 +1555,7 @@ if (failures.length === 0) {
     "actual-day full-day threshold uses production scoring kcal including valid non-macro energy",
     "standalone review and post-judgment reveal artifacts use exact privacy allowlists and linked case hashes",
     "post-judgment reveal accepts only the locked matching review and distinct input/output paths",
-    "hypothesis-blind shuffle is deterministic, input-order invariant, and covers both A/B orientations",
+    "hypothesis-blind shuffle is deterministic, raw-record/input-order invariant, and covers both A/B orientations",
     "invalid and duplicate dates are excluded before scoring",
     "cardio-only snapshot training is derived from raw snapshot energy instead of rest fallback",
     "historical_test_local_helper_diagnostics_only",
