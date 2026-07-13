@@ -323,6 +323,8 @@ if (failures.length === 0) {
     "v8.4 Option C joint-allocation residual exact-formula simulation: original geometry decision closed with outcome MORE_EVIDENCE_REQUIRED",
     "v8.4 production-authoritative joint ownership/source-safety correction: closed with outcome",
     "actual-context-anchored controlled counterfactual product-meaning evidence: closed with outcome COUNTERFACTUAL_PACKET_INSUFFICIENT",
+    "counterfactual eligibility attrition falsification: closed with outcome METHOD_BLOCKED_AND_RECOVERED",
+    "counterfactual locked 12-case product-meaning judgment: pending user blind judgment",
     "replacement, removal, aggregation, production 구현을 열지 않는다",
     "v8.3.1_target_authority_continuous_macro_score_v2",
     "valid 54개 target 모두 exact 100",
@@ -385,6 +387,8 @@ if (failures.length === 0) {
     "production joint 제외 8축",
     "snapshotless/current-Settings hidden recompute",
     "명시적으로 제공한 full-backup",
+    "METHOD_BLOCKED_AND_RECOVERED",
+    "READY_FOR_COUNTERFACTUAL_BLIND_JUDGMENT",
     "DailyCoach semantic v2 phase 1",
   ];
   for (const text of currentTruthRequirements) {
@@ -438,6 +442,8 @@ if (failures.length === 0) {
     "v8.4 Option C joint-allocation residual exact-formula simulation: original geometry decision closed with outcome MORE_EVIDENCE_REQUIRED",
     "v8.4 production-authoritative joint ownership/source-safety correction: closed with outcome",
     "actual-context-anchored controlled counterfactual product-meaning evidence: closed with outcome COUNTERFACTUAL_PACKET_INSUFFICIENT",
+    "counterfactual eligibility attrition falsification: closed with outcome METHOD_BLOCKED_AND_RECOVERED",
+    "counterfactual locked 12-case product-meaning judgment: pending user blind judgment",
     "v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md",
     "v8.3.1 DailyCoach semantic v2 phase 1: paused",
     "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
@@ -1379,6 +1385,10 @@ if (failures.length === 0) {
     "eligible roles after all invariants: null-control 12 / carb-heavy contrast 6 / fat-heavy contrast 0",
     "selected balanced blocks / cases: 0 / 0",
     "component simulation: 77 assertions / 77 pass / 0 fail",
+    "counterfactual attrition falsification outcome: METHOD_BLOCKED_AND_RECOVERED",
+    "fixed observed strict waterfall",
+    "L1 current rules + capability-first",
+    "component simulation: 83 assertions / 83 pass / 0 fail",
     "coefficient tuning",
     "실제 private backup은 이 작업공간에 없어서",
     "scoring formula/version, UI, storage/schema, backup, Records, DailyCoach, v8.3 tag를 바꾸지 않았다",
@@ -1428,6 +1438,21 @@ if (failures.length === 0) {
   if (!allowedCounterfactualOutcomes.has(counterfactualOutcome)) {
     fail("Option C actual-context counterfactual evidence must declare exactly one allowed, falsifiable outcome");
   }
+  const attritionOutcomeLines = optionCJointResidualSimulationDecision.match(/^counterfactual attrition falsification outcome:\s*.+$/gm) || [];
+  const allowedAttritionOutcomes = new Set([
+    "METHOD_BLOCKED_AND_RECOVERED",
+    "ONE_SIDED_CARB_RESIDUAL_CANDIDATE",
+    "ONE_SIDED_FAT_RESIDUAL_CANDIDATE",
+    "TWO_SIDED_RESIDUAL_CANDIDATE",
+    "JOINT_REDUNDANT_CANDIDATE",
+    "EVIDENCE_STILL_INSUFFICIENT",
+  ]);
+  const attritionOutcome = attritionOutcomeLines.length === 1
+    ? attritionOutcomeLines[0].split(":").slice(1).join(":").trim()
+    : null;
+  if (!allowedAttritionOutcomes.has(attritionOutcome)) {
+    fail("Option C counterfactual attrition falsification must declare exactly one allowed outcome");
+  }
   if (!statusIndex.includes(`상태: closed with outcome \`${correctionOutcome}\` by the append-only production-authority correction section`)) {
     fail("status index must expose the same falsifiable production-authority correction outcome as the result log");
   }
@@ -1464,7 +1489,8 @@ if (failures.length === 0) {
     if (!hasClosedInsufficientActualEvidenceSemantics(readFirst)
         || !hasClosedInsufficientActualEvidenceSemantics(statusIndex)
         || !statusIndex.includes("56. component-score actual-day aggregation re-evaluation.")
-        || !statusIndex.includes("상태: blocked because item 55 closed `ACTUAL_EVIDENCE_INSUFFICIENT`.")) {
+        || !(statusIndex.includes("상태: blocked because item 55 closed `ACTUAL_EVIDENCE_INSUFFICIENT`.")
+          || statusIndex.includes("상태: blocked until item 55-CF-A의 locked 12-case blind judgment"))) {
       fail("actual evidence insufficiency must close item 55 without review/reveal and keep component aggregation blocked");
     }
   }
@@ -1481,10 +1507,28 @@ if (failures.length === 0) {
       }
     }
     if (!statusIndex.includes("55-CF. actual-context-anchored controlled counterfactual product-meaning evidence.")
-        || !statusIndex.includes("상태: closed with outcome `COUNTERFACTUAL_PACKET_INSUFFICIENT`")
+        || !statusIndex.includes("상태: closed with outcome `COUNTERFACTUAL_PACKET_INSUFFICIENT`")) {
+      fail("counterfactual insufficiency must remain a separate historical evidence class");
+    }
+  }
+  if (attritionOutcome === "METHOD_BLOCKED_AND_RECOVERED") {
+    for (const [label, text] of [
+      ["00_READ_FIRST", readFirst],
+      ["02_macro_range_current_truth", currentTruth],
+      ["04_document_status_index", statusIndex],
+      ["README", readme],
+    ]) {
+      if (!text.includes(attritionOutcome)
+          || !text.includes("READY_FOR_COUNTERFACTUAL_BLIND_JUDGMENT")
+          || !text.includes("COUNTERFACTUAL_PACKET_INSUFFICIENT")) {
+        fail(`${label} must expose method recovery while preserving the historical counterfactual outcome`);
+      }
+    }
+    if (!statusIndex.includes("55-CF-A. counterfactual eligibility attrition falsification.")
+        || !statusIndex.includes("상태: closed with outcome `METHOD_BLOCKED_AND_RECOVERED`")
         || !statusIndex.includes("56. component-score actual-day aggregation re-evaluation.")
-        || !statusIndex.includes("상태: blocked because item 55 closed `ACTUAL_EVIDENCE_INSUFFICIENT`.")) {
-      fail("counterfactual insufficiency must remain a separate closed evidence class and keep item 56 blocked");
+        || !statusIndex.includes("blocked until item 55-CF-A의 locked 12-case blind judgment")) {
+      fail("method recovery must route the locked blind judgment before aggregation re-evaluation");
     }
   }
 
@@ -1652,6 +1696,7 @@ if (failures.length === 0) {
     "54. v8.4 production-authoritative joint ownership/source-safety correction.",
     "55. explicit-backup privacy-safe actual-day joint ownership evidence.",
     "55-CF. actual-context-anchored controlled counterfactual product-meaning evidence.",
+    "55-CF-A. counterfactual eligibility attrition falsification.",
     "56. component-score actual-day aggregation re-evaluation.",
     "57. component-score candidate selection or rejection.",
     "58. v8.3.1 DailyCoach semantic v2 phase 1.",
