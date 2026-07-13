@@ -1323,6 +1323,9 @@ const ACTUAL_COUNTERFACTUAL_EXCHANGE_STEPS = Object.freeze([
   -8, -7, -6, -5, -4, -3, -2, -1,
   1, 2, 3, 4, 5, 6, 7, 8
 ]);
+const ACTUAL_COUNTERFACTUAL_NORMALIZED_GRID_FRACTIONS = Object.freeze([
+  0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9
+]);
 const ACTUAL_COUNTERFACTUAL_MAX_BALANCED_BLOCKS = 6;
 const ACTUAL_MATCH_TOLERANCES = Object.freeze([
   Object.freeze({ id: "exact", maxAxisDelta: 0 }),
@@ -1552,7 +1555,13 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload, options = {}){
     const page = context.pages()[0] || await context.newPage();
     await page.goto(`http://127.0.0.1:${port}/index.html?codexInternalTests=1`, { waitUntil: "domcontentloaded", timeout: 90000 });
     await page.waitForFunction(() => typeof calculate === "function" && typeof getDailyAdherenceScore === "function", null, { timeout: 90000 });
-    const evaluated = await page.evaluate(({ payload: data, eligibleRecords: eligible, counterfactualRequested: buildCounterfactuals, counterfactualExchangeSteps }) => {
+    const evaluated = await page.evaluate(({
+      payload: data,
+      eligibleRecords: eligible,
+      counterfactualRequested: buildCounterfactuals,
+      counterfactualExchangeSteps,
+      counterfactualNormalizedGridFractions
+    }) => {
       const normalizedBackup = normalizeFullBackupPayload(data);
       const rawRecords = data.data.records;
       recordsState.items = eligible.map(item => normalizeRecord(rawRecords[item.index])).filter(record => record?.date);
@@ -1663,13 +1672,16 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload, options = {}){
           }
           const originalMacroEnergy = originalProtein * 4 + originalCarbs * 4 + originalFat * 9;
           const originalDerivedScoringKcal = originalMacroEnergy + originalAlcoholKcal + originalOtherKcal;
-          const variants = counterfactualExchangeSteps.map(exchangeStep => {
-            const carbs = originalCarbs + 9 * exchangeStep;
-            const fat = originalFat - 4 * exchangeStep;
+          const buildVariant = ({ variantKey, gridKind, exchangeStep = null, normalizedFraction = null, exchangeKcal }) => {
+            const carbs = originalCarbs + exchangeKcal / 4;
+            const fat = originalFat - exchangeKcal / 9;
             if (![carbs, fat].every(Number.isFinite) || carbs < 0 || fat < 0) {
               return {
-                variantKey: `exchange_${exchangeStep < 0 ? "minus" : "plus"}_${Math.abs(exchangeStep)}`,
+                variantKey,
+                gridKind,
                 exchangeStep,
+                exchangeKcal,
+                normalizedFraction,
                 valid: false,
                 exclusionReason: "negative_counterfactual_macro"
               };
@@ -1738,8 +1750,11 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload, options = {}){
               && Math.abs(syntheticTotals.alcoholKcal - originalAlcoholKcal) <= 1e-9
               && Math.abs(syntheticTotals.otherKcal - originalOtherKcal) <= 1e-9;
             return {
-              variantKey: `exchange_${exchangeStep < 0 ? "minus" : "plus"}_${Math.abs(exchangeStep)}`,
+              variantKey,
+              gridKind,
               exchangeStep,
+              exchangeKcal,
+              normalizedFraction,
               valid,
               exclusionReason: valid ? null : "counterfactual_production_invariant_failed",
               ratios: {
@@ -1758,6 +1773,10 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload, options = {}){
                 weightSource: candidateContext.weightSource || null,
                 totalBurnSource: candidateContext.totalBurnSource || null,
                 trainingContext: candidateContext.trainingContext || null,
+                policyEnvelopeValid: carbs >= 0
+                  && fat >= 0
+                  && carbs <= (originalCarbs * 4 + originalFat * 9) / 4 + 1e-9
+                  && fat <= (originalCarbs * 4 + originalFat * 9) / 9 + 1e-9,
                 syntheticMealClosureValid: Math.abs(syntheticTotals.carbs - carbs) <= 1e-9
                   && Math.abs(syntheticTotals.protein - originalProtein) <= 1e-9
                   && Math.abs(syntheticTotals.fat - fat) <= 1e-9
@@ -1773,18 +1792,47 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload, options = {}){
                 carbMaxG: candidateJoint.jointRanges?.carbs?.max,
                 fatMinG: candidateJoint.jointRanges?.fat?.min,
                 fatMaxG: candidateJoint.jointRanges?.fat?.max,
+                rawCarbMinG: candidateJoint.rawRanges?.carbs?.min,
+                rawCarbMaxG: candidateJoint.rawRanges?.carbs?.max,
+                rawFatMinG: candidateJoint.rawRanges?.fat?.min,
+                rawFatMaxG: candidateJoint.rawRanges?.fat?.max,
                 collapsed: candidateJoint.collapsed === true,
                 carbG: carbs,
                 fatG: fat,
                 totalKcal: originalScoringKcal
               } : null
             };
-          });
+          };
+          const variants = counterfactualExchangeSteps.map(exchangeStep => buildVariant({
+            variantKey: `exchange_${exchangeStep < 0 ? "minus" : "plus"}_${Math.abs(exchangeStep)}`,
+            gridKind: "fixed_36kcal",
+            exchangeStep,
+            exchangeKcal: 36 * exchangeStep
+          }));
+          const normalizedVariants = [
+            ...counterfactualNormalizedGridFractions.map(fraction => buildVariant({
+              variantKey: `normalized_carb_${String(Math.round(fraction * 100)).padStart(2, "0")}`,
+              gridKind: "normalized_feasible_span",
+              normalizedFraction: fraction,
+              exchangeKcal: originalFat * 9 * fraction
+            })),
+            ...counterfactualNormalizedGridFractions.map(fraction => buildVariant({
+              variantKey: `normalized_fat_${String(Math.round(fraction * 100)).padStart(2, "0")}`,
+              gridKind: "normalized_feasible_span",
+              normalizedFraction: -fraction,
+              exchangeKcal: -originalCarbs * 4 * fraction
+            }))
+          ];
           return {
-            valid: variants.some(variant => variant.valid),
-            exclusionReason: variants.some(variant => variant.valid) ? null : "no_valid_counterfactual_variants",
+            valid: [...variants, ...normalizedVariants].some(variant => variant.valid),
+            exclusionReason: [...variants, ...normalizedVariants].some(variant => variant.valid)
+              ? null
+              : "no_valid_counterfactual_variants",
             generatorContract: "fixed_36kcal_carb_fat_exchange_grid_without_residual_input",
-            variants
+            normalizedGeneratorContract: "predeclared_decile_grid_over_each_anchor_nonnegative_iso_calorie_exchange_span",
+            normalizedGridFractions: [...counterfactualNormalizedGridFractions],
+            variants,
+            normalizedVariants
           };
         })() : null;
         return {
@@ -1826,6 +1874,10 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload, options = {}){
             carbMaxG: joint.jointRanges?.carbs?.max,
             fatMinG: joint.jointRanges?.fat?.min,
             fatMaxG: joint.jointRanges?.fat?.max,
+            rawCarbMinG: joint.rawRanges?.carbs?.min,
+            rawCarbMaxG: joint.rawRanges?.carbs?.max,
+            rawFatMinG: joint.rawRanges?.fat?.min,
+            rawFatMaxG: joint.rawRanges?.fat?.max,
             collapsed: joint.collapsed === true,
             carbG: consumed.carbs,
             fatG: consumed.fat,
@@ -1838,7 +1890,8 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload, options = {}){
       payload,
       eligibleRecords,
       counterfactualRequested,
-      counterfactualExchangeSteps: ACTUAL_COUNTERFACTUAL_EXCHANGE_STEPS
+      counterfactualExchangeSteps: ACTUAL_COUNTERFACTUAL_EXCHANGE_STEPS,
+      counterfactualNormalizedGridFractions: ACTUAL_COUNTERFACTUAL_NORMALIZED_GRID_FRACTIONS
     });
     const evaluatedBySampleId = new Map(evaluated.map(item => {
       const missingPenaltyAxes = productionPenaltyAxes.filter(key => (
@@ -2757,6 +2810,553 @@ function buildActualAnchoredCounterfactualEvidence(days){
   };
 }
 
+const COUNTERFACTUAL_ATTRITION_ROLES = Object.freeze([
+  "null_control",
+  "contrast_carb_heavy",
+  "contrast_fat_heavy"
+]);
+const COUNTERFACTUAL_ATTRITION_LANES = Object.freeze([
+  Object.freeze({
+    id: "L1_current_rules_capability_first",
+    grid: "fixed",
+    support: "observed",
+    core: "strict_zero",
+    anchorVector: "exact",
+    assignment: "capability_first"
+  }),
+  Object.freeze({
+    id: "L2_fixed_observed_strict_pair_equal",
+    grid: "fixed",
+    support: "observed",
+    core: "strict_zero",
+    anchorVector: "not_required",
+    assignment: "capability_first"
+  }),
+  Object.freeze({
+    id: "L3_fixed_policy_strict_pair_equal",
+    grid: "fixed",
+    support: "policy",
+    core: "strict_zero",
+    anchorVector: "not_required",
+    assignment: "capability_first"
+  }),
+  Object.freeze({
+    id: "L4_normalized_observed_strict_pair_equal",
+    grid: "normalized",
+    support: "observed",
+    core: "strict_zero",
+    anchorVector: "not_required",
+    assignment: "capability_first"
+  }),
+  Object.freeze({
+    id: "L5_normalized_policy_strict_pair_equal",
+    grid: "normalized",
+    support: "policy",
+    core: "strict_zero",
+    anchorVector: "not_required",
+    assignment: "capability_first"
+  }),
+  Object.freeze({
+    id: "L6_fixed_observed_equal_nonzero",
+    grid: "fixed",
+    support: "observed",
+    core: "equal_nonzero_allowed",
+    anchorVector: "not_required",
+    assignment: "capability_first"
+  }),
+  Object.freeze({
+    id: "L7_fixed_policy_equal_nonzero",
+    grid: "fixed",
+    support: "policy",
+    core: "equal_nonzero_allowed",
+    anchorVector: "not_required",
+    assignment: "capability_first"
+  }),
+  Object.freeze({
+    id: "L8_normalized_observed_equal_nonzero",
+    grid: "normalized",
+    support: "observed",
+    core: "equal_nonzero_allowed",
+    anchorVector: "not_required",
+    assignment: "capability_first"
+  }),
+  Object.freeze({
+    id: "L9_normalized_policy_equal_nonzero",
+    grid: "normalized",
+    support: "policy",
+    core: "equal_nonzero_allowed",
+    anchorVector: "not_required",
+    assignment: "capability_first"
+  })
+]);
+
+function isCounterfactualCoreZero(vector){
+  return Number(vector?.fatRangePenalty) === 0
+    && Number(vector?.carbExerciseContextPenalty) === 0
+    && Number(vector?.dataOutlierPenalty) === 0;
+}
+
+function counterfactualVectorsExactlyEqual(left, right){
+  return productionNonJointPenaltyAxes.every(key => (
+    Number.isFinite(Number(left?.[key]))
+    && Number.isFinite(Number(right?.[key]))
+    && Math.abs(Number(left[key]) - Number(right[key])) <= 1e-12
+  ));
+}
+
+function buildCounterfactualSupportRanges(anchors){
+  const valuesByContext = new Map();
+  anchors.forEach(day => {
+    const key = `${day.goal}|${day.trainingContext}`;
+    const values = valuesByContext.get(key) || { carb: [], fat: [] };
+    if (Number.isFinite(Number(day.ratios?.carb))) values.carb.push(Number(day.ratios.carb));
+    if (Number.isFinite(Number(day.ratios?.fat))) values.fat.push(Number(day.ratios.fat));
+    valuesByContext.set(key, values);
+  });
+  return new Map([...valuesByContext.entries()].map(([key, values]) => {
+    const complete = values.carb.length > 0 && values.fat.length > 0;
+    return [key, complete ? {
+      carbMin: Math.min(...values.carb),
+      carbMax: Math.max(...values.carb),
+      fatMin: Math.min(...values.fat),
+      fatMax: Math.max(...values.fat)
+    } : null];
+  }));
+}
+
+function materializeCounterfactualAttritionVariant(day, variant, supportRange){
+  const c1 = optionC1CarbEnergyShareResidual(variant.optionCInput || {});
+  const c2 = optionC2RadialKcalPlaneResidual(variant.optionCInput || {});
+  const nonJointPenaltyVector = Object.fromEntries(productionNonJointPenaltyAxes.map(key => [
+    key,
+    Number(variant.penalties?.[key])
+  ]));
+  const invariant = variant.invariants || {};
+  const geometryValid = c1.valid === true
+    && c2.valid === true
+    && Math.abs(Number(c1.ratio) - Number(c2.ratio)) <= 1e-12;
+  const productionInvariantValid = variant.valid === true
+    && Math.abs(Number(invariant.exchangeEnergyGap)) <= 1e-9
+    && Math.abs(Number(invariant.derivedScoringKcalGap)) <= 1e-9
+    && Math.abs(Number(invariant.proteinGap)) <= 1e-9
+    && invariant.syntheticMealClosureValid === true
+    && invariant.targetAuthorityValid === true
+    && invariant.targetAuthoritySource === "frozen_goal_snapshot"
+    && invariant.trainingContext === day.trainingContext;
+  const policyEnvelopeValid = productionInvariantValid && invariant.policyEnvelopeValid !== false;
+  const observedSupportValid = !!supportRange
+    && Number(variant.ratios?.carb) >= supportRange.carbMin - 1e-12
+    && Number(variant.ratios?.carb) <= supportRange.carbMax + 1e-12
+    && Number(variant.ratios?.fat) >= supportRange.fatMin - 1e-12
+    && Number(variant.ratios?.fat) <= supportRange.fatMax + 1e-12;
+  const exactAnchorVector = counterfactualVectorsExactlyEqual(nonJointPenaltyVector, day.nonJointPenaltyVector);
+  return {
+    ...variant,
+    sampleId: `${day.sampleId}::${variant.variantKey}`,
+    anchorSampleId: day.sampleId,
+    goal: day.goal,
+    trainingContext: day.trainingContext,
+    sourceValidityKey: day.sourceValidityKey,
+    nonJointPenaltyVector,
+    geometryValid,
+    productionInvariantValid,
+    policyEnvelopeValid,
+    observedSupportValid,
+    exactAnchorVector,
+    variantCoreZero: isCounterfactualCoreZero(nonJointPenaltyVector),
+    optionC: {
+      valid: geometryValid,
+      direction: c1.direction,
+      residual: c1.valid ? round(c1.ratio, 12) : null,
+      residualMagnitude: getResidualMagnitudeBand(c1.ratio)
+    }
+  };
+}
+
+function getCounterfactualPairDistance(pair){
+  return Math.max(
+    Math.abs(Number(pair.left.exchangeKcal) || 0),
+    Math.abs(Number(pair.right.exchangeKcal) || 0)
+  );
+}
+
+function buildCounterfactualAttritionAnchorProfile(day, grid, supportRange){
+  const rawVariants = grid === "normalized"
+    ? (day.counterfactualFamily?.normalizedVariants || [])
+    : (day.counterfactualFamily?.variants || []);
+  const variants = rawVariants.map(variant => materializeCounterfactualAttritionVariant(day, variant, supportRange));
+  const pairsByRole = Object.fromEntries(COUNTERFACTUAL_ATTRITION_ROLES.map(role => [role, []]));
+  for (let leftIndex = 0; leftIndex < variants.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < variants.length; rightIndex += 1) {
+      const left = variants[leftIndex];
+      const right = variants[rightIndex];
+      if (!left.geometryValid || !right.geometryValid) continue;
+      const role = getCounterfactualPairRole(left, right);
+      if (!role) continue;
+      const pair = {
+        left,
+        right,
+        pairKey: [left.variantKey, right.variantKey].sort(compareCanonicalId).join("|"),
+        maximumAxisDelta: 0,
+        hiddenComparisonRole: role,
+        gates: {
+          observedSupport: left.observedSupportValid && right.observedSupportValid,
+          policyEnvelope: left.policyEnvelopeValid && right.policyEnvelopeValid,
+          pairNonJointExact: counterfactualVectorsExactlyEqual(
+            left.nonJointPenaltyVector,
+            right.nonJointPenaltyVector
+          ),
+          anchorVectorExact: left.exactAnchorVector && right.exactAnchorVector,
+          variantCoreZero: left.variantCoreZero && right.variantCoreZero
+        }
+      };
+      pair.displayContract = getActualPairDisplayContract(pair);
+      pair.offsetDisplayContract = getActualPairDisplayContract(pair, 2.5);
+      pairsByRole[role].push(pair);
+    }
+  }
+  Object.values(pairsByRole).forEach(pairs => pairs.sort((a, b) => (
+    getCounterfactualPairDistance(a) - getCounterfactualPairDistance(b)
+    || getCounterfactualSelectionKey(`${day.sampleId}|${a.pairKey}`).localeCompare(
+      getCounterfactualSelectionKey(`${day.sampleId}|${b.pairKey}`)
+    )
+  )));
+  return {
+    day,
+    grid,
+    anchorCoreZero: isCounterfactualCoreZero(day.nonJointPenaltyVector),
+    variants,
+    pairsByRole
+  };
+}
+
+function pairPassesCounterfactualAttritionLane(pair, profile, lane){
+  if (lane.support === "observed" && !pair.gates.observedSupport) return false;
+  if (lane.support === "policy" && !pair.gates.policyEnvelope) return false;
+  if (!pair.gates.policyEnvelope || !pair.gates.pairNonJointExact) return false;
+  if (lane.anchorVector === "exact" && !pair.gates.anchorVectorExact) return false;
+  if (lane.core === "strict_zero" && (!profile.anchorCoreZero || !pair.gates.variantCoreZero)) return false;
+  return pair.displayContract.judgeable === true && pair.offsetDisplayContract.judgeable === true;
+}
+
+function selectCapabilityFirstCounterfactualBlocks(cases){
+  const casesByStratum = new Map();
+  cases.forEach(item => {
+    const list = casesByStratum.get(item.stratumKey) || [];
+    list.push(item);
+    casesByStratum.set(item.stratumKey, list);
+  });
+  const blockCandidatesByDirection = {
+    contrast_carb_heavy: [],
+    contrast_fat_heavy: []
+  };
+  for (const [stratumKey, stratumCases] of casesByStratum) {
+    const controls = stratumCases.filter(item => item.assignedRole === "null_control");
+    for (const direction of ["contrast_carb_heavy", "contrast_fat_heavy"]) {
+      const contrasts = stratumCases.filter(item => item.assignedRole === direction);
+      controls.forEach(control => contrasts.forEach(contrast => {
+        if (control.anchorSampleId === contrast.anchorSampleId) return;
+        const blockKey = `${stratumKey}|${control.anchorSampleId}|${contrast.anchorSampleId}`;
+        let hasCompatiblePairSelection = false;
+        for (const controlPair of control.pairOptions) {
+          for (const contrastPair of contrast.pairOptions) {
+            if (controlPair.displayContract.visibleSignature === contrastPair.displayContract.visibleSignature) continue;
+            hasCompatiblePairSelection = true;
+            break;
+          }
+          if (hasCompatiblePairSelection) break;
+        }
+        if (!hasCompatiblePairSelection) return;
+        blockCandidatesByDirection[direction].push({
+          blockKey,
+          stratumKey,
+          publicContextKey: control.publicContextKey,
+          control,
+          contrast
+        });
+      }));
+    }
+  }
+  Object.values(blockCandidatesByDirection).forEach(blocks => blocks.sort((a, b) => (
+    getCounterfactualSelectionKey(a.blockKey).localeCompare(getCounterfactualSelectionKey(b.blockKey))
+  )));
+  const schedule = [
+    "contrast_carb_heavy",
+    "contrast_fat_heavy",
+    "contrast_carb_heavy",
+    "contrast_fat_heavy",
+    "contrast_carb_heavy",
+    "contrast_fat_heavy"
+  ];
+  const failedSearchStates = new Set();
+  const search = (
+    scheduleIndex = 0,
+    selected = [],
+    usedAnchors = new Set(),
+    usedVisibleSignatures = new Set(),
+    contextCounts = new Map()
+  ) => {
+    if (scheduleIndex === schedule.length) return contextCounts.size >= 2 ? selected : null;
+    const stateKey = [
+      scheduleIndex,
+      [...usedAnchors].sort(compareCanonicalId).join(","),
+      [...usedVisibleSignatures].sort(compareCanonicalId).join(","),
+      [...contextCounts.entries()].sort((a, b) => compareCanonicalId(a[0], b[0])).map(([key, count]) => `${key}:${count}`).join(",")
+    ].join("|");
+    if (failedSearchStates.has(stateKey)) return null;
+    const direction = schedule[scheduleIndex];
+    const candidates = blockCandidatesByDirection[direction]
+      .filter(candidate => !usedAnchors.has(candidate.control.anchorSampleId)
+        && !usedAnchors.has(candidate.contrast.anchorSampleId))
+      .sort((a, b) => (
+        (contextCounts.get(a.publicContextKey) || 0) - (contextCounts.get(b.publicContextKey) || 0)
+        || getCounterfactualSelectionKey(a.blockKey).localeCompare(getCounterfactualSelectionKey(b.blockKey))
+      ));
+    for (const candidate of candidates) {
+      const triedVisibleSignaturePairs = new Set();
+      for (const controlPair of candidate.control.pairOptions) {
+        const controlSignature = controlPair.displayContract.visibleSignature;
+        if (usedVisibleSignatures.has(controlSignature)) continue;
+        for (const contrastPair of candidate.contrast.pairOptions) {
+          const contrastSignature = contrastPair.displayContract.visibleSignature;
+          if (controlSignature === contrastSignature || usedVisibleSignatures.has(contrastSignature)) continue;
+          const visibleSignaturePair = `${controlSignature}|${contrastSignature}`;
+          if (triedVisibleSignaturePairs.has(visibleSignaturePair)) continue;
+          triedVisibleSignaturePairs.add(visibleSignaturePair);
+          const materializedCandidate = {
+            ...candidate,
+            control: { ...candidate.control, pair: controlPair },
+            contrast: { ...candidate.contrast, pair: contrastPair },
+            materializedBlockKey: `${candidate.blockKey}|${controlPair.pairKey}|${contrastPair.pairKey}`
+          };
+          const nextAnchors = new Set(usedAnchors);
+          const nextVisibleSignatures = new Set(usedVisibleSignatures);
+          [materializedCandidate.control, materializedCandidate.contrast].forEach(item => {
+            nextAnchors.add(item.anchorSampleId);
+            nextVisibleSignatures.add(item.pair.displayContract.visibleSignature);
+          });
+          const nextContextCounts = new Map(contextCounts);
+          nextContextCounts.set(
+            candidate.publicContextKey,
+            (nextContextCounts.get(candidate.publicContextKey) || 0) + 1
+          );
+          const complete = search(
+            scheduleIndex + 1,
+            [...selected, materializedCandidate],
+            nextAnchors,
+            nextVisibleSignatures,
+            nextContextCounts
+          );
+          if (complete) return complete;
+        }
+      }
+    }
+    failedSearchStates.add(stateKey);
+    return null;
+  };
+  const enoughDirectionBlocks = schedule.every(direction => blockCandidatesByDirection[direction].length >= 3);
+  const selectedBlocks = enoughDirectionBlocks ? (search() || []) : [];
+  return { blockCandidatesByDirection, selectedBlocks };
+}
+
+function summarizeCounterfactualAttritionLane(lane, profiles, assignedRoleByAnchor){
+  const cases = [];
+  profiles.forEach(profile => {
+    COUNTERFACTUAL_ATTRITION_ROLES.forEach(role => {
+      const pairOptions = profile.pairsByRole[role].filter(pair => (
+        pairPassesCounterfactualAttritionLane(pair, profile, lane)
+      ));
+      if (!pairOptions.length) return;
+      cases.push({
+        anchorSampleId: profile.day.sampleId,
+        stratumKey: `${profile.day.goal}|${profile.day.trainingContext}|${profile.day.sourceValidityKey}`,
+        publicContextKey: `${profile.day.goal}|${profile.day.trainingContext}`,
+        assignedRole: role,
+        pairOptions
+      });
+    });
+  });
+  const capabilityCounts = Object.fromEntries(COUNTERFACTUAL_ATTRITION_ROLES.map(role => [
+    role,
+    new Set(cases.filter(item => item.assignedRole === role).map(item => item.anchorSampleId)).size
+  ]));
+  const assignedRoleMismatchCount = profiles.filter(profile => {
+    const assignedRole = assignedRoleByAnchor.get(profile.day.sampleId);
+    return assignedRole && !cases.some(item => (
+      item.anchorSampleId === profile.day.sampleId && item.assignedRole === assignedRole
+    ));
+  }).length;
+  const { blockCandidatesByDirection, selectedBlocks } = selectCapabilityFirstCounterfactualBlocks(cases);
+  const selectedCases = selectedBlocks.flatMap(block => [block.control, block.contrast]);
+  const selectedPublicContexts = new Set(selectedBlocks.map(block => block.publicContextKey));
+  const selectedRoleCounts = countBy(selectedCases, item => item.assignedRole);
+  const packetReady = selectedBlocks.length === ACTUAL_COUNTERFACTUAL_MAX_BALANCED_BLOCKS
+    && selectedCases.length === ACTUAL_COUNTERFACTUAL_MAX_BALANCED_BLOCKS * 2
+    && (selectedRoleCounts.null_control || 0) === 6
+    && (selectedRoleCounts.contrast_carb_heavy || 0) === 3
+    && (selectedRoleCounts.contrast_fat_heavy || 0) === 3
+    && selectedPublicContexts.size >= 2;
+  const hasCarb = blockCandidatesByDirection.contrast_carb_heavy.length > 0;
+  const hasFat = blockCandidatesByDirection.contrast_fat_heavy.length > 0;
+  const structuralOutcome = hasCarb && hasFat
+    ? "TWO_SIDED_RESIDUAL_CANDIDATE"
+    : (hasCarb
+      ? "ONE_SIDED_CARB_RESIDUAL_CANDIDATE"
+      : (hasFat ? "ONE_SIDED_FAT_RESIDUAL_CANDIDATE" : "EVIDENCE_STILL_INSUFFICIENT"));
+  const contrastAnchorsWithoutControl = Object.fromEntries([
+    "contrast_carb_heavy",
+    "contrast_fat_heavy"
+  ].map(direction => {
+    const anchors = new Set(cases.filter(item => item.assignedRole === direction).map(item => item.anchorSampleId));
+    const matched = new Set(blockCandidatesByDirection[direction].map(item => item.contrast.anchorSampleId));
+    return [direction, [...anchors].filter(anchor => !matched.has(anchor)).length];
+  }));
+  return {
+    lane,
+    capabilityCounts,
+    assignedRoleMismatchCount,
+    blockCandidateCounts: Object.fromEntries(Object.entries(blockCandidatesByDirection).map(([key, value]) => [key, value.length])),
+    contrastAnchorsWithoutControl,
+    selectedBalancedBlockCount: selectedBlocks.length,
+    selectedPublicContextCount: selectedPublicContexts.size,
+    packetReady,
+    structuralOutcome,
+    cases,
+    selectedBlocks,
+    selectedCases,
+    selectedPublicContexts: [...selectedPublicContexts].sort(compareCanonicalId),
+    selectedRoleCounts
+  };
+}
+
+function summarizeCounterfactualAttritionWaterfall(profiles, supportKind){
+  const roleSummary = {};
+  COUNTERFACTUAL_ATTRITION_ROLES.forEach(role => {
+    const total = profiles.length;
+    const anchorCoreZeroPass = profiles.filter(profile => profile.anchorCoreZero).length;
+    const directionReachable = profiles.filter(profile => profile.pairsByRole[role].length > 0).length;
+    const gate = supportKind === "observed" ? "observedSupport" : "policyEnvelope";
+    const supportPass = profiles.filter(profile => profile.pairsByRole[role].some(pair => pair.gates[gate])).length;
+    const supportAndPolicyPass = profiles.filter(profile => profile.pairsByRole[role].some(pair => (
+      pair.gates[gate] && pair.gates.policyEnvelope
+    ))).length;
+    const pairExactPass = profiles.filter(profile => profile.pairsByRole[role].some(pair => (
+      pair.gates[gate] && pair.gates.policyEnvelope && pair.gates.pairNonJointExact
+    ))).length;
+    const anchorVectorExactPass = profiles.filter(profile => profile.pairsByRole[role].some(pair => (
+      pair.gates[gate]
+      && pair.gates.policyEnvelope
+      && pair.gates.pairNonJointExact
+      && pair.gates.anchorVectorExact
+    ))).length;
+    const variantCoreZeroPass = profiles.filter(profile => profile.anchorCoreZero && profile.pairsByRole[role].some(pair => (
+      pair.gates[gate]
+      && pair.gates.policyEnvelope
+      && pair.gates.pairNonJointExact
+      && pair.gates.anchorVectorExact
+      && pair.gates.variantCoreZero
+    ))).length;
+    const displayFivePass = profiles.filter(profile => profile.anchorCoreZero && profile.pairsByRole[role].some(pair => (
+      pair.gates[gate]
+      && pair.gates.policyEnvelope
+      && pair.gates.pairNonJointExact
+      && pair.gates.anchorVectorExact
+      && pair.gates.variantCoreZero
+      && pair.displayContract.judgeable
+    ))).length;
+    const displayOffsetPass = profiles.filter(profile => profile.anchorCoreZero && profile.pairsByRole[role].some(pair => (
+      pair.gates[gate]
+      && pair.gates.policyEnvelope
+      && pair.gates.pairNonJointExact
+      && pair.gates.anchorVectorExact
+      && pair.gates.variantCoreZero
+      && pair.displayContract.judgeable
+      && pair.offsetDisplayContract.judgeable
+    ))).length;
+    roleSummary[role] = {
+      totalAnchors: total,
+      anchorCoreZeroPass,
+      anchorCoreZeroReject: total - anchorCoreZeroPass,
+      directionReachable,
+      directionUnreachable: total - directionReachable,
+      supportPass,
+      supportRejectAfterDirection: Math.max(0, directionReachable - supportPass),
+      policyEnvelopePassAfterSupport: supportAndPolicyPass,
+      policyEnvelopeRejectAfterSupport: Math.max(0, supportPass - supportAndPolicyPass),
+      pairNonJointExactPass: pairExactPass,
+      pairNonJointExactReject: Math.max(0, supportAndPolicyPass - pairExactPass),
+      anchorVectorExactPass,
+      anchorVectorExactReject: Math.max(0, pairExactPass - anchorVectorExactPass),
+      strictVariantCoreZeroPass: variantCoreZeroPass,
+      strictVariantCoreZeroReject: Math.max(0, anchorVectorExactPass - variantCoreZeroPass),
+      displayFivePointPass: displayFivePass,
+      displayFivePointReject: Math.max(0, variantCoreZeroPass - displayFivePass),
+      displayOffsetTwoPointFivePass: displayOffsetPass,
+      displayOffsetTwoPointFiveReject: Math.max(0, displayFivePass - displayOffsetPass)
+    };
+  });
+  return roleSummary;
+}
+
+function buildCounterfactualAttritionFalsification(days, baselineEvidence){
+  const anchors = days
+    .filter(day => day.included && day.optionC?.valid && day.nonJointPenaltyVector && day.counterfactualFamily?.valid)
+    .sort((a, b) => compareCanonicalId(a.sampleId, b.sampleId));
+  const supportRanges = buildCounterfactualSupportRanges(anchors);
+  const assignedRoleByAnchor = new Map((baselineEvidence?.assigned || []).map(item => [
+    item.day.sampleId,
+    item.assignedRole
+  ]));
+  const profilesByGrid = {
+    fixed: anchors.map(day => buildCounterfactualAttritionAnchorProfile(
+      day,
+      "fixed",
+      supportRanges.get(`${day.goal}|${day.trainingContext}`)
+    )),
+    normalized: anchors.map(day => buildCounterfactualAttritionAnchorProfile(
+      day,
+      "normalized",
+      supportRanges.get(`${day.goal}|${day.trainingContext}`)
+    ))
+  };
+  const laneResults = COUNTERFACTUAL_ATTRITION_LANES.map(lane => summarizeCounterfactualAttritionLane(
+    lane,
+    profilesByGrid[lane.grid],
+    assignedRoleByAnchor
+  ));
+  const recoveredLane = laneResults.find(result => result.packetReady)
+    || laneResults.find(result => result.structuralOutcome === "TWO_SIDED_RESIDUAL_CANDIDATE")
+    || laneResults.find(result => result.structuralOutcome.startsWith("ONE_SIDED_"))
+    || null;
+  const baselineReady = baselineEvidence?.reviewForUser === true;
+  const residualDirectionCandidate = recoveredLane?.structuralOutcome || "EVIDENCE_STILL_INSUFFICIENT";
+  const finalOutcome = !baselineReady && recoveredLane?.packetReady
+    ? "METHOD_BLOCKED_AND_RECOVERED"
+    : residualDirectionCandidate;
+  return {
+    schemaVersion: "counterfactual_attrition_falsification_v1",
+    anchors,
+    supportRanges,
+    profilesByGrid,
+    baselineReady,
+    historicalBaselineOutcome: baselineEvidence?.preJudgmentStatus || null,
+    predeclaredNormalizedGridFractions: [...ACTUAL_COUNTERFACTUAL_NORMALIZED_GRID_FRACTIONS],
+    waterfall: {
+      fixedObserved: summarizeCounterfactualAttritionWaterfall(profilesByGrid.fixed, "observed"),
+      fixedPolicy: summarizeCounterfactualAttritionWaterfall(profilesByGrid.fixed, "policy"),
+      normalizedObserved: summarizeCounterfactualAttritionWaterfall(profilesByGrid.normalized, "observed"),
+      normalizedPolicy: summarizeCounterfactualAttritionWaterfall(profilesByGrid.normalized, "policy")
+    },
+    laneResults,
+    recoveredLaneId: recoveredLane?.lane.id || null,
+    residualDirectionCandidate,
+    finalOutcome,
+    policyDecisionAuthorized: false,
+    coefficientSelectionAuthorized: false,
+    prevalenceInferenceAuthorized: false
+  };
+}
+
 function buildActualAnchoredCounterfactualBlindArtifacts(evidence){
   const selected = [...evidence.selectedCases].sort((a, b) => (
     getCounterfactualSelectionKey(`${a.anchorSampleId}|${a.pair.pairKey}`).localeCompare(
@@ -3035,10 +3635,64 @@ async function buildLocalActualAnchoredCounterfactualAudit(backupFilePath){
   const included = extracted.filter(day => day.included);
   const excluded = extracted.filter(day => !day.included);
   const evidence = buildActualAnchoredCounterfactualEvidence(included);
-  const artifacts = buildActualAnchoredCounterfactualBlindArtifacts(evidence);
+  const attrition = buildCounterfactualAttritionFalsification(included, evidence);
+  const recoveredLane = attrition.laneResults.find(result => result.lane.id === attrition.recoveredLaneId);
+  const artifactEvidence = recoveredLane?.packetReady ? {
+    selectedBlocks: recoveredLane.selectedBlocks,
+    selectedCases: recoveredLane.selectedCases,
+    selectedPublicContexts: recoveredLane.selectedPublicContexts,
+    selectedRoleCounts: recoveredLane.selectedRoleCounts,
+    reviewForUser: true,
+    preJudgmentStatus: "READY_FOR_COUNTERFACTUAL_BLIND_JUDGMENT"
+  } : evidence;
+  const artifacts = buildActualAnchoredCounterfactualBlindArtifacts(artifactEvidence);
   assertActualAnchoredCounterfactualBundleSafe(artifacts);
+  const attritionSummary = {
+    schemaVersion: attrition.schemaVersion,
+    historicalBaselineOutcome: attrition.historicalBaselineOutcome,
+    baselineReady: attrition.baselineReady,
+    predeclaredNormalizedGridFractions: attrition.predeclaredNormalizedGridFractions,
+    waterfall: attrition.waterfall,
+    lanes: attrition.laneResults.map(result => ({
+      lane: result.lane,
+      capabilityCounts: result.capabilityCounts,
+      assignedRoleMismatchCount: result.assignedRoleMismatchCount,
+      blockCandidateCounts: result.blockCandidateCounts,
+      contrastAnchorsWithoutControl: result.contrastAnchorsWithoutControl,
+      selectedBalancedBlockCount: result.selectedBalancedBlockCount,
+      selectedPublicContextCount: result.selectedPublicContextCount,
+      packetReady: result.packetReady,
+      structuralOutcome: result.structuralOutcome
+    })),
+    recoveredLaneId: attrition.recoveredLaneId,
+    residualDirectionCandidate: attrition.residualDirectionCandidate,
+    finalOutcome: attrition.finalOutcome,
+    policyDecisionAuthorized: attrition.policyDecisionAuthorized,
+    coefficientSelectionAuthorized: attrition.coefficientSelectionAuthorized,
+    prevalenceInferenceAuthorized: attrition.prevalenceInferenceAuthorized
+  };
+  const currentSelectedBlocks = recoveredLane?.packetReady ? recoveredLane.selectedBlocks : evidence.selectedBlocks;
+  const currentSelectedCases = recoveredLane?.packetReady ? recoveredLane.selectedCases : evidence.selectedCases;
+  const currentSelectedPublicContexts = recoveredLane?.packetReady
+    ? recoveredLane.selectedPublicContexts
+    : evidence.selectedPublicContexts;
+  const currentSelectedRoleCounts = recoveredLane?.packetReady
+    ? recoveredLane.selectedRoleCounts
+    : evidence.selectedRoleCounts;
+  const currentReadinessChecks = recoveredLane?.packetReady ? {
+    selectedBalancedBlockCount: currentSelectedBlocks.length === ACTUAL_COUNTERFACTUAL_MAX_BALANCED_BLOCKS,
+    selectedCaseCount: currentSelectedCases.length === ACTUAL_COUNTERFACTUAL_MAX_BALANCED_BLOCKS * 2,
+    distinctAnchorCount: new Set(currentSelectedCases.map(item => item.anchorSampleId)).size === currentSelectedCases.length,
+    contrastControlBalanced: (currentSelectedRoleCounts.null_control || 0) === 6
+      && (currentSelectedRoleCounts.contrast_carb_heavy || 0) === 3
+      && (currentSelectedRoleCounts.contrast_fat_heavy || 0) === 3,
+    multiplePublicContexts: currentSelectedPublicContexts.length >= 2,
+    visibleSignaturesUnique: new Set(currentSelectedCases.map(item => (
+      item.pair.displayContract.visibleSignature
+    ))).size === currentSelectedCases.length
+  } : evidence.readinessChecks;
   const summaryWithoutHash = {
-    schemaVersion: "actual_context_anchored_counterfactual_audit_v1",
+    schemaVersion: "actual_context_anchored_counterfactual_audit_v2_attrition_falsification",
     evidenceKind: "controlled_counterfactual_not_observed_prevalence",
     observedActualOutcomePreserved: "ACTUAL_EVIDENCE_INSUFFICIENT",
     sourceRecordCount: extracted.length,
@@ -3047,16 +3701,31 @@ async function buildLocalActualAnchoredCounterfactualAudit(backupFilePath){
     sourceExclusionReasonCounts: countBy(excluded, day => day.exclusionReason),
     anchorCandidateCount: evidence.anchors.length,
     assignedRoleCounts: countBy(evidence.assigned, item => item.assignedRole),
-    eligibleRoleCounts: countBy(evidence.eligibleCases, item => item.assignedRole),
+    eligibleRoleCounts: recoveredLane?.packetReady
+      ? recoveredLane.capabilityCounts
+      : countBy(evidence.eligibleCases, item => item.assignedRole),
     anchorExclusionReasonCounts: evidence.anchorExclusionReasons,
-    blockCandidateCounts: Object.fromEntries(Object.entries(evidence.blockCandidatesByDirection).map(([key, value]) => [key, value.length])),
-    selectedBalancedBlockCount: evidence.selectedBlocks.length,
-    selectedCaseCount: evidence.selectedCases.length,
-    selectedPublicContextCount: evidence.selectedPublicContexts.length,
-    selectedRoleCounts: evidence.selectedRoleCounts,
-    readinessChecks: evidence.readinessChecks,
-    preJudgmentStatus: evidence.preJudgmentStatus,
-    reviewForUser: evidence.reviewForUser,
+    blockCandidateCounts: recoveredLane?.packetReady
+      ? recoveredLane.blockCandidateCounts
+      : Object.fromEntries(Object.entries(evidence.blockCandidatesByDirection).map(([key, value]) => [key, value.length])),
+    selectedBalancedBlockCount: currentSelectedBlocks.length,
+    selectedCaseCount: currentSelectedCases.length,
+    selectedPublicContextCount: currentSelectedPublicContexts.length,
+    selectedRoleCounts: currentSelectedRoleCounts,
+    readinessChecks: currentReadinessChecks,
+    preJudgmentStatus: artifactEvidence.preJudgmentStatus,
+    reviewForUser: artifactEvidence.reviewForUser,
+    reviewEvidenceLane: recoveredLane?.packetReady ? recoveredLane.lane.id : "historical_baseline",
+    historicalPreassignmentBaseline: {
+      eligibleRoleCounts: countBy(evidence.eligibleCases, item => item.assignedRole),
+      blockCandidateCounts: Object.fromEntries(Object.entries(evidence.blockCandidatesByDirection).map(([key, value]) => [key, value.length])),
+      selectedBalancedBlockCount: evidence.selectedBlocks.length,
+      selectedCaseCount: evidence.selectedCases.length,
+      readinessChecks: evidence.readinessChecks,
+      preJudgmentStatus: evidence.preJudgmentStatus,
+      reviewForUser: evidence.reviewForUser
+    },
+    attritionFalsification: attritionSummary,
     actualPrevalenceInferenceAuthorized: false,
     policyDecisionAuthorized: false,
     coefficientSelectionAuthorized: false,
@@ -3066,6 +3735,12 @@ async function buildLocalActualAnchoredCounterfactualAudit(backupFilePath){
     revealMapCaseCount: artifacts.revealArtifact.revealMap.length,
     separatePostJudgmentRevealRequired: true
   };
+  if (summaryWithoutHash.reviewForUser !== (summaryWithoutHash.reviewPacketCaseCount > 0)
+      || summaryWithoutHash.selectedCaseCount !== summaryWithoutHash.reviewPacketCaseCount
+      || summaryWithoutHash.selectedCaseCount !== summaryWithoutHash.revealMapCaseCount
+      || (summaryWithoutHash.reviewForUser && !Object.values(summaryWithoutHash.readinessChecks).every(Boolean))) {
+    throw new Error("counterfactual attrition summary and locked review selection are inconsistent");
+  }
   return {
     summaryAudit: {
       ...summaryWithoutHash,
@@ -3335,7 +4010,10 @@ function buildSyntheticCounterfactualEvidenceDays(){
     const fatG = targetFat * fatRatio;
     return {
       variantKey,
+      gridKind: "fixed_36kcal",
       exchangeStep,
+      exchangeKcal: exchangeStep * 36,
+      normalizedFraction: null,
       valid: true,
       exclusionReason: null,
       ratios: { energy: energyRatio, protein: proteinRatio, carb: carbRatio, fat: fatRatio },
@@ -3384,6 +4062,14 @@ function buildSyntheticCounterfactualEvidenceDays(){
         ...variant,
         invariants: { ...variant.invariants, trainingContext: context }
       }));
+      const normalizedVariants = variants.map((variant, variantIndex) => ({
+        ...variant,
+        variantKey: `normalized_${variant.variantKey}`,
+        gridKind: "normalized_feasible_span",
+        exchangeStep: null,
+        exchangeKcal: variant.exchangeKcal * 2,
+        normalizedFraction: [-0.4, 0.4, 0.8, -0.8][variantIndex]
+      }));
       days.push({
         sampleId: `${source}_${String(index).padStart(2, "0")}`,
         included: true,
@@ -3402,7 +4088,10 @@ function buildSyntheticCounterfactualEvidenceDays(){
           valid: true,
           exclusionReason: null,
           generatorContract: "synthetic_fixture_only",
-          variants
+          normalizedGeneratorContract: "synthetic_fixture_only",
+          normalizedGridFractions: [0.4, 0.8],
+          variants,
+          normalizedVariants
         }
       });
     }
@@ -3575,6 +4264,120 @@ async function buildActualDaySourceSafetyFixtureAudit(){
   const { reviewArtifact, revealArtifact } = hypothesisBlindArtifacts;
   const syntheticCounterfactualEvidence = buildActualAnchoredCounterfactualEvidence(buildSyntheticCounterfactualEvidenceDays());
   const syntheticCounterfactualArtifacts = buildActualAnchoredCounterfactualBlindArtifacts(syntheticCounterfactualEvidence);
+  const syntheticCounterfactualAttrition = buildCounterfactualAttritionFalsification(
+    buildSyntheticCounterfactualEvidenceDays(),
+    syntheticCounterfactualEvidence
+  );
+  const makeRolePreassignmentTrapDays = () => {
+    const days = buildSyntheticCounterfactualEvidenceDays().map(day => ({ ...day, goal: "diet" }));
+    const byStratum = new Map();
+    days.forEach(day => {
+      const key = `${day.goal}|${day.trainingContext}|${day.sourceValidityKey}`;
+      const list = byStratum.get(key) || [];
+      list.push(day);
+      byStratum.set(key, list);
+    });
+    for (const stratumDays of byStratum.values()) {
+      stratumDays.sort((a, b) => compareCanonicalId(a.sampleId, b.sampleId)).forEach((day, index) => {
+        const assignedRole = getCounterfactualRoleAssignment(index);
+        const keepKeys = assignedRole === "null_control"
+          ? new Set(["inside_low", "carb_outside"])
+          : (assignedRole === "contrast_carb_heavy"
+            ? new Set(["inside_low", "fat_outside"])
+            : new Set(["inside_low", "inside_high"]));
+        day.counterfactualFamily = {
+          ...day.counterfactualFamily,
+          variants: day.counterfactualFamily.variants.filter(variant => keepKeys.has(variant.variantKey)),
+          normalizedVariants: day.counterfactualFamily.normalizedVariants.filter(variant => (
+            keepKeys.has(variant.variantKey.replace(/^normalized_/, ""))
+          ))
+        };
+      });
+    }
+    return days;
+  };
+  const roleTrapDays = makeRolePreassignmentTrapDays();
+  const roleTrapBaseline = buildActualAnchoredCounterfactualEvidence(roleTrapDays);
+  const roleTrapAttrition = buildCounterfactualAttritionFalsification(roleTrapDays, roleTrapBaseline);
+  const observedNarrowDays = buildSyntheticCounterfactualEvidenceDays().map(day => ({
+    ...day,
+    ratios: { ...day.ratios, carb: 1, fat: 1 }
+  }));
+  const observedNarrowBaseline = buildActualAnchoredCounterfactualEvidence(observedNarrowDays);
+  const observedNarrowAttrition = buildCounterfactualAttritionFalsification(
+    observedNarrowDays,
+    observedNarrowBaseline
+  );
+  const normalizedOnlyDays = buildSyntheticCounterfactualEvidenceDays().map(day => ({
+    ...day,
+    counterfactualFamily: {
+      ...day.counterfactualFamily,
+      variants: day.counterfactualFamily.variants.filter(variant => variant.variantKey.startsWith("inside_"))
+    }
+  }));
+  const normalizedOnlyBaseline = buildActualAnchoredCounterfactualEvidence(normalizedOnlyDays);
+  const normalizedOnlyAttrition = buildCounterfactualAttritionFalsification(
+    normalizedOnlyDays,
+    normalizedOnlyBaseline
+  );
+  const equalNonzeroDays = buildSyntheticCounterfactualEvidenceDays().map(day => {
+    const nonJointPenaltyVector = { ...day.nonJointPenaltyVector, fatRangePenalty: 2.5 };
+    const withEqualPenalty = variant => ({
+      ...variant,
+      penalties: { ...variant.penalties, fatRangePenalty: 2.5 }
+    });
+    return {
+      ...day,
+      nonJointPenaltyVector,
+      counterfactualFamily: {
+        ...day.counterfactualFamily,
+        variants: day.counterfactualFamily.variants.map(withEqualPenalty),
+        normalizedVariants: day.counterfactualFamily.normalizedVariants.map(withEqualPenalty)
+      }
+    };
+  });
+  const equalNonzeroBaseline = buildActualAnchoredCounterfactualEvidence(equalNonzeroDays);
+  const equalNonzeroAttrition = buildCounterfactualAttritionFalsification(
+    equalNonzeroDays,
+    equalNonzeroBaseline
+  );
+  const makeCapabilityPairSearchCase = (anchorSampleId, stratumKey, publicContextKey, assignedRole) => ({
+    anchorSampleId,
+    stratumKey,
+    publicContextKey,
+    assignedRole,
+    pairOptions: [
+      {
+        pairKey: `${anchorSampleId}_shared`,
+        displayContract: { visibleSignature: `shared_${assignedRole}` }
+      },
+      {
+        pairKey: `${anchorSampleId}_unique`,
+        displayContract: { visibleSignature: `unique_${anchorSampleId}` }
+      }
+    ]
+  });
+  const capabilityPairSearchCases = [
+    makeCapabilityPairSearchCase("pair_a_control_1", "pair_search_a", "diet|normal", "null_control"),
+    makeCapabilityPairSearchCase("pair_a_control_2", "pair_search_a", "diet|normal", "null_control"),
+    makeCapabilityPairSearchCase("pair_a_control_3", "pair_search_a", "diet|normal", "null_control"),
+    makeCapabilityPairSearchCase("pair_a_carb_1", "pair_search_a", "diet|normal", "contrast_carb_heavy"),
+    makeCapabilityPairSearchCase("pair_a_carb_2", "pair_search_a", "diet|normal", "contrast_carb_heavy"),
+    makeCapabilityPairSearchCase("pair_a_fat_1", "pair_search_a", "diet|normal", "contrast_fat_heavy"),
+    makeCapabilityPairSearchCase("pair_b_control_1", "pair_search_b", "diet|high_volume", "null_control"),
+    makeCapabilityPairSearchCase("pair_b_control_2", "pair_search_b", "diet|high_volume", "null_control"),
+    makeCapabilityPairSearchCase("pair_b_control_3", "pair_search_b", "diet|high_volume", "null_control"),
+    makeCapabilityPairSearchCase("pair_b_carb_1", "pair_search_b", "diet|high_volume", "contrast_carb_heavy"),
+    makeCapabilityPairSearchCase("pair_b_fat_1", "pair_search_b", "diet|high_volume", "contrast_fat_heavy"),
+    makeCapabilityPairSearchCase("pair_b_fat_2", "pair_search_b", "diet|high_volume", "contrast_fat_heavy")
+  ];
+  const capabilityPairSearch = selectCapabilityFirstCounterfactualBlocks(capabilityPairSearchCases);
+  const reversedCapabilityPairSearch = selectCapabilityFirstCounterfactualBlocks([...capabilityPairSearchCases].reverse());
+  const capabilityPairSearchSelectedCases = capabilityPairSearch.selectedBlocks
+    .flatMap(block => [block.control, block.contrast]);
+  const capabilityPairSearchSelectionKey = result => result.selectedBlocks
+    .map(block => block.materializedBlockKey)
+    .join("|");
   const syntheticCounterfactualBundleSafe = assertActualAnchoredCounterfactualBundleSafe(syntheticCounterfactualArtifacts);
   const reversedSyntheticCounterfactualArtifacts = buildActualAnchoredCounterfactualBlindArtifacts(
     buildActualAnchoredCounterfactualEvidence([...buildSyntheticCounterfactualEvidenceDays()].reverse())
@@ -3816,8 +4619,19 @@ async function buildActualDaySourceSafetyFixtureAudit(){
     .map(item => JSON.stringify({ sampleId: item.sampleId, counterfactualFamily: item.counterfactualFamily }));
   const validGeneratedVariants = counterfactualExtracted
     .filter(item => item.included)
-    .flatMap(item => item.counterfactualFamily?.variants || [])
+    .flatMap(item => [
+      ...(item.counterfactualFamily?.variants || []),
+      ...(item.counterfactualFamily?.normalizedVariants || [])
+    ])
     .filter(variant => variant.valid);
+  const getAttritionLane = (audit, laneId) => audit.laneResults.find(result => result.lane.id === laneId);
+  const roleTrapCapabilityLane = getAttritionLane(roleTrapAttrition, "L1_current_rules_capability_first");
+  const observedNarrowObservedLane = getAttritionLane(observedNarrowAttrition, "L2_fixed_observed_strict_pair_equal");
+  const observedNarrowPolicyLane = getAttritionLane(observedNarrowAttrition, "L3_fixed_policy_strict_pair_equal");
+  const normalizedOnlyFixedLane = getAttritionLane(normalizedOnlyAttrition, "L3_fixed_policy_strict_pair_equal");
+  const normalizedOnlyNormalizedLane = getAttritionLane(normalizedOnlyAttrition, "L5_normalized_policy_strict_pair_equal");
+  const equalNonzeroStrictLane = getAttritionLane(equalNonzeroAttrition, "L5_normalized_policy_strict_pair_equal");
+  const equalNonzeroAllowedLane = getAttritionLane(equalNonzeroAttrition, "L9_normalized_policy_equal_nonzero");
   return {
     schemaVersion: "actual_day_source_safety_fixture_audit_v4_balanced_disjoint",
     syntheticContractOnly: true,
@@ -3945,6 +4759,51 @@ async function buildActualDaySourceSafetyFixtureAudit(){
         && variant.invariants?.syntheticMealClosureValid === true
         && variant.invariants?.targetAuthoritySource === "frozen_goal_snapshot"
       )),
+    counterfactualAttritionLaneInventoryStable:
+      syntheticCounterfactualAttrition.laneResults.length === COUNTERFACTUAL_ATTRITION_LANES.length
+      && syntheticCounterfactualAttrition.predeclaredNormalizedGridFractions.join("|")
+        === ACTUAL_COUNTERFACTUAL_NORMALIZED_GRID_FRACTIONS.join("|"),
+    counterfactualCapabilityFirstRecoversPreassignmentTrap:
+      roleTrapBaseline.reviewForUser === false
+      && roleTrapCapabilityLane?.packetReady === true
+      && roleTrapCapabilityLane.assignedRoleMismatchCount > 0,
+    counterfactualObservedAndPolicyEvidenceLanesSeparated:
+      observedNarrowObservedLane?.packetReady === false
+      && observedNarrowPolicyLane?.packetReady === true
+      && observedNarrowPolicyLane.structuralOutcome === "TWO_SIDED_RESIDUAL_CANDIDATE",
+    counterfactualFixedAndNormalizedGridLanesSeparated:
+      normalizedOnlyFixedLane?.packetReady === false
+      && normalizedOnlyNormalizedLane?.packetReady === true
+      && normalizedOnlyNormalizedLane.structuralOutcome === "TWO_SIDED_RESIDUAL_CANDIDATE",
+    counterfactualStrictZeroAndEqualNonzeroLanesSeparated:
+      equalNonzeroStrictLane?.packetReady === false
+      && equalNonzeroAllowedLane?.packetReady === true
+      && equalNonzeroAllowedLane.structuralOutcome === "TWO_SIDED_RESIDUAL_CANDIDATE",
+    counterfactualWaterfallCoversBothDirectionsAndAllGates:
+      ["fixedObserved", "fixedPolicy", "normalizedObserved", "normalizedPolicy"].every(pathKey => (
+        ["contrast_carb_heavy", "contrast_fat_heavy", "null_control"].every(role => {
+          const row = syntheticCounterfactualAttrition.waterfall?.[pathKey]?.[role];
+          return row
+            && Number.isInteger(row.totalAnchors)
+            && Number.isInteger(row.directionUnreachable)
+            && Number.isInteger(row.supportRejectAfterDirection)
+            && Number.isInteger(row.policyEnvelopeRejectAfterSupport)
+            && Number.isInteger(row.pairNonJointExactReject)
+            && Number.isInteger(row.anchorVectorExactReject)
+            && Number.isInteger(row.strictVariantCoreZeroReject)
+            && Number.isInteger(row.displayFivePointReject)
+            && Number.isInteger(row.displayOffsetTwoPointFiveReject)
+            && row.anchorCoreZeroPass + row.anchorCoreZeroReject === row.totalAnchors
+            && row.directionReachable + row.directionUnreachable === row.totalAnchors
+            && row.supportPass + row.supportRejectAfterDirection === row.directionReachable
+            && row.policyEnvelopePassAfterSupport + row.policyEnvelopeRejectAfterSupport === row.supportPass
+            && row.pairNonJointExactPass + row.pairNonJointExactReject === row.policyEnvelopePassAfterSupport
+            && row.anchorVectorExactPass + row.anchorVectorExactReject === row.pairNonJointExactPass
+            && row.strictVariantCoreZeroPass + row.strictVariantCoreZeroReject === row.anchorVectorExactPass
+            && row.displayFivePointPass + row.displayFivePointReject === row.strictVariantCoreZeroPass
+            && row.displayOffsetTwoPointFivePass + row.displayOffsetTwoPointFiveReject === row.displayFivePointPass;
+        })
+      )),
     counterfactualRawOrderInvariant: JSON.stringify(canonicalizeCounterfactualFamilies(counterfactualExtracted))
       === JSON.stringify(canonicalizeCounterfactualFamilies(reversedCounterfactualExtracted)),
     counterfactualGeneratorIgnoresInjectedHypothesisMetadata: JSON.stringify(canonicalizeCounterfactualFamilies(counterfactualExtracted))
@@ -3966,7 +4825,11 @@ async function buildActualDaySourceSafetyFixtureAudit(){
       syntheticCounterfactualEvidence.eligibleCases.some(item => item.pairOptions.length > 1)
       && syntheticCounterfactualEvidence.selectedCases.some(item => (
         item.pair.pairKey !== item.pairOptions[0].pairKey
-      )),
+      ))
+      && capabilityPairSearch.selectedBlocks.length === ACTUAL_COUNTERFACTUAL_MAX_BALANCED_BLOCKS
+      && capabilityPairSearchSelectedCases.some(item => item.pair.pairKey !== item.pairOptions[0].pairKey)
+      && capabilityPairSearchSelectionKey(capabilityPairSearch)
+        === capabilityPairSearchSelectionKey(reversedCapabilityPairSearch),
     counterfactualLockedReviewGuard: lockedCounterfactualReviewSameInputAccepted === true
       && changedLockedCounterfactualReviewRejected === true,
     counterfactualMalformedAndPartialArtifactsFailClosed:
@@ -4654,6 +5517,12 @@ function makeAssertion(name, pass, detail){
     makeAssertion("hypothesis-blind shuffle is deterministic, raw-record/input-order invariant, and covers both A/B orientations", actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsDeterministic === true && actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsInputOrderInvariant === true && actualDaySourceSafetyFixtureAudit.rawBackupRecordOrderInvariant === true && actualDaySourceSafetyFixtureAudit.deterministicShuffleBothOrientationsCovered === true, `repeat=${actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsDeterministic},dayReverse=${actualDaySourceSafetyFixtureAudit.hypothesisBlindArtifactsInputOrderInvariant},rawReverse=${actualDaySourceSafetyFixtureAudit.rawBackupRecordOrderInvariant},bothOrientations=${actualDaySourceSafetyFixtureAudit.deterministicShuffleBothOrientationsCovered}`),
     makeAssertion("hypothesis-blind review deduplicates pairs under their narrowest tolerance", actualDaySourceSafetyFixtureAudit.narrowestToleranceOwnsDeduplicatedPairs === true, `owned=${actualDaySourceSafetyFixtureAudit.narrowestToleranceOwnsDeduplicatedPairs}`),
     makeAssertion("actual-context counterfactual generation preserves isoenergetic exchange, protein, synthetic meal closure, and frozen target authority", actualDaySourceSafetyFixtureAudit.counterfactualGenerationContract === true, `contract=${actualDaySourceSafetyFixtureAudit.counterfactualGenerationContract}`),
+    makeAssertion("counterfactual attrition audit predeclares every method lane and normalized grid fraction", actualDaySourceSafetyFixtureAudit.counterfactualAttritionLaneInventoryStable === true, `stable=${actualDaySourceSafetyFixtureAudit.counterfactualAttritionLaneInventoryStable}`),
+    makeAssertion("capability-first selection detects anchors hidden by cyclic role preassignment", actualDaySourceSafetyFixtureAudit.counterfactualCapabilityFirstRecoversPreassignmentTrap === true, `recovered=${actualDaySourceSafetyFixtureAudit.counterfactualCapabilityFirstRecoversPreassignmentTrap}`),
+    makeAssertion("observed-support and policy-envelope lanes answer separate questions", actualDaySourceSafetyFixtureAudit.counterfactualObservedAndPolicyEvidenceLanesSeparated === true, `separated=${actualDaySourceSafetyFixtureAudit.counterfactualObservedAndPolicyEvidenceLanesSeparated}`),
+    makeAssertion("fixed absolute and normalized feasible-span grids remain separately falsifiable", actualDaySourceSafetyFixtureAudit.counterfactualFixedAndNormalizedGridLanesSeparated === true, `separated=${actualDaySourceSafetyFixtureAudit.counterfactualFixedAndNormalizedGridLanesSeparated}`),
+    makeAssertion("strict core-zero and pair-equal nonzero lanes remain separately falsifiable", actualDaySourceSafetyFixtureAudit.counterfactualStrictZeroAndEqualNonzeroLanesSeparated === true, `separated=${actualDaySourceSafetyFixtureAudit.counterfactualStrictZeroAndEqualNonzeroLanesSeparated}`),
+    makeAssertion("counterfactual attrition waterfall covers both directions, control, and every rejection gate", actualDaySourceSafetyFixtureAudit.counterfactualWaterfallCoversBothDirectionsAndAllGates === true, `covered=${actualDaySourceSafetyFixtureAudit.counterfactualWaterfallCoversBothDirectionsAndAllGates}`),
     makeAssertion("counterfactual generation is raw-record-order invariant and ignores injected residual/final-score metadata", actualDaySourceSafetyFixtureAudit.counterfactualRawOrderInvariant === true && actualDaySourceSafetyFixtureAudit.counterfactualGeneratorIgnoresInjectedHypothesisMetadata === true, `rawReverse=${actualDaySourceSafetyFixtureAudit.counterfactualRawOrderInvariant},metadataBlind=${actualDaySourceSafetyFixtureAudit.counterfactualGeneratorIgnoresInjectedHypothesisMetadata}`),
     makeAssertion("counterfactual fixture requires six balanced blocks, twelve distinct anchors, both directions, and multiple contexts", actualDaySourceSafetyFixtureAudit.counterfactualBalancedFixtureReady === true, `ready=${actualDaySourceSafetyFixtureAudit.counterfactualBalancedFixtureReady}`),
     makeAssertion("counterfactual review and post-judgment reveal use separate exact allowlists and linked twelve-case hashes", actualDaySourceSafetyFixtureAudit.counterfactualReviewPacketSafe === true, `safe=${actualDaySourceSafetyFixtureAudit.counterfactualReviewPacketSafe}`),
