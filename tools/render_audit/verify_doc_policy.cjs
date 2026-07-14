@@ -324,7 +324,7 @@ if (failures.length === 0) {
     "v8.4 production-authoritative joint ownership/source-safety correction: closed with outcome",
     "actual-context-anchored controlled counterfactual product-meaning evidence: closed with outcome COUNTERFACTUAL_PACKET_INSUFFICIENT",
     "counterfactual eligibility attrition falsification: closed with outcome METHOD_BLOCKED_AND_RECOVERED",
-    "counterfactual locked 12-case product-meaning judgment: pending user blind judgment",
+    "counterfactual locked 12-case product-meaning judgment:",
     "replacement, removal, aggregation, production 구현을 열지 않는다",
     "v8.3.1_target_authority_continuous_macro_score_v2",
     "valid 54개 target 모두 exact 100",
@@ -443,7 +443,7 @@ if (failures.length === 0) {
     "v8.4 production-authoritative joint ownership/source-safety correction: closed with outcome",
     "actual-context-anchored controlled counterfactual product-meaning evidence: closed with outcome COUNTERFACTUAL_PACKET_INSUFFICIENT",
     "counterfactual eligibility attrition falsification: closed with outcome METHOD_BLOCKED_AND_RECOVERED",
-    "counterfactual locked 12-case product-meaning judgment: pending user blind judgment",
+    "counterfactual locked 12-case product-meaning judgment:",
     "v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md",
     "v8.3.1 DailyCoach semantic v2 phase 1: paused",
     "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
@@ -1389,6 +1389,23 @@ if (failures.length === 0) {
     "fixed observed strict waterfall",
     "L1 current rules + capability-first",
     "component simulation: 83 assertions / 83 pass / 0 fail",
+    "locked 12-case blind judgment 계약 고정",
+    "counterfactual_blind_judgment_v1",
+    "v8.4_joint_product_meaning_preregistered_v1",
+    "--actual-counterfactual-judgment-input",
+    "--actual-counterfactual-judgment-hash",
+    "TWO_SIDED_PRODUCT_MEANING_CANDIDATE",
+    "ONE_SIDED_CARB_PRODUCT_MEANING_CANDIDATE",
+    "ONE_SIDED_FAT_PRODUCT_MEANING_CANDIDATE",
+    "JOINT_REDUNDANT_CANDIDATE",
+    "JUDGMENT_INSUFFICIENT",
+    "component simulation은 87 assertions / 87 pass / 0 fail",
+    "confirmed 12-case blind judgment와 제품 의미 판정 closeout",
+    "counterfactual blind judgment outcome: JUDGMENT_INSUFFICIENT",
+    "judgment status: user_confirmed",
+    "control 방향 선택: 6 / 6",
+    "현행 thresholded joint 유지 근거: 없음",
+    "current joint-axis retirement + scoring-version decision",
     "coefficient tuning",
     "실제 private backup은 이 작업공간에 없어서",
     "scoring formula/version, UI, storage/schema, backup, Records, DailyCoach, v8.3 tag를 바꾸지 않았다",
@@ -1490,7 +1507,8 @@ if (failures.length === 0) {
         || !hasClosedInsufficientActualEvidenceSemantics(statusIndex)
         || !statusIndex.includes("56. component-score actual-day aggregation re-evaluation.")
         || !(statusIndex.includes("상태: blocked because item 55 closed `ACTUAL_EVIDENCE_INSUFFICIENT`.")
-          || statusIndex.includes("상태: blocked until item 55-CF-A의 locked 12-case blind judgment"))) {
+          || statusIndex.includes("상태: blocked until item 55-CF-A의 locked 12-case blind judgment")
+          || statusIndex.includes("상태: deferred because item 55-CF-A closed `JUDGMENT_INSUFFICIENT`"))) {
       fail("actual evidence insufficiency must close item 55 without review/reveal and keep component aggregation blocked");
     }
   }
@@ -1527,8 +1545,66 @@ if (failures.length === 0) {
     if (!statusIndex.includes("55-CF-A. counterfactual eligibility attrition falsification.")
         || !statusIndex.includes("상태: closed with outcome `METHOD_BLOCKED_AND_RECOVERED`")
         || !statusIndex.includes("56. component-score actual-day aggregation re-evaluation.")
-        || !statusIndex.includes("blocked until item 55-CF-A의 locked 12-case blind judgment")) {
+        || !(statusIndex.includes("blocked until item 55-CF-A의 locked 12-case blind judgment")
+          || statusIndex.includes("deferred because item 55-CF-A closed `JUDGMENT_INSUFFICIENT`"))) {
       fail("method recovery must route the locked blind judgment before aggregation re-evaluation");
+    }
+    for (const [label, text] of [
+      ["00_READ_FIRST", readFirst],
+      ["02_macro_range_current_truth", currentTruth],
+      ["04_document_status_index", statusIndex],
+      ["README", readme],
+    ]) {
+      if (!text.includes("judgmentSetHash")
+          || !text.includes("JUDGMENT_INSUFFICIENT")
+          || !text.includes("JOINT_REDUNDANT_CANDIDATE")) {
+        fail(`${label} must expose the confirmed-hash judgment gate and preregistered insufficiency/redundancy split`);
+      }
+    }
+    const blindMeaningOutcomeLines = optionCJointResidualSimulationDecision
+      .match(/^counterfactual blind judgment outcome:\s*.+$/gm) || [];
+    const allowedBlindMeaningOutcomes = new Set([
+      "TWO_SIDED_PRODUCT_MEANING_CANDIDATE",
+      "ONE_SIDED_CARB_PRODUCT_MEANING_CANDIDATE",
+      "ONE_SIDED_FAT_PRODUCT_MEANING_CANDIDATE",
+      "JOINT_REDUNDANT_CANDIDATE",
+      "JUDGMENT_INSUFFICIENT",
+    ]);
+    const blindMeaningOutcome = blindMeaningOutcomeLines.length === 1
+      ? blindMeaningOutcomeLines[0].split(":").slice(1).join(":").trim()
+      : null;
+    if (!allowedBlindMeaningOutcomes.has(blindMeaningOutcome)) {
+      fail("confirmed counterfactual blind judgment must declare exactly one allowed outcome");
+    }
+    for (const [label, text] of [
+      ["00_READ_FIRST", readFirst],
+      ["02_macro_range_current_truth", currentTruth],
+      ["04_document_status_index", statusIndex],
+      ["README", readme],
+    ]) {
+      if (!text.includes(blindMeaningOutcome)
+          || !text.includes("current joint-axis retirement")
+          || !text.includes("JUDGMENT_INSUFFICIENT")) {
+        fail(`${label} must expose the confirmed blind outcome and rejected current joint-axis retirement route`);
+      }
+    }
+    if (blindMeaningOutcome === "JUDGMENT_INSUFFICIENT") {
+      for (const signal of [
+        "judgment status: user_confirmed",
+        "control 방향 선택: 6 / 6",
+        "탄수 방향: 기대 1 / 반대 2 / 차이 없음 0",
+        "지방 방향: 기대 3 / 반대 0 / 차이 없음 0",
+        "새 blind 사례 생성: 중단",
+        "현행 thresholded joint 유지 근거: 없음",
+      ]) {
+        if (!optionCJointResidualSimulationDecision.includes(signal)) {
+          fail(`confirmed insufficient blind closeout missing: ${signal}`);
+        }
+      }
+      if (!statusIndex.includes("상태: deferred because item 55-CF-A closed `JUDGMENT_INSUFFICIENT`")
+          || !statusIndex.includes("joint-axis retirement/scoring-version gate")) {
+        fail("insufficient blind outcome must defer aggregation and route the independently rejected joint axis to retirement");
+      }
     }
   }
 
@@ -1643,6 +1719,8 @@ if (failures.length === 0) {
     "historical_test_local_helper_diagnostics_only",
     "production versus historical ownership drift is explicit and fully accounted",
     "--actual-counterfactual-review-output",
+    "--actual-counterfactual-judgment-input",
+    "--actual-counterfactual-judgment-hash",
     "--actual-counterfactual-reveal-output",
     "--post-counterfactual-judgment-reveal",
     "controlled_counterfactual_not_observed_prevalence",
@@ -1651,10 +1729,18 @@ if (failures.length === 0) {
     "function isActualAnchoredCounterfactualReviewArtifactSafe",
     "function isActualAnchoredCounterfactualRevealArtifactSafe",
     "function assertLockedCounterfactualReviewMatchesGenerated",
+    "function buildCounterfactualJudgmentArtifact",
+    "function assertCounterfactualJudgmentMatchesReview",
+    "function interpretCounterfactualBlindJudgment",
+    "function buildJudgmentBoundCounterfactualRevealArtifact",
     "counterfactual generation is raw-record-order invariant and ignores injected residual/final-score metadata",
     "counterfactual fixture requires six balanced blocks, twelve distinct anchors, both directions, and multiple contexts",
     "counterfactual selection and A/B randomization are input-order invariant",
     "counterfactual balanced selection explores alternate display-pair options within each anchor",
+    "counterfactual judgment requires exactly twelve canonical allowed choices with a deterministic hash",
+    "counterfactual reveal rejects unconfirmed or post-confirmation changed judgments",
+    "counterfactual reveal is bound to both the locked review and confirmed judgment hashes",
+    "counterfactual interpretation categories and insufficiency stops are fixed before user judgment",
     "counterfactual reveal roles are coherent and remain bound to the reviewed A/B sides",
     "one-direction-only counterfactual evidence fails closed with empty review and reveal maps",
   ];
