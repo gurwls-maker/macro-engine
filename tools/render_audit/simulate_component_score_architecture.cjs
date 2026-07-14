@@ -51,6 +51,8 @@ const actualBackupPath = readArgValue("--actual-backup");
 const actualReviewOutputPath = readArgValue("--actual-review-output");
 const actualRevealOutputPath = readArgValue("--actual-reveal-output");
 const actualCounterfactualReviewOutputPath = readArgValue("--actual-counterfactual-review-output");
+const actualCounterfactualJudgmentInputPath = readArgValue("--actual-counterfactual-judgment-input");
+const actualCounterfactualJudgmentHash = readArgValue("--actual-counterfactual-judgment-hash");
 const actualCounterfactualRevealOutputPath = readArgValue("--actual-counterfactual-reveal-output");
 const postJudgmentReveal = process.argv.includes("--post-judgment-reveal");
 const postCounterfactualJudgmentReveal = process.argv.includes("--post-counterfactual-judgment-reveal");
@@ -3357,6 +3359,25 @@ function buildCounterfactualAttritionFalsification(days, baselineEvidence){
   };
 }
 
+const COUNTERFACTUAL_JUDGMENT_CHOICES = Object.freeze([
+  "case_a_better",
+  "case_b_better",
+  "no_meaningful_difference",
+  "cannot_tell"
+]);
+const COUNTERFACTUAL_JUDGMENT_CONFIRMATION_STATUSES = Object.freeze([
+  "awaiting_user_confirmation",
+  "user_confirmed"
+]);
+const COUNTERFACTUAL_MEANING_RULE_VERSION = "v8.4_joint_product_meaning_preregistered_v1";
+const COUNTERFACTUAL_MEANING_OUTCOMES = Object.freeze([
+  "TWO_SIDED_PRODUCT_MEANING_CANDIDATE",
+  "ONE_SIDED_CARB_PRODUCT_MEANING_CANDIDATE",
+  "ONE_SIDED_FAT_PRODUCT_MEANING_CANDIDATE",
+  "JOINT_REDUNDANT_CANDIDATE",
+  "JUDGMENT_INSUFFICIENT"
+]);
+
 function buildActualAnchoredCounterfactualBlindArtifacts(evidence){
   const selected = [...evidence.selectedCases].sort((a, b) => (
     getCounterfactualSelectionKey(`${a.anchorSampleId}|${a.pair.pairKey}`).localeCompare(
@@ -3420,7 +3441,7 @@ function buildActualAnchoredCounterfactualBlindArtifacts(evidence){
       },
       caseA: sanitizeReviewSide(randomized[0]),
       caseB: sanitizeReviewSide(randomized[1]),
-      judgmentOptions: ["case_a_better", "case_b_better", "no_meaningful_difference", "cannot_tell"]
+      judgmentOptions: [...COUNTERFACTUAL_JUDGMENT_CHOICES]
     });
     revealMap.push({
       caseId,
@@ -3515,7 +3536,7 @@ function isActualAnchoredCounterfactualReviewArtifactSafe(artifact){
       || artifact.selectionContract.nonJointProductionAxesExact !== true) return false;
   const goals = ACTUAL_AUDIT_GOALS;
   const contexts = new Set(["rest", "normal_resistance", "high_volume_or_long_session"]);
-  const options = ["case_a_better", "case_b_better", "no_meaningful_difference", "cannot_tell"];
+  const options = [...COUNTERFACTUAL_JUDGMENT_CHOICES];
   const structural = artifact.reviewPacket.every((item, index) => (
     hasExactObjectKeys(item, ["caseId", "context", "commonTargetRatioBands", "nonJointContract", "caseA", "caseB", "judgmentOptions"])
     && item.caseId === `counterfactual_blind_case_${String(index + 1).padStart(3, "0")}`
@@ -3627,6 +3648,312 @@ function assertLockedCounterfactualReviewMatchesGenerated(locked, generated){
     throw new Error("locked counterfactual review artifact does not match the current backup/input");
   }
   return true;
+}
+
+function normalizeCounterfactualJudgments(reviewArtifact, judgments){
+  if (!isActualAnchoredCounterfactualReviewArtifactSafe(reviewArtifact)
+      || reviewArtifact.reviewForUser !== true
+      || reviewArtifact.reviewPacket.length !== 12) {
+    throw new Error("counterfactual judgment requires a locked review-ready 12-case packet");
+  }
+  if (!Array.isArray(judgments) || judgments.length !== reviewArtifact.reviewPacket.length) {
+    throw new Error("counterfactual judgment must contain exactly 12 choices");
+  }
+  const byCaseId = new Map();
+  for (const judgment of judgments) {
+    if (!hasExactObjectKeys(judgment, ["caseId", "choice"])
+        || typeof judgment.caseId !== "string"
+        || !COUNTERFACTUAL_JUDGMENT_CHOICES.includes(judgment.choice)) {
+      throw new Error("counterfactual judgment contains an invalid case ID or choice");
+    }
+    if (byCaseId.has(judgment.caseId)) {
+      throw new Error("counterfactual judgment contains a duplicate case ID");
+    }
+    byCaseId.set(judgment.caseId, judgment.choice);
+  }
+  const reviewCaseIds = reviewArtifact.reviewPacket.map(item => item.caseId);
+  if (byCaseId.size !== reviewCaseIds.length || [...byCaseId.keys()].some(caseId => !reviewCaseIds.includes(caseId))) {
+    throw new Error("counterfactual judgment case IDs do not match the locked review");
+  }
+  return reviewCaseIds.map(caseId => {
+    if (!byCaseId.has(caseId)) throw new Error("counterfactual judgment is missing a locked review case");
+    return { caseId, choice: byCaseId.get(caseId) };
+  });
+}
+
+function computeCounterfactualJudgmentSetHash(reviewPacketHash, canonicalJudgments){
+  const hashBody = {
+    schemaVersion: "counterfactual_blind_judgment_v1",
+    reviewPacketHash,
+    judgments: canonicalJudgments
+  };
+  return crypto.createHash("sha256").update(JSON.stringify(hashBody)).digest("hex");
+}
+
+function buildCounterfactualJudgmentArtifact(reviewArtifact, judgments, confirmationStatus){
+  if (!COUNTERFACTUAL_JUDGMENT_CONFIRMATION_STATUSES.includes(confirmationStatus)) {
+    throw new Error("counterfactual judgment confirmation status is invalid");
+  }
+  const canonicalJudgments = normalizeCounterfactualJudgments(reviewArtifact, judgments);
+  return {
+    schemaVersion: "counterfactual_blind_judgment_v1",
+    reviewPacketHash: reviewArtifact.reviewPacketHash,
+    confirmationStatus,
+    judgments: canonicalJudgments,
+    judgmentSetHash: computeCounterfactualJudgmentSetHash(
+      reviewArtifact.reviewPacketHash,
+      canonicalJudgments
+    )
+  };
+}
+
+function isCounterfactualJudgmentArtifactSafe(artifact, reviewArtifact){
+  try {
+    if (!hasExactObjectKeys(artifact, [
+      "schemaVersion", "reviewPacketHash", "confirmationStatus", "judgments", "judgmentSetHash"
+    ])) return false;
+    if (artifact.schemaVersion !== "counterfactual_blind_judgment_v1"
+        || artifact.reviewPacketHash !== reviewArtifact?.reviewPacketHash
+        || !COUNTERFACTUAL_JUDGMENT_CONFIRMATION_STATUSES.includes(artifact.confirmationStatus)
+        || !/^[a-f0-9]{64}$/.test(artifact.judgmentSetHash || "")) return false;
+    const canonicalJudgments = normalizeCounterfactualJudgments(reviewArtifact, artifact.judgments);
+    if (JSON.stringify(canonicalJudgments) !== JSON.stringify(artifact.judgments)) return false;
+    return artifact.judgmentSetHash === computeCounterfactualJudgmentSetHash(
+      artifact.reviewPacketHash,
+      canonicalJudgments
+    );
+  } catch {
+    return false;
+  }
+}
+
+function assertCounterfactualJudgmentMatchesReview(artifact, reviewArtifact, options = {}){
+  if (!isCounterfactualJudgmentArtifactSafe(artifact, reviewArtifact)) {
+    throw new Error("counterfactual judgment artifact failed hash/case/choice validation");
+  }
+  if (options.requireConfirmed === true && artifact.confirmationStatus !== "user_confirmed") {
+    throw new Error("counterfactual reveal requires an explicitly user-confirmed judgment artifact");
+  }
+  if (options.expectedJudgmentSetHash
+      && artifact.judgmentSetHash !== options.expectedJudgmentSetHash) {
+    throw new Error("counterfactual judgment changed after the user-confirmed hash was fixed");
+  }
+  return true;
+}
+
+function interpretCounterfactualBlindJudgment(reviewArtifact, revealArtifact, judgmentArtifact){
+  assertActualAnchoredCounterfactualBundleSafe({ reviewArtifact, revealArtifact });
+  assertCounterfactualJudgmentMatchesReview(judgmentArtifact, reviewArtifact, { requireConfirmed: true });
+  const judgmentByCaseId = new Map(judgmentArtifact.judgments.map(item => [item.caseId, item.choice]));
+  const control = {
+    caseCount: 0,
+    directionalChoiceCount: 0,
+    noMeaningfulDifferenceCount: 0,
+    cannotTellCount: 0
+  };
+  const makeDirectionSummary = () => ({
+    caseCount: 0,
+    expectedDirectionCount: 0,
+    reverseDirectionCount: 0,
+    noMeaningfulDifferenceCount: 0,
+    cannotTellCount: 0
+  });
+  const carbDirection = makeDirectionSummary();
+  const fatDirection = makeDirectionSummary();
+  let cannotTellCount = 0;
+  revealArtifact.revealMap.forEach(revealCase => {
+    const choice = judgmentByCaseId.get(revealCase.caseId);
+    if (choice === "cannot_tell") cannotTellCount += 1;
+    if (revealCase.hiddenComparisonRole === "null_control") {
+      control.caseCount += 1;
+      if (["case_a_better", "case_b_better"].includes(choice)) control.directionalChoiceCount += 1;
+      if (choice === "no_meaningful_difference") control.noMeaningfulDifferenceCount += 1;
+      if (choice === "cannot_tell") control.cannotTellCount += 1;
+      return;
+    }
+    const summary = revealCase.hiddenComparisonRole === "contrast_carb_heavy"
+      ? carbDirection
+      : fatDirection;
+    summary.caseCount += 1;
+    if (choice === "no_meaningful_difference") {
+      summary.noMeaningfulDifferenceCount += 1;
+      return;
+    }
+    if (choice === "cannot_tell") {
+      summary.cannotTellCount += 1;
+      return;
+    }
+    const chosenSide = choice === "case_a_better" ? revealCase.caseA : revealCase.caseB;
+    if (chosenSide.geometryPosition === "inside") summary.expectedDirectionCount += 1;
+    else summary.reverseDirectionCount += 1;
+  });
+  const ruleThresholds = {
+    cannotTellStopAt: 5,
+    controlDirectionalStopAt: 2,
+    directionSupportAt: 2,
+    directionNoDifferenceAt: 2,
+    directionReverseConflictAt: 2
+  };
+  const stopReasons = [];
+  if (cannotTellCount >= ruleThresholds.cannotTellStopAt) stopReasons.push("cannot_tell_threshold_reached");
+  if (control.directionalChoiceCount >= ruleThresholds.controlDirectionalStopAt) {
+    stopReasons.push("control_directional_noise_threshold_reached");
+  }
+  if (carbDirection.reverseDirectionCount >= ruleThresholds.directionReverseConflictAt) {
+    stopReasons.push("carb_reverse_direction_conflict");
+  }
+  if (fatDirection.reverseDirectionCount >= ruleThresholds.directionReverseConflictAt) {
+    stopReasons.push("fat_reverse_direction_conflict");
+  }
+  const carbSupported = carbDirection.expectedDirectionCount >= ruleThresholds.directionSupportAt;
+  const fatSupported = fatDirection.expectedDirectionCount >= ruleThresholds.directionSupportAt;
+  const carbNoDifference = carbDirection.noMeaningfulDifferenceCount >= ruleThresholds.directionNoDifferenceAt;
+  const fatNoDifference = fatDirection.noMeaningfulDifferenceCount >= ruleThresholds.directionNoDifferenceAt;
+  let outcome = "JUDGMENT_INSUFFICIENT";
+  if (stopReasons.length === 0) {
+    if (carbSupported && fatSupported) outcome = "TWO_SIDED_PRODUCT_MEANING_CANDIDATE";
+    else if (carbSupported && fatNoDifference) outcome = "ONE_SIDED_CARB_PRODUCT_MEANING_CANDIDATE";
+    else if (fatSupported && carbNoDifference) outcome = "ONE_SIDED_FAT_PRODUCT_MEANING_CANDIDATE";
+    else if (carbNoDifference && fatNoDifference) outcome = "JOINT_REDUNDANT_CANDIDATE";
+  }
+  return {
+    outcome,
+    ruleThresholds,
+    cannotTellCount,
+    control,
+    carbDirection,
+    fatDirection,
+    stopReasons
+  };
+}
+
+function isCounterfactualMeaningDecisionSafe(decision){
+  if (!hasExactObjectKeys(decision, [
+    "outcome", "ruleThresholds", "cannotTellCount", "control", "carbDirection", "fatDirection", "stopReasons"
+  ])) return false;
+  if (!COUNTERFACTUAL_MEANING_OUTCOMES.includes(decision.outcome)
+      || !Number.isInteger(decision.cannotTellCount)
+      || decision.cannotTellCount < 0
+      || decision.cannotTellCount > 12) return false;
+  if (!hasExactObjectKeys(decision.ruleThresholds, [
+    "cannotTellStopAt", "controlDirectionalStopAt", "directionSupportAt",
+    "directionNoDifferenceAt", "directionReverseConflictAt"
+  ]) || JSON.stringify(decision.ruleThresholds) !== JSON.stringify({
+    cannotTellStopAt: 5,
+    controlDirectionalStopAt: 2,
+    directionSupportAt: 2,
+    directionNoDifferenceAt: 2,
+    directionReverseConflictAt: 2
+  })) return false;
+  if (!hasExactObjectKeys(decision.control, [
+    "caseCount", "directionalChoiceCount", "noMeaningfulDifferenceCount", "cannotTellCount"
+  ]) || decision.control.caseCount !== 6
+      || Object.values(decision.control).some(value => !Number.isInteger(value) || value < 0)
+      || decision.control.directionalChoiceCount
+        + decision.control.noMeaningfulDifferenceCount
+        + decision.control.cannotTellCount !== decision.control.caseCount) return false;
+  const directionSafe = summary => hasExactObjectKeys(summary, [
+    "caseCount", "expectedDirectionCount", "reverseDirectionCount", "noMeaningfulDifferenceCount", "cannotTellCount"
+  ]) && summary.caseCount === 3
+    && Object.values(summary).every(value => Number.isInteger(value) && value >= 0)
+    && summary.expectedDirectionCount
+      + summary.reverseDirectionCount
+      + summary.noMeaningfulDifferenceCount
+      + summary.cannotTellCount === summary.caseCount;
+  const allowedStopReasons = new Set([
+    "cannot_tell_threshold_reached",
+    "control_directional_noise_threshold_reached",
+    "carb_reverse_direction_conflict",
+    "fat_reverse_direction_conflict"
+  ]);
+  if (!directionSafe(decision.carbDirection)
+      || !directionSafe(decision.fatDirection)
+      || decision.cannotTellCount !== decision.control.cannotTellCount
+        + decision.carbDirection.cannotTellCount
+        + decision.fatDirection.cannotTellCount
+      || !Array.isArray(decision.stopReasons)
+      || new Set(decision.stopReasons).size !== decision.stopReasons.length
+      || !decision.stopReasons.every(reason => allowedStopReasons.has(reason))) return false;
+  const expectedStopReasons = [];
+  if (decision.cannotTellCount >= decision.ruleThresholds.cannotTellStopAt) {
+    expectedStopReasons.push("cannot_tell_threshold_reached");
+  }
+  if (decision.control.directionalChoiceCount >= decision.ruleThresholds.controlDirectionalStopAt) {
+    expectedStopReasons.push("control_directional_noise_threshold_reached");
+  }
+  if (decision.carbDirection.reverseDirectionCount >= decision.ruleThresholds.directionReverseConflictAt) {
+    expectedStopReasons.push("carb_reverse_direction_conflict");
+  }
+  if (decision.fatDirection.reverseDirectionCount >= decision.ruleThresholds.directionReverseConflictAt) {
+    expectedStopReasons.push("fat_reverse_direction_conflict");
+  }
+  const carbSupported = decision.carbDirection.expectedDirectionCount >= decision.ruleThresholds.directionSupportAt;
+  const fatSupported = decision.fatDirection.expectedDirectionCount >= decision.ruleThresholds.directionSupportAt;
+  const carbNoDifference = decision.carbDirection.noMeaningfulDifferenceCount
+    >= decision.ruleThresholds.directionNoDifferenceAt;
+  const fatNoDifference = decision.fatDirection.noMeaningfulDifferenceCount
+    >= decision.ruleThresholds.directionNoDifferenceAt;
+  let expectedOutcome = "JUDGMENT_INSUFFICIENT";
+  if (expectedStopReasons.length === 0) {
+    if (carbSupported && fatSupported) expectedOutcome = "TWO_SIDED_PRODUCT_MEANING_CANDIDATE";
+    else if (carbSupported && fatNoDifference) expectedOutcome = "ONE_SIDED_CARB_PRODUCT_MEANING_CANDIDATE";
+    else if (fatSupported && carbNoDifference) expectedOutcome = "ONE_SIDED_FAT_PRODUCT_MEANING_CANDIDATE";
+    else if (carbNoDifference && fatNoDifference) expectedOutcome = "JOINT_REDUNDANT_CANDIDATE";
+  }
+  return JSON.stringify(decision.stopReasons) === JSON.stringify(expectedStopReasons)
+    && decision.outcome === expectedOutcome;
+}
+
+function isJudgmentBoundCounterfactualRevealArtifactSafe(artifact){
+  if (!hasExactObjectKeys(artifact, [
+    "schemaVersion", "reviewPacketHash", "judgmentSetHash", "interpretationRuleVersion",
+    "revealOnlyAfterJudgment", "meaningDecision", "revealMap", "revealMapHash"
+  ])) return false;
+  if (artifact.schemaVersion !== "actual_context_counterfactual_product_meaning_reveal_v2_judgment_bound"
+      || !/^[a-f0-9]{64}$/.test(artifact.reviewPacketHash || "")
+      || !/^[a-f0-9]{64}$/.test(artifact.judgmentSetHash || "")
+      || artifact.interpretationRuleVersion !== COUNTERFACTUAL_MEANING_RULE_VERSION
+      || artifact.revealOnlyAfterJudgment !== true
+      || !/^[a-f0-9]{64}$/.test(artifact.revealMapHash || "")
+      || !isCounterfactualMeaningDecisionSafe(artifact.meaningDecision)) return false;
+  const { revealMapHash, ...body } = artifact;
+  if (crypto.createHash("sha256").update(JSON.stringify(body)).digest("hex") !== revealMapHash) return false;
+  const legacyRevealBody = {
+    schemaVersion: "actual_context_counterfactual_product_meaning_reveal_v1",
+    reviewPacketHash: artifact.reviewPacketHash,
+    revealOnlyAfterJudgment: true,
+    revealMap: artifact.revealMap
+  };
+  const legacyReveal = {
+    ...legacyRevealBody,
+    revealMapHash: crypto.createHash("sha256").update(JSON.stringify(legacyRevealBody)).digest("hex")
+  };
+  return isActualAnchoredCounterfactualRevealArtifactSafe(legacyReveal);
+}
+
+function buildJudgmentBoundCounterfactualRevealArtifact(reviewArtifact, revealArtifact, judgmentArtifact){
+  const meaningDecision = interpretCounterfactualBlindJudgment(
+    reviewArtifact,
+    revealArtifact,
+    judgmentArtifact
+  );
+  const body = {
+    schemaVersion: "actual_context_counterfactual_product_meaning_reveal_v2_judgment_bound",
+    reviewPacketHash: reviewArtifact.reviewPacketHash,
+    judgmentSetHash: judgmentArtifact.judgmentSetHash,
+    interpretationRuleVersion: COUNTERFACTUAL_MEANING_RULE_VERSION,
+    revealOnlyAfterJudgment: true,
+    meaningDecision,
+    revealMap: revealArtifact.revealMap
+  };
+  const artifact = {
+    ...body,
+    revealMapHash: crypto.createHash("sha256").update(JSON.stringify(body)).digest("hex")
+  };
+  if (!isJudgmentBoundCounterfactualRevealArtifactSafe(artifact)) {
+    throw new Error("judgment-bound counterfactual reveal failed structural validation");
+  }
+  return artifact;
 }
 
 async function buildLocalActualAnchoredCounterfactualAudit(backupFilePath){
@@ -4210,7 +4537,7 @@ function assertLockedReviewMatchesGenerated(lockedReviewArtifact, generatedRevie
 function assertDistinctFilePaths(paths){
   const normalized = paths.filter(Boolean).map(item => path.resolve(item).toLowerCase());
   if (new Set(normalized).size !== normalized.length) {
-    throw new Error("actual backup, ledger, review, and reveal paths must all be distinct");
+    throw new Error("actual backup, ledger, review, judgment, and reveal paths must all be distinct");
   }
   return true;
 }
@@ -4404,6 +4731,118 @@ async function buildActualDaySourceSafetyFixtureAudit(){
   } catch {
     changedLockedCounterfactualReviewRejected = true;
   }
+  const expectedCounterfactualChoice = revealCase => (
+    revealCase.caseA.geometryPosition === "inside" ? "case_a_better" : "case_b_better"
+  );
+  const reverseCounterfactualChoice = revealCase => (
+    expectedCounterfactualChoice(revealCase) === "case_a_better" ? "case_b_better" : "case_a_better"
+  );
+  const buildSyntheticCounterfactualJudgments = (modes = {}) => (
+    syntheticCounterfactualArtifacts.revealArtifact.revealMap.map((revealCase, index) => {
+      const role = revealCase.hiddenComparisonRole;
+      const mode = role === "null_control"
+        ? (modes.control || "no_difference")
+        : (role === "contrast_carb_heavy" ? (modes.carb || "expected") : (modes.fat || "expected"));
+      let choice = "no_meaningful_difference";
+      if (mode === "expected") choice = expectedCounterfactualChoice(revealCase);
+      else if (mode === "reverse") choice = reverseCounterfactualChoice(revealCase);
+      else if (mode === "directional") choice = index % 2 === 0 ? "case_a_better" : "case_b_better";
+      else if (mode === "cannot_tell") choice = "cannot_tell";
+      return { caseId: revealCase.caseId, choice };
+    })
+  );
+  const twoSidedJudgmentChoices = buildSyntheticCounterfactualJudgments();
+  const confirmedTwoSidedJudgmentArtifact = buildCounterfactualJudgmentArtifact(
+    syntheticCounterfactualArtifacts.reviewArtifact,
+    twoSidedJudgmentChoices,
+    "user_confirmed"
+  );
+  const repeatedConfirmedJudgmentArtifact = buildCounterfactualJudgmentArtifact(
+    syntheticCounterfactualArtifacts.reviewArtifact,
+    [...twoSidedJudgmentChoices].reverse(),
+    "user_confirmed"
+  );
+  const draftTwoSidedJudgmentArtifact = buildCounterfactualJudgmentArtifact(
+    syntheticCounterfactualArtifacts.reviewArtifact,
+    twoSidedJudgmentChoices,
+    "awaiting_user_confirmation"
+  );
+  let unconfirmedCounterfactualRevealRejected = false;
+  try {
+    assertCounterfactualJudgmentMatchesReview(
+      draftTwoSidedJudgmentArtifact,
+      syntheticCounterfactualArtifacts.reviewArtifact,
+      { requireConfirmed: true }
+    );
+  } catch {
+    unconfirmedCounterfactualRevealRejected = true;
+  }
+  const changedAndRehashedJudgmentArtifact = buildCounterfactualJudgmentArtifact(
+    syntheticCounterfactualArtifacts.reviewArtifact,
+    twoSidedJudgmentChoices.map((item, index) => (
+      index === 0 ? { ...item, choice: "cannot_tell" } : item
+    )),
+    "user_confirmed"
+  );
+  let changedAfterConfirmationJudgmentRejected = false;
+  try {
+    assertCounterfactualJudgmentMatchesReview(
+      changedAndRehashedJudgmentArtifact,
+      syntheticCounterfactualArtifacts.reviewArtifact,
+      {
+        requireConfirmed: true,
+        expectedJudgmentSetHash: confirmedTwoSidedJudgmentArtifact.judgmentSetHash
+      }
+    );
+  } catch {
+    changedAfterConfirmationJudgmentRejected = true;
+  }
+  const invalidJudgmentProbes = [
+    twoSidedJudgmentChoices.slice(0, -1),
+    [...twoSidedJudgmentChoices.slice(0, -1), twoSidedJudgmentChoices[0]],
+    [...twoSidedJudgmentChoices, { caseId: "counterfactual_blind_case_999", choice: "cannot_tell" }],
+    twoSidedJudgmentChoices.map((item, index) => (
+      index === 0 ? { ...item, choice: "quietly_accept" } : item
+    ))
+  ];
+  const invalidCounterfactualJudgmentsRejected = invalidJudgmentProbes.every(probe => {
+    try {
+      buildCounterfactualJudgmentArtifact(
+        syntheticCounterfactualArtifacts.reviewArtifact,
+        probe,
+        "user_confirmed"
+      );
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  const judgmentBoundCounterfactualReveal = buildJudgmentBoundCounterfactualRevealArtifact(
+    syntheticCounterfactualArtifacts.reviewArtifact,
+    syntheticCounterfactualArtifacts.revealArtifact,
+    confirmedTwoSidedJudgmentArtifact
+  );
+  const interpretationOutcomeForModes = modes => {
+    const artifact = buildCounterfactualJudgmentArtifact(
+      syntheticCounterfactualArtifacts.reviewArtifact,
+      buildSyntheticCounterfactualJudgments(modes),
+      "user_confirmed"
+    );
+    return interpretCounterfactualBlindJudgment(
+      syntheticCounterfactualArtifacts.reviewArtifact,
+      syntheticCounterfactualArtifacts.revealArtifact,
+      artifact
+    );
+  };
+  const interpretationOutcomes = {
+    twoSided: interpretationOutcomeForModes({}),
+    carbOnly: interpretationOutcomeForModes({ fat: "no_difference" }),
+    fatOnly: interpretationOutcomeForModes({ carb: "no_difference" }),
+    redundant: interpretationOutcomeForModes({ carb: "no_difference", fat: "no_difference" }),
+    controlNoise: interpretationOutcomeForModes({ control: "directional" }),
+    cannotTell: interpretationOutcomeForModes({ control: "cannot_tell" }),
+    reverseConflict: interpretationOutcomeForModes({ carb: "reverse" })
+  };
   const partialInsufficientCounterfactualReview = JSON.parse(JSON.stringify(
     syntheticCounterfactualArtifacts.reviewArtifact
   ));
@@ -4832,6 +5271,33 @@ async function buildActualDaySourceSafetyFixtureAudit(){
         === capabilityPairSearchSelectionKey(reversedCapabilityPairSearch),
     counterfactualLockedReviewGuard: lockedCounterfactualReviewSameInputAccepted === true
       && changedLockedCounterfactualReviewRejected === true,
+    counterfactualJudgmentContractGuard:
+      isCounterfactualJudgmentArtifactSafe(
+        confirmedTwoSidedJudgmentArtifact,
+        syntheticCounterfactualArtifacts.reviewArtifact
+      ) === true
+      && JSON.stringify(confirmedTwoSidedJudgmentArtifact) === JSON.stringify(repeatedConfirmedJudgmentArtifact)
+      && invalidCounterfactualJudgmentsRejected === true,
+    counterfactualRevealRequiresConfirmedUnchangedJudgment:
+      unconfirmedCounterfactualRevealRejected === true
+      && changedAfterConfirmationJudgmentRejected === true,
+    counterfactualJudgmentBoundRevealSafe:
+      isJudgmentBoundCounterfactualRevealArtifactSafe(judgmentBoundCounterfactualReveal) === true
+      && judgmentBoundCounterfactualReveal.reviewPacketHash
+        === syntheticCounterfactualArtifacts.reviewArtifact.reviewPacketHash
+      && judgmentBoundCounterfactualReveal.judgmentSetHash
+        === confirmedTwoSidedJudgmentArtifact.judgmentSetHash,
+    counterfactualInterpretationRulesStable:
+      interpretationOutcomes.twoSided.outcome === "TWO_SIDED_PRODUCT_MEANING_CANDIDATE"
+      && interpretationOutcomes.carbOnly.outcome === "ONE_SIDED_CARB_PRODUCT_MEANING_CANDIDATE"
+      && interpretationOutcomes.fatOnly.outcome === "ONE_SIDED_FAT_PRODUCT_MEANING_CANDIDATE"
+      && interpretationOutcomes.redundant.outcome === "JOINT_REDUNDANT_CANDIDATE"
+      && interpretationOutcomes.controlNoise.outcome === "JUDGMENT_INSUFFICIENT"
+      && interpretationOutcomes.controlNoise.stopReasons.includes("control_directional_noise_threshold_reached")
+      && interpretationOutcomes.cannotTell.outcome === "JUDGMENT_INSUFFICIENT"
+      && interpretationOutcomes.cannotTell.stopReasons.includes("cannot_tell_threshold_reached")
+      && interpretationOutcomes.reverseConflict.outcome === "JUDGMENT_INSUFFICIENT"
+      && interpretationOutcomes.reverseConflict.stopReasons.includes("carb_reverse_direction_conflict"),
     counterfactualMalformedAndPartialArtifactsFailClosed:
       isActualAnchoredCounterfactualReviewArtifactSafe(partialInsufficientCounterfactualReview) === false
       && malformedCounterfactualReviewRejectedWithoutThrow === true
@@ -5529,6 +5995,10 @@ function makeAssertion(name, pass, detail){
     makeAssertion("counterfactual selection and A/B randomization are input-order invariant", actualDaySourceSafetyFixtureAudit.counterfactualSelectionInputOrderInvariant === true, `stable=${actualDaySourceSafetyFixtureAudit.counterfactualSelectionInputOrderInvariant}`),
     makeAssertion("counterfactual balanced selection explores alternate display-pair options within each anchor", actualDaySourceSafetyFixtureAudit.counterfactualAlternativePairOptionsExercised === true, `exercised=${actualDaySourceSafetyFixtureAudit.counterfactualAlternativePairOptionsExercised}`),
     makeAssertion("counterfactual reveal accepts only the unchanged locked review", actualDaySourceSafetyFixtureAudit.counterfactualLockedReviewGuard === true, `guard=${actualDaySourceSafetyFixtureAudit.counterfactualLockedReviewGuard}`),
+    makeAssertion("counterfactual judgment requires exactly twelve canonical allowed choices with a deterministic hash", actualDaySourceSafetyFixtureAudit.counterfactualJudgmentContractGuard === true, `guard=${actualDaySourceSafetyFixtureAudit.counterfactualJudgmentContractGuard}`),
+    makeAssertion("counterfactual reveal rejects unconfirmed or post-confirmation changed judgments", actualDaySourceSafetyFixtureAudit.counterfactualRevealRequiresConfirmedUnchangedJudgment === true, `guard=${actualDaySourceSafetyFixtureAudit.counterfactualRevealRequiresConfirmedUnchangedJudgment}`),
+    makeAssertion("counterfactual reveal is bound to both the locked review and confirmed judgment hashes", actualDaySourceSafetyFixtureAudit.counterfactualJudgmentBoundRevealSafe === true, `safe=${actualDaySourceSafetyFixtureAudit.counterfactualJudgmentBoundRevealSafe}`),
+    makeAssertion("counterfactual interpretation categories and insufficiency stops are fixed before user judgment", actualDaySourceSafetyFixtureAudit.counterfactualInterpretationRulesStable === true, `stable=${actualDaySourceSafetyFixtureAudit.counterfactualInterpretationRulesStable}`),
     makeAssertion("counterfactual malformed and partial insufficient artifacts fail closed without parser exceptions", actualDaySourceSafetyFixtureAudit.counterfactualMalformedAndPartialArtifactsFailClosed === true, `failClosed=${actualDaySourceSafetyFixtureAudit.counterfactualMalformedAndPartialArtifactsFailClosed}`),
     makeAssertion("counterfactual reveal roles are coherent and remain bound to the reviewed A/B sides", actualDaySourceSafetyFixtureAudit.counterfactualRevealCoherenceAndSideBindingGuard === true, `guard=${actualDaySourceSafetyFixtureAudit.counterfactualRevealCoherenceAndSideBindingGuard}`),
     makeAssertion("one-direction-only counterfactual evidence fails closed with empty review and reveal maps", actualDaySourceSafetyFixtureAudit.counterfactualOneDirectionFailsClosed === true, `failClosed=${actualDaySourceSafetyFixtureAudit.counterfactualOneDirectionFailsClosed}`)
@@ -5613,7 +6083,10 @@ function makeAssertion(name, pass, detail){
       standaloneReviewOutputFlag: "--actual-review-output",
       postJudgmentRevealFlag: "--post-judgment-reveal + --actual-reveal-output",
       counterfactualReviewOutputFlag: "--actual-counterfactual-review-output",
-      counterfactualPostJudgmentRevealFlag: "--post-counterfactual-judgment-reveal + --actual-counterfactual-reveal-output",
+      counterfactualJudgmentInputFlag: "--actual-counterfactual-judgment-input",
+      counterfactualJudgmentHashFlag: "--actual-counterfactual-judgment-hash",
+      counterfactualPostJudgmentRevealFlag: "--post-counterfactual-judgment-reveal + --actual-counterfactual-judgment-input + --actual-counterfactual-judgment-hash + --actual-counterfactual-reveal-output",
+      counterfactualRevealRequiresConfirmedJudgment: true,
       actualOutputsIgnoredDebugOnly: true,
       explicitBackupRequired: true,
       evidenceStatusWithoutFlag: "source_safety_corrected_awaiting_explicit_backup",
@@ -5626,6 +6099,8 @@ function makeAssertion(name, pass, detail){
   const observedLaneRequested = !!(actualReviewOutputPath || actualRevealOutputPath || postJudgmentReveal);
   const counterfactualLaneRequested = !!(
     actualCounterfactualReviewOutputPath
+    || actualCounterfactualJudgmentInputPath
+    || actualCounterfactualJudgmentHash
     || actualCounterfactualRevealOutputPath
     || postCounterfactualJudgmentReveal
   );
@@ -5634,6 +6109,15 @@ function makeAssertion(name, pass, detail){
   }
   if (!actualBackupPath && (observedLaneRequested || counterfactualLaneRequested)) {
     throw new Error("actual review/reveal flags require --actual-backup");
+  }
+  if ((actualCounterfactualJudgmentInputPath || actualCounterfactualJudgmentHash)
+      && !postCounterfactualJudgmentReveal) {
+    throw new Error("counterfactual judgment input/hash are accepted only with --post-counterfactual-judgment-reveal");
+  }
+  if (postCounterfactualJudgmentReveal
+      && (!actualCounterfactualJudgmentInputPath
+        || !/^[a-f0-9]{64}$/.test(actualCounterfactualJudgmentHash))) {
+    throw new Error("--post-counterfactual-judgment-reveal requires judgment input and its confirmed 64-character hash");
   }
   let actualOutputPaths = null;
   if (actualBackupPath) {
@@ -5655,18 +6139,35 @@ function makeAssertion(name, pass, detail){
         ? resolveActualAuditOutputPath(actualCounterfactualRevealOutputPath, "--actual-counterfactual-reveal-output")
         : null)
       : (postJudgmentReveal ? resolveActualAuditOutputPath(actualRevealOutputPath, "--actual-reveal-output") : null);
+    const judgmentInput = lane === "counterfactual" && postCounterfactualJudgmentReveal
+      ? resolveActualAuditOutputPath(
+        actualCounterfactualJudgmentInputPath,
+        "--actual-counterfactual-judgment-input"
+      )
+      : null;
     const postMode = lane === "counterfactual" ? postCounterfactualJudgmentReveal : postJudgmentReveal;
-    assertDistinctFilePaths([backupInput, ledgerOutput, reviewOutput, revealOutput]);
+    assertDistinctFilePaths([backupInput, ledgerOutput, reviewOutput, judgmentInput, revealOutput]);
     if (postMode && !fs.existsSync(reviewOutput)) {
       throw new Error(`${lane} post-judgment reveal requires the existing locked review file`);
     }
     if (!postMode && fs.existsSync(reviewOutput)) {
       throw new Error("pre-judgment review output already exists; preserve it or choose a new path");
     }
+    if (judgmentInput && !fs.existsSync(judgmentInput)) {
+      throw new Error("counterfactual reveal requires the existing user-confirmed judgment file");
+    }
     if (revealOutput && fs.existsSync(revealOutput)) {
       throw new Error("post-judgment reveal output already exists; preserve it or choose a new path");
     }
-    actualOutputPaths = { lane, postMode, backupInput, ledgerOutput, reviewOutput, revealOutput };
+    actualOutputPaths = {
+      lane,
+      postMode,
+      backupInput,
+      ledgerOutput,
+      reviewOutput,
+      judgmentInput,
+      revealOutput
+    };
   }
   const localActualDayAuditBundle = actualBackupPath && actualOutputPaths?.lane === "observed"
     ? await buildLocalActualDayAudit(path.resolve(root, actualBackupPath))
@@ -5674,6 +6175,8 @@ function makeAssertion(name, pass, detail){
   const localCounterfactualAuditBundle = actualBackupPath && actualOutputPaths?.lane === "counterfactual"
     ? await buildLocalActualAnchoredCounterfactualAudit(path.resolve(root, actualBackupPath))
     : null;
+  let localCounterfactualJudgmentArtifact = null;
+  let localJudgmentBoundCounterfactualRevealArtifact = null;
   if (localActualDayAuditBundle && actualOutputPaths) {
     assertHypothesisBlindArtifactBundleSafe(localActualDayAuditBundle);
     if (postJudgmentReveal) {
@@ -5695,6 +6198,22 @@ function makeAssertion(name, pass, detail){
         lockedReviewArtifact,
         localCounterfactualAuditBundle.reviewArtifact
       );
+      localCounterfactualJudgmentArtifact = JSON.parse(
+        fs.readFileSync(actualOutputPaths.judgmentInput, "utf8")
+      );
+      assertCounterfactualJudgmentMatchesReview(
+        localCounterfactualJudgmentArtifact,
+        lockedReviewArtifact,
+        {
+          requireConfirmed: true,
+          expectedJudgmentSetHash: actualCounterfactualJudgmentHash
+        }
+      );
+      localJudgmentBoundCounterfactualRevealArtifact = buildJudgmentBoundCounterfactualRevealArtifact(
+        lockedReviewArtifact,
+        localCounterfactualAuditBundle.revealArtifact,
+        localCounterfactualJudgmentArtifact
+      );
     }
   }
   const ledger = {
@@ -5703,6 +6222,17 @@ function makeAssertion(name, pass, detail){
     ...(localActualDayAuditBundle ? { localActualDayAudit: localActualDayAuditBundle.summaryAudit } : {}),
     ...(localCounterfactualAuditBundle
       ? { localActualAnchoredCounterfactualAudit: localCounterfactualAuditBundle.summaryAudit }
+      : {}),
+    ...(localCounterfactualJudgmentArtifact
+      ? {
+        localCounterfactualPostJudgment: {
+          reviewPacketHash: localCounterfactualJudgmentArtifact.reviewPacketHash,
+          judgmentSetHash: localCounterfactualJudgmentArtifact.judgmentSetHash,
+          confirmationStatus: localCounterfactualJudgmentArtifact.confirmationStatus,
+          interpretationRuleVersion: COUNTERFACTUAL_MEANING_RULE_VERSION,
+          outcome: localJudgmentBoundCounterfactualRevealArtifact.meaningDecision.outcome
+        }
+      }
       : {})
   };
   const output = outputFormat === "csv" ? toCsv(ledger) : `${JSON.stringify(ledger, null, 2)}\n`;
@@ -5725,10 +6255,16 @@ function makeAssertion(name, pass, detail){
       );
     }
     if (actualOutputPaths.revealOutput) {
+      const revealArtifactToWrite = actualOutputPaths.lane === "counterfactual"
+        ? localJudgmentBoundCounterfactualRevealArtifact
+        : localReviewBundle.revealArtifact;
+      if (!revealArtifactToWrite) {
+        throw new Error("post-judgment reveal artifact was not produced");
+      }
       fs.mkdirSync(path.dirname(actualOutputPaths.revealOutput), { recursive: true });
       fs.writeFileSync(
         actualOutputPaths.revealOutput,
-        `${JSON.stringify(localReviewBundle.revealArtifact, null, 2)}\n`,
+        `${JSON.stringify(revealArtifactToWrite, null, 2)}\n`,
         { encoding: "utf8", flag: "wx" }
       );
     }
