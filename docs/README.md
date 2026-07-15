@@ -384,6 +384,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 점수/version/formula/curve, target/card range/adaptive 숫자, storage/schema/backup/Records는 변경하지 않았다. selectable voice와 broad glossary는 자동 다음 단계가 아니다.
   - 제품 작업 전 repo skill + `preflight:product` + deterministic policy/CI를 거치고 좁은 변경 표면 안에서 전체 상태·fallback·mixed/extreme·viewport·a11y를 닫는 앱 전반 검토 장치도 함께 고정했다.
 
+- `records_numeric_edit_precision_alignment_implementation_2026-07-15.md`
+  - 기록 수정 화면에 `11.38`로 보이는 저장값 `11.3848`을 무수정 상태에서 다른 값으로 오판하던 공통 정밀도 결함을 고친 구현 로그다.
+  - Records 체중/계산 기준/식사와 InBody 숫자를 각 입력창의 실제 표시 자리수로 비교하고, 메모 등 다른 항목만 수정할 때도 숨은 원본 소수점을 보존한다.
+  - 실제 백업 99 Records/6 InBody에서 체지방량과 목표 탄단지의 숨은 소수점을 확인했고, 보이는 한 단계 변경만 실제 수정으로 저장하는 회귀 테스트를 추가했다.
+  - InBody 기록 수정 suite를 smoke/core에도 등록해 기본 회귀 검사에서 데이터 보존 문제를 잡는다.
+  - 점수 formula/version, storage/schema, backup shape, old-record migration은 변경하지 않았다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`, `00_current_truth/05_required_result_log_format.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
