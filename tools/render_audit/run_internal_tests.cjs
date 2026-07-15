@@ -163,6 +163,10 @@ const testProfiles = {
     "runMacroAllocationExplanationTests",
     "runDailyCoachTestCases",
     "runDailyCoachSemanticV2Tests",
+    "runInbodyTrendContextTests",
+    "runInbodyCopySourceSeparationTests",
+    "runDailyCoachInbodyGateTests",
+    "runInbodyCoachRefreshTests",
     "runDailyCoachRecentContextTests"
   ],
   ui: [
