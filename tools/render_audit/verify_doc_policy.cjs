@@ -80,6 +80,7 @@ const requiredFiles = [
   "docs/v8.4_component_score_architecture_falsification_decision_2026-07-11.md",
   "docs/v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md",
   "docs/v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md",
+  "docs/v8.4_joint_axis_retirement_implementation_2026-07-15.md",
   "tools/render_audit/simulate_component_score_architecture.cjs",
   "package.json",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
@@ -154,6 +155,7 @@ if (failures.length === 0) {
   const componentScoreArchitectureFalsificationDecision = read("docs/v8.4_component_score_architecture_falsification_decision_2026-07-11.md");
   const targetScoringAuthorityCorrectionImplementation = read("docs/v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md");
   const optionCJointResidualSimulationDecision = read("docs/v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md");
+  const jointAxisRetirementImplementation = read("docs/v8.4_joint_axis_retirement_implementation_2026-07-15.md");
   const componentScoreArchitectureSimulationTool = read("tools/render_audit/simulate_component_score_architecture.cjs");
   const packageJson = JSON.parse(read("package.json"));
   const onboardingArchiveReadme = read("docs/archive/onboarding/README.md");
@@ -325,8 +327,9 @@ if (failures.length === 0) {
     "actual-context-anchored controlled counterfactual product-meaning evidence: closed with outcome COUNTERFACTUAL_PACKET_INSUFFICIENT",
     "counterfactual eligibility attrition falsification: closed with outcome METHOD_BLOCKED_AND_RECOVERED",
     "counterfactual locked 12-case product-meaning judgment:",
-    "replacement, removal, aggregation, production 구현을 열지 않는다",
-    "v8.3.1_target_authority_continuous_macro_score_v2",
+    "rejected current joint-axis retirement: implemented",
+    "v8.4_joint_axis_retired_continuous_macro_score_v1",
+    "component-score actual-day aggregation re-evaluation: deferred and not an automatic next implementation",
     "valid 54개 target 모두 exact 100",
     "v8.3.1 DailyCoach semantic v2 phase 1: paused",
     "required result-log format: active",
@@ -381,10 +384,13 @@ if (failures.length === 0) {
     "v8.4_component_score_architecture_falsification_decision_2026-07-11.md",
     "v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md",
     "v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md",
+    "v8.4_joint_axis_retirement_implementation_2026-07-15.md",
     "v8.3.1_target_authority_continuous_macro_score_v2",
+    "v8.4_joint_axis_retired_continuous_macro_score_v1",
+    "anchor_continuous_macro_score_v3_joint_axis_retired",
     "current production은 54/54 exact 100",
-    "production formula/UI/storage implementation을 열지 않는다",
-    "production joint 제외 8축",
+    "v8.4에서는 retired joint를 제외한 8개 현행 axis",
+    "storage/schema/backup/Records는 변경하지 않았다",
     "snapshotless/current-Settings hidden recompute",
     "명시적으로 제공한 full-backup",
     "METHOD_BLOCKED_AND_RECOVERED",
@@ -445,6 +451,9 @@ if (failures.length === 0) {
     "counterfactual eligibility attrition falsification: closed with outcome METHOD_BLOCKED_AND_RECOVERED",
     "counterfactual locked 12-case product-meaning judgment:",
     "v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md",
+    "55-CF-B. current thresholded joint-axis retirement / v8.4 implementation.",
+    "v8.4_joint_axis_retirement_implementation_2026-07-15.md",
+    "PASS_RETIRE_CURRENT_JOINT_AXIS",
     "v8.3.1 DailyCoach semantic v2 phase 1: paused",
     "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
     "required result-log format: active",
@@ -1252,6 +1261,7 @@ if (failures.length === 0) {
   const componentScoreArchitectureFalsificationRoute = "v8.4_component_score_architecture_falsification_decision_2026-07-11.md";
   const targetScoringAuthorityCorrectionRoute = "v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md";
   const optionCJointResidualSimulationRoute = "v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md";
+  const jointAxisRetirementRoute = "v8.4_joint_axis_retirement_implementation_2026-07-15.md";
   for (const [label, text] of [
     ["00_READ_FIRST", readFirst],
     ["02_macro_range_current_truth", currentTruth],
@@ -1269,6 +1279,9 @@ if (failures.length === 0) {
     }
     if (!text.includes(optionCJointResidualSimulationRoute)) {
       fail(`${label} missing Option C joint residual simulation route`);
+    }
+    if (!text.includes(jointAxisRetirementRoute)) {
+      fail(`${label} missing joint-axis retirement implementation route`);
     }
   }
   for (const [label, text] of [
@@ -1335,6 +1348,39 @@ if (failures.length === 0) {
   for (const text of targetScoringAuthorityCorrectionRequirements) {
     if (!targetScoringAuthorityCorrectionImplementation.includes(text)) {
       fail(`target/scoring authority correction implementation log missing: ${text}`);
+    }
+  }
+
+  const jointAxisRetirementRequirements = [
+    "DOCUMENT ROLE",
+    "- implementation_log",
+    "## 비개발자용 설명",
+    "### 무엇을 바꿨는지",
+    "### 왜 바꿨는지",
+    "### 실제 사용자 화면이나 계산 결과가 어떻게 달라지는지",
+    "### 정책, 산식, 데이터 해석이 바뀌었는지",
+    "### 바꾸지 않은 범위와 보류한 내용",
+    "### 사용자가 큰 틀에서 확인해야 할 판단점",
+    "### 테스트에서 무엇을 검증했는지",
+    "## 기술 검증",
+    "PASS_RETIRE_CURRENT_JOINT_AXIS",
+    "v8.4_joint_axis_retired_continuous_macro_score_v1",
+    "anchor_continuous_macro_score_v3_joint_axis_retired",
+    "v8.3.1_target_authority_continuous_macro_score_v2",
+    "source-safe included: 96",
+    "actual core-axis gap: 0",
+    "geometry core-axis gap: 0",
+    "target regression: 0",
+    "stress violation: 0",
+    "f915cd2601f8cf284dfc2c48ef1dee42b9de0917be974425e93fd9b57be1b363",
+    "joint allocation model: 유지",
+    "과거 기록 일괄 재계산",
+    "component-score aggregation",
+    "PROMPT_SCOPE_AUDIT",
+  ];
+  for (const text of jointAxisRetirementRequirements) {
+    if (!jointAxisRetirementImplementation.includes(text)) {
+      fail(`joint-axis retirement implementation log missing: ${text}`);
     }
   }
 
@@ -1500,7 +1546,7 @@ if (failures.length === 0) {
         line.includes("explicit-backup privacy-safe actual-day joint ownership evidence:")
       ));
       return !!routeLine
-        && /closed with outcome/i.test(routeLine)
+        && /closed with (?:historical )?outcome/i.test(routeLine)
         && routeLine.includes("ACTUAL_EVIDENCE_INSUFFICIENT");
     };
     if (!hasClosedInsufficientActualEvidenceSemantics(readFirst)
@@ -1508,7 +1554,8 @@ if (failures.length === 0) {
         || !statusIndex.includes("56. component-score actual-day aggregation re-evaluation.")
         || !(statusIndex.includes("상태: blocked because item 55 closed `ACTUAL_EVIDENCE_INSUFFICIENT`.")
           || statusIndex.includes("상태: blocked until item 55-CF-A의 locked 12-case blind judgment")
-          || statusIndex.includes("상태: deferred because item 55-CF-A closed `JUDGMENT_INSUFFICIENT`"))) {
+          || statusIndex.includes("상태: deferred because item 55-CF-A closed `JUDGMENT_INSUFFICIENT`")
+          || statusIndex.includes("상태: deferred and not an automatic next implementation after item 55-CF-B"))) {
       fail("actual evidence insufficiency must close item 55 without review/reveal and keep component aggregation blocked");
     }
   }
@@ -1546,7 +1593,8 @@ if (failures.length === 0) {
         || !statusIndex.includes("상태: closed with outcome `METHOD_BLOCKED_AND_RECOVERED`")
         || !statusIndex.includes("56. component-score actual-day aggregation re-evaluation.")
         || !(statusIndex.includes("blocked until item 55-CF-A의 locked 12-case blind judgment")
-          || statusIndex.includes("deferred because item 55-CF-A closed `JUDGMENT_INSUFFICIENT`"))) {
+          || statusIndex.includes("deferred because item 55-CF-A closed `JUDGMENT_INSUFFICIENT`")
+          || statusIndex.includes("deferred and not an automatic next implementation after item 55-CF-B"))) {
       fail("method recovery must route the locked blind judgment before aggregation re-evaluation");
     }
     for (const [label, text] of [
@@ -1555,11 +1603,13 @@ if (failures.length === 0) {
       ["04_document_status_index", statusIndex],
       ["README", readme],
     ]) {
-      if (!text.includes("judgmentSetHash")
-          || !text.includes("JUDGMENT_INSUFFICIENT")
-          || !text.includes("JOINT_REDUNDANT_CANDIDATE")) {
-        fail(`${label} must expose the confirmed-hash judgment gate and preregistered insufficiency/redundancy split`);
+      if (!text.includes("JUDGMENT_INSUFFICIENT") || !text.includes(jointAxisRetirementRoute)) {
+        fail(`${label} must preserve the blind insufficiency outcome and route the later independent retirement implementation`);
       }
+    }
+    if (!statusIndex.includes("judgmentSetHash")
+        || !statusIndex.includes("JOINT_REDUNDANT_CANDIDATE")) {
+      fail("status index must preserve the confirmed-hash judgment gate and preregistered redundancy split as historical evidence");
     }
     const blindMeaningOutcomeLines = optionCJointResidualSimulationDecision
       .match(/^counterfactual blind judgment outcome:\s*.+$/gm) || [];
@@ -1583,9 +1633,9 @@ if (failures.length === 0) {
       ["README", readme],
     ]) {
       if (!text.includes(blindMeaningOutcome)
-          || !text.includes("current joint-axis retirement")
+          || !text.includes(jointAxisRetirementRoute)
           || !text.includes("JUDGMENT_INSUFFICIENT")) {
-        fail(`${label} must expose the confirmed blind outcome and rejected current joint-axis retirement route`);
+        fail(`${label} must expose the confirmed blind outcome and later independent joint-axis retirement route`);
       }
     }
     if (blindMeaningOutcome === "JUDGMENT_INSUFFICIENT") {
@@ -1601,9 +1651,10 @@ if (failures.length === 0) {
           fail(`confirmed insufficient blind closeout missing: ${signal}`);
         }
       }
-      if (!statusIndex.includes("상태: deferred because item 55-CF-A closed `JUDGMENT_INSUFFICIENT`")
-          || !statusIndex.includes("joint-axis retirement/scoring-version gate")) {
-        fail("insufficient blind outcome must defer aggregation and route the independently rejected joint axis to retirement");
+      if (!statusIndex.includes("55-CF-B. current thresholded joint-axis retirement / v8.4 implementation.")
+          || !statusIndex.includes("상태: implemented by docs/v8.4_joint_axis_retirement_implementation_2026-07-15.md")
+          || !statusIndex.includes("상태: deferred and not an automatic next implementation after item 55-CF-B")) {
+        fail("insufficient blind outcome history must coexist with the later independently justified retirement and non-automatic aggregation route");
       }
     }
   }
@@ -1611,12 +1662,16 @@ if (failures.length === 0) {
   const targetAuthorityIndexHtml = read("index.html");
   for (const signal of [
     'const PRE_TARGET_AUTHORITY_ADHERENCE_SCORING_VERSION = "v8.3_anchor_continuous_macro_score_v1"',
+    'const PRE_JOINT_RETIREMENT_ADHERENCE_SCORING_VERSION = "v8.3.1_target_authority_continuous_macro_score_v2"',
     'const TARGET_SCORING_AUTHORITY_CORRECTION_VERSION = "v8.3.1_target_scoring_authority_v1"',
-    'const MACRO_RANGE_PRODUCTION_SCORING_VERSION = "v8.3.1_target_authority_continuous_macro_score_v2"',
-    'const MACRO_RANGE_SCORE_FORMULA_NAME = "anchor_continuous_macro_score_v2_target_authority"',
+    'const MACRO_RANGE_PRODUCTION_SCORING_VERSION = "v8.4_joint_axis_retired_continuous_macro_score_v1"',
+    'const MACRO_RANGE_SCORE_FORMULA_NAME = "anchor_continuous_macro_score_v3_joint_axis_retired"',
     "function getV831TargetScoringAuthority",
+    "function getRetiredV831CarbFatExchangeFailurePenalty",
     "function getStoredAdherenceRangeScoreFormula",
+    "function runJointAxisRetirementTests",
     "function runTargetScoringAuthoritativeReferenceCorrectionTests",
+    "window.runJointAxisRetirementTests",
     "window.runTargetScoringAuthoritativeReferenceCorrectionTests",
   ]) {
     if (!targetAuthorityIndexHtml.includes(signal)) fail(`index.html missing target-authority correction signal: ${signal}`);
@@ -1630,9 +1685,23 @@ if (failures.length === 0) {
     if (!profileBody.includes("runTargetScoringAuthoritativeReferenceCorrectionTests")) {
       fail(`${profile} profile missing target/scoring authority correction regression suite`);
     }
+    if (!profileBody.includes("runJointAxisRetirementTests")) {
+      fail(`${profile} profile missing joint-axis retirement regression suite`);
+    }
   }
   if (!packageJson.scripts?.["test:macro-policy"]?.includes("runTargetScoringAuthoritativeReferenceCorrectionTests")) {
     fail("test:macro-policy missing target/scoring authority correction regression suite");
+  }
+  if (!packageJson.scripts?.["test:macro-policy"]?.includes("runJointAxisRetirementTests")) {
+    fail("test:macro-policy missing joint-axis retirement regression suite");
+  }
+  const currentBreakdownStart = targetAuthorityIndexHtml.indexOf("function getV83PenaltyBreakdown");
+  const currentBreakdownEnd = targetAuthorityIndexHtml.indexOf("function getPenaltyTotal", currentBreakdownStart);
+  const currentBreakdownBody = currentBreakdownStart >= 0 && currentBreakdownEnd > currentBreakdownStart
+    ? targetAuthorityIndexHtml.slice(currentBreakdownStart, currentBreakdownEnd)
+    : "";
+  if (!currentBreakdownBody || currentBreakdownBody.includes("carbFatExchangeFailurePenalty")) {
+    fail("current production penalty breakdown must expose eight axes and must not zero-fill or call the retired joint axis");
   }
   for (const signal of [
     "missingRequestedSuiteNames",
@@ -1705,7 +1774,10 @@ if (failures.length === 0) {
     "C1 and C2 are numerically equivalent",
     "C3 legacy normalized-carb baseline is marked DROP and diverges",
     "production geometry sweep covers all 54 plus 12 cross-profile geometries with joint-model authority",
-    "production ownership source covers every sample with the exact nine-axis key set and eight non-joint axes",
+    "production ownership source covers every sample with the exact retired-joint eight-axis key set",
+    "function buildJointAxisRetirementAudit",
+    "PASS_RETIRE_CURRENT_JOINT_AXIS",
+    "--joint-retirement-audit-output",
     "raw numeric authority accepts native finite numbers only",
     "present-invalid alcohol and other kcal variants are excluded before scoring",
     "non-finite derived meal/day energy totals are excluded before scoring",
@@ -1783,6 +1855,7 @@ if (failures.length === 0) {
     "55. explicit-backup privacy-safe actual-day joint ownership evidence.",
     "55-CF. actual-context-anchored controlled counterfactual product-meaning evidence.",
     "55-CF-A. counterfactual eligibility attrition falsification.",
+    "55-CF-B. current thresholded joint-axis retirement / v8.4 implementation.",
     "56. component-score actual-day aggregation re-evaluation.",
     "57. component-score candidate selection or rejection.",
     "58. v8.3.1 DailyCoach semantic v2 phase 1.",
@@ -1931,7 +2004,7 @@ if (failures.length === 0) {
     "docs/00_current_truth/04_document_status_index.txt",
     "docs/00_current_truth/05_required_result_log_format.txt",
     "docs/archive/v8.2_macro_range/",
-    "scoring implementation은 현재 `v8.3.1_target_authority_continuous_macro_score_v2`로 구현된 상태",
+    "scoring implementation은 현재 `v8.4_joint_axis_retired_continuous_macro_score_v1`로 구현된 상태",
     "v6.1 alcoholImpactPenalty",
     "PROMPT_SCOPE_AUDIT",
     "Do not assume the prompt is the correct next step",
