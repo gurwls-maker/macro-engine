@@ -54,6 +54,7 @@ const actualCounterfactualReviewOutputPath = readArgValue("--actual-counterfactu
 const actualCounterfactualJudgmentInputPath = readArgValue("--actual-counterfactual-judgment-input");
 const actualCounterfactualJudgmentHash = readArgValue("--actual-counterfactual-judgment-hash");
 const actualCounterfactualRevealOutputPath = readArgValue("--actual-counterfactual-reveal-output");
+const jointRetirementAuditOutputPath = readArgValue("--joint-retirement-audit-output");
 const postJudgmentReveal = process.argv.includes("--post-judgment-reveal");
 const postCounterfactualJudgmentReveal = process.argv.includes("--post-counterfactual-judgment-reveal");
 const assertMode = process.argv.includes("--assert");
@@ -933,14 +934,23 @@ async function buildTargetMatrix(){
         "proteinExcessEfficiencyPenalty",
         "fatRangePenalty",
         "carbExerciseContextPenalty",
-        "carbFatExchangeFailurePenalty",
         "alcoholPhysiologyPenalty",
         "dataOutlierPenalty"
       ];
-      const nonJointPenaltyKeys = penaltyKeys.filter(key => key !== "carbFatExchangeFailurePenalty");
+      const nonJointPenaltyKeys = penaltyKeys;
       const rows = [];
       const crossProfileRows = [];
       const productionOwnershipRows = [];
+      const retirementStressRows = [];
+
+      function evaluateRetiredJointAxis(balance, currentResult, options, penaltyBreakdown){
+        const context = buildV83ContinuousScoringContext(balance, currentResult, options);
+        return roundPenaltyValue(getRetiredV831CarbFatExchangeFailurePenalty(
+          context,
+          getV83ContinuousScoringPolicy(),
+          penaltyBreakdown || {}
+        ));
+      }
 
       function applyContext(name, profile = {}){
         const contextConfig = name === "rest"
@@ -1114,6 +1124,7 @@ async function buildTargetMatrix(){
           };
           const productionSummary = getMacroRangeProductionScoreSummary(balance, target, {});
           const breakdown = productionSummary?.penaltyBreakdown;
+          const retiredJointAxisPenalty = evaluateRetiredJointAxis(balance, target, {}, breakdown);
           const actualPenaltyAxes = breakdown && typeof breakdown === "object"
             ? Object.keys(breakdown).sort()
             : [];
@@ -1163,6 +1174,7 @@ async function buildTargetMatrix(){
             penaltyBreakdown: breakdown
               ? Object.fromEntries(penaltyKeys.map(key => [key, breakdown[key]]))
               : null,
+            retiredJointAxisPenalty,
             sourceAuthority: {
               scoreSourceComplete,
               penaltyBreakdownComplete: missingPenaltyAxes.length === 0,
@@ -1204,6 +1216,7 @@ async function buildTargetMatrix(){
           }
         };
         const summary = getMacroRangeProductionScoreSummary(balance, target, {});
+        const retiredJointAxisPenalty = evaluateRetiredJointAxis(balance, target, {}, summary.penaltyBreakdown);
         const validity = targetValidity(target);
         const joint = summary.scoringContext?.jointAllocationModel || null;
         productionOwnershipRows.push(...buildProductionOwnershipRows({ caseId: id, matrixKind, target, summary }));
@@ -1228,7 +1241,8 @@ async function buildTargetMatrix(){
             percent: summary.percent,
             rawScore: summary.rawScore,
             penalties: summary.penaltyBreakdown,
-            ninePenaltyAxesZero: penaltyKeys.every(key => summary.penaltyBreakdown?.[key] === 0),
+            retiredJointAxisPenalty,
+            productionPenaltyAxesZero: penaltyKeys.every(key => summary.penaltyBreakdown?.[key] === 0),
             targetAuthority: summary.scoringContext?.targetAuthority || null
           },
           jointGeometry: joint ? {
@@ -1240,6 +1254,70 @@ async function buildTargetMatrix(){
             macroKcalGap: joint.macroKcalGap,
             collapsed: joint.collapsed === true
           } : null
+        };
+      }
+
+      function buildRetirementStressRow({
+        id,
+        goal = "maintain",
+        contextName = "normal",
+        proteinLevel = "medium",
+        proteinFactor = 1,
+        carbFactor = 1,
+        fatFactor = 1,
+        carbG = null,
+        fatG = null,
+        carbEnergyShare = null,
+        alcoholKcal = 0,
+        otherKcal = 0
+      }){
+        applyContext(contextName);
+        state.goal = goal;
+        state.proteinTargetLevel = proteinLevel;
+        if (ids.proteinTargetLevel) ids.proteinTargetLevel.value = proteinLevel;
+        const target = calculate();
+        const protein = Number(target.protein) * proteinFactor;
+        const availableCarbFatKcal = Math.max(0, Number(target.targetCal) - protein * 4);
+        const carbs = Number.isFinite(carbEnergyShare)
+          ? availableCarbFatKcal * carbEnergyShare / 4
+          : (Number.isFinite(carbG) ? carbG : Number(target.carbs) * carbFactor);
+        const fat = Number.isFinite(carbEnergyShare)
+          ? availableCarbFatKcal * (1 - carbEnergyShare) / 9
+          : (Number.isFinite(fatG) ? fatG : Number(target.fat) * fatFactor);
+        const scoringKcal = protein * 4 + carbs * 4 + fat * 9 + alcoholKcal + otherKcal;
+        const balance = {
+          target: { kcal: target.targetCal, protein: target.protein, carbs: target.carbs, fat: target.fat },
+          consumed: {
+            scoringKcal,
+            totalKcal: scoringKcal,
+            kcal: scoringKcal,
+            protein,
+            carbs,
+            fat,
+            alcoholKcal,
+            otherKcal
+          }
+        };
+        const summary = getMacroRangeProductionScoreSummary(balance, target, {});
+        const retiredJointAxisPenalty = evaluateRetiredJointAxis(balance, target, {}, summary.penaltyBreakdown);
+        return {
+          id,
+          goal,
+          context: contextName,
+          proteinLevel,
+          ratios: {
+            energy: scoringKcal / Number(target.targetCal),
+            protein: protein / Number(target.protein),
+            carb: carbs / Number(target.carbs),
+            fat: fat / Number(target.fat)
+          },
+          current: {
+            percent: summary.percent,
+            rawScore: summary.rawScore,
+            penalties: summary.penaltyBreakdown,
+            retiredJointAxisPenalty,
+            blockedReason: summary.blockedReason
+          }
         };
       }
 
@@ -1276,6 +1354,21 @@ async function buildTargetMatrix(){
           });
         });
       });
+
+      [
+        { id: "exact_target_normal" },
+        { id: "low_carb_low_fat", carbFactor: 0.35, fatFactor: 0.35 },
+        { id: "high_carb_high_fat", carbFactor: 2, fatFactor: 2 },
+        { id: "iso_calorie_carb_heavy_90", carbEnergyShare: 0.90 },
+        { id: "iso_calorie_fat_heavy_90", carbEnergyShare: 0.10 },
+        { id: "iso_calorie_carb_heavy_98", carbEnergyShare: 0.98 },
+        { id: "iso_calorie_fat_heavy_98", carbEnergyShare: 0.02 },
+        { id: "very_low_protein", proteinFactor: 0.30 },
+        { id: "high_volume_700g_carb", contextName: "high", carbG: 700, fatFactor: 0.70 },
+        { id: "extreme_fat_1000g", carbFactor: 1, fatG: 1000 },
+        { id: "heavy_alcohol_with_target_macros", alcoholKcal: 1500 },
+        { id: "data_outlier_eightfold", carbFactor: 8, fatFactor: 8 }
+      ].forEach(config => retirementStressRows.push(buildRetirementStressRow(config)));
       const actualAuditRoutineVocabulary = {
         simple: getGeneralRoutineItems().map(item => item.value).sort(),
         advancedByProfile: {
@@ -1287,7 +1380,13 @@ async function buildTargetMatrix(){
           Object.values(config.plans || {}).flatMap(plan => plan.items.map(item => item.value))
         )].sort();
       });
-      return { targetCases: rows, crossProfileCases: crossProfileRows, productionOwnershipRows, actualAuditRoutineVocabulary };
+      return {
+        targetCases: rows,
+        crossProfileCases: crossProfileRows,
+        productionOwnershipRows,
+        retirementStressRows,
+        actualAuditRoutineVocabulary
+      };
     });
   } finally {
     if (context) await context.close();
@@ -1655,6 +1754,24 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload, options = {}){
         const penalties = score.detail?.penaltyBreakdown || null;
         const scoringContext = score.detail?.scoringContext || {};
         const joint = scoringContext.jointAllocationModel || null;
+        const retirementBalance = {
+          target: { ...target },
+          baseTarget: { ...target },
+          goalSnapshot: snapshot,
+          consumed: { ...consumed }
+        };
+        const retirementContext = buildV83ContinuousScoringContext(
+          retirementBalance,
+          snapshotOwnedResult,
+          scoreOptions
+        );
+        const retiredJointAxisPenalty = roundPenaltyValue(
+          getRetiredV831CarbFatExchangeFailurePenalty(
+            retirementContext,
+            getV83ContinuousScoringPolicy(),
+            penalties || {}
+          )
+        );
         const ratio = (actual, expected) => Number.isFinite(Number(actual)) && Number(expected) > 0
           ? Number(actual) / Number(expected)
           : null;
@@ -1732,7 +1849,6 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload, options = {}){
               "proteinExcessEfficiencyPenalty",
               "fatRangePenalty",
               "carbExerciseContextPenalty",
-              "carbFatExchangeFailurePenalty",
               "alcoholPhysiologyPenalty",
               "dataOutlierPenalty"
             ].filter(key => !Number.isFinite(Number(candidatePenalties?.[key])) || Number(candidatePenalties[key]) < 0);
@@ -1867,6 +1983,7 @@ async function extractAnonymizedActualDaysFromPayload(rawPayload, options = {}){
           },
           standardDrinks: Number.isFinite(scoringContext.standardDrinks) ? scoringContext.standardDrinks : 0,
           penalties,
+          retiredJointAxisPenalty,
           optionCInput: joint ? {
             targetKcal: joint.baseTargetPair?.kcal ?? target.kcal,
             targetProteinG: joint.proteinReservedG,
@@ -1990,6 +2107,228 @@ function summarizePlainValues(values){
     p90: round(percentile(0.9), 9),
     mean: round(sorted.reduce((sum, value) => sum + value, 0) / sorted.length, 9),
     max: round(sorted[sorted.length - 1], 9)
+  };
+}
+
+function projectJointAxisRetirement(penaltyBreakdown, retiredJointAxisPenalty = null){
+  const source = penaltyBreakdown && typeof penaltyBreakdown === "object" ? penaltyBreakdown : null;
+  const missingAxes = productionPenaltyAxes.filter(key => !Number.isFinite(Number(source?.[key])) || Number(source[key]) < 0);
+  const jointPenalty = Number.isFinite(Number(retiredJointAxisPenalty))
+    ? Number(retiredJointAxisPenalty)
+    : Number(source?.[retiredJointPenaltyAxis]);
+  if (missingAxes.length || !Number.isFinite(jointPenalty) || jointPenalty < 0) {
+    return {
+      valid: false,
+      missingAxes,
+      retiredJointAxisAvailable: Number.isFinite(jointPenalty) && jointPenalty >= 0
+    };
+  }
+  const candidateBreakdown = Object.fromEntries(productionNonJointPenaltyAxes.map(key => [key, Number(source[key])]));
+  const currentBreakdown = {
+    ...candidateBreakdown,
+    [retiredJointPenaltyAxis]: jointPenalty
+  };
+  const currentPenaltyTotal = preJointRetirementPenaltyAxes.reduce((sum, key) => sum + currentBreakdown[key], 0);
+  const candidatePenaltyTotal = productionNonJointPenaltyAxes.reduce((sum, key) => sum + candidateBreakdown[key], 0);
+  const currentRawScore = 100 - currentPenaltyTotal;
+  const candidateRawScore = 100 - candidatePenaltyTotal;
+  const currentFinalScore = clamp(currentRawScore, 0, 100);
+  const candidateFinalScore = clamp(candidateRawScore, 0, 100);
+  const activeCandidateAxes = productionNonJointPenaltyAxes.filter(key => candidateBreakdown[key] > OPTION_C_EPSILON);
+  return {
+    valid: true,
+    currentBreakdown,
+    candidateBreakdown,
+    jointPenalty,
+    currentPenaltyTotal,
+    candidatePenaltyTotal,
+    currentRawScore,
+    candidateRawScore,
+    currentFinalScore,
+    candidateFinalScore,
+    rawDelta: candidateRawScore - currentRawScore,
+    finalDelta: candidateFinalScore - currentFinalScore,
+    currentBand: scoreBand(currentFinalScore),
+    candidateBand: scoreBand(candidateFinalScore),
+    activeCandidateAxes,
+    arithmeticClosure: Math.abs((candidateRawScore - currentRawScore) - jointPenalty) <= 1e-9
+  };
+}
+
+function buildJointRetirementImpactSummary(rows){
+  const valid = rows.filter(row => row.projection?.valid === true);
+  const jointPositive = valid.filter(row => row.projection.jointPenalty > OPTION_C_EPSILON);
+  const transitions = countBy(valid, row => `${row.projection.currentBand}->${row.projection.candidateBand}`);
+  return {
+    rowCount: rows.length,
+    validCount: valid.length,
+    invalidCount: rows.length - valid.length,
+    jointPositiveCount: jointPositive.length,
+    coreUniqueJointCount: jointPositive.filter(row => row.projection.candidatePenaltyTotal <= OPTION_C_EPSILON).length,
+    severeAbsolutionCount: jointPositive.filter(row => row.projection.currentFinalScore < 70 && row.projection.candidateFinalScore >= 85).length,
+    seriousToNonProblemCount: jointPositive.filter(row => row.projection.currentFinalScore < 50 && row.projection.candidateFinalScore >= 70).length,
+    deltaAtLeast10Count: jointPositive.filter(row => row.projection.finalDelta >= 10 - 1e-9).length,
+    deltaAtLeast20Count: jointPositive.filter(row => row.projection.finalDelta >= 20 - 1e-9).length,
+    arithmeticClosureFailureCount: valid.filter(row => row.projection.arithmeticClosure !== true).length,
+    jointPenaltyDistribution: summarizePlainValues(valid.map(row => row.projection.jointPenalty)),
+    rawDeltaDistribution: summarizePlainValues(valid.map(row => row.projection.rawDelta)),
+    finalDeltaDistribution: summarizePlainValues(valid.map(row => row.projection.finalDelta)),
+    bandTransitions: transitions
+  };
+}
+
+function getJointRetirementStressMaximumScore(id){
+  const limits = {
+    low_carb_low_fat: 84,
+    high_carb_high_fat: 84,
+    iso_calorie_carb_heavy_98: 84,
+    iso_calorie_fat_heavy_98: 84,
+    very_low_protein: 84,
+    high_volume_700g_carb: 84,
+    extreme_fat_1000g: 49,
+    heavy_alcohol_with_target_macros: 69,
+    data_outlier_eightfold: 29
+  };
+  return Object.prototype.hasOwnProperty.call(limits, id) ? limits[id] : null;
+}
+
+async function buildJointAxisRetirementAudit(backupFilePath, productionMatrices){
+  const extracted = await extractAnonymizedActualDays(backupFilePath);
+  const actualIncluded = extracted.filter(day => day.included);
+  const actualExcluded = extracted.filter(day => !day.included);
+  const actualRows = actualIncluded.map(day => ({
+    source: "private_actual_record",
+    goal: day.goal,
+    trainingContext: day.trainingContext,
+    ratios: day.ratios,
+    projection: projectJointAxisRetirement(day.penalties, day.retiredJointAxisPenalty)
+  }));
+  const targetRows = [...productionMatrices.targetCases, ...productionMatrices.crossProfileCases].map(item => ({
+    source: item.matrixKind,
+    id: item.id,
+    projection: projectJointAxisRetirement(item.current.penalties, item.current.retiredJointAxisPenalty)
+  }));
+  const geometryRows = productionMatrices.productionOwnershipRows.map(item => ({
+    source: "production_geometry",
+    id: item.sampleId,
+    projection: projectJointAxisRetirement(item.penaltyBreakdown, item.retiredJointAxisPenalty)
+  }));
+  const stressRows = productionMatrices.retirementStressRows.map(item => ({
+    source: "retirement_stress",
+    id: item.id,
+    goal: item.goal,
+    context: item.context,
+    ratios: item.ratios,
+    projection: projectJointAxisRetirement(item.current.penalties, item.current.retiredJointAxisPenalty)
+  }));
+  const targetNonNeutral = targetRows.filter(row => (
+    row.projection?.valid !== true || Math.abs(row.projection.candidateFinalScore - 100) > 1e-9
+  ));
+  const stressViolations = stressRows.filter(row => {
+    if (row.projection?.valid !== true) return true;
+    if (row.id === "exact_target_normal") return Math.abs(row.projection.candidateFinalScore - 100) > 1e-9;
+    const maximumScore = getJointRetirementStressMaximumScore(row.id);
+    return Number.isFinite(maximumScore) && row.projection.candidateFinalScore > maximumScore + 1e-9;
+  });
+  const summaries = {
+    actual: buildJointRetirementImpactSummary(actualRows),
+    exactTargetAndCrossProfile: buildJointRetirementImpactSummary(targetRows),
+    productionGeometry: buildJointRetirementImpactSummary(geometryRows),
+    stress: buildJointRetirementImpactSummary(stressRows)
+  };
+  const allRows = [...actualRows, ...targetRows, ...geometryRows, ...stressRows];
+  const invalidProjectionCount = allRows.filter(row => row.projection?.valid !== true).length;
+  const arithmeticClosureFailureCount = allRows.filter(row => (
+    row.projection?.valid === true && row.projection.arithmeticClosure !== true
+  )).length;
+  const actualBlockers = actualRows.filter(row => (
+    row.projection?.valid !== true
+    || (row.projection.jointPenalty > OPTION_C_EPSILON && row.projection.candidatePenaltyTotal <= OPTION_C_EPSILON)
+    || (row.projection.currentFinalScore < 70 && row.projection.candidateFinalScore >= 85)
+    || (row.projection.currentFinalScore < 50 && row.projection.candidateFinalScore >= 70)
+  ));
+  const geometryBlockers = geometryRows.filter(row => (
+    row.projection?.valid !== true
+    || (row.projection.jointPenalty > OPTION_C_EPSILON && row.projection.candidatePenaltyTotal <= OPTION_C_EPSILON)
+    || (row.projection.currentFinalScore < 70 && row.projection.candidateFinalScore >= 85)
+    || (row.projection.currentFinalScore < 50 && row.projection.candidateFinalScore >= 70)
+  ));
+  const largestActualIncreases = actualRows
+    .filter(row => row.projection?.valid === true)
+    .sort((left, right) => right.projection.finalDelta - left.projection.finalDelta)
+    .slice(0, 8)
+    .map((row, index) => ({
+      rank: index + 1,
+      goal: row.goal,
+      trainingContext: row.trainingContext,
+      targetRatios: Object.fromEntries(Object.entries(row.ratios || {}).map(([key, value]) => [key, round(value, 3)])),
+      currentFinalScore: round(row.projection.currentFinalScore, 3),
+      candidateFinalScore: round(row.projection.candidateFinalScore, 3),
+      retiredJointPoints: round(row.projection.jointPenalty, 3),
+      eightAxisPenaltyTotal: round(row.projection.candidatePenaltyTotal, 3),
+      activeEightAxes: row.projection.activeCandidateAxes
+    }));
+  const pass = actualIncluded.length > 0
+    && invalidProjectionCount === 0
+    && arithmeticClosureFailureCount === 0
+    && targetNonNeutral.length === 0
+    && stressViolations.length === 0
+    && actualBlockers.length === 0
+    && geometryBlockers.length === 0;
+  const auditWithoutHash = {
+    schemaVersion: "joint_axis_retirement_shadow_audit_v1",
+    privacyContract: "No dates, food names, meal ids, notes, absolute grams, absolute kcal, backup path, or raw payload are emitted.",
+    comparison: {
+      current: "nine_axis_v8_3_1_including_carbFatExchangeFailurePenalty",
+      candidate: "eight_axis_same_formula_with_only_carbFatExchangeFailurePenalty_removed",
+      retainedModel: "getV831CarbFatJointAllocationModel_and_conditional_ranges",
+      changedCoefficientCount: 0
+    },
+    sourceCoverage: {
+      privateSourceRecordCount: extracted.length,
+      privateIncludedRecordCount: actualIncluded.length,
+      privateExcludedRecordCount: actualExcluded.length,
+      privateExclusionReasonCounts: countBy(actualExcluded, day => day.exclusionReason),
+      authoritativeTargetCaseCount: productionMatrices.targetCases.length,
+      crossProfileCaseCount: productionMatrices.crossProfileCases.length,
+      productionGeometrySampleCount: productionMatrices.productionOwnershipRows.length,
+      stressCaseCount: productionMatrices.retirementStressRows.length
+    },
+    summaries,
+    passCriteria: {
+      privateActualSourceAvailable: actualIncluded.length > 0,
+      allNineAxisInputsComplete: invalidProjectionCount === 0,
+      exactArithmeticClosure: arithmeticClosureFailureCount === 0,
+      exactTargetsStayAt100: targetNonNeutral.length === 0,
+      stressCasesRetainProblemSeverity: stressViolations.length === 0,
+      noActualCoreAxisGap: actualBlockers.length === 0,
+      noGeometryCoreAxisGap: geometryBlockers.length === 0
+    },
+    targetNonNeutralIds: targetNonNeutral.map(row => row.id),
+    stressCases: stressRows.map(row => ({
+      id: row.id,
+      currentFinalScore: round(row.projection?.currentFinalScore, 3),
+      candidateFinalScore: round(row.projection?.candidateFinalScore, 3),
+      retiredJointPoints: round(row.projection?.jointPenalty, 3),
+      eightAxisPenaltyTotal: round(row.projection?.candidatePenaltyTotal, 3),
+      activeEightAxes: row.projection?.activeCandidateAxes || [],
+      maximumAllowedCandidateScore: getJointRetirementStressMaximumScore(row.id),
+      pass: !stressViolations.includes(row)
+    })),
+    actualLargestIncreases: largestActualIncreases,
+    blockingCounts: {
+      invalidProjectionCount,
+      arithmeticClosureFailureCount,
+      actualCoreGapCount: actualBlockers.length,
+      geometryCoreGapCount: geometryBlockers.length,
+      stressViolationCount: stressViolations.length,
+      targetNonNeutralCount: targetNonNeutral.length
+    },
+    decision: pass ? "PASS_RETIRE_CURRENT_JOINT_AXIS" : "CORE_AXIS_GAP_AFTER_JOINT_RETIREMENT"
+  };
+  return {
+    ...auditWithoutHash,
+    auditHash: crypto.createHash("sha256").update(JSON.stringify(auditWithoutHash)).digest("hex")
   };
 }
 
@@ -5333,7 +5672,7 @@ function summarizeTargetMatrix(cases){
   const currentBelow95 = cases.filter(item => Number(item.current.percent) < 95 - 1e-6);
   const invalidTargets = cases.filter(item => !item.validity.valid);
   const invalidProductionAuthority = cases.filter(item => item.current.targetAuthority?.valid !== true);
-  const nonZeroPenaltyAxes = cases.filter(item => item.current.ninePenaltyAxesZero !== true);
+  const nonZeroPenaltyAxes = cases.filter(item => item.current.productionPenaltyAxesZero !== true);
   const missingJointGeometry = cases.filter(item => !item.jointGeometry);
   return {
     caseCount: cases.length,
@@ -5347,9 +5686,9 @@ function summarizeTargetMatrix(cases){
     productionAuthorityPassCount: cases.length - invalidProductionAuthority.length,
     productionAuthorityFailCount: invalidProductionAuthority.length,
     productionAuthorityFailIds: invalidProductionAuthority.map(item => item.id),
-    ninePenaltyAxesZeroCount: cases.length - nonZeroPenaltyAxes.length,
-    ninePenaltyAxesNonZeroCount: nonZeroPenaltyAxes.length,
-    ninePenaltyAxesNonZeroIds: nonZeroPenaltyAxes.map(item => item.id),
+    productionPenaltyAxesZeroCount: cases.length - nonZeroPenaltyAxes.length,
+    productionPenaltyAxesNonZeroCount: nonZeroPenaltyAxes.length,
+    productionPenaltyAxesNonZeroIds: nonZeroPenaltyAxes.map(item => item.id),
     jointGeometryAvailableCount: cases.length - missingJointGeometry.length,
     jointGeometryMissingCount: missingJointGeometry.length,
     jointGeometryMissingIds: missingJointGeometry.map(item => item.id)
@@ -5363,13 +5702,16 @@ const productionPenaltyAxes = Object.freeze([
   "proteinExcessEfficiencyPenalty",
   "fatRangePenalty",
   "carbExerciseContextPenalty",
-  "carbFatExchangeFailurePenalty",
   "alcoholPhysiologyPenalty",
   "dataOutlierPenalty"
 ]);
-const productionNonJointPenaltyAxes = Object.freeze(
-  productionPenaltyAxes.filter(key => key !== "carbFatExchangeFailurePenalty")
-);
+const retiredJointPenaltyAxis = "carbFatExchangeFailurePenalty";
+const preJointRetirementPenaltyAxes = Object.freeze([
+  ...productionPenaltyAxes.slice(0, 6),
+  retiredJointPenaltyAxis,
+  ...productionPenaltyAxes.slice(6)
+]);
+const productionNonJointPenaltyAxes = productionPenaltyAxes;
 
 function buildProductionGeometrySweep(cases, productionOwnershipRows = []){
   const fractions = [0, 0.25, 0.5, 0.75, 1];
@@ -5702,7 +6044,7 @@ function buildProductionGeometrySweep(cases, productionOwnershipRows = []){
       scoreSourceIncompleteIds: sourceIncompleteIds,
       nonJointPenaltyAxesCompleteCount: allEvaluated.length - nonJointAxisIncompleteIds.length,
       nonJointPenaltyAxesIncompleteIds: nonJointAxisIncompleteIds,
-      exactNinePenaltyAxisKeySetCount: allEvaluated.length - penaltyAxisKeySetIncompleteIds.length,
+      exactProductionPenaltyAxisKeySetCount: allEvaluated.length - penaltyAxisKeySetIncompleteIds.length,
       penaltyAxisKeySetIncompleteIds,
       targetAuthorityCompleteCount: allEvaluated.length - targetAuthorityIncompleteIds.length,
       targetAuthorityIncompleteIds,
@@ -5859,6 +6201,28 @@ function makeAssertion(name, pass, detail){
   const productionMatrices = await buildTargetMatrix();
   const targetCases = productionMatrices.targetCases;
   const crossProfileCases = productionMatrices.crossProfileCases;
+  if (jointRetirementAuditOutputPath) {
+    if (!actualBackupPath) throw new Error("--joint-retirement-audit-output requires --actual-backup");
+    if (outputFormat !== "json") throw new Error("joint retirement audit supports JSON output only");
+    const backupInput = path.resolve(root, actualBackupPath);
+    const auditOutput = resolveActualAuditOutputPath(
+      jointRetirementAuditOutputPath,
+      "--joint-retirement-audit-output"
+    );
+    assertDistinctFilePaths([backupInput, auditOutput]);
+    const audit = await buildJointAxisRetirementAudit(backupInput, productionMatrices);
+    fs.mkdirSync(path.dirname(auditOutput), { recursive: true });
+    fs.writeFileSync(auditOutput, `${JSON.stringify(audit, null, 2)}\n`, "utf8");
+    process.stdout.write(`${JSON.stringify({
+      output: path.relative(root, auditOutput),
+      decision: audit.decision,
+      auditHash: audit.auditHash,
+      sourceCoverage: audit.sourceCoverage,
+      blockingCounts: audit.blockingCounts
+    }, null, 2)}\n`);
+    if (assertMode && audit.decision !== "PASS_RETIRE_CURRENT_JOINT_AXIS") process.exitCode = 1;
+    return;
+  }
   const actualAuditRoutineVocabulary = {
     simple: [...ACTUAL_AUDIT_SIMPLE_ROUTINES].sort(),
     advancedByProfile: Object.fromEntries(
@@ -5946,14 +6310,14 @@ function makeAssertion(name, pass, detail){
     makeAssertion("current target matrix produces finite scores", currentTargetScoresAreFinite, `finite=${targetCases.filter(item => Number.isFinite(item.current.percent)).length}/${targetCases.length}`),
     makeAssertion("current production restores exact generated targets", targetSummary.currentNon100Count === 0, `non100=${targetSummary.currentNon100Count}`),
     makeAssertion("current production target authority passes generated targets", targetSummary.productionAuthorityFailCount === 0, `invalid=${targetSummary.productionAuthorityFailCount}`),
-    makeAssertion("current production target matrix has zero across nine penalties", targetSummary.ninePenaltyAxesNonZeroCount === 0, `nonzero=${targetSummary.ninePenaltyAxesNonZeroCount}`),
+    makeAssertion("current production target matrix has zero across eight penalties", targetSummary.productionPenaltyAxesNonZeroCount === 0, `nonzero=${targetSummary.productionPenaltyAxesNonZeroCount}`),
     makeAssertion("target validity envelope passes generated targets", targetSummary.validityFailCount === 0, `invalid=${targetSummary.validityFailCount}`),
     makeAssertion("cross-profile smoke has 3 profiles x 2 goals x rest/exercise", crossProfileSummary.caseCount === 12, `count=${crossProfileSummary.caseCount}`),
     makeAssertion("cross-profile smoke produces finite exact scores", crossProfileScoresAreFinite && crossProfileSummary.currentNon100Count === 0, `finite=${crossProfileCases.filter(item => Number.isFinite(item.current.percent)).length}/${crossProfileCases.length},non100=${crossProfileSummary.currentNon100Count}`),
-    makeAssertion("cross-profile target authority and nine penalties pass", crossProfileSummary.productionAuthorityFailCount === 0 && crossProfileSummary.ninePenaltyAxesNonZeroCount === 0, `authorityInvalid=${crossProfileSummary.productionAuthorityFailCount},nonzero=${crossProfileSummary.ninePenaltyAxesNonZeroCount}`),
+    makeAssertion("cross-profile target authority and eight penalties pass", crossProfileSummary.productionAuthorityFailCount === 0 && crossProfileSummary.productionPenaltyAxesNonZeroCount === 0, `authorityInvalid=${crossProfileSummary.productionAuthorityFailCount},nonzero=${crossProfileSummary.productionPenaltyAxesNonZeroCount}`),
     makeAssertion("production geometry sweep covers all 54 plus 12 cross-profile geometries with joint-model authority", productionGeometrySweep.geometryCount === 66 && productionGeometrySweep.validGeometryCount === 66 && productionGeometrySweep.jointModelAuthorityGeometryCount === 66, `geometry=${productionGeometrySweep.geometryCount},valid=${productionGeometrySweep.validGeometryCount},jointModelAuthority=${productionGeometrySweep.jointModelAuthorityGeometryCount}`),
     makeAssertion("production geometry sweep preserves the historical 3,058 sample identity and simplified counts", productionGeometrySweep.sampleCount === 3058 && productionGeometrySweep.historicalSimplified.uniqueResidualCaseCount === 237 && productionGeometrySweep.historicalSimplified.coreOverlapCount === 240, `samples=${productionGeometrySweep.sampleCount},historicalUnique=${productionGeometrySweep.historicalSimplified.uniqueResidualCaseCount},historicalOverlap=${productionGeometrySweep.historicalSimplified.coreOverlapCount}`),
-    makeAssertion("production ownership source covers every sample with the exact nine-axis key set and eight non-joint axes", productionGeometrySweep.productionPenaltyAxes.length === 9 && productionGeometrySweep.productionNonJointPenaltyAxes.length === 8 && !productionGeometrySweep.productionNonJointPenaltyAxes.includes("carbFatExchangeFailurePenalty") && productionGeometrySweep.productionSourceAuthorityCompleteness.exactNinePenaltyAxisKeySetCount === productionGeometrySweep.sampleCount && productionGeometrySweep.productionSourceAuthorityCompleteness.complete, `allAxes=${productionGeometrySweep.productionPenaltyAxes.join("|")},nonJointAxes=${productionGeometrySweep.productionNonJointPenaltyAxes.join("|")},keySetExact=${productionGeometrySweep.productionSourceAuthorityCompleteness.exactNinePenaltyAxisKeySetCount}/${productionGeometrySweep.sampleCount},sourceComplete=${productionGeometrySweep.productionSourceAuthorityCompleteness.scoreSourceCompleteCount}/${productionGeometrySweep.sampleCount},authorityComplete=${productionGeometrySweep.productionSourceAuthorityCompleteness.targetAuthorityCompleteCount}/${productionGeometrySweep.sampleCount}`),
+    makeAssertion("production ownership source covers every sample with the exact retired-joint eight-axis key set", productionGeometrySweep.productionPenaltyAxes.length === 8 && productionGeometrySweep.productionNonJointPenaltyAxes.length === 8 && !productionGeometrySweep.productionPenaltyAxes.includes("carbFatExchangeFailurePenalty") && productionGeometrySweep.productionSourceAuthorityCompleteness.exactProductionPenaltyAxisKeySetCount === productionGeometrySweep.sampleCount && productionGeometrySweep.productionSourceAuthorityCompleteness.complete, `axes=${productionGeometrySweep.productionPenaltyAxes.join("|")},keySetExact=${productionGeometrySweep.productionSourceAuthorityCompleteness.exactProductionPenaltyAxisKeySetCount}/${productionGeometrySweep.sampleCount},sourceComplete=${productionGeometrySweep.productionSourceAuthorityCompleteness.scoreSourceCompleteCount}/${productionGeometrySweep.sampleCount},authorityComplete=${productionGeometrySweep.productionSourceAuthorityCompleteness.targetAuthorityCompleteCount}/${productionGeometrySweep.sampleCount}`),
     makeAssertion("production versus historical ownership drift is explicit and fully accounted", productionGeometrySweep.ownershipDrift.accountingComplete && productionGeometrySweep.ownershipDrift.comparisonCount === productionGeometrySweep.residualPositiveCount && productionGeometrySweep.ownershipDrift.changedSampleCount > 0, `positive=${productionGeometrySweep.residualPositiveCount},compared=${productionGeometrySweep.ownershipDrift.comparisonCount},changed=${productionGeometrySweep.ownershipDrift.changedSampleCount},transitions=${JSON.stringify(productionGeometrySweep.ownershipDrift.transitions)}`),
     makeAssertion("production geometry sweep preserves C1/C2 equivalence", productionGeometrySweep.c1C2MaximumAbsoluteDelta <= 1e-12, `maxDelta=${productionGeometrySweep.c1C2MaximumAbsoluteDelta}`),
     makeAssertion("production-exact geometry overlap evidence is fully accounted", productionGeometrySweep.overlapAccountingComplete, `positive=${productionGeometrySweep.residualPositiveCount},unique=${productionGeometrySweep.uniqueResidualCaseCount},overlap=${productionGeometrySweep.coreOverlapCount},unclassified=${productionGeometrySweep.productionUnclassifiedCount}`),
@@ -6017,7 +6381,7 @@ function makeAssertion(name, pass, detail){
       displayCollapse: "0"
     },
     modelNotes: {
-      baseline_current_additive_deficit: "Re-expression of additive domain deficits for vector comparison only; production still uses nine raw penalties.",
+      baseline_current_additive_deficit: "Re-expression of additive domain deficits for vector comparison only; production uses eight raw penalties after retiring the duplicate joint axis.",
       model_d_raw_product: "Direct product of every visible non-neutral domain score.",
       model_e_softmin: "Negative power mean sensitivity probes at p=-2/-4/-8; coefficients are not production policy.",
       model_f_geometric_worst_guard: "Geometric mean blended 35/50/65 percent from the worst score; probes only.",
