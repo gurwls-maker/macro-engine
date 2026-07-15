@@ -1900,9 +1900,46 @@ if (failures.length === 0) {
     "storage/schema/backup/Records 저장 계약: 변경 없음",
     "dailycoach_semantic_v2_phase1",
     "test:daily-coach",
+    "InBody는 별도 힌트가 아니라",
+    "전체 코칭 항목 최대 3개 제한",
+    "옛 `inbodyHint` 출력 경로는 제거",
   ]) {
     if (!dailyCoachSemanticV2Implementation.includes(text)) {
       fail(`DailyCoach semantic v2 implementation log missing contract: ${text}`);
+    }
+  }
+
+  const dailyCoachIndexHtml = read("index.html");
+  for (const text of [
+    "function finalizeDailyCoachSemanticItems",
+    'claimScope: "long_term_context"',
+    'contextType: "inbody"',
+    'title: "InBody 변화"',
+    ".coach-context-item",
+    "suppressDailyCoachSupportingActionDuplicates",
+  ]) {
+    if (!dailyCoachIndexHtml.includes(text)) fail(`DailyCoach canonical InBody context missing: ${text}`);
+  }
+  if (dailyCoachIndexHtml.includes("inbodyHint:")) {
+    fail("DailyCoach InBody must not return through the legacy inbodyHint property");
+  }
+  if (/\.coach-inbody-hint\s*\{/.test(dailyCoachIndexHtml)) {
+    fail("DailyCoach InBody must not restore the legacy nested hint card CSS");
+  }
+  for (const suite of [
+    "runInbodyTrendContextTests",
+    "runInbodyCopySourceSeparationTests",
+    "runDailyCoachInbodyGateTests",
+    "runInbodyCoachRefreshTests",
+  ]) {
+    if (!String(packageJson.scripts?.["test:daily-coach"] || "").includes(suite)) {
+      fail(`test:daily-coach missing canonical InBody regression suite: ${suite}`);
+    }
+    const coreStart = internalTestRunner.indexOf("core: [");
+    const coreEnd = coreStart >= 0 ? internalTestRunner.indexOf("ui: [", coreStart) : -1;
+    const coreProfile = coreStart >= 0 && coreEnd > coreStart ? internalTestRunner.slice(coreStart, coreEnd) : "";
+    if (!coreProfile.includes(`"${suite}"`)) {
+      fail(`core profile missing canonical InBody regression suite: ${suite}`);
     }
   }
 
