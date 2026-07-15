@@ -81,6 +81,7 @@ const requiredFiles = [
   "docs/v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md",
   "docs/v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md",
   "docs/v8.4_joint_axis_retirement_implementation_2026-07-15.md",
+  "docs/v8.4_dailycoach_semantic_v2_phase_1_implementation_2026-07-15.md",
   "tools/render_audit/simulate_component_score_architecture.cjs",
   "package.json",
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
@@ -160,6 +161,7 @@ if (failures.length === 0) {
   const targetScoringAuthorityCorrectionImplementation = read("docs/v8.3.1_target_scoring_authoritative_reference_correction_implementation_2026-07-12.md");
   const optionCJointResidualSimulationDecision = read("docs/v8.4_option_c_joint_residual_exact_formula_simulation_2026-07-12.md");
   const jointAxisRetirementImplementation = read("docs/v8.4_joint_axis_retirement_implementation_2026-07-15.md");
+  const dailyCoachSemanticV2Implementation = read("docs/v8.4_dailycoach_semantic_v2_phase_1_implementation_2026-07-15.md");
   const componentScoreArchitectureSimulationTool = read("tools/render_audit/simulate_component_score_architecture.cjs");
   const packageJson = JSON.parse(read("package.json"));
   const onboardingArchiveReadme = read("docs/archive/onboarding/README.md");
@@ -339,7 +341,8 @@ if (failures.length === 0) {
     "v8.4_joint_axis_retired_continuous_macro_score_v1",
     "component-score actual-day aggregation re-evaluation: deferred and not an automatic next implementation",
     "valid 54개 target 모두 exact 100",
-    "v8.3.1 DailyCoach semantic v2 phase 1: paused",
+    "v8.4 DailyCoach semantic v2 phase 1: implemented",
+    "v8.4_dailycoach_semantic_v2_phase_1_implementation_2026-07-15.md",
     "required result-log format: active",
     "docs/00_current_truth/05_required_result_log_format.txt",
     "continuous pressure limiter",
@@ -462,7 +465,8 @@ if (failures.length === 0) {
     "55-CF-B. current thresholded joint-axis retirement / v8.4 implementation.",
     "v8.4_joint_axis_retirement_implementation_2026-07-15.md",
     "PASS_RETIRE_CURRENT_JOINT_AXIS",
-    "v8.3.1 DailyCoach semantic v2 phase 1: paused",
+    "v8.4 DailyCoach semantic v2 phase 1: implemented",
+    "v8.4_dailycoach_semantic_v2_phase_1_implementation_2026-07-15.md",
     "v8.3.1_adaptive_target_stable_help_implementation_2026-07-11.md",
     "required result-log format: active",
     "docs/00_current_truth/05_required_result_log_format.txt",
@@ -1866,12 +1870,40 @@ if (failures.length === 0) {
     "55-CF-B. current thresholded joint-axis retirement / v8.4 implementation.",
     "56. component-score actual-day aggregation re-evaluation.",
     "57. component-score candidate selection or rejection.",
-    "58. v8.3.1 DailyCoach semantic v2 phase 1.",
-    "v8.3.1 DailyCoach semantic v2 phase 1.",
+    "58. v8.4 DailyCoach semantic v2 phase 1.",
+    "v8.4 DailyCoach semantic v2 phase 1.",
     "selectable Coach voice decision / implementation.",
     "필요 시 broad tooltip/glossary spec.",
   ]) {
     if (!statusIndex.includes(text)) fail(`status index missing Today ownership follow-up gate: ${text}`);
+  }
+
+  for (const [label, text] of [
+    ["00_READ_FIRST", readFirst],
+    ["02_macro_range_current_truth", currentTruth],
+    ["04_document_status_index", statusIndex],
+    ["README", readme],
+  ]) {
+    if (!text.includes("v8.4_dailycoach_semantic_v2_phase_1_implementation_2026-07-15.md")) {
+      fail(`${label} missing DailyCoach semantic v2 implementation route`);
+    }
+  }
+
+  for (const text of [
+    "## 비개발자용 설명",
+    "점수 정책과 산식은 변경 없음",
+    "최근 3일/7일 경향을 점수 감점축으로 추가하지 않는다",
+    "primary 1개와 supporting 최대 2개",
+    "session-only",
+    "식사 시간을 지어내지 않고",
+    "운동은 점수 보너스가 아니며",
+    "storage/schema/backup/Records 저장 계약: 변경 없음",
+    "dailycoach_semantic_v2_phase1",
+    "test:daily-coach",
+  ]) {
+    if (!dailyCoachSemanticV2Implementation.includes(text)) {
+      fail(`DailyCoach semantic v2 implementation log missing contract: ${text}`);
+    }
   }
 
   for (const [label, text] of [

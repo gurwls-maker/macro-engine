@@ -376,6 +376,13 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - pre-retirement v8.3.1 stored auto score는 당시 점수와 version을 그대로 유지한다. breakdown이 저장되지 않았으므로 현재 8축으로 과거 원인을 꾸며 내거나 passive hidden recompute하지 않는다.
   - component aggregation은 자동 다음 단계가 아니다. 실제 current 8축 점수 분포에서 구체적인 제품 문제가 새로 확인될 때만 별도 근거로 재개한다.
 
+- `v8.4_dailycoach_semantic_v2_phase_1_implementation_2026-07-15.md`
+  - `오늘의 코치`를 계산 근거 나열에서 `현재 상태 -> 이유 -> 지금 할 행동` 구조로 바꾸고, primary 1개와 supporting 최대 2개만 보여 주는 구현 로그다.
+  - 현행 v8.4 8축 nonzero penalty, user-selected meal tag, session-only last meal mutation, target-relative recent completed records, adaptive requested/applied shift와 limiter/boundary, 알려진 운동 사실만 근거로 사용한다.
+  - 최근 경향은 코칭 근거일 뿐 점수나 no-penalty range를 다시 바꾸지 않는다. 100점 + optimization을 오늘 문제로 부르지 않고, 날짜가 실제로 이어질 때만 `연속`이라고 말한다.
+  - 점수/version/formula/curve, target/card range/adaptive 숫자, storage/schema/backup/Records는 변경하지 않았다. selectable voice와 broad glossary는 자동 다음 단계가 아니다.
+  - 제품 작업 전 repo skill + `preflight:product` + deterministic policy/CI를 거치고 좁은 변경 표면 안에서 전체 상태·fallback·mixed/extreme·viewport·a11y를 닫는 앱 전반 검토 장치도 함께 고정했다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`, `00_current_truth/05_required_result_log_format.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
