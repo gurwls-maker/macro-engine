@@ -1,0 +1,45 @@
+name: Product policy and regression
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - "codex/**"
+
+concurrency:
+  group: product-policy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  product-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify durable product policy
+        run: npm run test:product-policy
+
+      - name: Verify DailyCoach behavior
+        run: npm run test:daily-coach
+
+      - name: Verify macro policy behavior
+        run: npm run test:macro-policy
+
+      - name: Verify full regression profile
+        run: npm run test:full
+

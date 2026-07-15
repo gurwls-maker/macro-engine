@@ -86,6 +86,10 @@ const requiredFiles = [
   "docs/lightweight_anti_inertia_routine_2026-07-09.md",
   "docs/README.md",
   "AGENTS.md",
+  ".agents/skills/macro-engine-product-review/SKILL.md",
+  ".codex/hooks.json",
+  ".github/workflows/product-policy.yml",
+  "tools/render_audit/run_product_preflight.cjs",
 ];
 
 for (const file of requiredFiles) requireFile(file);
@@ -166,6 +170,10 @@ if (failures.length === 0) {
   const v82ArchiveReadme = read("docs/archive/v8.2_macro_range/README.md");
   const readme = read("docs/README.md");
   const agents = read("AGENTS.md");
+  const productReviewSkill = read(".agents/skills/macro-engine-product-review/SKILL.md");
+  const productPreflight = read("tools/render_audit/run_product_preflight.cjs");
+  const projectHooks = JSON.parse(read(".codex/hooks.json"));
+  const productPolicyWorkflow = read(".github/workflows/product-policy.yml");
   const internalTestRunner = read("tools/render_audit/run_internal_tests.cjs");
   const readmeHead = readme.slice(0, 2000);
   const readFirstImplementationBlocked = /v8\.3 implementation:\s*blocked/i.test(readFirst);
@@ -2023,9 +2031,43 @@ if (failures.length === 0) {
     "첫 본문은 반드시 `비개발자용 설명`",
     "정책/산식/데이터 해석 변경 여부",
     "기술 검증 섹션",
+    "macro-engine-product-review",
+    "npm run preflight:product",
+    "every substantive app task",
+    "scenario matrix",
+    "continuity",
+    "GitHub CI",
   ];
   for (const text of agentsRequirements) {
     if (!agents.includes(text)) fail(`AGENTS.md missing: ${text}`);
+  }
+
+  const productReviewSkillRequirements = [
+    "root problem",
+    "every substantive app change",
+    "external evidence",
+    "strongest argument",
+    "continuous",
+    "minimal surface",
+    "complete feature",
+    "scenario matrix",
+    "falsify",
+  ];
+  for (const text of productReviewSkillRequirements) {
+    if (!productReviewSkill.includes(text)) fail(`product review Skill missing: ${text}`);
+  }
+  if (!Array.isArray(projectHooks?.hooks?.SessionStart)) fail("project hooks missing SessionStart preflight");
+  if (!productPreflight.includes("documented DailyCoach state") || !productPreflight.includes("scenario matrix")) {
+    fail("product preflight missing anti-inertia context contract");
+  }
+  if (!productPolicyWorkflow.includes("npm run test:product-policy") || !productPolicyWorkflow.includes("npm run test:daily-coach") || !productPolicyWorkflow.includes("npm run test:full")) {
+    fail("GitHub product-policy workflow missing required deterministic checks");
+  }
+  if (packageJson.scripts?.["preflight:product"] !== "node tools/render_audit/run_product_preflight.cjs --check") {
+    fail("package.json missing canonical preflight:product script");
+  }
+  if (packageJson.scripts?.["test:product-policy"] !== "npm run test:docs-policy && npm run preflight:product") {
+    fail("package.json missing canonical test:product-policy script");
   }
 
   const resultLogFormatRequirements = [
