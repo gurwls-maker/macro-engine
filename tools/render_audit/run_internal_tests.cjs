@@ -162,6 +162,7 @@ const testProfiles = {
     "runTargetCalSemanticGuardTests",
     "runMacroAllocationExplanationTests",
     "runDailyCoachTestCases",
+    "runDailyCoachSemanticV2Tests",
     "runDailyCoachRecentContextTests"
   ],
   ui: [
