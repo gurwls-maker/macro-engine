@@ -44,6 +44,29 @@ Records 수정 화면의 변경 판정
 
 따라서 최종 상태에서는 숨은 원본 소수점 보존이라는 77의 목적은 유지하면서, 화면 동등성이 점수 권한을 바꾸는 경로는 제거됐다. 이 정정은 76에서 발견된 DailyCoach InBody 방향성 문제와 원인이 다르며 두 작업을 합치지 않는다.
 
+### 2026-07-16 78 독립 감사 후 표시 전용 필드 보정
+
+첫 정정 뒤에도 Records 상세에만 표시되는 두 프로필 보정값은 4자리 fallback 비교를 사용하고 있었다.
+
+```text
+프로필 목표 보정
+10.4 / 10.49 -> 화면은 모두 10 kcal
+
+주간 변화 보정
+0.12314 / 0.12344 -> 화면은 모두 0.123 kg/주
+```
+
+화면에는 같은 값만 보이지만 앱이 `갱신 필요`와 `당시 기준이 다름`을 표시할 수 있었으므로, 이 두 값도 renderer와 visual comparator가 같은 formatter를 공유하도록 보정했다.
+
+```text
+10.4 vs 10.49 -> current, mismatch 없음
+10.4 vs 10.51 -> 10 kcal vs 11 kcal, stale
+0.12314 vs 0.12344 -> current, mismatch 없음
+0.12314 vs 0.12351 -> 0.123 vs 0.124 kg/주, stale
+```
+
+두 값의 엄격 snapshot signature는 그대로 유지한다. 따라서 화면용 current/stale 판정만 실제 표시와 맞아졌고, current-burn 권한이나 저장 계약은 느슨해지지 않았다.
+
 ### 무엇을 바꿨는지
 
 기록 수정 화면에 `11.38kg`으로 보이는 체지방량의 실제 저장값이 `11.3848kg`인 경우, 사용자가 아무것도 바꾸지 않아도 앱이 두 값을 다르다고 판단할 수 있었다. 화면은 둘째 자리까지만 보여 주면서 내부 비교는 넷째 자리까지 했기 때문이다.
@@ -119,6 +142,7 @@ Records 수정 화면의 변경 판정
 - InBody 기록 수정 suite를 smoke/core에도 등록해 전체 테스트를 따로 돌리지 않아도 이 데이터 보존 회귀를 잡게 했다.
 - snapshot의 화면상 같은 목표 칼로리/탄단지/체성분 값은 현재 기준으로 보고, 화면상 다른 값은 변경 키로 남기는지 확인했다.
 - `374.95/374.94/374.96g` 경계에서 목표 탄단지의 실제 표시와 변경 판정이 일치하는지 확인했다.
+- 프로필 목표 보정 `10.4/10.49/10.51kcal`과 주간 변화 보정 `0.12314/0.12344/0.12351kg/주`가 실제 Records 표시 경계와 Today current/stale 판정에 일치하는지 확인했다.
 - 화면에서 같은 `0.004kg` 차이는 Records UI에서 변경 없음이지만 엄격 snapshot 계약에서는 다름인지 확인했다.
 - 그 숨은 차이가 `currentResult.totalBurn` 사용 자격, TDEE 과다 감점, 최종 점수를 바꾸지 않는지 production score 함수로 확인했다.
 
@@ -164,6 +188,8 @@ InBody 체지방률: 1자리
 `areGoalSnapshotsEquivalent`와 `getGoalSnapshotDifferenceKeys`는 4자리 signature 기반의 엄격한 계약 비교다. `doesV831SnapshotBasisOwnCurrentBurn`, 점수의 total-burn source 선택, 자동 snapshot 동기화는 이 엄격 비교만 사용한다.
 
 `areGoalSnapshotsVisuallyEquivalent`와 `getGoalSnapshotVisualDifferenceKeys`는 Records 화면 전용이다. 목표 kcal/탄단지는 `formatRecordDetailKcal`/`formatRecordDetailGram`, 수정 입력값은 `formatInputNumber`를 직접 사용하므로 표시와 판정이 같은 quantizer를 공유한다. 필드의 표시값과 원본이 같은 경우 `preserveOriginalEditableNumber`가 원본을 반환하므로 다른 필드 저장에서도 숨은 정밀도가 손실되지 않는다. `runInBodyRecordEditTests`는 smoke/core profile에도 등록돼 있다.
+
+표시 전용 `profileTargetDeltaKcal`도 `formatRecordDetailKcal`을 사용하고, `profileTargetRateDeltaEquivalentKgPerWeek`는 renderer와 comparator가 함께 쓰는 `formatRecordDetailWeeklyTargetRateDelta`를 사용한다. 전용 수정 입력창이 없는 값을 임의의 4자리 fallback으로 비교하지 않는다.
 
 ### 실제 백업 정적 감사
 
@@ -224,3 +250,16 @@ goalSnapshot.fat hidden precision: 34
 - `npm run test:docs-policy`, `npm run preflight:product`, `git diff --check`: 통과.
 - 브라우저 콘솔 오류 / 페이지 오류: 0 / 0.
 - 감사의 `79 -> 60` 동일 식사 fixture 원문은 전달되지 않아 그 두 숫자를 그대로 복제하지는 않았다. 대신 같은 원인 경로를 production 함수로 재현해 숨은 `0.004kg` 차이에서 `totalBurnSource=snapshot_basis_unavailable`, `tdeeOverloadPenalty=0`이 유지되고, 화면 동등성이 current burn 권한과 최종 점수를 바꾸지 못하도록 고정했다.
+
+#### 2026-07-16 78 표시 전용 필드 보정 검증
+
+- `runRecordDetailBodyCompositionPrecisionTests`: 1 suite / 11 cases / 0 fail.
+- 정밀도·계산 기준·점수 권한 집중 검증: 4 suites / 95 cases / 0 fail.
+- `npm test`: 26 suites / 312 cases / 0 fail.
+- `npm run test:macro-policy`: 32 suites / 312 cases / 0 fail.
+- `npm run test:core`: 74 suites / 884 cases / 0 fail.
+- `npm run test:ui`: 28 suites / 215 cases / 0 fail.
+- `npm run test:mobile`: 22 suites / 179 cases / 0 fail.
+- `npm run test:full`: 145 suites / 1,520 cases / 0 fail.
+- `npm run test:docs-policy`, `npm run preflight:product`, `git diff --check`: 통과.
+- 브라우저 콘솔 오류 / 페이지 오류: 0 / 0.
