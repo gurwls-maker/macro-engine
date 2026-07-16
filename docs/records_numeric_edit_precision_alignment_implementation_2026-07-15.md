@@ -16,6 +16,34 @@ DOCUMENT ROLE
 
 ## 비개발자용 설명
 
+### 2026-07-16 독립 감사 후 정정
+
+최초 병합본 `77c1d39`는 기록 수정 화면의 숨은 소수점 문제는 고쳤지만, 화면용 비교를 앱의 기본 snapshot 비교 함수에 넣는 바람에 점수 계산까지 영향을 줄 수 있었다. 예를 들어 체지방량이 내부적으로 `0.004kg` 다르지만 양쪽 모두 화면에는 `0.00kg`으로 보이면, Records에서는 같은 값으로 봐도 되지만 현재 TDEE를 그 과거 snapshot에 빌려 줄 근거가 되면 안 된다. 최초 병합본에서는 이 둘이 섞여 같은 식단의 TDEE 감점과 최종 점수가 달라질 수 있었다.
+
+이번 보정은 비교 기준을 다음처럼 분리했다.
+
+```text
+Records 수정 화면의 변경 판정
+-> 실제 화면에 보이는 값으로 비교
+
+점수의 current burn 사용 자격 / 자동 snapshot 동기화 / 내부 계약
+-> 숨은 소수점까지 포함한 기존 엄격 signature로 비교
+```
+
+또 목표 탄단지는 입력칸과 반올림 방식이 다르므로 임의의 `toFixed` 비교를 폐기하고 Records 화면이 실제로 쓰는 formatter 자체로 비교한다.
+
+```text
+374.95g -> 화면 375g
+374.94g -> 화면 374.9g
+판정: 화면이 다르므로 변경
+
+374.95g -> 화면 375g
+374.96g -> 화면 375g
+판정: 화면이 같으므로 변경 없음
+```
+
+따라서 최종 상태에서는 숨은 원본 소수점 보존이라는 77의 목적은 유지하면서, 화면 동등성이 점수 권한을 바꾸는 경로는 제거됐다. 이 정정은 76에서 발견된 DailyCoach InBody 방향성 문제와 원인이 다르며 두 작업을 합치지 않는다.
+
 ### 무엇을 바꿨는지
 
 기록 수정 화면에 `11.38kg`으로 보이는 체지방량의 실제 저장값이 `11.3848kg`인 경우, 사용자가 아무것도 바꾸지 않아도 앱이 두 값을 다르다고 판단할 수 있었다. 화면은 둘째 자리까지만 보여 주면서 내부 비교는 넷째 자리까지 했기 때문이다.
@@ -55,6 +83,8 @@ DOCUMENT ROLE
 
 점수 정책과 영양 산식은 변경 없음이다.
 
+다만 최초 `77c1d39`에서 산식 코드나 version을 직접 바꾸지 않았다는 이유만으로 `점수 결과 비변경`이라고 기록한 것은 부정확했다. 화면용 동등성 비교가 current burn 사용 자격에 들어가 실제 점수 결과를 바꿀 수 있었고, 이번 보정에서 그 침범을 제거했다.
+
 - active scoring version, 8축 점수, 탄수/지방 joint allocation, adaptive target, 카드 범위는 변경하지 않았다.
 - 저장된 숫자를 일괄 반올림하거나 기존 기록을 다시 계산하지 않는다.
 - backup/storage schema와 저장 필드는 변경하지 않는다.
@@ -88,6 +118,9 @@ DOCUMENT ROLE
 - InBody의 숨은 소수점 무수정 저장과 보이는 한 단계 수정, 다른 InBody 숫자의 원본 보존을 확인했다.
 - InBody 기록 수정 suite를 smoke/core에도 등록해 전체 테스트를 따로 돌리지 않아도 이 데이터 보존 회귀를 잡게 했다.
 - snapshot의 화면상 같은 목표 칼로리/탄단지/체성분 값은 현재 기준으로 보고, 화면상 다른 값은 변경 키로 남기는지 확인했다.
+- `374.95/374.94/374.96g` 경계에서 목표 탄단지의 실제 표시와 변경 판정이 일치하는지 확인했다.
+- 화면에서 같은 `0.004kg` 차이는 Records UI에서 변경 없음이지만 엄격 snapshot 계약에서는 다름인지 확인했다.
+- 그 숨은 차이가 `currentResult.totalBurn` 사용 자격, TDEE 과다 감점, 최종 점수를 바꾸지 않는지 production score 함수로 확인했다.
 
 ## 기술 검증
 
@@ -98,6 +131,9 @@ DOCUMENT ROLE
 - 커밋: 이 문서와 구현을 포함한 change-set
 - working tree: 검증과 커밋 후 clean 확인
 - push / merge: 전체 회귀 검증 통과 뒤 같은 작업에서 origin/master 반영
+- 독립 감사 후 보정 브랜치: `codex/records-visual-strict-equivalence-separation`
+- 보정 기준 HEAD: `77c1d39`
+- 보정 publish 원칙: 76 DailyCoach 보정과 합치지 않고 별도 branch push 및 재감사 후 merge
 
 ### PROMPT_SCOPE_AUDIT
 
@@ -125,7 +161,9 @@ InBody 체지방률: 1자리
 목표 탄수/단백질/지방: 1자리
 ```
 
-`getGoalSnapshotSignature`의 엄격한 저장 계약은 유지하고, 사용자-facing 동등성 판단용 comparison object를 분리했다. 필드의 표시값과 원본이 같은 경우 `preserveOriginalEditableNumber`가 원본을 반환하므로 다른 필드 저장에서도 숨은 정밀도가 손실되지 않는다. `runInBodyRecordEditTests`는 smoke/core profile에도 등록했다.
+`areGoalSnapshotsEquivalent`와 `getGoalSnapshotDifferenceKeys`는 4자리 signature 기반의 엄격한 계약 비교다. `doesV831SnapshotBasisOwnCurrentBurn`, 점수의 total-burn source 선택, 자동 snapshot 동기화는 이 엄격 비교만 사용한다.
+
+`areGoalSnapshotsVisuallyEquivalent`와 `getGoalSnapshotVisualDifferenceKeys`는 Records 화면 전용이다. 목표 kcal/탄단지는 `formatRecordDetailKcal`/`formatRecordDetailGram`, 수정 입력값은 `formatInputNumber`를 직접 사용하므로 표시와 판정이 같은 quantizer를 공유한다. 필드의 표시값과 원본이 같은 경우 `preserveOriginalEditableNumber`가 원본을 반환하므로 다른 필드 저장에서도 숨은 정밀도가 손실되지 않는다. `runInBodyRecordEditTests`는 smoke/core profile에도 등록돼 있다.
 
 ### 실제 백업 정적 감사
 
@@ -152,12 +190,12 @@ goalSnapshot.fat hidden precision: 34
 
 ### 판단
 
-- 수용: 필드별 표시 정밀도, 무수정 원본 보존, 엄격한 저장 signature와 사용자 비교의 역할 분리.
+- 수용: 필드별 표시 정밀도, 무수정 원본 보존, 엄격한 점수/계약 signature와 Records 화면 비교의 명시적 역할 분리.
 - 폐기: 체지방량 단일 예외, 전 항목 공통 0.0001/epsilon, 무수정 저장 때 화면 반올림값으로 덮어쓰기, 과거 데이터 일괄 반올림.
-- 통합: Records 직접 저장/체중 창/상세/식사 창과 InBody 편집을 하나의 숫자 수정 계약으로 통합.
-- 보류: 없음. 발견된 Records/InBody 숫자 수정 surface는 이번 change-set에서 모두 닫는다.
+- 통합: Records 직접 저장/체중 창/상세/식사 창과 InBody 편집은 하나의 숫자 수정 계약으로 통합하되, 점수의 snapshot ownership 계약과는 분리.
+- 보류: 76 DailyCoach InBody 방향성 보정은 별도 브랜치와 별도 수용 조건을 유지한다.
 - 금지선: 점수 산식/version, storage/schema, old-record migration, scoreDeltaPreview 변경 금지.
-- 내 판단 다음 단계: 전체 회귀 테스트와 실제 backup 대표값 확인까지 통과하면 merge/push하고, 새 재현 사례가 없으면 별도 후속 구현을 만들지 않는다.
+- 내 판단 다음 단계: 보정 브랜치 전체 회귀와 독립 재감사를 통과한 뒤에만 master merge를 판단한다.
 
 ### 검증
 
@@ -172,3 +210,17 @@ goalSnapshot.fat hidden precision: 34
   - `npm run test:docs-policy`, `git diff --check`: 통과.
 - 테스트가 확인한 동작: 무수정 no-op, 원본 정밀도 보존, 보이는 한 단계 수정, snapshot 동등성, Records/InBody 저장 분리, 기존 앱 회귀.
 - 실행하지 못한 테스트와 남은 위험: 없음. 실제 사용에서 새로운 숫자 편집 surface가 추가되면 같은 field-specific precision 계약에 등록해야 한다.
+
+#### 2026-07-16 독립 감사 보정 검증
+
+- `runRecordDetailBodyCompositionPrecisionTests`: 1 suite / 10 cases / 0 fail.
+- 정밀도·계산 기준·점수 권한 집중 검증: 4 suites / 94 cases / 0 fail.
+- `npm run test:smoke`: 26 suites / 311 cases / 0 fail.
+- `npm run test:macro-policy`: 32 suites / 312 cases / 0 fail.
+- `npm run test:core`: 74 suites / 883 cases / 0 fail.
+- `npm run test:ui`: 28 suites / 215 cases / 0 fail.
+- `npm run test:mobile`: 22 suites / 179 cases / 0 fail.
+- `npm run test:full`: 145 suites / 1,519 cases / 0 fail.
+- `npm run test:docs-policy`, `npm run preflight:product`, `git diff --check`: 통과.
+- 브라우저 콘솔 오류 / 페이지 오류: 0 / 0.
+- 감사의 `79 -> 60` 동일 식사 fixture 원문은 전달되지 않아 그 두 숫자를 그대로 복제하지는 않았다. 대신 같은 원인 경로를 production 함수로 재현해 숨은 `0.004kg` 차이에서 `totalBurnSource=snapshot_basis_unavailable`, `tdeeOverloadPenalty=0`이 유지되고, 화면 동등성이 current burn 권한과 최종 점수를 바꾸지 못하도록 고정했다.
