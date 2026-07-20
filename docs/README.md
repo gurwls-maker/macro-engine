@@ -395,8 +395,8 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 
 - `v8.4_dailycoach_activity_context_alignment_implementation_2026-07-20.md`
   - 휴식일 탄수화물 항목이 `오늘 운동량을 고려`했다고 잘못 설명하던 원인을 고친 implementation log다. 별도 휴식 item이 최대 3개 제한에서 숨더라도 carb reason 자체가 쉬는 날 기준을 말한다.
-  - 문구 하나만 치환하지 않고 actual weight/cardio component와 exercise profile ownership으로 `general/rest/resistance/cardio/mixed/incomplete`를 분류한다. REST는 stored prior weight time을 무시하고 running/cardio-only는 weight 0분이어도 rest로 부르지 않으며 mixed는 실제 입력된 component만 말한다.
-  - carb low/high, three-item budget, Today의 rest/PUSH/running/mixed/general rerender와 quick setting의 mixed/rest/resistance 전환을 회귀로 고정했다.
+  - 문구 하나만 치환하지 않고 실제 계산된 weight/cardio kcal component와 실제 유산소 종목으로 `general/rest/resistance/cardio/mixed/incomplete`를 분류한다. 세션 제목은 계산된 구성요소를 덮어쓰지 않으며, Settings profile 변경 뒤 날짜별 명시 입력은 보존하되 이전 근력을 새 러닝 이름으로 바꾸어 부르지 않는다.
+  - carb low/high, three-item budget, Today의 rest/PUSH/running/mixed/general rerender, quick setting 전환, production calculation을 통과하는 mixed 40개 구성 조합, 5개 프로필의 ordered Settings DOM transition 20개와 targeted boundary 3개를 회귀로 고정했다.
   - score/version/formula/curve, target/card range/adaptive 숫자, storage/schema/backup/Records는 변경하지 않았고 selectable voice/broad copy rewrite/운동 처방을 자동 후속 작업으로 열지 않았다.
 
 ## legacy / 참고 문서

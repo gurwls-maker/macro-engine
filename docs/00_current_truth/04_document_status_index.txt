@@ -753,8 +753,8 @@ docs/references/external/acsm_resistance_training_guide_ko_2026.txt
 64. DailyCoach activity-context alignment.
    - 상태: implemented by docs/v8.4_dailycoach_activity_context_alignment_implementation_2026-07-20.md.
    - 원인: carb low/high reason이 실제 오늘 운동 상태와 무관하게 `오늘 운동량`을 고정 사용했고, 별도 training context도 `근력운동 0분`을 휴식으로 과잉 단정해 running/cardio-only/mixed 맥락을 오분류할 수 있었다. 최대 3개 item에서 별도 rest item이 밀리면 잘못된 carb reason만 보이는 경로가 있었다.
-   - 구현: 실제 입력된 weight/cardio 구성과 profile ownership으로 `general/rest/resistance/cardio/mixed/incomplete`를 한 번 분류한다. carb reason과 training item은 같은 분류를 사용하고, REST는 stored prior weight time을 무시하며, cardio/running은 weight 0분이어도 rest가 아니다. mixed는 실제 입력된 component만 말하고 incomplete는 비어 있는 실제 입력을 표시한다.
-   - 회귀: low/high carb 양방향, three-item budget screenshot 경로, REST + stored weight, REST + cardio, resistance, cardio, running, mixed, mixed resistance-only, incomplete, general, `rest -> PUSH -> running -> mixed -> general`, Today quick `mixed -> REST -> resistance` 전환을 고정했다.
+   - 구현: `calculate()`의 actual weightKcal/cardio.kcal 구성과 실제 유산소 종목을 세션 제목보다 우선해 `general/rest/resistance/cardio/mixed/incomplete`를 한 번 분류한다. carb reason과 training item은 같은 분류를 사용한다. REST는 stored prior weight time을 무시하고, cardio/running은 weight 0분이어도 rest가 아니다. mixed 세션도 계산된 component만 말한다. Settings profile 변경 뒤 날짜별 명시 입력은 보존하되 이전 근력을 새 running session 이름으로 바꾸어 부르지 않는다.
+   - 회귀: low/high carb 양방향, three-item budget screenshot 경로, REST + stored weight, REST + cardio, resistance, cardio, running, mixed, mixed resistance-only, incomplete, general, `rest -> PUSH -> running -> mixed -> general`, Today quick `mixed -> REST -> resistance` 전환을 고정했다. 독립 감사 후에는 production calculation을 통과하는 mixed 비휴식 5 sessions x weight 2 states x cardio 4 states의 40개 조합, 5 profiles 사이의 ordered Settings DOM transition 20개, targeted boundary 3개를 추가해 session title이 actual component를 덮지 못하게 했다.
    - 불변: current score/version/formula/curve, target/card range/adaptive numbers, storage/schema/backup/Records, alcohol semantics. selectable voice/broad rewrite/운동 처방은 자동 다음 단계가 아니다.
 
 이 항목들은 "나중에 기억"할 TODO가 아니라 REQUIRED_NEXT_GATES와 docs-policy guard로 계속 노출되어야 한다.
