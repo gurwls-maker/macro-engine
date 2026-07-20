@@ -393,6 +393,15 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 후속 독립 감사에서 표시 전용 프로필 목표 보정과 주간 변화 보정의 4자리 fallback false-stale를 확인해, renderer와 comparator가 같은 formatter를 사용하도록 보정했다.
   - `374.95/374.94/374.96g`, `10.4/10.49/10.51kcal`, `0.12314/0.12344/0.12351kg/주` 표시 경계와 숨은 `0.004kg` 차이의 totalBurn source/TDEE/final-score 회귀를 고정했다. 점수 formula/version, storage/schema, backup shape, old-record migration은 변경하지 않았다.
 
+- `v8.4_dailycoach_activity_context_alignment_implementation_2026-07-20.md`
+  - 휴식일 탄수화물 항목이 `오늘 운동량을 고려`했다고 잘못 설명하던 원인을 고친 implementation log다. 별도 휴식 item이 최대 3개 제한에서 숨더라도 carb reason 자체가 쉬는 날 기준을 말한다.
+  - 문구 하나만 치환하지 않고 실제 계산된 weight/cardio kcal component와 실제 유산소 종목으로 `general/rest/resistance/cardio/mixed/incomplete`를 분류한다. 세션 제목은 계산된 구성요소를 덮어쓰지 않으며, Settings profile 변경 뒤 날짜별 명시 입력은 보존하되 이전 근력을 새 러닝 이름으로 바꾸어 부르지 않는다.
+  - `ac74e6e` 독립 감사에서 실제 partial quick-edit/cardio preset owner 누락과 강도 0 문구 오류로 병합이 차단됐다. 후속 working-tree 보정은 첫 component 입력의 source ownership을 materialize하고 ownerless draft를 자동 호환하지 않으며, 독립 재감사 전 merge-ready를 주장하지 않는다.
+  - 후속 보정의 독립 감사에서도 source를 authoritative Today routine 필드에 저장해 cardio-only 입력이 근력 계산·목표·점수를 바꾸는 P1이 확인됐다. 현재 2차 보정은 weight/cardio source-only metadata를 계산 소유권과 분리하고, component 삭제 시 stale source를 정리하며, Today 세션 직접 선택만 authoritative override로 유지한다.
+  - `macro-engine83.zip` 독립 감사에서 기능 PASS와 commit·push·master merge 허용을 받았다. 전체 145 suites / 1,534 cases, source/control 수치·점수 일치, localStorage/full backup round-trip이 통과했다. explicit session 뒤 generic `근력운동`으로 보수적 일반화되는 P2는 계산·사실성 영향이 없는 비차단 보류다.
+  - carb low/high, three-item budget, Today의 rest/PUSH/running/mixed/general rerender, quick setting 전환, production calculation을 통과하는 mixed 40개 구성 조합, 5개 프로필의 ordered Settings DOM transition 20개와 targeted boundary 3개를 회귀로 고정했다.
+  - score/version/formula/curve, target/card range/adaptive 숫자, storage/schema/backup/Records는 변경하지 않았고 selectable voice/broad copy rewrite/운동 처방을 자동 후속 작업으로 열지 않았다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`, `00_current_truth/05_required_result_log_format.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.

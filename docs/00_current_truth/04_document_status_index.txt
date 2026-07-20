@@ -75,6 +75,7 @@ REQUIRED_NEXT_GATES
 - component-score actual-day aggregation re-evaluation: deferred and not an automatic next implementation; reopen only for a concrete score-distribution problem with new evidence, while item 55 ACTUAL_EVIDENCE_INSUFFICIENT remains the actual-prevalence result
 - component-score candidate selection or rejection: blocked unless actual-day aggregation is explicitly reopened and closed; DailyCoach는 이 경로에 종속되지 않는다
 - v8.4 DailyCoach semantic v2 phase 1: implemented with InBody supporting-context ownership and action-direction coherence hardened by docs/v8.4_dailycoach_semantic_v2_phase_1_implementation_2026-07-15.md without score, target, range, storage, backup, or Records changes
+- DailyCoach activity-context alignment: independently audited PASS and merge-authorized by `macro-engine83.zip`. Component-specific source-only provenance is separated from authoritative `todayRoutine*`, stale provenance is cleared with overrides, explicit Today routine ownership is preserved, and cross-profile/zero-intensity fixes passed. One generic-label P2 is non-blocking because calculation, target, score, facts, and actions remain correct
 - Records/InBody numeric edit precision alignment: implemented and independently corrected by docs/records_numeric_edit_precision_alignment_implementation_2026-07-15.md; Records UI compares actual rendered target/profile/input values and preserves hidden decimals, while score/current-burn ownership and internal contracts retain strict snapshot comparison without schema or historical rewrite
 - required result-log format: active by docs/00_current_truth/05_required_result_log_format.txt
 - docs-policy preflight: active
@@ -749,6 +750,18 @@ docs/references/external/acsm_resistance_training_guide_ko_2026.txt
    - 닫은 것: 새 로컬 Codex가 저장 결과로그와 최종 사용자 보고의 첫 본문을 비개발자용 설명으로 쓰고, 변경 이유/화면·계산 영향/정책·산식·데이터 해석/비변경·보류/사용자 판단점/테스트 의미를 먼저 설명하도록 공통 형식과 docs-policy route를 고정했다.
    - 기술 세부사항: 파일/함수/커밋/테스트 명령은 사용자 설명 아래에 두며, 기존 결과로그를 소급 재작성하지 않는다.
    - 제외: 앱 기능, 점수 산식, adaptive target, DailyCoach, storage/schema, 과거 문서 일괄 수정.
+64. DailyCoach activity-context alignment.
+   - 상태: independent audit PASS / commit·push·master merge authorized by `macro-engine83.zip`; closeout recorded in docs/v8.4_dailycoach_activity_context_alignment_implementation_2026-07-20.md.
+   - 원인: carb low/high reason이 실제 오늘 운동 상태와 무관하게 `오늘 운동량`을 고정 사용했고, 별도 training context도 `근력운동 0분`을 휴식으로 과잉 단정해 running/cardio-only/mixed 맥락을 오분류할 수 있었다. 최대 3개 item에서 별도 rest item이 밀리면 잘못된 carb reason만 보이는 경로가 있었다.
+   - 구현: `calculate()`의 actual weightKcal/cardio.kcal 구성과 실제 유산소 종목을 세션 제목보다 우선해 `general/rest/resistance/cardio/mixed/incomplete`를 한 번 분류한다. carb reason과 training item은 같은 분류를 사용한다. REST는 stored prior weight time을 무시하고, cardio/running은 weight 0분이어도 rest가 아니다. mixed 세션도 계산된 component만 말한다. Settings profile 변경 뒤 날짜별 명시 입력은 보존하되 이전 근력을 새 running session 이름으로 바꾸어 부르지 않는다.
+   - 회귀: low/high carb 양방향, three-item budget screenshot 경로, REST + stored weight, REST + cardio, resistance, cardio, running, mixed, mixed resistance-only, incomplete, general, `rest -> PUSH -> running -> mixed -> general`, Today quick `mixed -> REST -> resistance` 전환을 고정했다. 독립 감사 후에는 production calculation을 통과하는 mixed 비휴식 5 sessions x weight 2 states x cardio 4 states의 40개 조합, 5 profiles 사이의 ordered Settings DOM transition 20개, targeted boundary 3개를 추가해 session title이 actual component를 덮지 못하게 했다.
+   - `ac74e6e` 독립 감사: 완전 owner fixture 반례는 통과했지만 실제 weight/intensity/cardio 부분 quick-edit와 cardio preset이 source owner를 저장하지 않아 profile 전환 뒤 새 session 이름으로 재명명되는 P1, 강도 0을 웨이트 시간 누락으로 말하는 P2로 병합이 차단됐다.
+   - follow-up 보정: 운동 component가 없는 date-owned draft의 첫 quick-edit/preset에서 당시 profile/routine/session 네 필드를 함께 고정한다. 완전한 기존 owner는 뒤의 component edit로 덮지 않고, ownerless component는 새 profile과 자동 호환하지 않는다. 실제 DOM 부분 edit, preset, ownerless/no-draft, post-transition edit, 강도 0 경계를 회귀로 추가했다.
+   - first follow-up 독립 감사: source를 authoritative `todayRoutine*`에 저장해 cardio-only/preset-only 입력도 PUSH 전체를 고정했고, Settings PULL 전환 뒤 weight kcal·target·macro·score가 바뀌며 component 삭제 뒤 owner-only stale draft가 남는 P1로 병합 차단됐다.
+   - second follow-up 보정: weight/cardio source provenance를 별도 optional draft metadata로 분리해 계산 입력 병합에서 제외했다. component별 호환성만 Coach label에 사용하고, 실제 routine/intensity/default duration은 Settings 또는 사용자가 Today에서 직접 선택한 explicit routine만 소유한다. override가 모두 지워지면 해당 provenance와 preset source metadata를 함께 지운다.
+   - second follow-up 독립 감사: source 없는 control과 실제 Today DOM 경로의 weight/cardio kcal, target kcal, carb/fat target, 표시 점수, raw score가 동일했고 component 삭제, cross-profile, ownerless, 강도 0, localStorage/full backup round-trip, 145 suites / 1,534 cases를 통과했다. 병합 차단 결함 0건.
+   - 비차단 P2: PUSH weight edit 뒤 Today에서 PULL을 명시 선택하면 계산과 점수는 PULL로 정확하지만 이전 weight source로 Coach가 `PULL` 대신 `근력운동`이라고 일반화할 수 있다. 거짓 운동·시간·행동은 만들지 않으므로 이번 마감 뒤 보류하며 자동 후속 구현으로 열지 않는다.
+   - 불변: current score/version/formula/curve, target/card range/adaptive formulas, Records schema/migration, backup envelope/version, alcohol semantics. source-only optional Today draft metadata는 기존 draft normalization/round-trip 안에서 보존하며 별도 migration을 만들지 않는다. selectable voice/broad rewrite/운동 처방은 자동 다음 단계가 아니다.
 
 이 항목들은 "나중에 기억"할 TODO가 아니라 REQUIRED_NEXT_GATES와 docs-policy guard로 계속 노출되어야 한다.
 
