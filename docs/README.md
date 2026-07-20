@@ -379,7 +379,7 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 - `v8.4_dailycoach_semantic_v2_phase_1_implementation_2026-07-15.md`
   - `오늘의 코치`를 계산 근거 나열에서 `현재 상태 -> 이유 -> 지금 할 행동` 구조로 바꾸고, primary 1개와 supporting 최대 2개만 보여 주는 구현 로그다.
   - 현행 v8.4 8축 nonzero penalty, user-selected meal tag, session-only last meal mutation, target-relative recent completed records, adaptive requested/applied shift와 limiter/boundary, 알려진 운동 사실만 근거로 사용한다.
-  - InBody는 별도 hint/중첩 카드에서 canonical `InBody 변화` supporting context로 통합했다. 현재 문제보다 앞서지 않고 전체 최대 3개 안에서만 보이며, 신뢰도·상세 식단 근거·목표 변경·앞선 action 중복 gate를 통과할 때만 행동을 제안한다.
+  - InBody는 별도 hint/중첩 카드에서 canonical `InBody 변화` supporting context로 통합했다. 현재 문제보다 앞서지 않고 전체 최대 3개 안에서만 보이며, 신뢰도·상세 식단 근거·목표 변경 gate와 과다/부족/유지 행동 방향 검사를 통과할 때만 행동을 제안한다. 저칼로리와 과다 억제, 고칼로리와 부족 보강은 함께 나오지 않고, 긍정 추세도 충돌 식단에서는 유지 행동을 만들지 않으며 앞선 영양소 행동과의 의미 중복도 제거한다.
   - 최근 경향은 코칭 근거일 뿐 점수나 no-penalty range를 다시 바꾸지 않는다. 100점 + optimization을 오늘 문제로 부르지 않고, 날짜가 실제로 이어질 때만 `연속`이라고 말한다.
   - 점수/version/formula/curve, target/card range/adaptive 숫자, storage/schema/backup/Records는 변경하지 않았다. selectable voice와 broad glossary는 자동 다음 단계가 아니다.
   - 제품 작업 전 repo skill + `preflight:product` + deterministic policy/CI를 거치고 좁은 변경 표면 안에서 전체 상태·fallback·mixed/extreme·viewport·a11y를 닫는 앱 전반 검토 장치도 함께 고정했다.
@@ -389,7 +389,9 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - Records 체중/계산 기준/식사와 InBody 숫자를 각 입력창의 실제 표시 자리수로 비교하고, 메모 등 다른 항목만 수정할 때도 숨은 원본 소수점을 보존한다.
   - 실제 백업 99 Records/6 InBody에서 체지방량과 목표 탄단지의 숨은 소수점을 확인했고, 보이는 한 단계 변경만 실제 수정으로 저장하는 회귀 테스트를 추가했다.
   - InBody 기록 수정 suite를 smoke/core에도 등록해 기본 회귀 검사에서 데이터 보존 문제를 잡는다.
-  - 점수 formula/version, storage/schema, backup shape, old-record migration은 변경하지 않았다.
+  - 독립 감사에서 최초 화면 비교가 점수의 current-burn 권한까지 침범한 문제와 `toFixed`/실제 formatter 경계 불일치를 확인해, strict score/contract comparison과 Records visual comparison을 분리했다.
+  - 후속 독립 감사에서 표시 전용 프로필 목표 보정과 주간 변화 보정의 4자리 fallback false-stale를 확인해, renderer와 comparator가 같은 formatter를 사용하도록 보정했다.
+  - `374.95/374.94/374.96g`, `10.4/10.49/10.51kcal`, `0.12314/0.12344/0.12351kg/주` 표시 경계와 숨은 `0.004kg` 차이의 totalBurn source/TDEE/final-score 회귀를 고정했다. 점수 formula/version, storage/schema, backup shape, old-record migration은 변경하지 않았다.
 
 ## legacy / 참고 문서
 
