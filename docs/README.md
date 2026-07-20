@@ -389,7 +389,9 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - Records 체중/계산 기준/식사와 InBody 숫자를 각 입력창의 실제 표시 자리수로 비교하고, 메모 등 다른 항목만 수정할 때도 숨은 원본 소수점을 보존한다.
   - 실제 백업 99 Records/6 InBody에서 체지방량과 목표 탄단지의 숨은 소수점을 확인했고, 보이는 한 단계 변경만 실제 수정으로 저장하는 회귀 테스트를 추가했다.
   - InBody 기록 수정 suite를 smoke/core에도 등록해 기본 회귀 검사에서 데이터 보존 문제를 잡는다.
-  - 점수 formula/version, storage/schema, backup shape, old-record migration은 변경하지 않았다.
+  - 독립 감사에서 최초 화면 비교가 점수의 current-burn 권한까지 침범한 문제와 `toFixed`/실제 formatter 경계 불일치를 확인해, strict score/contract comparison과 Records visual comparison을 분리했다.
+  - 후속 독립 감사에서 표시 전용 프로필 목표 보정과 주간 변화 보정의 4자리 fallback false-stale를 확인해, renderer와 comparator가 같은 formatter를 사용하도록 보정했다.
+  - `374.95/374.94/374.96g`, `10.4/10.49/10.51kcal`, `0.12314/0.12344/0.12351kg/주` 표시 경계와 숨은 `0.004kg` 차이의 totalBurn source/TDEE/final-score 회귀를 고정했다. 점수 formula/version, storage/schema, backup shape, old-record migration은 변경하지 않았다.
 
 ## legacy / 참고 문서
 
