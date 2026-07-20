@@ -393,6 +393,12 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
   - 후속 독립 감사에서 표시 전용 프로필 목표 보정과 주간 변화 보정의 4자리 fallback false-stale를 확인해, renderer와 comparator가 같은 formatter를 사용하도록 보정했다.
   - `374.95/374.94/374.96g`, `10.4/10.49/10.51kcal`, `0.12314/0.12344/0.12351kg/주` 표시 경계와 숨은 `0.004kg` 차이의 totalBurn source/TDEE/final-score 회귀를 고정했다. 점수 formula/version, storage/schema, backup shape, old-record migration은 변경하지 않았다.
 
+- `v8.4_dailycoach_activity_context_alignment_implementation_2026-07-20.md`
+  - 휴식일 탄수화물 항목이 `오늘 운동량을 고려`했다고 잘못 설명하던 원인을 고친 implementation log다. 별도 휴식 item이 최대 3개 제한에서 숨더라도 carb reason 자체가 쉬는 날 기준을 말한다.
+  - 문구 하나만 치환하지 않고 actual weight/cardio component와 exercise profile ownership으로 `general/rest/resistance/cardio/mixed/incomplete`를 분류한다. REST는 stored prior weight time을 무시하고 running/cardio-only는 weight 0분이어도 rest로 부르지 않으며 mixed는 실제 입력된 component만 말한다.
+  - carb low/high, three-item budget, Today의 rest/PUSH/running/mixed/general rerender와 quick setting의 mixed/rest/resistance 전환을 회귀로 고정했다.
+  - score/version/formula/curve, target/card range/adaptive 숫자, storage/schema/backup/Records는 변경하지 않았고 selectable voice/broad copy rewrite/운동 처방을 자동 후속 작업으로 열지 않았다.
+
 ## legacy / 참고 문서
 
 이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`, `00_current_truth/05_required_result_log_format.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
