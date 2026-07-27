@@ -1,17 +1,20 @@
 ---
 name: macro-engine-product-review
-description: Use for every substantive macro-engine product task, including calculations, UI, copy, onboarding, Records, storage, backup, DailyCoach, nutrition, scoring, exercise, migration, and release work. Re-check the real problem, current code and data evidence, counterexamples, and complete scenario coverage before editing.
+description: Use for every substantive macro-engine product task, including calculations, UI, copy, onboarding, Records, storage, backup, DailyCoach, nutrition, scoring, exercise, migration, external audit acceptance or rejection, closeout, merge/release readiness, and judgments about whether a required next gate exists. Re-check the real problem, current code and data evidence, counterexamples, and complete scenario coverage before editing or closing work.
 ---
 
 # Macro Engine Product Review
 
-Use this workflow before every substantive app change. Small typo, link, formatting, and command-output-only tasks may use the short audit in `AGENTS.md`.
+Use this workflow before every substantive app change or decision, including read-only external-audit acceptance/rejection, closeout, merge/release readiness, and judgments that no required next gate exists. Small typo, link, formatting, and command-output-only tasks may use the short audit in `AGENTS.md`.
 
 ## 1. Reconstruct the request
 
 - Read `AGENTS.md` and the mandatory current-truth files it routes to.
 - Read the original user conversation or attached source when the request depends on a long-running product decision.
 - Treat GPT/Codex audits and documented next gates as hypotheses, not authority.
+- For audit acceptance or closeout, decide separately (a) `이번 판정이 닫는 범위` and (b) the `프로젝트 전체 다음 상태` derived from the structured registry, current repo evidence, and latest user intent. A local PASS does not prove project completion, and optional, deferred, or blocked candidates are not approved next implementations.
+- Treat `docs/00_current_truth/product_gates.json` as the only machine-readable product-gate authority. Result-log and historical prose are evidence, not executable state; never infer a gate from natural-language aliases, particles, verbs, or negation.
+- Reuse an existing in-scope result log when a durable repository record is required. Do not create a new document for every review; keep transient console output, JSON, screenshots, and hashes in Git/CI evidence, the final user report, or an external audit bundle.
 - State the root problem without document names or implementation terms.
 
 ## 2. Inspect reality

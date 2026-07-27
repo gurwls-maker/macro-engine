@@ -6,8 +6,11 @@ macro range / scoring / nutrition / exercise 관련 작업은 반드시 아래 �
 
 1. `00_current_truth/00_READ_FIRST.txt`
 2. `00_current_truth/02_macro_range_current_truth.txt`
-3. `00_current_truth/04_document_status_index.txt`
-4. `00_current_truth/05_required_result_log_format.txt`
+3. `00_current_truth/product_gates.json`
+4. `00_current_truth/04_document_status_index.txt`
+5. `00_current_truth/05_required_result_log_format.txt`
+
+현재 제품 gate의 유일한 machine-readable 실행 권위는 `00_current_truth/product_gates.json`이다. `04_document_status_index.txt`의 generated block은 이 registry의 사람이 읽는 mirror이며, 그 밖의 자유서술과 과거 결과로그는 실행 권위가 아니다.
 
 `v8.2_macro_range_*` 문서는 직접 따라가지 않는다. 먼저 `00_current_truth/04_document_status_index.txt`에서 KEEP / SUPERSEDE / HISTORICAL / REVIEW 상태를 확인한다.
 v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2_macro_range/` 아래 historical archive로만 둔다.
@@ -15,7 +18,7 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 `00_current_truth/_source/v8.3_anchor_based_continuous_macro_scoring_master_plan_2026-07-07.txt`는 current truth 본문이 아니라 source ledger / 상세 원장이다. 최신 작업 기준은 `00_READ_FIRST`와 `02_macro_range_current_truth`가 우선한다.
 
 새 v8.3 macro/scoring/nutrition/exercise 문서를 만들 때는 `00_current_truth/templates/new_doc_preamble.txt`의 mandatory pre-read block을 포함해야 한다.
-모든 실질적 작업의 결과로그는 `00_current_truth/05_required_result_log_format.txt`에 따라 첫 본문을 비개발자용 설명으로 시작하고, 기술 검증은 그 아래에 둔다.
+필요한 저장 결과로그가 이미 있으면 새 문서를 만들지 않고 그 문서에 통합한다. 저장 결과로그가 실제로 필요할 때는 `00_current_truth/05_required_result_log_format.txt`에 따라 첫 본문을 비개발자용 설명으로 시작하고, 기술 검증은 그 아래에 둔다. 일회성 로그·해시·캡처는 저장소 밖 감사 번들이나 CI artifact에 둔다.
 
 이 폴더의 문서는 “앱이 지금 어떤 방향으로 가야 하는지”를 빠르게 확인하기 위한 기준이다. 오래된 결정 기록은 Git 이력으로 충분하므로, 현재 판단에 직접 쓰이지 않는 문서는 남기지 않는다.
 
@@ -404,7 +407,7 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 
 ## legacy / 참고 문서
 
-이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`, `00_current_truth/05_required_result_log_format.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
+이 섹션은 legacy/reference 목록이다. macro range / scoring / nutrition / exercise 작업에서는 아래 목록보다 `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/product_gates.json`, `00_current_truth/04_document_status_index.txt`, `00_current_truth/05_required_result_log_format.txt`를 우선한다. `v8.2_macro_range_*` 문서는 직접 따라가지 않는다.
 
 1. `99_v8.1_takeover_audit_2026-06-30.md`
    - v8.0 final 이후 인수인계 감사 문서다.
@@ -451,7 +454,7 @@ v8.2 macro range 원문은 `archive/v8.2_macro_range/README.md`와 `archive/v8.2
 ## 충돌 판단 순서
 
 1. 최신 대화 의도
-2. `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/04_document_status_index.txt`, `00_current_truth/05_required_result_log_format.txt`
+2. `00_current_truth/00_READ_FIRST.txt`, `00_current_truth/02_macro_range_current_truth.txt`, `00_current_truth/product_gates.json`, `00_current_truth/04_document_status_index.txt`, `00_current_truth/05_required_result_log_format.txt`
 3. 현재 git HEAD의 실제 `index.html`, 브라우저 화면, 테스트 결과
 4. 현재 앱에서 실제로 자연스러운 동작
 5. status index에서 KEEP_CURRENT_REFERENCE / EXTERNAL_REFERENCE_ONLY / COPY_REFERENCE_ONLY로 분류된 topic reference
