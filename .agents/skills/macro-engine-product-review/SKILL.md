@@ -14,6 +14,9 @@ Use this workflow before every substantive app change or decision, including rea
 - Treat GPT/Codex audits and documented next gates as hypotheses, not authority.
 - For audit acceptance or closeout, decide separately (a) `이번 판정이 닫는 범위` and (b) the `프로젝트 전체 다음 상태` derived from the structured registry, current repo evidence, and latest user intent. A local PASS does not prove project completion, and optional, deferred, or blocked candidates are not approved next implementations.
 - Treat `docs/00_current_truth/product_gates.json` as the only machine-readable product-gate authority. Result-log and historical prose are evidence, not executable state; never infer a gate from natural-language aliases, particles, verbs, or negation.
+- Read the registry development contract before interpreting version labels or old data. Under `development/current_only/not_required`, do not invent legacy migration or backward-compatibility work; old development data may be reset or rejected with a clear unsupported-format result.
+- Follow the registry execution sequence. Work only on its first incomplete `required` gate; do not start later `blocked` gates or optional features. Feature-branch commits and pushes are reversible checkpoints, while master integration requires the active gate to pass.
+- Never copy an unmerged failed candidate wholesale into a clean implementation branch. Reuse a proven counterexample as an independent test only when it still applies to the current contract.
 - Reuse an existing in-scope result log when a durable repository record is required. Do not create a new document for every review; keep transient console output, JSON, screenshots, and hashes in Git/CI evidence, the final user report, or an external audit bundle.
 - State the root problem without document names or implementation terms.
 
@@ -57,3 +60,5 @@ Use this workflow before every substantive app change or decision, including rea
 - Do not ask the user to choose coefficients or internal mechanics they cannot reasonably evaluate.
 - Ask only for product values or tradeoffs that evidence and tests cannot decide.
 - Explain the outcome in plain Korean before listing files, functions, or test counts.
+- Development-stage schema, transaction, rollback, and test-oracle choices are the implementer's responsibility. Do not turn an internal compatibility question into a user decision when the registry already says `current_only`.
+- If two sibling failures expose the same authority boundary, stop adding example conditions and redesign that bounded gate before continuing. This is a design stop, not a request for the user to choose the code architecture.

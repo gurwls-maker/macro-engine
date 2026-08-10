@@ -31,6 +31,10 @@ macro range / scoring / nutrition / exercise 관련 작업 전에는 반드시 �
 - 외부 감사·독립 검증의 수용/반려, closeout, 병합·배포 승인, `필수 후속 단계 없음` 판정도 제품 파일 수정 여부와 무관하게 실질적 작업으로 본다. 이때도 `macro-engine-product-review`, PROMPT_SCOPE_AUDIT, product preflight를 적용한다.
 - 감사·closeout에서는 `이번 판정이 닫는 범위`와 `프로젝트 전체 다음 상태`를 별도로 판단한다. 국소 PASS는 프로젝트 전체 종료를 증명하지 않고, optional·deferred·blocked 후보는 자동 다음 구현도 폐기된 후보도 아니다.
 - 현재 제품 gate의 유일한 machine-readable 실행 권위는 `docs/00_current_truth/product_gates.json`이다. required gate와 프로젝트 상태는 registry에서 계산하고, status index의 generated block은 mirror로만 exact 대조한다.
+- registry의 `developmentContract`와 `executionSequence`를 작업 전에 확인한다. `development/current_only/not_required`에서는 버전명이나 과거 개발 기록을 근거로 legacy migration·backward compatibility를 만들지 않는다.
+- feature branch의 commit·push는 되돌릴 수 있는 개발 checkpoint이며 허용된다. active gate PASS 전 master merge는 금지한다. commit과 출시·호환 약속을 같은 의미로 취급하지 않는다.
+- execution sequence의 첫 미완료 gate 하나만 작업한다. 후속 blocked gate, optional Coach voice, broad tooltip/glossary, copy batch 2를 먼저 열지 않는다.
+- 기존 미병합 실패 후보의 code·status prose·migration을 새 clean branch에 자동 이식하지 않는다. 반례는 독립 검증 사례로만 선별하고 구현은 current contract에서 다시 결정한다.
 - 결과로그와 과거 문서의 자유서술은 근거·이력이지 실행 권위가 아니다. 자연어 alias·조사·동사에서 다음 gate를 추론하는 parser나 denylist를 만들지 않는다.
 - The repo SessionStart hook is a reminder layer, not the hard gate. Review/trust it once per machine with `/hooks`; deterministic tests and GitHub CI remain authoritative.
 - A narrow diff is not permission to implement only the triggering example. Keep the surface minimal and complete the behavior with a scenario matrix covering relevant state, persistence, viewport, accessibility, fallback, mixed, and extreme cases. Numeric work additionally requires continuity, monotonicity, and boundary-neighborhood checks.
@@ -45,3 +49,4 @@ macro range / scoring / nutrition / exercise 관련 작업 전에는 반드시 �
 - 프롬프트를 그대로 수행하기 전에 현재 repo 기준으로 다음 단계가 맞는지 재판단한다.
 - 처음에만 수용하는 척하고 결국 관성대로 움직이는 것을 금지한다.
 - 이 루틴 자체가 새 관성이 되면 안 된다.
+- 사용자가 평가할 수 없는 schema 호환, migration, rollback 내부 설계를 선택해 달라고 묻지 않는다. registry의 제품 계약 안에서 작업자가 책임지고 결정한다.

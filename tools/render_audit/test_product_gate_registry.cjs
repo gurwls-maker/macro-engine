@@ -4,6 +4,7 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 const {
   ALLOWED_STATES,
+  DEVELOPMENT_CONTRACT,
   EXPECTED_GITATTRIBUTES,
   GATE_CATALOG,
   GITATTRIBUTES_PATH,
@@ -33,14 +34,45 @@ function fixtureRegistry(states = {}) {
     "dailycoach-activity-context": "audit_pass",
     "component-score-aggregation": "deferred",
     "component-score-candidate-selection": "blocked",
+    "current-input-date-inbody-safety": "required",
+    "current-record-score-lifecycle": "blocked",
+    "current-backup-restore-safety": "blocked",
+    "core-flow-accessibility": "blocked",
+    "product-completeness-acceptance": "blocked",
     "coach-voice": "optional",
     "broad-tooltip-glossary": "optional",
     "copy-batch-2": "optional",
   };
   return {
     schemaVersion: SCHEMA_VERSION,
+    developmentContract: {
+      phase: DEVELOPMENT_CONTRACT.phase,
+      dataCompatibility: DEVELOPMENT_CONTRACT.dataCompatibility,
+      legacyDataPreservation: DEVELOPMENT_CONTRACT.legacyDataPreservation,
+      featureCheckpointPolicy: DEVELOPMENT_CONTRACT.featureCheckpointPolicy,
+      masterIntegrationPolicy: DEVELOPMENT_CONTRACT.masterIntegrationPolicy,
+      executionSequence: [...DEVELOPMENT_CONTRACT.executionSequence],
+    },
     gates: EXPECTED_IDS.map((id) => ({ id, state: states[id] || defaults[id] })),
   };
+}
+
+function fixtureAtExecutionStep(activeIndex) {
+  const states = {};
+  DEVELOPMENT_CONTRACT.executionSequence.forEach((id, index) => {
+    states[id] = index < activeIndex
+      ? "audit_pass"
+      : index === activeIndex
+        ? "required"
+        : "blocked";
+  });
+  return fixtureRegistry(states);
+}
+
+function completedExecutionFixture() {
+  return fixtureRegistry(Object.fromEntries(
+    DEVELOPMENT_CONTRACT.executionSequence.map((id) => [id, "audit_pass"])
+  ));
 }
 
 function clone(value) {
@@ -89,7 +121,10 @@ function runInMemoryRegistryTests() {
   expectFailure(
     "GATE_SCHEMA_INVALID",
     () => parseRegistryBytes(Buffer.from(
-      renderRegistry(valid).replace('"schemaVersion": 1,', '"schemaVersion": 1,\n  "schemaVersion": 1,'),
+      renderRegistry(valid).replace(
+        `"schemaVersion": ${SCHEMA_VERSION},`,
+        `"schemaVersion": ${SCHEMA_VERSION},\n  "schemaVersion": ${SCHEMA_VERSION},`
+      ),
       "utf8"
     )),
     "duplicate JSON member"
@@ -98,7 +133,7 @@ function runInMemoryRegistryTests() {
   for (const root of [null, true, 1, "registry", []]) {
     expectFailure("GATE_SCHEMA_INVALID", () => validateRegistry(root), `root type ${String(root)}`);
   }
-  for (const schemaVersion of [undefined, null, true, "1", [], {}, 0, 2, 1.5]) {
+  for (const schemaVersion of [undefined, null, true, "2", [], {}, 0, 1, 3, 2.5]) {
     const candidate = clone(valid);
     if (schemaVersion === undefined) delete candidate.schemaVersion;
     else candidate.schemaVersion = schemaVersion;
@@ -113,6 +148,62 @@ function runInMemoryRegistryTests() {
   const extraRoot = clone(valid);
   extraRoot.requiredNext = false;
   expectFailure("GATE_SCHEMA_INVALID", () => validateRegistry(extraRoot), "extra root property");
+  for (const contractValue of [undefined, null, true, 1, "development", []]) {
+    const candidate = clone(valid);
+    if (contractValue === undefined) delete candidate.developmentContract;
+    else candidate.developmentContract = contractValue;
+    expectFailure(
+      "GATE_SCHEMA_INVALID",
+      () => validateRegistry(candidate),
+      `developmentContract type ${String(contractValue)}`
+    );
+  }
+  const extraContract = clone(valid);
+  extraContract.developmentContract.releaseVersion = "v8.3";
+  expectFailure("GATE_SCHEMA_INVALID", () => validateRegistry(extraContract), "extra contract field");
+  for (const key of [
+    "phase",
+    "dataCompatibility",
+    "legacyDataPreservation",
+    "featureCheckpointPolicy",
+    "masterIntegrationPolicy",
+    "executionSequence",
+  ]) {
+    const candidate = clone(valid);
+    delete candidate.developmentContract[key];
+    expectFailure("GATE_SCHEMA_INVALID", () => validateRegistry(candidate), `missing contract field ${key}`);
+  }
+  for (const [key, value] of [
+    ["phase", "release"],
+    ["dataCompatibility", "legacy_compatible"],
+    ["legacyDataPreservation", "required"],
+    ["featureCheckpointPolicy", "audit_first"],
+    ["masterIntegrationPolicy", "commit_implies_merge"],
+  ]) {
+    const candidate = clone(valid);
+    candidate.developmentContract[key] = value;
+    expectFailure(
+      "GATE_DEVELOPMENT_CONTRACT_INVALID",
+      () => validateRegistry(candidate),
+      `invalid contract ${key}`
+    );
+  }
+  for (const sequence of [
+    null,
+    DEVELOPMENT_CONTRACT.executionSequence.slice(1),
+    [...DEVELOPMENT_CONTRACT.executionSequence, "coach-voice"],
+    [...DEVELOPMENT_CONTRACT.executionSequence].reverse(),
+    DEVELOPMENT_CONTRACT.executionSequence.map((id, index) => index === 1 ? "legacy-migration" : id),
+    DEVELOPMENT_CONTRACT.executionSequence.map((id, index) => index === 1 ? DEVELOPMENT_CONTRACT.executionSequence[0] : id),
+  ]) {
+    const candidate = clone(valid);
+    candidate.developmentContract.executionSequence = sequence;
+    expectFailure(
+      "GATE_DEVELOPMENT_CONTRACT_INVALID",
+      () => validateRegistry(candidate),
+      `invalid execution sequence ${String(sequence)}`
+    );
+  }
   const extraGate = clone(valid);
   extraGate.gates[0].requiredNext = false;
   expectFailure("GATE_SCHEMA_INVALID", () => validateRegistry(extraGate), "extra gate property");
@@ -146,16 +237,28 @@ function runInMemoryRegistryTests() {
   const unknown = clone(valid);
   unknown.gates[0].id = "unknown-gate";
   expectFailure("GATE_ID_UNKNOWN", () => validateRegistry(unknown), "unknown ID");
+  const retiredMonolith = clone(valid);
+  retiredMonolith.gates[0].id = "product-reliability-data-safety";
+  expectFailure(
+    "GATE_ID_UNKNOWN",
+    () => validateRegistry(retiredMonolith),
+    "retired monolithic Gate A cannot re-enter the catalog"
+  );
   const reordered = clone(valid);
   [reordered.gates[0], reordered.gates[1]] = [reordered.gates[1], reordered.gates[0]];
   expectFailure("GATE_SCHEMA_INVALID", () => validateRegistry(reordered), "reordered IDs");
 
-  for (const state of ALLOWED_STATES) {
+  for (const state of ALLOWED_STATES.filter((candidate) => candidate !== "required")) {
     validateRegistry(fixtureRegistry({ "coach-voice": state }));
   }
+  expectFailure(
+    "GATE_SEQUENCE_INVALID",
+    () => validateRegistry(fixtureRegistry({ "coach-voice": "required" })),
+    "optional gate cannot bypass execution sequence"
+  );
   for (const state of ["Required", " required", "required ", "unknown", "", null, 1]) {
     const candidate = clone(valid);
-    candidate.gates[4].state = state;
+    candidate.gates.find((gate) => gate.id === "current-input-date-inbody-safety").state = state;
     expectFailure(
       typeof state === "string" ? "GATE_STATE_INVALID" : "GATE_SCHEMA_INVALID",
       () => validateRegistry(candidate),
@@ -163,23 +266,45 @@ function runInMemoryRegistryTests() {
     );
   }
 
-  const noneRequired = deriveProjectState(valid);
-  if (noneRequired.projectState !== "monitor" || noneRequired.requiredGateIds.length !== 0) {
-    throw new Error("registry test failed: zero-required derivation");
-  }
-  const oneRequired = deriveProjectState(fixtureRegistry({ "coach-voice": "required" }));
-  if (oneRequired.projectState !== "required" || oneRequired.requiredGateIds.join(",") !== "coach-voice") {
-    throw new Error("registry test failed: one-required derivation");
-  }
-  const manyRequired = deriveProjectState(fixtureRegistry({
-    "dailycoach-semantic-v2": "required",
-    "coach-voice": "required",
-  }));
+  DEVELOPMENT_CONTRACT.executionSequence.forEach((id, index) => {
+    const fixture = fixtureAtExecutionStep(index);
+    validateRegistry(fixture);
+    const state = deriveProjectState(fixture);
+    if (
+      state.projectState !== "required"
+      || state.activeGateId !== id
+      || state.requiredGateIds.join(",") !== id
+    ) {
+      throw new Error(`registry test failed: execution step ${index} derivation`);
+    }
+  });
+  const completed = completedExecutionFixture();
+  validateRegistry(completed);
+  const completedState = deriveProjectState(completed);
   if (
-    manyRequired.projectState !== "required"
-    || manyRequired.requiredGateIds.join(",") !== "dailycoach-semantic-v2,coach-voice"
+    completedState.projectState !== "ready_for_owner_use"
+    || completedState.activeGateId !== null
+    || completedState.requiredGateIds.length !== 0
   ) {
-    throw new Error("registry test failed: multi-required derivation");
+    throw new Error("registry test failed: completed execution derivation");
+  }
+  for (const [label, mutate] of [
+    ["active gate blocked", (candidate) => {
+      candidate.gates.find((gate) => gate.id === DEVELOPMENT_CONTRACT.executionSequence[0]).state = "blocked";
+    }],
+    ["two sequence gates required", (candidate) => {
+      candidate.gates.find((gate) => gate.id === DEVELOPMENT_CONTRACT.executionSequence[1]).state = "required";
+    }],
+    ["skip sequence gate", (candidate) => {
+      candidate.gates.find((gate) => gate.id === DEVELOPMENT_CONTRACT.executionSequence[1]).state = "audit_pass";
+    }],
+    ["premature first pass", (candidate) => {
+      candidate.gates.find((gate) => gate.id === DEVELOPMENT_CONTRACT.executionSequence[0]).state = "audit_pass";
+    }],
+  ]) {
+    const candidate = clone(valid);
+    mutate(candidate);
+    expectFailure("GATE_SEQUENCE_INVALID", () => validateRegistry(candidate), label);
   }
 
   const summary = renderGeneratedSummary(valid);
@@ -189,8 +314,9 @@ function runInMemoryRegistryTests() {
   assertGeneratedSummaryText(conflictingProse, valid);
   const conflictingProseState = deriveProjectState(valid);
   if (
-    conflictingProseState.projectState !== "monitor"
-    || conflictingProseState.requiredGateIds.length !== 0
+    conflictingProseState.projectState !== "required"
+    || conflictingProseState.activeGateId !== "current-input-date-inbody-safety"
+    || conflictingProseState.requiredGateIds.join(",") !== "current-input-date-inbody-safety"
     || valid.gates.find((gate) => gate.id === "coach-voice")?.state !== "optional"
   ) {
     throw new Error("registry test failed: non-authoritative prose changed derived state");
@@ -219,8 +345,11 @@ function runInMemoryRegistryTests() {
     reorderedSummaryLines.join("\n"),
     summary.replace(SUMMARY_END, "- unexpected generated field: true\nCURRENT_PRODUCT_GATES_GENERATED_END"),
     summary.replace(": optional", ": required"),
-    summary.replace("- project state: monitor", "- project state: required"),
-    summary.replace("- required gate ids: none", "- required gate ids: coach-voice"),
+    summary.replace("- development phase: development", "- development phase: release"),
+    summary.replace("- data compatibility: current_only", "- data compatibility: legacy_compatible"),
+    summary.replace("- project state: required", "- project state: ready_for_owner_use"),
+    summary.replace("- active gate id: current-input-date-inbody-safety", "- active gate id: coach-voice"),
+    summary.replace("- required gate ids: current-input-date-inbody-safety", "- required gate ids: none"),
   ]) {
     expectFailure(
       "GATE_SUMMARY_DRIFT",
@@ -327,7 +456,11 @@ function runGitModeTests() {
 
   withTempGitRepo((root) => {
     const state = loadRepositoryGateState(root, { requireTracked: true });
-    if (state.projectState !== "monitor" || state.requiredGateIds.length !== 0) {
+    if (
+      state.projectState !== "required"
+      || state.activeGateId !== "current-input-date-inbody-safety"
+      || state.requiredGateIds.join(",") !== "current-input-date-inbody-safety"
+    ) {
       throw new Error("registry test failed: repository state derivation");
     }
     const resultLogPath = path.join(root, "docs", "non_authoritative_result.md");
@@ -338,8 +471,8 @@ function runGitModeTests() {
     );
     const stateWithConflictingResultLog = loadRepositoryGateState(root, { requireTracked: true });
     if (
-      stateWithConflictingResultLog.projectState !== "monitor"
-      || stateWithConflictingResultLog.requiredGateIds.length !== 0
+      stateWithConflictingResultLog.projectState !== "required"
+      || stateWithConflictingResultLog.activeGateId !== "current-input-date-inbody-safety"
     ) {
       throw new Error("registry test failed: result-log prose changed repository state");
     }
@@ -349,13 +482,16 @@ function runGitModeTests() {
     const statusPath = path.join(root, STATUS_INDEX_PATH);
     fs.appendFileSync(statusPath, "\n### 코치 말투부터 개발하겠습니다.\n", "utf8");
     const state = loadRepositoryGateState(root, { requireTracked: false });
-    if (state.projectState !== "monitor" || state.requiredGateIds.length !== 0) {
+    if (
+      state.projectState !== "required"
+      || state.activeGateId !== "current-input-date-inbody-safety"
+    ) {
       throw new Error("registry test failed: ordinary unstaged prose changed repository state");
     }
   });
 
   withTempGitRepo((root) => {
-    const changedRegistry = fixtureRegistry({ "coach-voice": "required" });
+    const changedRegistry = fixtureAtExecutionStep(1);
     fs.writeFileSync(path.join(root, REGISTRY_PATH), renderRegistry(changedRegistry), "utf8");
     expectFailure(
       "GATE_SUMMARY_DRIFT",
@@ -372,7 +508,7 @@ function runGitModeTests() {
   });
 
   withTempGitRepo((root) => {
-    const changedRegistry = fixtureRegistry({ "coach-voice": "required" });
+    const changedRegistry = fixtureAtExecutionStep(1);
     fs.writeFileSync(path.join(root, REGISTRY_PATH), renderRegistry(changedRegistry), "utf8");
     fs.writeFileSync(
       path.join(root, STATUS_INDEX_PATH),
@@ -387,7 +523,10 @@ function runGitModeTests() {
     );
     execFileSync("git", ["add", "--", STATUS_INDEX_PATH], { cwd: root });
     const state = loadRepositoryGateState(root, { requireTracked: false });
-    if (state.projectState !== "required" || state.requiredGateIds.join(",") !== "coach-voice") {
+    if (
+      state.projectState !== "required"
+      || state.requiredGateIds.join(",") !== "current-record-score-lifecycle"
+    ) {
       throw new Error("registry test failed: complete atomic authority stage");
     }
   });
@@ -506,7 +645,7 @@ function runGitModeTests() {
     );
     fs.writeFileSync(
       registryPath,
-      renderRegistry(fixtureRegistry({ "coach-voice": "required" })),
+      renderRegistry(fixtureAtExecutionStep(1)),
       "utf8"
     );
     const headObjectId = execFileSync("git", ["rev-parse", `HEAD:${REGISTRY_PATH}`], {

@@ -8,7 +8,21 @@ const STATUS_INDEX_PATH = "docs/00_current_truth/04_document_status_index.txt";
 const GITATTRIBUTES_PATH = ".gitattributes";
 const SUMMARY_BEGIN = "CURRENT_PRODUCT_GATES_GENERATED_BEGIN";
 const SUMMARY_END = "CURRENT_PRODUCT_GATES_GENERATED_END";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+const DEVELOPMENT_CONTRACT = Object.freeze({
+  phase: "development",
+  dataCompatibility: "current_only",
+  legacyDataPreservation: "not_required",
+  featureCheckpointPolicy: "commit_push_allowed",
+  masterIntegrationPolicy: "active_gate_pass_required",
+  executionSequence: Object.freeze([
+    "current-input-date-inbody-safety",
+    "current-record-score-lifecycle",
+    "current-backup-restore-safety",
+    "core-flow-accessibility",
+    "product-completeness-acceptance",
+  ]),
+});
 const EXPECTED_GITATTRIBUTES = [
   `/${GITATTRIBUTES_PATH} text eol=lf`,
   `/${REGISTRY_PATH} text eol=lf`,
@@ -21,6 +35,11 @@ const GATE_CATALOG = Object.freeze([
   Object.freeze({ id: "dailycoach-activity-context", label: "DailyCoach activity-context" }),
   Object.freeze({ id: "component-score-aggregation", label: "component aggregation" }),
   Object.freeze({ id: "component-score-candidate-selection", label: "component candidate selection" }),
+  Object.freeze({ id: "current-input-date-inbody-safety", label: "A1 current input/date/InBody safety" }),
+  Object.freeze({ id: "current-record-score-lifecycle", label: "A2 current record/score lifecycle" }),
+  Object.freeze({ id: "current-backup-restore-safety", label: "A3 current backup/restore safety" }),
+  Object.freeze({ id: "core-flow-accessibility", label: "B core-flow accessibility" }),
+  Object.freeze({ id: "product-completeness-acceptance", label: "C product-completeness acceptance" }),
   Object.freeze({ id: "coach-voice", label: "Coach voice" }),
   Object.freeze({ id: "broad-tooltip-glossary", label: "broad tooltip/glossary" }),
   Object.freeze({ id: "copy-batch-2", label: "copy batch 2" }),
@@ -69,12 +88,56 @@ function validateRegistry(registry) {
   if (!isPlainObject(registry)) {
     fail("GATE_SCHEMA_INVALID", "registry root must be an object");
   }
-  assertExactKeys(registry, ["schemaVersion", "gates"], "registry");
+  assertExactKeys(registry, ["schemaVersion", "developmentContract", "gates"], "registry");
   if (registry.schemaVersion !== SCHEMA_VERSION) {
     fail("GATE_SCHEMA_INVALID", `schemaVersion must be integer ${SCHEMA_VERSION}`);
   }
   if (!Array.isArray(registry.gates)) {
     fail("GATE_SCHEMA_INVALID", "gates must be an array");
+  }
+
+  if (!isPlainObject(registry.developmentContract)) {
+    fail("GATE_SCHEMA_INVALID", "developmentContract must be an object");
+  }
+  assertExactKeys(
+    registry.developmentContract,
+    [
+      "phase",
+      "dataCompatibility",
+      "legacyDataPreservation",
+      "featureCheckpointPolicy",
+      "masterIntegrationPolicy",
+      "executionSequence",
+    ],
+    "developmentContract"
+  );
+  for (const key of [
+    "phase",
+    "dataCompatibility",
+    "legacyDataPreservation",
+    "featureCheckpointPolicy",
+    "masterIntegrationPolicy",
+  ]) {
+    if (registry.developmentContract[key] !== DEVELOPMENT_CONTRACT[key]) {
+      fail(
+        "GATE_DEVELOPMENT_CONTRACT_INVALID",
+        `developmentContract.${key} must be ${DEVELOPMENT_CONTRACT[key]}`
+      );
+    }
+  }
+  if (!Array.isArray(registry.developmentContract.executionSequence)) {
+    fail("GATE_DEVELOPMENT_CONTRACT_INVALID", "executionSequence must be an array");
+  }
+  const sequence = registry.developmentContract.executionSequence;
+  const expectedSequence = DEVELOPMENT_CONTRACT.executionSequence;
+  if (
+    sequence.length !== expectedSequence.length
+    || sequence.some((id, index) => id !== expectedSequence[index])
+  ) {
+    fail(
+      "GATE_DEVELOPMENT_CONTRACT_INVALID",
+      `executionSequence must be exactly ${expectedSequence.join(" -> ")}`
+    );
   }
 
   const ids = [];
@@ -108,6 +171,38 @@ function validateRegistry(registry) {
   if (ids.some((id, index) => id !== EXPECTED_IDS[index])) {
     fail("GATE_SCHEMA_INVALID", "gates must use canonical ID order");
   }
+
+  const stateById = new Map(registry.gates.map((gate) => [gate.id, gate.state]));
+  const sequenceStates = sequence.map((id) => stateById.get(id));
+  const firstIncompleteIndex = sequenceStates.findIndex((state) => state !== "audit_pass");
+  if (firstIncompleteIndex === -1) {
+    if (registry.gates.some((gate) => gate.state === "required")) {
+      fail("GATE_SEQUENCE_INVALID", "no required gate is allowed after the execution sequence passes");
+    }
+  } else {
+    sequenceStates.forEach((state, index) => {
+      const expectedState = index < firstIncompleteIndex
+        ? "audit_pass"
+        : index === firstIncompleteIndex
+          ? "required"
+          : "blocked";
+      if (state !== expectedState) {
+        fail(
+          "GATE_SEQUENCE_INVALID",
+          `execution gate ${sequence[index]} must be ${expectedState}, found ${state}`
+        );
+      }
+    });
+    const requiredIds = registry.gates
+      .filter((gate) => gate.state === "required")
+      .map((gate) => gate.id);
+    if (requiredIds.length !== 1 || requiredIds[0] !== sequence[firstIncompleteIndex]) {
+      fail(
+        "GATE_SEQUENCE_INVALID",
+        `only active execution gate ${sequence[firstIncompleteIndex]} may be required`
+      );
+    }
+  }
   return registry;
 }
 
@@ -129,6 +224,14 @@ function renderRegistry(registry) {
   validateRegistry(registry);
   const canonical = {
     schemaVersion: SCHEMA_VERSION,
+    developmentContract: {
+      phase: registry.developmentContract.phase,
+      dataCompatibility: registry.developmentContract.dataCompatibility,
+      legacyDataPreservation: registry.developmentContract.legacyDataPreservation,
+      featureCheckpointPolicy: registry.developmentContract.featureCheckpointPolicy,
+      masterIntegrationPolicy: registry.developmentContract.masterIntegrationPolicy,
+      executionSequence: [...registry.developmentContract.executionSequence],
+    },
     gates: registry.gates.map(({ id, state }) => ({ id, state })),
   };
   return `${JSON.stringify(canonical, null, 2)}\n`;
@@ -157,22 +260,33 @@ function deriveProjectState(registry) {
   const requiredGateIds = registry.gates
     .filter((gate) => gate.state === "required")
     .map((gate) => gate.id);
+  const executionComplete = registry.developmentContract.executionSequence.every(
+    (id) => registry.gates.find((gate) => gate.id === id)?.state === "audit_pass"
+  );
   return {
     requiredGateIds,
-    projectState: requiredGateIds.length ? "required" : "monitor",
+    activeGateId: requiredGateIds[0] || null,
+    projectState: executionComplete ? "ready_for_owner_use" : "required",
   };
 }
 
 function renderGeneratedSummary(registry) {
   validateRegistry(registry);
   const stateById = new Map(registry.gates.map((gate) => [gate.id, gate.state]));
-  const { requiredGateIds, projectState } = deriveProjectState(registry);
+  const { requiredGateIds, activeGateId, projectState } = deriveProjectState(registry);
   return [
     SUMMARY_BEGIN,
     "CURRENT PRODUCT GATES — GENERATED, DO NOT EDIT",
     `source: ${REGISTRY_PATH}`,
     `schema-version: ${SCHEMA_VERSION}`,
+    `- development phase: ${registry.developmentContract.phase}`,
+    `- data compatibility: ${registry.developmentContract.dataCompatibility}`,
+    `- legacy data preservation: ${registry.developmentContract.legacyDataPreservation}`,
+    `- feature checkpoints: ${registry.developmentContract.featureCheckpointPolicy}`,
+    `- master integration: ${registry.developmentContract.masterIntegrationPolicy}`,
+    `- execution sequence: ${registry.developmentContract.executionSequence.join(" -> ")}`,
     ...GATE_CATALOG.map((gate) => `- ${gate.label} [${gate.id}]: ${stateById.get(gate.id)}`),
+    `- active gate id: ${activeGateId || "none"}`,
     `- required gate ids: ${requiredGateIds.length ? requiredGateIds.join(", ") : "none"}`,
     `- project state: ${projectState}`,
     SUMMARY_END,
@@ -391,7 +505,14 @@ function findRepoRoot(start) {
 function formatStateContext(state) {
   const stateById = new Map(state.registry.gates.map((gate) => [gate.id, gate.state]));
   return [
+    `- development phase: ${state.registry.developmentContract.phase}`,
+    `- data compatibility: ${state.registry.developmentContract.dataCompatibility}`,
+    `- legacy data preservation: ${state.registry.developmentContract.legacyDataPreservation}`,
+    `- feature checkpoints: ${state.registry.developmentContract.featureCheckpointPolicy}`,
+    `- master integration: ${state.registry.developmentContract.masterIntegrationPolicy}`,
+    `- execution sequence: ${state.registry.developmentContract.executionSequence.join(" -> ")}`,
     ...GATE_CATALOG.map((gate) => `- ${gate.label}: ${stateById.get(gate.id)}`),
+    `- active gate id: ${state.activeGateId || "none"}`,
     `- required gate ids: ${state.requiredGateIds.length ? state.requiredGateIds.join(", ") : "none"}`,
     `- project state: ${state.projectState}`,
   ].join("\n");
@@ -433,6 +554,7 @@ if (require.main === module) {
 
 module.exports = {
   ALLOWED_STATES,
+  DEVELOPMENT_CONTRACT,
   EXPECTED_GITATTRIBUTES,
   GATE_CATALOG,
   GITATTRIBUTES_PATH,
