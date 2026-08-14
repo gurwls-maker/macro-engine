@@ -903,9 +903,10 @@ async function scenarioSettingsAndCurrentBackup({ page, baseUrl }){
   await expectAxName(onboardingRestore, "button", "백업 불러오기", "fresh onboarding current-backup restore action");
   await onboardingRestore.focus();
   await expectActiveElement(page, "#onboardingRestoreBtn", "fresh onboarding restore receives keyboard focus");
-  const chooserPromise = page.waitForEvent("filechooser", { timeout: 10000 });
-  await page.keyboard.press("Enter");
-  const chooser = await chooserPromise;
+  const [chooser] = await Promise.all([
+    page.waitForEvent("filechooser", { timeout: 20000 }),
+    onboardingRestore.press("Enter")
+  ]);
   await chooser.setFiles({
     name: backup.filename || "macro-engine-full-backup-current.json",
     mimeType: "application/json",

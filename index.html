@@ -2230,7 +2230,8 @@ Notes:
       font-size:12px;
       white-space:nowrap;
     }
-    .meal-template-delete{
+    .meal-template-delete,
+    .danger-action{
       border-color:color-mix(in srgb, var(--danger) 26%, var(--line) 74%);
       color:var(--danger);
       background:color-mix(in srgb, var(--danger) 7%, var(--paper) 93%);
@@ -2254,6 +2255,12 @@ Notes:
       background:rgba(255,255,255,.62);
       font-size:13px;
       line-height:1.55;
+    }
+    .meal-reuse-feedback{
+      margin-bottom:10px;
+    }
+    .meal-reuse-feedback:empty{
+      display:none;
     }
     .meal-reuse-overlay{
       position:fixed;
@@ -2610,6 +2617,12 @@ Notes:
     .data-import-preview{
       margin-top:10px;
     }
+    .hero-data-action-feedback{
+      margin-top:10px;
+    }
+    .hero-data-action-feedback:empty{
+      display:none;
+    }
     .backup-folder-row{
       display:grid;
       grid-template-columns:repeat(2,minmax(0,1fr));
@@ -2691,6 +2704,10 @@ Notes:
       padding:8px 12px;
       border-radius:999px;
       font-size:12.5px;
+    }
+    .settings-stitch-hero > .hero-data-action-feedback{
+      grid-column:1/-1;
+      margin-top:0;
     }
     .settings-choice-grid{
       grid-column:1/-1;
@@ -14220,7 +14237,7 @@ Notes:
             <div class="hint" id="goalHint"></div>
           </div>
           <div class="hero-actions">
-            <button class="ghost-btn" id="resetBtn" type="button">입력 초기화</button>
+            <button class="ghost-btn danger-action" id="resetBtn" type="button">전체 데이터 삭제</button>
           </div>
         </div>
 
@@ -14955,6 +14972,7 @@ Notes:
               <h2>기록 목록</h2>
             </div>
             <div class="records-card-list" id="recordsTable"></div>
+            <div id="backupNudgeHost"></div>
 
           </section>
 
@@ -15039,7 +15057,6 @@ Notes:
             <input id="mealMemo" type="text" maxlength="80" tabindex="-1">
             <button class="primary-btn" id="saveMealBtn" type="button" tabindex="-1">식사 저장</button>
           </div>
-          <div id="backupNudgeHost"></div>
         </div>
             </section>
           </aside>
@@ -15236,6 +15253,7 @@ Notes:
           <div class="settings-stitch-hero-actions" id="settingsHeroActions">
             <button class="secondary-btn" id="restartOnboardingBtn" type="button">초기 설정 다시 하기</button>
           </div>
+          <div class="hero-data-action-feedback" id="globalDataActionFeedback" role="status" aria-live="polite" aria-atomic="true"></div>
         </section>
 
         <section class="settings-choice-grid" aria-label="목표 선택">
@@ -15346,7 +15364,7 @@ Notes:
                     <button class="secondary-btn" id="clearCardioPresetFormBtn" type="button">새로 입력</button>
                   </div>
                 </div>
-                <div class="cardio-preset-feedback" id="cardioPresetFeedback" role="status" aria-live="polite" aria-atomic="true"></div>
+                <div class="cardio-preset-feedback" id="cardioPresetFeedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1"></div>
                 <div class="cardio-preset-list" id="cardioPresetList"></div>
               </div>
             </div>
@@ -15478,7 +15496,7 @@ Notes:
             </div>
             <div class="settings-group settings-data-secondary">
               <div class="section-group-head">
-                <h4>기록만 백업 (CSV)</h4>
+                <h4>기록만 백업 (JSON)</h4>
                 <p>날짜별 기록 중심 파일입니다. 설정·Today 값은 제외됩니다.</p>
               </div>
               <div class="section-group-body">
@@ -15634,6 +15652,7 @@ Notes:
         </div>
         <button class="secondary-btn" id="mealReuseClose" type="button" data-close-meal-reuse>닫기</button>
       </div>
+      <div class="meal-reuse-feedback meal-reuse-empty" id="mealTemplateFeedback" role="status" aria-live="polite" aria-atomic="true" tabindex="-1"></div>
       <div class="meal-reuse-list app-choice-list" id="mealReuseList"></div>
       <div class="meal-reuse-actions app-choice-actions">
         <button class="secondary-btn" type="button" data-close-meal-reuse>닫기</button>
@@ -16854,6 +16873,15 @@ Notes:
       inbodyRecords: []
     };
 
+    function createDefaultRuntimeState(){
+      return {
+        ...DEFAULT_STATE,
+        routineWeekdaySchedule: {},
+        weekdayTimeDefaults: {},
+        inbodyRecords: []
+      };
+    }
+
     const CURRENT_EXERCISE_NUMBER_DOMAINS = Object.freeze({
       weightDuration: Object.freeze({ min: 0, max: 180, label: "웨이트 시간", unit: "분" }),
       cardioDuration: Object.freeze({ min: 0, max: 180, label: "유산소 시간", unit: "분" }),
@@ -16941,7 +16969,7 @@ Notes:
     }, {});
 
     const state = {
-      ...DEFAULT_STATE,
+      ...createDefaultRuntimeState(),
       renderedRoutineKey: "",
       renderedGoalKey: ""
     };
@@ -18765,6 +18793,44 @@ Notes:
       }, {});
     }
 
+    function hasMatchingAutomaticInbodySource(draft = {}, inbodyRecords = null, targetDate = getTodayDateString()){
+      const sourceDate = normalizeDateString(draft.bodyStatusSourceDate);
+      if (!sourceDate || !Array.isArray(inbodyRecords)) return false;
+      const source = getLatestInbodyForTodayInputFromRecords(inbodyRecords, targetDate);
+      if (!source || normalizeDateString(source.date) !== sourceDate) return false;
+      const pairs = [
+        [draft.calculationWeight, source.weight],
+        [draft.skeletalMuscle, source.skeletalMuscle],
+        [draft.bodyFatMass, source.bodyFat],
+        [draft.bodyFatPercent, source.bodyFatPercent]
+      ];
+      return pairs.every(([draftValue, sourceValue]) => (
+        Number.isFinite(Number(draftValue))
+        && Number.isFinite(Number(sourceValue))
+        && Math.abs(Number(draftValue) - Number(sourceValue)) <= 0.000000001
+      ));
+    }
+
+    function hasMatchingAutomaticCardioPresetSource(draft = {}, rawCardioPresets = null){
+      if (!rawCardioPresets || typeof rawCardioPresets !== "object") return false;
+      const presets = serializeNormalizedCardioPresetState(rawCardioPresets);
+      const presetId = typeof draft.cardioPresetId === "string" ? draft.cardioPresetId.trim() : "";
+      if (!presetId || presets.defaultId !== presetId) return false;
+      const preset = presets.items.find(item => item.id === presetId);
+      if (!preset) return false;
+      if (String(draft.cardioPresetName || "") !== preset.name) return false;
+      if (draft.todayCardioType !== preset.cardioType) return false;
+      return [
+        [draft.todayCardioDuration, preset.cardioDuration],
+        [draft.todayCardioSpeed, preset.cardioSpeed],
+        [draft.todayCardioIncline, preset.cardioIncline]
+      ].every(([draftValue, presetValue]) => (
+        Number.isFinite(Number(draftValue))
+        && Number.isFinite(Number(presetValue))
+        && Math.abs(Number(draftValue) - Number(presetValue)) <= 0.000000001
+      ));
+    }
+
     function serializeCurrentTodayCalculationDraftsForBackup(raw = todayCalculationDrafts, context = {}){
       const normalized = normalizeTodayCalculationDraftCollection(raw || {}, context);
       return Object.entries(normalized).reduce((acc, [date, draft]) => {
@@ -18772,7 +18838,8 @@ Notes:
         if (
           serialized.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_INBODY &&
           serialized.bodyStatusLoadType === TODAY_BODY_STATUS_LOAD_AUTO &&
-          serialized.bodyStatusEdited !== true
+          serialized.bodyStatusEdited !== true &&
+          hasMatchingAutomaticInbodySource(serialized, context.inbodyRecords, date)
         ) {
           TODAY_BODY_STATUS_DRAFT_FIELDS.forEach(field => delete serialized[field]);
           delete serialized.bodyStatusSource;
@@ -18782,7 +18849,8 @@ Notes:
         }
         if (
           serialized.cardioSource === TODAY_CARDIO_SOURCE_DEFAULT_PRESET &&
-          serialized.cardioEdited !== true
+          serialized.cardioEdited !== true &&
+          hasMatchingAutomaticCardioPresetSource(serialized, context.cardioPresets)
         ) {
           TODAY_CARDIO_DRAFT_FIELDS.forEach(field => delete serialized[field]);
           TODAY_CARDIO_SOURCE_DRAFT_FIELDS.forEach(field => delete serialized[field]);
@@ -19278,6 +19346,8 @@ Notes:
         weeklyTrainingDaysManual,
         weeklyTrainingDays
       });
+      const inbodyRecords = normalizeInbodyRecordCollection(state.inbodyRecords);
+      const cardioPresets = serializeCardioPresetState();
       return {
         app: "macro-engine",
         kind: FULL_BACKUP_KIND,
@@ -19288,12 +19358,14 @@ Notes:
           onboardingCompletedVersion: ONBOARDING_VERSION,
           settings,
           records,
-          inbodyRecords: normalizeInbodyRecordCollection(state.inbodyRecords),
-          cardioPresets: serializeCardioPresetState(),
+          inbodyRecords,
+          cardioPresets,
           mealTemplates: serializeMealTemplateState(),
           todayCalculationValues: serializeTodayCalculationDrafts({
             exerciseProfile: settings.exerciseProfile,
-            cardioType: settings.cardioType
+            cardioType: settings.cardioType,
+            inbodyRecords,
+            cardioPresets
           }),
           weeklyTrainingState: {
             weeklyTrainingDaysManual,
@@ -19389,7 +19461,9 @@ Notes:
       const mealTemplates = serializeNormalizedMealTemplateState(parsed.data.mealTemplates);
       const todayCalculationValues = serializeCurrentTodayCalculationDraftsForBackup(parsed.data.todayCalculationValues, {
         exerciseProfile: settings.exerciseProfile,
-        cardioType: settings.cardioType
+        cardioType: settings.cardioType,
+        inbodyRecords,
+        cardioPresets
       });
       const weeklyTrainingState = normalizeWeeklyTrainingBackup(parsed.data.weeklyTrainingState, settings);
       const currentDate = getTodayDateString();
@@ -19739,21 +19813,26 @@ Notes:
       });
     }
 
-    async function getRememberedBackupDirectoryHandle(){
-      if (!supportsBackupDirectoryMemory()) return null;
+    async function readRememberedBackupDirectoryHandle(){
+      if (!supportsBackupDirectoryMemory()) return { ok: true, handle: null };
       let db = null;
       try {
         db = await openBackupDirectoryDb();
         const transaction = db.transaction(BACKUP_DIRECTORY_STORE, "readonly");
         const handle = await idbRequestToPromise(transaction.objectStore(BACKUP_DIRECTORY_STORE).get(BACKUP_DIRECTORY_KEY));
         await idbTransactionDone(transaction);
-        return handle || null;
+        return { ok: true, handle: handle || null };
       } catch (error) {
         console.warn("Could not read remembered backup folder.", error);
-        return null;
+        return { ok: false, handle: null, error };
       } finally {
         if (db) db.close();
       }
+    }
+
+    async function getRememberedBackupDirectoryHandle(){
+      const result = await readRememberedBackupDirectoryHandle();
+      return result.ok ? result.handle : null;
     }
 
     async function setRememberedBackupDirectoryHandle(handle){
@@ -19774,7 +19853,7 @@ Notes:
     }
 
     async function clearRememberedBackupDirectoryHandle(){
-      if (!supportsBackupDirectoryMemory()) return false;
+      if (!supportsBackupDirectoryMemory()) return true;
       let db = null;
       try {
         db = await openBackupDirectoryDb();
@@ -19827,8 +19906,12 @@ Notes:
       if (!dataManagementState.backupDirectorySupported) {
         dataManagementState.backupDirectoryName = null;
       } else {
-        const handle = await getRememberedBackupDirectoryHandle();
-        dataManagementState.backupDirectoryName = handle?.name || null;
+        const result = await readRememberedBackupDirectoryHandle();
+        if (!result.ok) {
+          if (renderStatus) renderBackupDirectoryStatus();
+          return dataManagementState.backupDirectoryName;
+        }
+        dataManagementState.backupDirectoryName = result.handle?.name || null;
       }
       if (renderStatus) renderBackupDirectoryStatus();
       return dataManagementState.backupDirectoryName;
@@ -19884,11 +19967,17 @@ Notes:
     }
 
     async function clearBackupExportDirectory(){
-      await clearRememberedBackupDirectoryHandle();
+      const cleared = await clearRememberedBackupDirectoryHandle();
+      if (!cleared) {
+        setDataManagementFeedback("bad", "백업 저장 폴더 연결을 해제하지 못했습니다. 연결은 그대로 유지되며 다시 시도할 수 있습니다.");
+        renderDataManagementPanel();
+        return { cleared: false };
+      }
       dataManagementState.backupDirectoryName = null;
       dataManagementState.backupDirectorySupported = supportsBackupDirectoryMemory();
       setDataManagementFeedback("ok", "지정한 백업 저장 폴더를 해제했습니다.");
       renderDataManagementPanel();
+      return { cleared: true };
     }
 
     function buildSaveFilePickerOptions(filename, description = "JSON 파일", extension = ".json", mimeType = "application/json", pickerId = BACKUP_SAVE_PICKER_ID){
@@ -20779,27 +20868,51 @@ Notes:
     }
 
     function resetState(options = {}){
-      Object.keys(DEFAULT_STATE).forEach(key => localStorage.removeItem(storageKey(key)));
-      localStorage.removeItem(storageKey(ONBOARDING_STORAGE_KEY));
-      localStorage.removeItem(storageKey("activeTab"));
-      localStorage.removeItem(storageKey("records"));
-      localStorage.removeItem(storageKey("inbodyRecords"));
-      localStorage.removeItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY));
-      localStorage.removeItem(storageKey(CARDIO_PRESET_STORAGE_KEY));
-      localStorage.removeItem(storageKey(MEAL_TEMPLATE_STORAGE_KEY));
+      if (options.storageAlreadyCleared !== true) {
+        Object.keys(DEFAULT_STATE).forEach(key => localStorage.removeItem(storageKey(key)));
+        localStorage.removeItem(storageKey(ONBOARDING_STORAGE_KEY));
+        localStorage.removeItem(storageKey("activeTab"));
+        localStorage.removeItem(storageKey("records"));
+        localStorage.removeItem(storageKey("inbodyRecords"));
+        localStorage.removeItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY));
+        localStorage.removeItem(storageKey(CARDIO_PRESET_STORAGE_KEY));
+        localStorage.removeItem(storageKey(MEAL_TEMPLATE_STORAGE_KEY));
+        localStorage.removeItem(storageKey("lastBackupAt"));
+        localStorage.removeItem(storageKey("lastFullBackupAt"));
+      }
       todayCalculationDrafts = {};
       cardioPresetState = normalizeCardioPresetState();
       mealTemplateState = normalizeMealTemplateState();
-      Object.assign(state, { ...DEFAULT_STATE, renderedRoutineKey: "", renderedGoalKey: "" });
+      Object.assign(state, { ...createDefaultRuntimeState(), renderedRoutineKey: "", renderedGoalKey: "" });
       uiState.activeTab = "today";
       uiState.selectedMacroBasis = "guide";
+      uiState.recordsMealsExpanded = false;
+      uiState.recordsDetailDate = null;
+      uiState.recordsDetailEditMode = false;
+      uiState.recordsDetailDraft = null;
+      uiState.recordsDetailWeeklyTrainingDaysDirty = false;
+      uiState.recordsDetailOpenSections = {};
+      uiState.recordsDateFollowsToday = true;
+      uiState.inbodyView = "summary";
+      uiState.inbodyTrendSelectedDates = null;
+      uiState.inbodyEditOriginalDate = null;
       recordsState.items = [];
       recordsState.feedback = null;
       uiState.inbodyCollectionIssue = null;
+      recordMealEditState = null;
+      lastMealMutationContext = null;
+      recordInfoEditState = null;
+      recordStartDialogContext = { source: "today", date: null };
+      mealReuseDialogContext = null;
+      cardioPresetDialogOpen = false;
+      pendingInbodyTodayApplyChoice = null;
+      pendingRecordWeightTodayApplyChoice = null;
+      pendingRecentFlowRecordOpenDate = null;
       dataManagementState.feedback = null;
       dataManagementState.pendingImport = null;
       dataManagementState.backupDirectoryName = null;
       dataManagementState.backupDirectorySupported = null;
+      showGlobalDataActionFeedback("", "");
       state.weeklyTrainingDaysManual = false;
       state.weeklyTrainingDays = getRecentWeightTrainingDayCount();
       state.routineWeekdaySchedule = {};
@@ -20816,6 +20929,19 @@ Notes:
       onboardingUiState.draft = buildOnboardingDraft({ classification: evidence.classification });
       onboardingUiState.needsPopulate = true;
       onboardingUiState.completionOwnershipSnapshot = null;
+      resetInbodyInputForm();
+      resetCardioPresetForm();
+      ids.recordDate.value = getTodayDateString();
+      ids.recordWeight.value = "";
+      ids.recordAdherence.value = "medium";
+      ids.recordNote.value = "";
+      ids.mealLabel.value = MEAL_LABEL_OPTIONS[0];
+      ids.mealCarbs.value = "";
+      ids.mealProtein.value = "";
+      ids.mealFat.value = "";
+      ids.mealAlcoholKcal.value = "";
+      ids.mealOtherKcal.value = "";
+      ids.mealMemo.value = "";
       if (evidence.completed) {
         applyStateToInputs();
         populateRecordInputsFromToday();
@@ -21657,6 +21783,14 @@ Notes:
         nonMacroKcal,
         totalKcal: macroKcal + nonMacroKcal
       };
+    }
+
+    function hasMealNutritionEvidence(meal = {}){
+      return calculateMealEnergy(meal).totalKcal > 0;
+    }
+
+    function hasRecordNutritionEvidence(record = {}){
+      return normalizeMeals(record?.meals || []).some(hasMealNutritionEvidence);
     }
 
     function analyzeMealDistribution(meals = []){
@@ -25053,16 +25187,48 @@ Notes:
     }
 
     function deleteCardioPreset(id){
+      const preset = getCardioPresetById(id);
+      if (!preset) {
+        setCardioPresetFeedback("삭제할 유산소 프리셋을 찾지 못했습니다.", "warn");
+        renderCardioPresetSettings();
+        return { deleted: false, reason: "missing_preset" };
+      }
       const before = cardioPresetState.items.length;
       cardioPresetState.items = cardioPresetState.items.filter(item => item.id !== id);
       if (cardioPresetState.defaultId === id) cardioPresetState.defaultId = null;
       if (cardioPresetState.editingId === id) resetCardioPresetForm();
       if (cardioPresetState.items.length !== before) {
         saveCardioPresets();
-        setCardioPresetFeedback("유산소 프리셋을 삭제했습니다.", "");
+        setCardioPresetFeedback(`“${preset.name}” 유산소 프리셋을 삭제했습니다. 이미 Today에 적용된 값은 유지됩니다.`, "ok");
       }
       renderCardioPresetSettings();
       renderTodayCardioPresetControls();
+      return { deleted: cardioPresetState.items.length !== before, preset };
+    }
+
+    function getCardioPresetDeleteConfirmMessage(preset){
+      if (!preset) return "";
+      const defaultCopy = cardioPresetState.defaultId === preset.id
+        ? "기본 프리셋 지정도 함께 해제되며, 새 날짜에는 더 이상 자동 적용되지 않습니다. "
+        : "";
+      return [
+        `“${preset.name}” 유산소 프리셋을 삭제할까요?`,
+        `${defaultCopy}이미 Today에 적용된 값은 삭제되지 않고 유지됩니다.`,
+        "삭제한 프리셋은 되돌릴 수 없습니다."
+      ].join("\n\n");
+    }
+
+    function requestDeleteCardioPreset(id, opener = null){
+      const preset = getCardioPresetById(id);
+      if (!preset) return deleteCardioPreset(id);
+      const message = getCardioPresetDeleteConfirmMessage(preset);
+      if (!window.confirm(message)) {
+        if (opener?.isConnected) opener.focus({ preventScroll: true });
+        return { deleted: false, reason: "cancelled", preset, message };
+      }
+      const result = deleteCardioPreset(id);
+      window.requestAnimationFrame(() => document.getElementById("cardioPresetFeedback")?.focus({ preventScroll: false }));
+      return { ...result, message };
     }
 
     function toggleDefaultCardioPreset(id){
@@ -25101,7 +25267,7 @@ Notes:
             <div class="cardio-preset-row-actions">
               <button class="secondary-btn" type="button" data-cardio-preset-default="${escapeHtml(preset.id)}">${isDefault ? "기본 해제" : "기본 지정"}</button>
               <button class="secondary-btn" type="button" data-cardio-preset-edit="${escapeHtml(preset.id)}">수정</button>
-              <button class="secondary-btn" type="button" data-cardio-preset-delete="${escapeHtml(preset.id)}">삭제</button>
+              <button class="secondary-btn" type="button" data-cardio-preset-delete="${escapeHtml(preset.id)}" aria-label="${escapeHtml(`${preset.name} 유산소 프리셋 삭제`)}">삭제</button>
             </div>
           </div>
         `;
@@ -25825,6 +25991,7 @@ Notes:
           && record.adherenceSource === "manual";
       }
       return record.recordMode === "detailed"
+        && hasRecordNutritionEvidence(record)
         && Number.isFinite(normalizeAdherencePercent(record.adherencePercent))
         && record.adherenceSource === "auto"
         && normalizeAdherenceScoringVersion(record.adherenceScoringVersion) === ADHERENCE_SCORING_VERSION
@@ -26814,6 +26981,24 @@ Notes:
       dataManagementState.feedback = message ? { tone, message } : null;
     }
 
+    function showGlobalDataActionFeedback(tone, message){
+      const host = document.getElementById("globalDataActionFeedback");
+      if (!host) return;
+      host.innerHTML = message
+        ? `<div class="${tone === "ok" ? "notice" : `warn ${tone || "warn"}`}"><h4>${tone === "ok" ? "데이터 안내" : "삭제 중단"}</h4><ul><li>${escapeHtml(message)}</li></ul></div>`
+        : "";
+      setFeedbackLiveMode(host, tone || "", !!message);
+      if (message && tone !== "ok") {
+        host.setAttribute("tabindex", "-1");
+      } else {
+        host.removeAttribute("tabindex");
+      }
+    }
+
+    function focusGlobalDataActionFeedback(){
+      document.getElementById("globalDataActionFeedback")?.focus({ preventScroll: false });
+    }
+
     function formatDataManagementFeedbackHtml(){
       const feedback = dataManagementState.feedback;
       if (!feedback) return "";
@@ -27026,7 +27211,10 @@ Notes:
     function renderDataManagementPanel(){
       const feedbackHost = document.getElementById("dataManagementFeedback");
       const previewHost = document.getElementById("dataImportPreviewHost");
-      if (feedbackHost) feedbackHost.innerHTML = formatDataManagementFeedbackHtml();
+      if (feedbackHost) {
+        feedbackHost.innerHTML = formatDataManagementFeedbackHtml();
+        setFeedbackLiveMode(feedbackHost, dataManagementState.feedback?.tone || "", !!dataManagementState.feedback);
+      }
       if (previewHost) previewHost.innerHTML = "";
       renderBackupDirectoryStatus();
       refreshBackupDirectoryStatus(true);
@@ -27095,6 +27283,15 @@ Notes:
       bodyHost.querySelector("[data-confirm-data-import]")?.focus();
     }
 
+    function markFullBackupCreated(timestamp = new Date().toISOString()){
+      try {
+        localStorage.setItem(storageKey("lastFullBackupAt"), timestamp);
+        return true;
+      } catch (_error) {
+        return false;
+      }
+    }
+
     async function exportFullBackupJson(){
       const payload = buildFullBackupPayload();
       const result = await downloadJsonFile(payload, `macro-engine-full-backup-${getTodayDateString()}.json`);
@@ -27103,8 +27300,14 @@ Notes:
         renderDataManagementPanel();
         return;
       }
-      setDataManagementFeedback("ok", result.method === "directory" ? "지정한 폴더에 전체 백업 파일을 저장했습니다." : result.method === "picker" ? "선택한 위치에 전체 백업 파일을 저장했습니다." : "전체 백업 파일을 만들었습니다.");
+      const markerSaved = markFullBackupCreated();
+      const successMessage = result.method === "directory" ? "지정한 폴더에 전체 백업 파일을 저장했습니다." : result.method === "picker" ? "선택한 위치에 전체 백업 파일을 저장했습니다." : "전체 백업 파일을 만들었습니다.";
+      setDataManagementFeedback(
+        markerSaved ? "ok" : "warn",
+        markerSaved ? successMessage : `${successMessage} 다만 이 브라우저의 백업 권장 상태는 갱신하지 못했습니다.`
+      );
       renderDataManagementPanel();
+      renderRecordsPanel();
     }
 
     function queueDataManagementImport(parsed){
@@ -27162,6 +27365,7 @@ Notes:
         TODAY_CALCULATION_DRAFT_STORAGE_KEY,
         todayEntries.length ? JSON.stringify(Object.fromEntries(todayEntries)) : null
       );
+      setRestoreStorageEntry(entries, "lastFullBackupAt", data.createdAt);
       return entries;
     }
 
@@ -27188,7 +27392,12 @@ Notes:
     }
 
     function commitRestoreStorageEntriesAtomically(entries){
-      const before = new Map([...entries.keys()].map(key => [key, localStorage.getItem(key)]));
+      let before;
+      try {
+        before = new Map([...entries.keys()].map(key => [key, localStorage.getItem(key)]));
+      } catch (error) {
+        return { committed: false, entries, before: new Map(), error, rollbackErrors: [], captureFailed: true };
+      }
       try {
         entries.forEach((value, key) => {
           if (value === null) localStorage.removeItem(key);
@@ -27467,7 +27676,8 @@ Notes:
       mealTemplateState = normalizeMealTemplateState(data.mealTemplates || {});
       todayCalculationDrafts = normalizeTodayCalculationDraftCollection(data.todayCalculationValues || {}, {
         exerciseProfile: settings.exerciseProfile,
-        cardioType: settings.cardioType
+        cardioType: settings.cardioType,
+        inbodyRecords: state.inbodyRecords
       });
       Object.assign(state, settings, { renderedRoutineKey: "", renderedGoalKey: "" });
       recordsState.items = restoredRecords;
@@ -27519,7 +27729,8 @@ Notes:
         mealTemplates: normalizeMealTemplateState(data.mealTemplates || {}),
         todayCalculationValues: normalizeTodayCalculationDraftCollection(data.todayCalculationValues || {}, {
           exerciseProfile: settings.exerciseProfile,
-          cardioType: settings.cardioType
+          cardioType: settings.cardioType,
+          inbodyRecords: normalizeInbodyRecordCollection(data.inbodyRecords || [])
         }),
         weeklyTrainingState,
         onboardingCompletedVersion: ONBOARDING_VERSION
@@ -28095,13 +28306,12 @@ Notes:
       }, 0);
     }
 
-    function formatMealReuseDate(date){
+    function formatMealReuseDate(date, todayDate = getTodayDateString()){
       const normalized = normalizeDateString(date);
       if (!normalized) return "";
-      if (normalized === getTodayDateString()) return "오늘";
-      const yesterday = new Date(`${getTodayDateString()}T00:00:00`);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayText = yesterday.toISOString().slice(0, 10);
+      const today = normalizeDateString(todayDate) || getTodayDateString();
+      if (normalized === today) return "오늘";
+      const yesterdayText = shiftDateString(today, -1);
       if (normalized === yesterdayText) return "어제";
       return normalized.slice(5);
     }
@@ -28150,7 +28360,7 @@ Notes:
           </div>
           <div class="meal-reuse-card-actions">
             <button class="primary-btn" type="button" data-apply-meal-template>입력칸에 불러오기</button>
-            <button class="secondary-btn meal-template-delete" type="button" data-delete-meal-template>삭제</button>
+            <button class="secondary-btn meal-template-delete" type="button" data-delete-meal-template aria-label="${escapeHtml(`${template.name} 저장한 식사 삭제`)}">삭제</button>
           </div>
         </div>
       `;
@@ -28161,9 +28371,8 @@ Notes:
       if (!list) return;
       const candidates = getRecentReusableMealCandidates(8);
       const templates = mealTemplateState.items || [];
-      const feedback = mealTemplateState.feedback
-        ? `<div class="meal-reuse-empty">${escapeHtml(mealTemplateState.feedback)}</div>`
-        : "";
+      const feedbackHost = document.getElementById("mealTemplateFeedback");
+      if (feedbackHost) feedbackHost.textContent = mealTemplateState.feedback || "";
       const templateSection = `
         <section class="meal-reuse-section" aria-label="저장한 식사">
           <h4 class="meal-reuse-section-title">저장한 식사 <span>${templates.length}개</span></h4>
@@ -28176,7 +28385,7 @@ Notes:
           ${candidates.length ? candidates.map(renderMealReuseCard).join("") : `<div class="meal-reuse-empty">아직 불러올 식사 기록이 없습니다. 식사를 저장하면 다음부터 재사용할 수 있습니다.</div>`}
         </section>
       `;
-      list.innerHTML = `${feedback}${templateSection}${recentSection}`;
+      list.innerHTML = `${templateSection}${recentSection}`;
     }
 
     function openMealReuseDialog(context = "record-direct"){
@@ -28285,12 +28494,37 @@ Notes:
     }
 
     function deleteMealTemplate(templateId){
+      const template = getMealTemplateById(templateId);
       const before = mealTemplateState.items.length;
       mealTemplateState.items = mealTemplateState.items.filter(item => item.id !== templateId);
-      mealTemplateState.feedback = before === mealTemplateState.items.length ? "삭제할 식사를 찾지 못했습니다." : "저장한 식사를 삭제했습니다.";
+      mealTemplateState.feedback = before === mealTemplateState.items.length
+        ? "삭제할 저장 식사를 찾지 못했습니다."
+        : `“${template?.name || "저장한 식사"}” 저장 바로가기를 삭제했습니다. 기존 Records 식사는 유지됩니다.`;
       saveMealTemplates();
       renderMealReuseList();
-      return { deleted: before !== mealTemplateState.items.length };
+      return { deleted: before !== mealTemplateState.items.length, template };
+    }
+
+    function getMealTemplateDeleteConfirmMessage(template){
+      if (!template) return "";
+      return [
+        `“${template.name}” 저장한 식사를 삭제할까요?`,
+        "저장 바로가기만 삭제되며, 이미 Records에 저장한 식사와 현재 입력칸에 불러온 값은 삭제되지 않고 유지됩니다.",
+        "삭제한 저장 식사는 되돌릴 수 없습니다."
+      ].join("\n\n");
+    }
+
+    function requestDeleteMealTemplate(templateId, opener = null){
+      const template = getMealTemplateById(templateId);
+      if (!template) return deleteMealTemplate(templateId);
+      const message = getMealTemplateDeleteConfirmMessage(template);
+      if (!window.confirm(message)) {
+        if (opener?.isConnected) opener.focus({ preventScroll: true });
+        return { deleted: false, reason: "cancelled", template, message };
+      }
+      const result = deleteMealTemplate(templateId);
+      window.requestAnimationFrame(() => document.getElementById("mealTemplateFeedback")?.focus({ preventScroll: false }));
+      return { ...result, message };
     }
 
     function getCopyableMealList(record){
@@ -30424,6 +30658,7 @@ Notes:
       const currentResult = context.currentResult || calculate();
       const balance = context.balance || getTodayMacroBalance(currentResult);
       const mealCount = Number(balance?.mealCount || 0);
+      const userCompleted = context.mealContext?.userCompleted === true;
       const coreChecks = [
         Number.isFinite(currentState.weight) && currentState.weight > 0,
         Number.isFinite(currentState.height) && currentState.height > 0,
@@ -30442,10 +30677,10 @@ Notes:
       } else if (!currentResult?.isCalculable) {
         severity = 1;
         reasonCode = "data_quality_goal_unavailable";
-      } else if (mealCount <= 1) {
+      } else if (!userCompleted && mealCount <= 1) {
         severity = 2;
         reasonCode = mealCount === 0 ? "data_quality_no_meals" : "data_quality_low_meal_count";
-      } else if (mealCount === 2 || !balance?.isGoalAvailable) {
+      } else if ((!userCompleted && mealCount === 2) || !balance?.isGoalAvailable) {
         severity = 1;
         reasonCode = mealCount === 2 ? "data_quality_partial_meals" : "data_quality_partial_inputs";
       }
@@ -30605,6 +30840,10 @@ Notes:
       const date = normalizeDateString(balance?.date) || getTodayDateString();
       const record = getRecordByDate(date);
       const meals = normalizeMeals(record?.meals || []);
+      const userCompleted = isCompletedDetailedEvidence(record);
+      const storedScore = userCompleted && Number.isFinite(record?.adherencePercent)
+        ? clamp(record.adherencePercent, 0, 100)
+        : null;
       const mutation = lastMealMutationContext?.occurredThisSession === true && lastMealMutationContext.date === date
         ? lastMealMutationContext
         : null;
@@ -30615,7 +30854,9 @@ Notes:
         date,
         mealCount: meals.length,
         hasMeals: meals.length > 0,
-        confidence: meals.length === 0 ? "none" : (meals.length === 1 ? "low" : (meals.length === 2 ? "medium" : "high")),
+        userCompleted,
+        storedScore,
+        confidence: userCompleted ? "confirmed" : (meals.length === 0 ? "none" : (meals.length === 1 ? "low" : (meals.length === 2 ? "medium" : "high"))),
         lastMutation: mutationMeal ? {
           mealId: mutation.mealId,
           mutationType: mutation.mutationType,
@@ -30927,7 +31168,7 @@ Notes:
         available: !!balance && typeof balance === "object",
         renderingEligible: context.semanticCoach === true || Object.prototype.hasOwnProperty.call(context, "adherenceResult"),
         score,
-        mealContext: getDailyCoachMealContext(balance),
+        mealContext: context.mealContext || getDailyCoachMealContext(balance),
         recentPattern,
         adaptiveAllocation: getDailyCoachAdaptiveAllocationEvidence(balance, currentResult, recentPattern),
         trainingContext: getDailyCoachTrainingContext(currentState, currentResult),
@@ -30994,6 +31235,7 @@ Notes:
         reasonCode: otherKcalImpact.isHeavy ? "other_kcal_heavy" : "other_kcal_ok",
         otherKcalImpact
       };
+      const mealContext = context.mealContext || getDailyCoachMealContext(balance);
       const recoverySignal = buildPreviousRecoverySignal(previousDayContext, alcoholImpact, balance, proteinSignal);
       const previousOverIntakeSignal = buildPreviousOverIntakeSignal(previousDayContext, balance);
       const trainingSignal = getTrainingSignal({
@@ -31008,13 +31250,15 @@ Notes:
         ...context,
         state: currentState,
         currentResult,
-        balance
+        balance,
+        mealContext
       });
       const semanticEvidence = buildDailyCoachSemanticEvidence({
         ...context,
         currentResult,
         balance,
-        state: currentState
+        state: currentState,
+        mealContext
       });
       return {
         calorieSignal,
@@ -33110,6 +33354,22 @@ Notes:
 
     function buildDailyCoachDataConfidenceItem(evidence, dataQualitySignal){
       const mealContext = evidence?.mealContext;
+      if (mealContext?.userCompleted && Number.isFinite(mealContext.storedScore)) {
+        const score = Math.round(clamp(mealContext.storedScore, 0, 100));
+        return createDailyCoachSemanticItem({
+          key: "completionStatus",
+          status: "confirmed",
+          pressure: 0,
+          priority: 90,
+          decisionType: "user_completed_stored_score_semantic",
+          claimScope: "completion_context",
+          state: `오늘 식사 기록을 완료했고 ${score}점으로 저장했어요.`,
+          reason: "오늘 먹은 내용을 모두 기록했다고 확인한 상태입니다.",
+          action: "세부 내용은 오늘의 식단 점수와 Records에 저장된 식사를 함께 확인해 주세요.",
+          actionTopics: ["recording", "stored_score"],
+          evidence: mealContext
+        });
+      }
       if (mealContext?.mealCount === 0) {
         return createDailyCoachSemanticItem({
           key: "dataQuality",
@@ -33218,10 +33478,11 @@ Notes:
       if (!evidence?.available || evidence.renderingEligible !== true) return null;
       const items = [];
       const dataItem = buildDailyCoachDataConfidenceItem(evidence, signals?.dataQualitySignal);
-      if (dataItem) items.push(dataItem);
+      const completionItem = dataItem?.claimScope === "completion_context" ? dataItem : null;
+      if (dataItem && !completionItem) items.push(dataItem);
       const alcoholItem = buildDailyCoachAlcoholItem(evidence);
       if (alcoholItem) items.push(alcoholItem);
-      if (dataItem && evidence.mealContext?.mealCount <= 1) {
+      if (dataItem?.claimScope === "data_confidence" && evidence.mealContext?.mealCount <= 1) {
         return finalizeDailyCoachSemanticItems(items, supportingContextItems);
       }
       items.push(...buildDailyCoachCurrentProblemItems(evidence));
@@ -33249,7 +33510,11 @@ Notes:
           evidence: evidence.score
         }));
       }
-      return finalizeDailyCoachSemanticItems(items, supportingContextItems);
+      const supportingItems = [
+        ...(Array.isArray(supportingContextItems) ? supportingContextItems : [supportingContextItems]),
+        completionItem
+      ].filter(Boolean);
+      return finalizeDailyCoachSemanticItems(items, supportingItems);
     }
 
     function selectDailyCoachSignals(signals){
@@ -35531,6 +35796,9 @@ Notes:
       if (!Array.isArray(record.meals) || !record.meals.length) {
         return { ok: false, reason: "meals_unavailable", record };
       }
+      if (!hasRecordNutritionEvidence(record)) {
+        return { ok: false, reason: "nutrition_unavailable", record };
+      }
       const snapshot = normalizeGoalSnapshot(record.goalSnapshot);
       if (!snapshot) return { ok: false, reason: "stored_goal_unavailable", record };
       const replay = withRecordDetailTemporaryBasis(snapshot, (_safeBasis, calculationDate) => {
@@ -35679,6 +35947,7 @@ Notes:
         record_unavailable: "완료할 기록을 찾지 못했습니다.",
         record_mode_not_detailed: "상세 식사 기록만 하루 완료로 확정할 수 있습니다.",
         meals_unavailable: "식사를 한 건 이상 저장한 뒤 기록을 완료해 주세요.",
+        nutrition_unavailable: "점수를 완료하려면 탄수화물·단백질·지방·알코올·기타 칼로리 중 하나가 있는 식사를 기록해 주세요.",
         stored_goal_unavailable: "저장된 계산 기준을 먼저 확인해 주세요.",
         stored_score_unavailable: "저장된 계산 기준으로 점수를 만들 수 없습니다. 입력값을 확인해 주세요.",
         invalid_completion_candidate: "완료할 기록의 점수 근거를 확인해 주세요.",
@@ -36128,9 +36397,9 @@ Notes:
       return value.toFixed(digits);
     }
 
-    function getLatestInbodyForTodayInput(date = getTodayDateString()){
+    function getLatestInbodyForTodayInputFromRecords(rawRecords = [], date = getTodayDateString()){
       const targetDate = normalizeDateString(date) || getTodayDateString();
-      const records = normalizeInbodyRecordCollection(state.inbodyRecords, { todayDate: targetDate });
+      const records = normalizeInbodyRecordCollection(Array.isArray(rawRecords) ? rawRecords : [], { todayDate: targetDate });
       const candidates = records
         .map((item, index) => ({
           ...item,
@@ -36152,6 +36421,10 @@ Notes:
           return dateOrder || a.index - b.index;
         });
       return candidates.length ? candidates[candidates.length - 1] : null;
+    }
+
+    function getLatestInbodyForTodayInput(date = getTodayDateString()){
+      return getLatestInbodyForTodayInputFromRecords(state.inbodyRecords, date);
     }
 
     function applyInbodyRecordToTodayBodyStatus(record, options = {}){
@@ -36823,7 +37096,11 @@ Notes:
 
     function getRecordDeleteConfirmMessage(date){
       const label = normalizeDateString(date) || String(date || "선택한 날짜");
-      return `${label} 기록을 삭제할까요?\n삭제한 기록은 되돌릴 수 없습니다.`;
+      const inbodyCount = getInbodyRecordCountForDate(label);
+      const inbodyNotice = inbodyCount > 0
+        ? `\n같은 날짜의 InBody 측정 기록 ${inbodyCount}건은 유지됩니다.`
+        : "";
+      return `${label}의 식사·체중·메모 기록을 삭제할까요?${inbodyNotice}\n삭제한 Records 기록은 되돌릴 수 없습니다.`;
     }
 
     function confirmRecordDelete(date){
@@ -36831,6 +37108,7 @@ Notes:
     }
 
     function deleteRecord(date){
+      const inbodyCount = getInbodyRecordCountForDate(date);
       recordsState.items = normalizeRecordsCollection(recordsState.items.filter(item => normalizeRecord(item).date !== date));
       clearLastMealMutationContext(date);
       if (normalizeDateString(uiState.recordsDetailDate) === normalizeDateString(date)) {
@@ -36839,7 +37117,12 @@ Notes:
         uiState.recordsDetailDraft = null;
       }
       if (getSelectedRecordDate() === normalizeDateString(date)) syncRecordInputsForDate(date);
-      setRecordFeedback("ok", `${date} 기록을 삭제했습니다.`);
+      setRecordFeedback(
+        "ok",
+        inbodyCount > 0
+          ? `${date}의 식사·체중·메모 기록을 삭제했습니다. 같은 날짜의 InBody 측정 기록 ${inbodyCount}건은 유지했습니다.`
+          : `${date}의 식사·체중·메모 기록을 삭제했습니다.`
+      );
       render();
     }
 
@@ -36870,9 +37153,120 @@ Notes:
         render();
         return;
       }
-      localStorage.setItem(storageKey("lastBackupAt"), new Date().toISOString());
       setDataManagementFeedback("ok", result.method === "directory" ? "지정한 폴더에 기록 백업 파일을 저장했습니다. 설정과 Today 계산값은 포함되지 않습니다." : result.method === "picker" ? "선택한 위치에 기록 백업 파일을 저장했습니다. 설정과 Today 계산값은 포함되지 않습니다." : "기록 중심 파일을 만들었습니다. 설정과 Today 계산값은 포함되지 않습니다.");
       render();
+    }
+
+    function buildAllUserDataDeletionStorageEntries(){
+      return new Map(Object.keys(snapshotPrefixedStorage()).map(key => [key, null]));
+    }
+
+    function restorePrefixedStorageAtomically(snapshot = {}){
+      const keys = new Set([...Object.keys(snapshotPrefixedStorage()), ...Object.keys(snapshot)]);
+      const entries = new Map([...keys].map(key => [
+        key,
+        Object.prototype.hasOwnProperty.call(snapshot, key) ? snapshot[key] : null
+      ]));
+      return commitRestoreStorageEntriesAtomically(entries);
+    }
+
+    function reportUserDataDeletionFailure(message){
+      showGlobalDataActionFeedback("bad", message);
+    }
+
+    const USER_DATA_DELETE_CONFIRM_MESSAGE = [
+      "전체 데이터를 삭제할까요?",
+      "기본 설정, Today 계산값, Records의 식사·체중·메모, InBody 측정 기록, 유산소 프리셋, 저장한 식사, 온보딩 완료 상태와 백업 저장 폴더 연결이 모두 삭제됩니다.",
+      "삭제한 데이터는 되돌릴 수 없습니다. 필요하면 먼저 전체 백업을 만들어 주세요."
+    ].join("\n\n");
+
+    async function deleteAllUserData(){
+      const directorySnapshot = await readRememberedBackupDirectoryHandle();
+      if (!directorySnapshot.ok) {
+        reportUserDataDeletionFailure("백업 저장 폴더 연결 상태를 확인하지 못해 전체 데이터 삭제를 시작하지 않았습니다. 잠시 후 다시 시도해 주세요.");
+        return { deleted: false, reason: "backup_directory_read_failed" };
+      }
+      const runtimeSnapshot = captureRestoreRuntimeSnapshot();
+      let storageSnapshot;
+      let transaction;
+      try {
+        storageSnapshot = snapshotPrefixedStorage();
+        transaction = commitRestoreStorageEntriesAtomically(buildAllUserDataDeletionStorageEntries());
+      } catch (error) {
+        reportUserDataDeletionFailure("브라우저 저장소를 읽지 못해 전체 데이터 삭제를 시작하지 않았습니다. 기존 데이터는 변경하지 않았으며 다시 시도할 수 있습니다.");
+        return { deleted: false, reason: "storage_read_failed", error };
+      }
+      if (!transaction.committed) {
+        reportUserDataDeletionFailure(
+          transaction.rollbackErrors.length
+            ? "브라우저 저장소를 지우지 못했고 일부 데이터도 복구하지 못했습니다. 이 화면을 닫지 말고 남은 데이터를 백업해 주세요."
+            : "브라우저 저장소를 지우지 못해 전체 데이터 삭제를 중단했습니다. 기존 데이터는 복구했으며 다시 시도할 수 있습니다."
+        );
+        return { deleted: false, reason: "storage_commit_failed", transaction };
+      }
+      const directoryCleared = await clearRememberedBackupDirectoryHandle();
+      if (!directoryCleared) {
+        const rollback = restorePrefixedStorageAtomically(storageSnapshot);
+        const rollbackErrors = rollback.committed ? [] : [rollback.error, ...rollback.rollbackErrors].filter(Boolean);
+        reportUserDataDeletionFailure(
+          rollbackErrors.length
+            ? "백업 저장 폴더 연결을 해제하지 못했고 일부 브라우저 저장소도 복구하지 못했습니다. 이 화면을 닫지 말고 전체 백업을 만든 뒤 다시 시도해 주세요."
+            : "백업 저장 폴더 연결을 해제하지 못해 전체 데이터 삭제를 중단했습니다. 기존 데이터는 그대로 유지했으며 다시 시도할 수 있습니다."
+        );
+        return { deleted: false, reason: "backup_directory_clear_failed", rollbackErrors };
+      }
+      let finalStorageSweep;
+      try {
+        finalStorageSweep = commitRestoreStorageEntriesAtomically(buildAllUserDataDeletionStorageEntries());
+      } catch (error) {
+        finalStorageSweep = { committed: false, error, rollbackErrors: [] };
+      }
+      if (!finalStorageSweep.committed) {
+        const rollback = restorePrefixedStorageAtomically(storageSnapshot);
+        const directoryRestored = directorySnapshot.handle
+          ? await setRememberedBackupDirectoryHandle(directorySnapshot.handle)
+          : true;
+        let runtimeRestored = true;
+        try {
+          restoreRuntimeSnapshot(runtimeSnapshot);
+        } catch (_restoreError) {
+          runtimeRestored = false;
+        }
+        reportUserDataDeletionFailure(
+          rollback.committed && directoryRestored && runtimeRestored
+            ? "삭제 처리 중 새 저장이 감지되어 전체 데이터 삭제를 중단하고 기존 상태로 되돌렸습니다. 다시 시도할 수 있습니다."
+            : "전체 데이터 삭제를 완료하지 못했고 일부 상태도 복구하지 못했습니다. 이 화면을 닫지 말고 남은 데이터를 백업해 주세요."
+        );
+        return {
+          deleted: false,
+          reason: "final_storage_sweep_failed",
+          transaction: finalStorageSweep,
+          rollback,
+          directoryRestored,
+          runtimeRestored
+        };
+      }
+      try {
+        resetState({ forceOnboarding: true, storageAlreadyCleared: true });
+        return { deleted: true, reason: null };
+      } catch (error) {
+        const rollback = restorePrefixedStorageAtomically(storageSnapshot);
+        const rollbackErrors = rollback.committed ? [] : [rollback.error, ...rollback.rollbackErrors].filter(Boolean);
+        const directoryRestored = directorySnapshot.handle
+          ? await setRememberedBackupDirectoryHandle(directorySnapshot.handle)
+          : true;
+        try {
+          restoreRuntimeSnapshot(runtimeSnapshot);
+        } catch (_restoreError) {
+          // The restored browser storage remains the recovery authority if rendering is unavailable.
+        }
+        reportUserDataDeletionFailure(
+          rollbackErrors.length || !directoryRestored
+            ? "전체 데이터 삭제를 완료하지 못했고 일부 상태도 복구하지 못했습니다. 이 화면을 닫지 말고 남은 데이터를 백업해 주세요."
+            : "전체 데이터 삭제를 완료하지 못해 기존 상태로 되돌렸습니다. 다시 시도할 수 있습니다."
+        );
+        return { deleted: false, reason: "runtime_reset_failed", error, rollbackErrors, directoryRestored };
+      }
     }
 
     function normalizeRecordsBackupPayload(parsed){
@@ -37698,6 +38092,7 @@ Notes:
       const mealCount = meals.length;
       const totals = getMealTotalsForDate(today);
       const completed = isCompletedDetailedEvidence(record);
+      const hasNutritionEvidence = hasRecordNutritionEvidence(record);
       host.dataset.recordLifecycle = completed ? RECORD_LIFECYCLE_COMPLETED : RECORD_LIFECYCLE_DRAFT;
       if (startButton.parentElement !== primaryHost) primaryHost.appendChild(startButton);
       const startLabel = startButton.querySelector("span");
@@ -37720,7 +38115,7 @@ Notes:
       host.innerHTML = `
         <div class="today-meal-filled">
           <strong>식사 ${mealCount}건 · ${completed ? "사용자 완료" : "작성 중"}</strong>
-          <p>${escapeHtml(latestMeals || "저장된 식사")} 기준으로 오늘 누적 섭취를 계산하고 있습니다.${completed ? " 저장된 점수를 기간 분석에 사용합니다." : " 현재 점수는 미리보기이며 완료 전에는 기간 분석에 사용하지 않습니다."}</p>
+          <p>${escapeHtml(latestMeals || "저장된 식사")} 기준으로 오늘 누적 섭취를 계산하고 있습니다.${completed ? " 저장된 점수를 기간 분석에 사용합니다." : (hasNutritionEvidence ? " 현재 점수는 미리보기이며 완료 전에는 기간 분석에 사용하지 않습니다." : " 메모만 저장된 상태라 영양값이 있는 식사를 기록하기 전에는 완료하거나 점수를 만들지 않습니다.")}</p>
           <div class="today-meal-compact">
             <div class="today-meal-stat"><div class="k">총칼로리</div><div class="v">${formatCompactMacroValue(totals.totalKcal, "kcal")}</div>${totalEnergyDetail ? `<div class="detail">${escapeHtml(totalEnergyDetail)}</div>` : ""}</div>
             <div class="today-meal-stat"><div class="k">탄수화물</div><div class="v">${formatCompactMacroValue(totals.carbs, "g")}</div></div>
@@ -37732,7 +38127,7 @@ Notes:
       `;
       const lifecycleAction = completed
         ? `<button class="secondary-btn" type="button" data-reopen-detailed-record="${escapeHtml(today)}" data-record-action-source="today">기록 다시 작성</button>`
-        : (record?.goalSnapshot
+        : (record?.goalSnapshot && hasNutritionEvidence
           ? `<button class="primary-btn" type="button" data-complete-detailed-record="${escapeHtml(today)}" data-record-action-source="today">오늘 기록 완료</button>`
           : "");
       secondaryHost.innerHTML = `${lifecycleAction}<button class="secondary-btn" type="button" data-open-today-record>기록 전체보기</button>`;
@@ -39423,10 +39818,11 @@ Notes:
       ];
       const shouldShowMacroSections = modeInfo.recordMode === "detailed";
       const isCompletedDetailed = isCompletedDetailedEvidence(detailRecord);
+      const hasNutritionEvidence = hasRecordNutritionEvidence(detailRecord);
       const detailEditActionLabel = modeInfo.recordMode === "detailed" && meals.length && !detailRecord.goalSnapshot
         ? "계산 기준 확인"
         : "수정하기";
-      const lifecycleAction = !isEditing && hasStoredRecord && modeInfo.recordMode === "detailed" && meals.length
+      const lifecycleAction = !isEditing && hasStoredRecord && modeInfo.recordMode === "detailed" && meals.length && hasNutritionEvidence
         ? (isCompletedDetailed
           ? `<button class="secondary-btn" type="button" data-reopen-detailed-record="${escapeHtml(detailRecord.date)}" data-record-action-source="records">다시 작성</button>`
           : (detailRecord.goalSnapshot
@@ -39453,7 +39849,7 @@ Notes:
                   <input class="record-detail-date-input" type="date" value="${escapeHtml(detailRecord.date)}" data-record-detail-date-picker aria-label="기록 날짜 선택">
                 </span>
                 <button class="secondary-btn" type="button" data-edit-record-date="${escapeHtml(detailRecord.date)}">${escapeHtml(detailEditActionLabel)}</button>
-                <button class="secondary-btn record-delete-action" type="button" data-delete-record="${escapeHtml(detailRecord.date)}" aria-label="${escapeHtml(`${dateLabel} 기록 삭제`)}" title="기록 삭제">기록 삭제</button>
+                <button class="secondary-btn record-delete-action" type="button" data-delete-record="${escapeHtml(detailRecord.date)}" aria-label="${escapeHtml(`${dateLabel} 식사·체중·메모 기록 삭제`)}" title="식사·체중·메모 기록 삭제">Records 기록 삭제</button>
               ` : ""}
             </div>
           </div>
@@ -39537,7 +39933,7 @@ Notes:
             </button>
             ${hasStoredRecord ? `
               <div class="record-archive-actions">
-                <button class="secondary-btn record-delete-action" type="button" data-delete-record="${escapeHtml(record.date)}" aria-label="${escapeHtml(`${dateLabel} 기록 삭제`)}" title="${escapeHtml(`${dateLabel} 기록 삭제`)}">
+                <button class="secondary-btn record-delete-action" type="button" data-delete-record="${escapeHtml(record.date)}" aria-label="${escapeHtml(`${dateLabel} 식사·체중·메모 기록 삭제`)}" title="${escapeHtml(`${dateLabel} 식사·체중·메모 기록 삭제`)}">
                   <span class="record-delete-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24" focusable="false"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>
                   </span>
@@ -40415,6 +40811,13 @@ Notes:
       }
     }
 
+    function shouldShowFullBackupNudge(records = getSortedRecords(), lastFullBackupAt = localStorage.getItem(storageKey("lastFullBackupAt")), now = Date.now()){
+      const sortedRecords = Array.isArray(records) ? records : [];
+      const markerTime = new Date(lastFullBackupAt || "").getTime();
+      const ageDays = Number.isFinite(markerTime) ? (Number(now) - markerTime) / 86400000 : null;
+      return sortedRecords.length >= 3 && (!Number.isFinite(ageDays) || ageDays < 0 || ageDays >= 7);
+    }
+
     function renderRecordsPanel(){
       const { sorted, recent7, previous7 } = getRecentWindows();
       const archiveRecords = getRecordsArchiveRecords(sorted);
@@ -40454,9 +40857,8 @@ Notes:
       renderRecordsArchiveList(archiveRecords, selectedDate);
       renderRecordArchiveDetailHost(archiveRecords);
 
-      const lastBackupAt = localStorage.getItem(storageKey("lastBackupAt"));
       const nudgeHost = document.getElementById("backupNudgeHost");
-      const needsNudge = sorted.length >= 3 && (!lastBackupAt || ((Date.now() - new Date(lastBackupAt).getTime()) / 86400000) >= 7);
+      const needsNudge = shouldShowFullBackupNudge(sorted);
       nudgeHost.innerHTML = needsNudge
         ? `<div class="notice"><h4>백업 권장</h4><ul><li>최근 기록이 쌓였습니다. 기본 설정의 데이터 관리에서 전체 백업을 만들어 두면 기록과 설정을 함께 보관할 수 있습니다.</li></ul></div>`
         : "";
@@ -41196,7 +41598,7 @@ Notes:
       ].filter(([, count]) => count > 0);
       const recordResolution = recordResolutionItems.length
         ? recordResolutionItems.map(([label, count]) => `${label} ${count}일`).join(" · ")
-        : "무기록 0일";
+        : "기록 없음";
       const summaryRows = [
         ["식단 기록", `${Number(window.usableDietDays || 0)}/${safeDays}일`],
         ["체중 기록", `${Number(window.weightDays || 0)}/${safeDays}일`],
@@ -42629,7 +43031,15 @@ Notes:
     function deleteInbodyRecord(index){
       const record = state.inbodyRecords[index];
       if (!record) return;
-      if (!confirm(`${record.date} InBody 기록을 삭제할까요?`)) return;
+      const keepsAppliedTodayValues = Object.values(todayCalculationDrafts || {}).some(draft => (
+        draft?.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_INBODY &&
+        normalizeDateString(draft?.bodyStatusSourceDate) === normalizeDateString(record.date) &&
+        hasTodayBodyStatusDraftValues(draft)
+      ));
+      const appliedNotice = keepsAppliedTodayValues
+        ? "\n이 측정값을 Today에 적용해 둔 값은 삭제되지 않고 기존 적용값으로 유지됩니다."
+        : "";
+      if (!confirm(`${record.date} InBody 측정 기록을 삭제할까요?${appliedNotice}\n삭제한 측정 기록은 되돌릴 수 없습니다.`)) return;
       state.inbodyRecords.splice(index, 1);
       if (normalizeDateString(uiState.inbodyEditOriginalDate) === normalizeDateString(record.date)) {
         uiState.inbodyEditOriginalDate = null;
@@ -43549,9 +43959,29 @@ Notes:
         handleWeekdayTimeDefaultInput(event.target);
       });
 
-      document.getElementById("resetBtn").addEventListener("click", () => {
-        if (confirm("전체 데이터를 초기화하시겠습니까?")) {
-          resetState();
+      document.getElementById("resetBtn").addEventListener("click", async () => {
+        if (confirm(USER_DATA_DELETE_CONFIRM_MESSAGE)) {
+          const resetButton = document.getElementById("resetBtn");
+          const app = document.getElementById("app");
+          const appWasInert = app?.inert === true;
+          if (resetButton) resetButton.disabled = true;
+          if (app) {
+            app.inert = true;
+            app.setAttribute("aria-busy", "true");
+          }
+          let result = null;
+          try {
+            result = await deleteAllUserData();
+          } finally {
+            if (resetButton?.isConnected) resetButton.disabled = false;
+            if (app) {
+              app.removeAttribute("aria-busy");
+              if (result?.deleted !== true) app.inert = appWasInert;
+            }
+          }
+          if (result?.deleted !== true) {
+            window.requestAnimationFrame(focusGlobalDataActionFeedback);
+          }
         }
       });
 
@@ -43691,7 +44121,7 @@ Notes:
           return;
         }
         if (deleteButton) {
-          deleteCardioPreset(deleteButton.getAttribute("data-cardio-preset-delete"));
+          requestDeleteCardioPreset(deleteButton.getAttribute("data-cardio-preset-delete"), deleteButton);
         }
       });
       document.getElementById("todayApplyCardioPresetBtn")?.addEventListener("click", openCardioPresetSelectDialog);
@@ -43951,7 +44381,7 @@ Notes:
         if (deleteTemplateButton) {
           const item = deleteTemplateButton.closest("[data-meal-template-id]");
           if (!item) return;
-          deleteMealTemplate(item.getAttribute("data-meal-template-id"));
+          requestDeleteMealTemplate(item.getAttribute("data-meal-template-id"), deleteTemplateButton);
           return;
         }
         const applyButton = event.target.closest("[data-apply-meal-reuse]");
@@ -44477,6 +44907,7 @@ Notes:
       const rawData = { ...base.data, ...(overrides.data || {}) };
       const rawSettings = normalizeSettingsBackup({ ...base.data.settings, ...(rawData.settings || {}) });
       const records = normalizeRecordsCollection(rawData.records || []);
+      const inbodyRecords = normalizeInbodyRecordCollection(rawData.inbodyRecords || []);
       const normalizedWeeklyTrainingState = normalizeWeeklyTrainingBackup(
         rawData.weeklyTrainingState || base.data.weeklyTrainingState,
         rawSettings
@@ -44492,6 +44923,7 @@ Notes:
         weeklyTrainingDaysManual: weeklyTrainingState.weeklyTrainingDaysManual,
         weeklyTrainingDays: weeklyTrainingState.weeklyTrainingDays
       });
+      const cardioPresets = serializeNormalizedCardioPresetState(rawData.cardioPresets || {});
       return {
         app: "macro-engine",
         kind: FULL_BACKUP_KIND,
@@ -44502,12 +44934,14 @@ Notes:
           onboardingCompletedVersion: rawData.onboardingCompletedVersion === ONBOARDING_VERSION ? ONBOARDING_VERSION : null,
           settings,
           records,
-          inbodyRecords: normalizeInbodyRecordCollection(rawData.inbodyRecords || []),
-          cardioPresets: serializeNormalizedCardioPresetState(rawData.cardioPresets || {}),
+          inbodyRecords,
+          cardioPresets,
           mealTemplates: serializeNormalizedMealTemplateState(rawData.mealTemplates || {}),
           todayCalculationValues: serializeCurrentTodayCalculationDraftsForBackup(rawData.todayCalculationValues || {}, {
             exerciseProfile: settings.exerciseProfile,
-            cardioType: settings.cardioType
+            cardioType: settings.cardioType,
+            inbodyRecords,
+            cardioPresets
           }),
           weeklyTrainingState
         }
@@ -54688,14 +55122,14 @@ Notes:
           assertTest(archiveButton.textContent.trim() === "삭제", "archive delete action should use an explicit delete label");
           assertIncludesAll(archiveButton.getAttribute("aria-label") || "", [date, "기록 삭제"], "archive delete action should name the dated record");
           assertTest(!archiveButton.textContent.includes("×"), "archive delete action should not render as a bare X");
-          assertTest(!!detailButton && detailButton.textContent.trim() === "기록 삭제", "detail delete action should stay a labeled destructive command");
+          assertTest(!!detailButton && detailButton.textContent.trim() === "Records 기록 삭제", "detail delete action should name the Records-only destructive scope");
         }));
 
         results.push(runNamedTest("v8-RC5 Records record delete asks before mutating data", () => {
           seedRecordsDeleteUi();
           const before = JSON.stringify(recordsState.items);
           const messages = withConfirmCapture(false, () => document.querySelector("#recordsTable [data-delete-record]").click());
-          assertIncludesAll(messages.join(" "), [date, "삭제한 기록은 되돌릴 수 없습니다"], "record delete confirm should explain the irreversible action");
+          assertIncludesAll(messages.join(" "), [date, "식사·체중·메모", "삭제한 Records 기록은 되돌릴 수 없습니다"], "record delete confirm should explain its scope and irreversible action");
           assertTest(JSON.stringify(recordsState.items) === before, "cancelled record delete should not mutate Records");
           assertTest(!!getRecordByDate(date), "cancelled record delete should keep the record");
 
@@ -54849,7 +55283,7 @@ Notes:
           seedRecordDetailMealDeleteUi();
           const before = JSON.stringify(recordsState.items);
           const messages = withConfirmCapture(false, () => document.querySelector("#recordsTable [data-delete-record]").click());
-          assertIncludesAll(messages.join(" "), [date, "삭제한 기록은 되돌릴 수 없습니다"], "archive card delete should still ask for confirmation");
+          assertIncludesAll(messages.join(" "), [date, "식사·체중·메모", "삭제한 Records 기록은 되돌릴 수 없습니다"], "archive card delete should still ask for scoped confirmation");
           assertTest(JSON.stringify(recordsState.items) === before, "cancelled archive card delete should keep records");
         }));
 
@@ -58508,7 +58942,9 @@ Notes:
           mealTemplates: serializeMealTemplateState(),
           todayCalculationValues: serializeTodayCalculationDrafts({
             exerciseProfile: state.exerciseProfile,
-            cardioType: state.cardioType
+            cardioType: state.cardioType,
+            inbodyRecords: state.inbodyRecords,
+            cardioPresets: serializeCardioPresetState()
           }),
           onboarding: clone({ ...onboardingUiState, returnFocus: null }),
           recordDate: ids.recordDate?.value || "",
@@ -58590,14 +59026,40 @@ Notes:
           cardioPresetId: "derived-default",
           cardioPresetName: "자동 기본"
         });
-        const projected = serializeCurrentTodayCalculationDraftsForBackup({ [today]: autoMaterializedDraft });
+        const matchingInbodySource = [{
+          date: pastDate,
+          weight: 75,
+          skeletalMuscle: 35,
+          bodyFat: 12,
+          bodyFatPercent: 16
+        }];
+        const matchingCardioPresets = serializeNormalizedCardioPresetState({
+          items: [{
+            id: "derived-default",
+            name: "자동 기본",
+            cardioType: "treadmill_walk",
+            cardioDuration: 20,
+            cardioSpeed: 5,
+            cardioIncline: 2,
+            createdAt: fixedTimestamp,
+            updatedAt: fixedTimestamp
+          }],
+          defaultId: "derived-default"
+        });
+        const projected = serializeCurrentTodayCalculationDraftsForBackup(
+          { [today]: autoMaterializedDraft },
+          { inbodyRecords: matchingInbodySource, cardioPresets: matchingCardioPresets }
+        );
         assertTest(
           JSON.stringify(projected) === JSON.stringify({ [today]: { todayWeightDuration: 42 } }),
           "backup authority should omit automatic InBody and default-cardio materialization while preserving explicit fields"
         );
         const autoOnly = { ...autoMaterializedDraft };
         delete autoOnly.todayWeightDuration;
-        assertTest(Object.keys(serializeCurrentTodayCalculationDraftsForBackup({ [today]: autoOnly })).length === 0, "automatic-only Today materialization should not create a backup date");
+        assertTest(Object.keys(serializeCurrentTodayCalculationDraftsForBackup(
+          { [today]: autoOnly },
+          { inbodyRecords: matchingInbodySource, cardioPresets: matchingCardioPresets }
+        )).length === 0, "automatic-only Today materialization should not create a backup date");
         const explicitLoads = serializeCurrentTodayCalculationDraftsForBackup({
           [today]: {
             ...autoMaterializedDraft,
@@ -59469,6 +59931,444 @@ Notes:
         }
         return results;
       });
+    }
+
+    function withCProductAcceptanceSandbox(callback){
+      const originalConfirm = window.confirm;
+      const transientSnapshot = {
+        mealReuseDialogContext: mealReuseDialogContext ? cloneRestoreRuntimeValue(mealReuseDialogContext) : null,
+        pendingRecentFlowRecordOpenDate,
+        recordStartDialogContext: cloneRestoreRuntimeValue(recordStartDialogContext),
+        globalFeedbackHtml: document.getElementById("globalDataActionFeedback")?.innerHTML || "",
+        inbodyForm: Object.fromEntries([
+          "inbodyDate", "inbodyWeight", "inbodySkeletalMuscle", "inbodyBodyFat", "inbodyBodyFatPercent"
+        ].map(id => [id, document.getElementById(id)?.value ?? ""])),
+        cardioForm: Object.fromEntries([
+          "cardioPresetName", "cardioPresetType", "cardioPresetDuration", "cardioPresetSpeed", "cardioPresetIncline"
+        ].map(id => [id, document.getElementById(id)?.value ?? ""]))
+      };
+      try {
+        return withA3CurrentBackupTestSandbox(callback);
+      } finally {
+        window.confirm = originalConfirm;
+        mealReuseDialogContext = transientSnapshot.mealReuseDialogContext
+          ? cloneRestoreRuntimeValue(transientSnapshot.mealReuseDialogContext)
+          : null;
+        pendingRecentFlowRecordOpenDate = transientSnapshot.pendingRecentFlowRecordOpenDate;
+        recordStartDialogContext = normalizeRecordStartDialogContext(transientSnapshot.recordStartDialogContext);
+        Object.entries(transientSnapshot.inbodyForm).forEach(([id, value]) => {
+          const input = document.getElementById(id);
+          if (input) input.value = value;
+        });
+        Object.entries(transientSnapshot.cardioForm).forEach(([id, value]) => {
+          const input = document.getElementById(id);
+          if (input) input.value = value;
+        });
+        const globalFeedback = document.getElementById("globalDataActionFeedback");
+        if (globalFeedback) globalFeedback.innerHTML = transientSnapshot.globalFeedbackHtml;
+        syncInbodyRecordEditUi();
+        syncCardioPresetInclineControl();
+      }
+    }
+
+    function runCProductCompletenessAcceptanceTests(){
+      const results = [];
+      const today = getTodayDateString();
+      const fixedCompletedAt = `${today}T21:00:00.000Z`;
+      const test = (name, callback) => results.push(runNamedTest(name, () => withCProductAcceptanceSandbox(() => {
+        recordsState.items = [];
+        state.inbodyRecords = [];
+        todayCalculationDrafts = {};
+        localStorage.setItem(getRecordsStorageKey(), "[]");
+        return callback();
+      })));
+      const buildOneMealDraft = (overrides = {}) => {
+        setValidTodayBalanceTestInputs();
+        state.goal = "lean_bulk";
+        state.weeklyTrainingDaysManual = true;
+        state.weeklyTrainingDays = 4;
+        ids.weeklyTrainingDays.value = "4";
+        const current = calculate({ date: today });
+        assertTest(current.isCalculable === true, "C fixture calculation should be available");
+        const snapshot = normalizeGoalSnapshot(buildGoalSnapshotFromCurrentState(current, "saved_at_entry"));
+        const meal = normalizeMeal({
+          id: `c-meal-${overrides.id || "one"}`,
+          mealLabel: overrides.mealLabel || "하루 식사",
+          carbs: Object.prototype.hasOwnProperty.call(overrides, "carbs") ? overrides.carbs : snapshot.carbs,
+          protein: Object.prototype.hasOwnProperty.call(overrides, "protein") ? overrides.protein : snapshot.protein,
+          fat: Object.prototype.hasOwnProperty.call(overrides, "fat") ? overrides.fat : snapshot.fat,
+          alcoholKcal: overrides.alcoholKcal || 0,
+          otherKcal: overrides.otherKcal || 0,
+          memo: overrides.memo || "",
+          createdAt: `${today}T12:00:00.000Z`
+        }, 0);
+        return normalizeRecord({
+          date: today,
+          recordMode: "detailed",
+          weight: current.s.weight,
+          goalSnapshot: snapshot,
+          snapshotSource: "saved_at_entry",
+          meals: overrides.noMeals ? [] : [meal]
+        });
+      };
+      const seedRecord = record => {
+        recordsState.items = normalizeRecordsCollection(record ? [record] : []);
+        localStorage.setItem(getRecordsStorageKey(), JSON.stringify(recordsState.items));
+        return getRecordByDate(today);
+      };
+      const getCoachOutput = () => {
+        const currentResult = calculate({ date: today });
+        const balance = getTodayMacroBalance(currentResult, today);
+        const adherenceResult = getTodayAdherenceScore(currentResult, today);
+        const recentContext = buildRecentContext(currentResult, { asOfDate: today });
+        const output = generateDailyCoachOutput(getDailyCoachSignals({
+          currentResult,
+          balance,
+          adherenceResult,
+          state: currentResult.s,
+          recentContext,
+          semanticCoach: true
+        }));
+        const text = (output?.items || []).map(item => `${item.state || ""} ${item.reason || ""} ${item.action || ""}`).join(" ");
+        return { output, text };
+      };
+
+      test("C-01 empty Recent states no records without inventing a zero-day record type", () => {
+        renderWeeklyPanel(calculate({ date: today }));
+        const text = document.getElementById("recentFlowPreviewHost")?.textContent || "";
+        assertTest(text.includes("기록 없음"), "empty Recent should say 기록 없음");
+        assertTest(!text.includes("무기록 0일"), "empty Recent should not invent a zero-day record type");
+      });
+
+      test("C-02 one nutrition meal stays provisional until explicit completion", () => {
+        seedRecord(buildOneMealDraft());
+        const record = getRecordByDate(today);
+        const coach = getCoachOutput();
+        assertTest(record.recordLifecycle === RECORD_LIFECYCLE_DRAFT && record.adherencePercent === null, "one-meal draft should have no stored authority");
+        assertIncludesAll(coach.text, ["기록이 적어요", "다음 식사"], "one-meal draft Coach should ask for more recording");
+      });
+
+      test("C-03 explicit nutrition-bearing one-meal completion is shared Coach authority", () => {
+        seedRecord(buildOneMealDraft());
+        const preflight = getDetailedRecordCompletionPreflight(today);
+        assertTest(preflight.ok && Number.isFinite(preflight.score?.percent), "nutrition-bearing one meal should pass explicit full-day preflight");
+        const completion = completeDetailedRecord(today, { completedAt: fixedCompletedAt });
+        const coach = getCoachOutput();
+        assertTest(completion.completed && isCompletedDetailedEvidence(completion.record), "explicit completion should store completed detailed evidence");
+        assertTest(completion.record.adherenceScoringVersion === ADHERENCE_SCORING_VERSION, "completion should store the current literal scoring version");
+        assertIncludesAll(coach.text, ["오늘 식사 기록을 완료했고", "점으로 저장"], "Coach should acknowledge the stored completed score");
+        assertExcludesAll(coach.text, ["기록이 적어요", "다음 식사"], "completed one-meal evidence should not be described as unfinished");
+        assertTest(coach.output.items.some(item => item.key === "trainingContext"), "completion context should not evict the existing training action");
+      });
+
+      test("C-04 nutrition mutation reopens a completed day and restores provisional Coach copy", () => {
+        seedRecord(buildOneMealDraft());
+        const completed = completeDetailedRecord(today, { completedAt: fixedCompletedAt }).record;
+        const meals = completed.meals.map(meal => ({ ...meal, carbs: meal.carbs + 0.1 }));
+        const reopened = upsertRecord({ date: today, meals });
+        const coach = getCoachOutput();
+        assertTest(reopened.recordLifecycle === RECORD_LIFECYCLE_DRAFT && reopened.adherencePercent === null && reopened.completedAt === null, "nutrition mutation should atomically reopen the day");
+        assertIncludesAll(coach.text, ["기록이 적어요", "다음 식사"], "reopened one-meal day should return to provisional Coach guidance");
+      });
+
+      test("C-05 no-meal completion fails without changing memory or storage", () => {
+        seedRecord(buildOneMealDraft({ noMeals: true }));
+        const beforeMemory = JSON.stringify(recordsState.items);
+        const beforeStorage = localStorage.getItem(getRecordsStorageKey());
+        const result = completeDetailedRecord(today, { completedAt: fixedCompletedAt });
+        assertTest(!result.completed && result.reason === "meals_unavailable", "no-meal completion should fail closed");
+        assertTest(JSON.stringify(recordsState.items) === beforeMemory && localStorage.getItem(getRecordsStorageKey()) === beforeStorage, "no-meal failure should be byte-noop");
+      });
+
+      test("C-06 memo-only zero-kcal completion fails without score authority", () => {
+        seedRecord(buildOneMealDraft({ carbs: 0, protein: 0, fat: 0, memo: "금식 메모" }));
+        const beforeMemory = JSON.stringify(recordsState.items);
+        const beforeStorage = localStorage.getItem(getRecordsStorageKey());
+        const result = completeDetailedRecord(today, { completedAt: fixedCompletedAt });
+        assertTest(!result.completed && result.reason === "nutrition_unavailable", "memo-only completion should name missing nutrition evidence");
+        assertTest(JSON.stringify(recordsState.items) === beforeMemory && localStorage.getItem(getRecordsStorageKey()) === beforeStorage, "memo-only failure should preserve raw record bytes");
+      });
+
+      test("C-07 positive macro alcohol or other kcal is nutrition evidence without an arbitrary threshold", () => {
+        [
+          { id: "macro", carbs: 0.1, protein: 0, fat: 0 },
+          { id: "alcohol", carbs: 0, protein: 0, fat: 0, alcoholKcal: 1 },
+          { id: "other", carbs: 0, protein: 0, fat: 0, otherKcal: 1 }
+        ].forEach(fixture => {
+          const record = buildOneMealDraft(fixture);
+          seedRecord(record);
+          assertTest(hasRecordNutritionEvidence(record), `${fixture.id} positive boundary should count as nutrition evidence`);
+          assertTest(getDetailedRecordCompletionPreflight(today).ok, `${fixture.id} positive boundary should remain explicitly completable`);
+        });
+      });
+
+      test("C-08 full-backup nudge uses missing under-seven exact-seven and future boundaries", () => {
+        const records = [{ date: today }, { date: shiftDateString(today, -1) }, { date: shiftDateString(today, -2) }];
+        const now = Date.parse(`${today}T12:00:00.000Z`);
+        assertTest(shouldShowFullBackupNudge(records, null, now), "three records without a marker should show the nudge");
+        assertTest(!shouldShowFullBackupNudge(records, new Date(now - 6 * 86400000).toISOString(), now), "a six-day full backup should suppress the nudge");
+        assertTest(shouldShowFullBackupNudge(records, new Date(now - 7 * 86400000).toISOString(), now), "the exact seven-day boundary should show the nudge");
+        assertTest(shouldShowFullBackupNudge(records, new Date(now + 86400000).toISOString(), now), "a future marker should fail closed to a nudge");
+      });
+
+      test("C-09 records-only metadata never satisfies the full-backup nudge", () => {
+        const records = [{}, {}, {}];
+        const nowIso = `${today}T12:00:00.000Z`;
+        localStorage.removeItem(storageKey("lastFullBackupAt"));
+        localStorage.setItem(storageKey("lastBackupAt"), nowIso);
+        assertTest(shouldShowFullBackupNudge(records, localStorage.getItem(storageKey("lastFullBackupAt")), Date.parse(nowIso)), "records-only metadata should not suppress a full-backup nudge");
+        assertTest(markFullBackupCreated(nowIso), "successful full backup should persist its marker");
+        assertTest(!shouldShowFullBackupNudge(records, localStorage.getItem(storageKey("lastFullBackupAt")), Date.parse(nowIso)), "successful full backup should satisfy the nudge");
+      });
+
+      test("C-10 full restore owns its createdAt marker while records-only restore does not", () => {
+        const createdAt = `${today}T03:04:05.000Z`;
+        const payload = makeCurrentFullBackupTestPayload({ createdAt });
+        const normalized = normalizeFullBackupPayload(payload);
+        const fullEntries = buildFullRestoreStorageEntries(normalized);
+        const recordsEntries = buildRecordsRestoreStorageEntries([], []);
+        assertTest(fullEntries.get(storageKey("lastFullBackupAt")) === createdAt, "full restore should atomically own the validated backup timestamp");
+        assertTest(!recordsEntries.has(storageKey("lastFullBackupAt")), "records-only restore should not touch full-backup freshness");
+      });
+
+      test("C-11 records-only format copy matches the actual current JSON contract", () => {
+        const dataSection = document.querySelector(".settings-data-card") || document.getElementById("settingsPanel");
+        const text = dataSection?.textContent || "";
+        assertTest(text.includes("기록만 백업 (JSON)"), "Settings should name the records-only format as JSON");
+        assertTest(!text.includes("기록만 백업 (CSV)"), "Settings should not claim a CSV producer");
+        const payload = makeCurrentRecordsBackupTestPayload();
+        assertTest(payload.version === 4 && Array.isArray(payload.records) && Array.isArray(payload.inbodyRecords), "records-only payload should use the current v4 JSON envelope");
+      });
+
+      test("C-12 destructive presets templates and global deletion are scoped cancellable and complete", () => {
+        const cardioPreset = normalizeCardioPreset({
+          id: "c-delete-cardio",
+          name: "삭제 확인 워킹",
+          cardioType: "treadmill_walk",
+          cardioDuration: 30,
+          cardioSpeed: 5.5,
+          cardioIncline: 4,
+          createdAt: fixedCompletedAt,
+          updatedAt: fixedCompletedAt
+        });
+        cardioPresetState = normalizeCardioPresetState({ items: [cardioPreset], defaultId: cardioPreset.id });
+        saveCardioPresets();
+        renderCardioPresetSettings();
+        const cardioBefore = JSON.stringify({
+          state: serializeCardioPresetState(),
+          storage: localStorage.getItem(storageKey(CARDIO_PRESET_STORAGE_KEY))
+        });
+        let cardioMessage = "";
+        window.confirm = message => {
+          cardioMessage = String(message || "");
+          return false;
+        };
+        const cardioCancel = requestDeleteCardioPreset(cardioPreset.id, document.querySelector(`[data-cardio-preset-delete="${cardioPreset.id}"]`));
+        assertTest(!cardioCancel.deleted && JSON.stringify({
+          state: serializeCardioPresetState(),
+          storage: localStorage.getItem(storageKey(CARDIO_PRESET_STORAGE_KEY))
+        }) === cardioBefore, "cancelled cardio preset deletion should be byte-noop");
+        assertIncludesAll(cardioMessage, [cardioPreset.name, "기본 프리셋 지정", "새 날짜", "Today에 적용된 값", "되돌릴 수 없습니다"], "cardio preset deletion should disclose exact scope and irreversibility");
+        window.confirm = () => true;
+        assertTest(requestDeleteCardioPreset(cardioPreset.id).deleted && cardioPresetState.items.length === 0 && cardioPresetState.defaultId === null, "accepted cardio preset deletion should remove the saved preset and default ownership only");
+        assertTest(document.getElementById("cardioPresetFeedback")?.getAttribute("role") === "status", "cardio preset deletion should use a persistent live result host");
+
+        const template = normalizeMealTemplate({
+          id: "c-delete-template",
+          name: "삭제 확인 식사",
+          mealLabel: "점심",
+          carbs: 70,
+          protein: 40,
+          fat: 15,
+          memo: "기존 기록은 유지",
+          createdAt: fixedCompletedAt,
+          updatedAt: fixedCompletedAt
+        });
+        mealTemplateState = normalizeMealTemplateState({ items: [template] });
+        saveMealTemplates();
+        seedRecord(buildOneMealDraft());
+        renderMealReuseList();
+        const templateBefore = JSON.stringify({
+          state: serializeMealTemplateState(),
+          storage: localStorage.getItem(storageKey(MEAL_TEMPLATE_STORAGE_KEY)),
+          records: recordsState.items
+        });
+        let templateMessage = "";
+        window.confirm = message => {
+          templateMessage = String(message || "");
+          return false;
+        };
+        const templateCancel = requestDeleteMealTemplate(template.id, document.querySelector(`[data-meal-template-id="${template.id}"] [data-delete-meal-template]`));
+        assertTest(!templateCancel.deleted && JSON.stringify({
+          state: serializeMealTemplateState(),
+          storage: localStorage.getItem(storageKey(MEAL_TEMPLATE_STORAGE_KEY)),
+          records: recordsState.items
+        }) === templateBefore, "cancelled meal template deletion should be byte-noop");
+        assertIncludesAll(templateMessage, [template.name, "저장 바로가기만 삭제", "Records에 저장한 식사", "현재 입력칸", "되돌릴 수 없습니다"], "meal template deletion should disclose exact retained domains and irreversibility");
+        window.confirm = () => true;
+        assertTest(requestDeleteMealTemplate(template.id).deleted && mealTemplateState.items.length === 0 && !!getRecordByDate(today), "accepted template deletion should preserve the existing Records meal");
+        assertTest(document.getElementById("mealTemplateFeedback")?.getAttribute("role") === "status", "template deletion should use a persistent live result host");
+
+        assertTest(document.getElementById("resetBtn")?.textContent.trim() === "전체 데이터 삭제", "global destructive action should name its real scope");
+        assertIncludesAll(USER_DATA_DELETE_CONFIRM_MESSAGE, ["기본 설정", "Today 계산값", "Records", "InBody", "유산소 프리셋", "저장한 식사", "온보딩", "백업 저장 폴더", "되돌릴 수 없습니다", "전체 백업"], "global delete confirmation should inventory scope and irreversibility");
+        state.inbodyRecords = [{ date: today, weight: 75, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
+        uiState.inbodyEditOriginalDate = today;
+        recordMealEditState = { mode: "edit", date: today, mealId: "stale" };
+        recordInfoEditState = { date: today };
+        pendingInbodyTodayApplyChoice = { date: today };
+        pendingRecordWeightTodayApplyChoice = { date: today };
+        document.getElementById("inbodyWeight").value = "75";
+        cardioPresetState.editingId = "stale-preset";
+        document.getElementById("cardioPresetName").value = "삭제된 프리셋";
+        resetState({ forceOnboarding: true });
+        assertTest(state.inbodyRecords.length === 0 && DEFAULT_STATE.inbodyRecords.length === 0, "first reset should use a fresh InBody array without mutating defaults");
+        assertTest(!uiState.inbodyEditOriginalDate && !recordMealEditState && !recordInfoEditState && !pendingInbodyTodayApplyChoice && !pendingRecordWeightTodayApplyChoice, "reset should clear transient edit and pending ownership");
+        assertTest(document.getElementById("inbodyWeight").value === "" && document.getElementById("cardioPresetName").value === "" && cardioPresetState.editingId === null, "reset should clear stale InBody and preset forms");
+        state.inbodyRecords.push({ date: today, weight: 80, skeletalMuscle: 36, bodyFat: 13, bodyFatPercent: 16.25 });
+        resetState({ forceOnboarding: true });
+        assertTest(state.inbodyRecords.length === 0 && DEFAULT_STATE.inbodyRecords.length === 0, "a second reset should remain idempotent after new InBody input");
+      });
+
+      test("C-13 Records deletion names its domain and preserves same-date InBody", () => {
+        const record = buildOneMealDraft();
+        seedRecord(record);
+        state.inbodyRecords = [{ date: today, weight: 75, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }];
+        const message = getRecordDeleteConfirmMessage(today);
+        assertIncludesAll(message, ["식사·체중·메모", "InBody 측정 기록 1건은 유지", "되돌릴 수 없습니다"], "Records delete should disclose its retained InBody domain");
+        deleteRecord(today);
+        assertTest(!getRecordByDate(today) && state.inbodyRecords.length === 1, "Records delete should remove only the Records domain");
+      });
+
+      test("C-14 applied InBody deletion is cancellable and preserves Today values on accept", () => {
+        const source = { date: today, weight: 75, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 };
+        state.inbodyRecords = [source];
+        todayCalculationDrafts[today] = normalizeTodayCalculationDraft({
+          calculationWeight: 75,
+          skeletalMuscle: 35,
+          bodyFatMass: 12,
+          bodyFatPercent: 16,
+          bodyStatusSource: TODAY_BODY_STATUS_SOURCE_INBODY,
+          bodyStatusSourceDate: today,
+          bodyStatusLoadType: TODAY_BODY_STATUS_LOAD_AUTO
+        });
+        const before = JSON.stringify({ records: state.inbodyRecords, draft: todayCalculationDrafts[today] });
+        const messages = [];
+        window.confirm = message => {
+          messages.push(String(message || ""));
+          return false;
+        };
+        deleteInbodyRecord(0);
+        assertTest(JSON.stringify({ records: state.inbodyRecords, draft: todayCalculationDrafts[today] }) === before, "cancelled InBody delete should be byte-noop");
+        window.confirm = message => {
+          messages.push(String(message || ""));
+          return true;
+        };
+        deleteInbodyRecord(0);
+        assertIncludesAll(messages.join(" "), [today, "Today에 적용해 둔 값", "유지", "되돌릴 수 없습니다"], "applied InBody delete should disclose retained Today values and irreversibility");
+        assertTest(state.inbodyRecords.length === 0 && todayCalculationDrafts[today]?.calculationWeight === 75 && todayCalculationDrafts[today]?.bodyFatPercent === 16, "accepted delete should remove the source but preserve applied Today values");
+      });
+
+      test("C-15 backup projection strips only exactly reproducible automatic InBody and cardio values", () => {
+        const source = { date: today, weight: 75, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 };
+        const draft = normalizeTodayCalculationDraft({
+          calculationWeight: 75,
+          skeletalMuscle: 35,
+          bodyFatMass: 12,
+          bodyFatPercent: 16,
+          bodyStatusSource: TODAY_BODY_STATUS_SOURCE_INBODY,
+          bodyStatusSourceDate: today,
+          bodyStatusLoadType: TODAY_BODY_STATUS_LOAD_AUTO
+        });
+        const reproducible = serializeCurrentTodayCalculationDraftsForBackup({ [today]: draft }, { inbodyRecords: [source] });
+        const orphaned = serializeCurrentTodayCalculationDraftsForBackup({ [today]: draft }, { inbodyRecords: [] });
+        assertTest(!reproducible[today], "matching automatic InBody materialization should remain derived backup state");
+        assertTest(orphaned[today]?.calculationWeight === 75 && orphaned[today]?.bodyFatMass === 12 && orphaned[today]?.bodyStatusSourceDate === today, "orphaned applied values should become durable backup authority");
+
+        const olderDate = shiftDateString(today, -1);
+        const olderSource = { ...source, date: olderDate, weight: 73, skeletalMuscle: 34, bodyFat: 13, bodyFatPercent: 17.8 };
+        const newerSource = { ...source, weight: 77, skeletalMuscle: 36, bodyFat: 11, bodyFatPercent: 14.3 };
+        const keptOlderDraft = normalizeTodayCalculationDraft({
+          calculationWeight: 73,
+          skeletalMuscle: 34,
+          bodyFatMass: 13,
+          bodyFatPercent: 17.8,
+          bodyStatusSource: TODAY_BODY_STATUS_SOURCE_INBODY,
+          bodyStatusSourceDate: olderDate,
+          bodyStatusLoadType: TODAY_BODY_STATUS_LOAD_AUTO
+        });
+        const keptOlder = serializeCurrentTodayCalculationDraftsForBackup(
+          { [today]: keptOlderDraft },
+          { inbodyRecords: [olderSource, newerSource] }
+        );
+        assertTest(keptOlder[today]?.calculationWeight === 73 && keptOlder[today]?.bodyStatusSourceDate === olderDate, "a user-kept older InBody source should remain durable when a newer source exists");
+
+        const fixedPreset = normalizeCardioPreset({
+          id: "c-default-cardio",
+          name: "아침 걷기",
+          cardioType: "treadmill_walk",
+          cardioDuration: 35,
+          cardioSpeed: 5.5,
+          cardioIncline: 4,
+          createdAt: fixedCompletedAt,
+          updatedAt: fixedCompletedAt
+        });
+        const matchingPresets = serializeNormalizedCardioPresetState({ items: [fixedPreset], defaultId: fixedPreset.id });
+        const cardioDraft = normalizeTodayCalculationDraft({
+          todayCardioType: fixedPreset.cardioType,
+          todayCardioDuration: fixedPreset.cardioDuration,
+          todayCardioSpeed: fixedPreset.cardioSpeed,
+          todayCardioIncline: fixedPreset.cardioIncline,
+          cardioSource: TODAY_CARDIO_SOURCE_DEFAULT_PRESET,
+          cardioPresetId: fixedPreset.id,
+          cardioPresetName: fixedPreset.name
+        });
+        const matchingCardio = serializeCurrentTodayCalculationDraftsForBackup(
+          { [today]: cardioDraft },
+          { cardioPresets: matchingPresets }
+        );
+        assertTest(!matchingCardio[today], "an unchanged matching default preset should remain derived backup state");
+        [
+          { label: "deleted", value: { items: [], defaultId: null } },
+          { label: "default-off", value: { items: [fixedPreset], defaultId: null } },
+          {
+            label: "default-switched",
+            value: {
+              items: [fixedPreset, { ...fixedPreset, id: "c-next-cardio", name: "저녁 달리기", cardioDuration: 60 }],
+              defaultId: "c-next-cardio"
+            }
+          },
+          { label: "values-edited", value: { items: [{ ...fixedPreset, cardioDuration: 45 }], defaultId: fixedPreset.id } },
+          { label: "speed-edited", value: { items: [{ ...fixedPreset, cardioSpeed: 6.5 }], defaultId: fixedPreset.id } },
+          { label: "incline-edited", value: { items: [{ ...fixedPreset, cardioIncline: 7 }], defaultId: fixedPreset.id } },
+          { label: "type-edited", value: { items: [{ ...fixedPreset, cardioType: "treadmill_run" }], defaultId: fixedPreset.id } },
+          { label: "name-edited", value: { items: [{ ...fixedPreset, name: "이름 변경" }], defaultId: fixedPreset.id } }
+        ].forEach(({ label, value }) => {
+          const preserved = serializeCurrentTodayCalculationDraftsForBackup(
+            { [today]: cardioDraft },
+            { cardioPresets: serializeNormalizedCardioPresetState(value) }
+          );
+          assertTest(
+            preserved[today]?.todayCardioDuration === 35 && preserved[today]?.cardioPresetName === "아침 걷기",
+            `${label} default preset should preserve the applied Today cardio authority`
+          );
+        });
+      });
+
+      test("C-16 relative meal dates use literal date arithmetic across month year and leap boundaries", () => {
+        const matrix = [
+          ["2026-08-14", "2026-08-14", "오늘"],
+          ["2026-08-13", "2026-08-14", "어제"],
+          ["2026-08-12", "2026-08-14", "08-12"],
+          ["2025-12-31", "2026-01-01", "어제"],
+          ["2024-02-29", "2024-03-01", "어제"],
+          ["2024-02-28", "2024-03-01", "02-28"]
+        ];
+        matrix.forEach(([date, anchor, expected]) => {
+          assertTest(formatMealReuseDate(date, anchor) === expected, `${date} relative to ${anchor} should be ${expected}`);
+        });
+      });
+
+      return results;
     }
 
     function runTodayRecordConfirmationTests(){
@@ -112821,7 +113721,7 @@ Notes:
             }
           }, 3);
           assertTest(lowData3.actionText === "식단 기록 보강", "three day low-data state should ask for record completion");
-          assertTest(lowData3.summaryRows.some(([, value]) => value === "무기록 0일"), "empty period should collapse zero record types into one clear label");
+          assertTest(lowData3.summaryRows.some(([, value]) => value === "기록 없음"), "empty period should state that there are no records without inventing a zero-day record type");
           assertExcludesAll(`${lowData3.headline} ${lowData3.actionText} ${lowData3.actionCaption}`, ["설정 조정", "칼로리 조정"], "three day analysis should not behave like a settings decision");
           const action14 = getRecentFlowReferenceAction(14, {
             conclusion: "린매스업 중인데 체중 변화가 거의 없습니다.",
@@ -115925,6 +116825,7 @@ Notes:
     window.runA2CurrentRecordScoreLifecycleTests = runA2CurrentRecordScoreLifecycleTests;
     window.runA3CurrentBackupRestoreSafetyTests = runA3CurrentBackupRestoreSafetyTests;
     window.runBCurrentCoreAccessibilityTests = runBCurrentCoreAccessibilityTests;
+    window.runCProductCompletenessAcceptanceTests = runCProductCompletenessAcceptanceTests;
     window.runTodayRecordConfirmationTests = runTodayRecordConfirmationTests;
     window.runUserFacingModeRemovalTests = runUserFacingModeRemovalTests;
     window.runModeFreeCalculationContextTests = runModeFreeCalculationContextTests;

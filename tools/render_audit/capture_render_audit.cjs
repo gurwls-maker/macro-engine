@@ -488,9 +488,6 @@ function makeRecentEnoughRecords(dayCount = 28) {
       recordMode: "detailed",
       weight: Number((74.9 - index * 0.025).toFixed(2)),
       note: highFatDay ? "기타 칼로리 높은 날" : alcoholDay ? "술 기록 포함" : "Recent enough audit seed",
-      adherencePercent: Math.max(72, 92 - (index % 7) * 2),
-      adherenceSource: "auto",
-      adherenceScoringVersion: "v6.1_alcohol_penalty_v2",
       goalSnapshot: snap({
         targetCal,
         protein: 145,
@@ -521,6 +518,7 @@ const payloads = {
   recentEnough: {
     settings: baseSettings,
     records: makeRecentEnoughRecords(28),
+    completeDetailedRecords: true,
     inbodyRecords,
     todayDrafts: recentEnoughTodayDraft,
     cardioPresets: {
@@ -701,6 +699,28 @@ const frame = document.getElementById('app');
 frame.addEventListener('load', async () => {
   const w = frame.contentWindow;
   await delay(1200);
+  if (payload.completeDetailedRecords) {
+    const failures = [];
+    for (const record of payload.records || []) {
+      if (record.recordMode !== 'detailed') continue;
+      const currentResult = w.calculate?.({ date: record.date });
+      const snapshot = w.buildGoalSnapshotFromCurrentState?.(currentResult, 'saved_at_entry');
+      if (!currentResult?.isCalculable || !snapshot) {
+        failures.push(record.date + ':goal_snapshot_unavailable');
+        continue;
+      }
+      w.upsertRecord?.({ date: record.date, goalSnapshot: snapshot, snapshotSource: 'saved_at_entry' });
+      const result = w.completeDetailedRecord?.(record.date, { completedAt: record.date + 'T23:00:00.000Z' });
+      if (result?.completed !== true) failures.push(record.date + ':' + String(result?.reason || 'unknown'));
+    }
+    if (failures.length) {
+      document.body.dataset.auditError = 'current completion fixture failed: ' + failures.join(',');
+      document.body.dataset.ready = 'true';
+      return;
+    }
+    w.render?.();
+    await delay(300);
+  }
   const stableStyle = w.document.createElement('style');
   stableStyle.textContent = '*,*::before,*::after{animation-duration:0.001s!important;transition-duration:0.001s!important;scroll-behavior:auto!important}';
   w.document.head.appendChild(stableStyle);
@@ -723,6 +743,11 @@ const mimeTypes = {
 function createServer() {
   return http.createServer((request, response) => {
     const url = new URL(request.url, "http://127.0.0.1");
+    if (url.pathname === "/favicon.ico") {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
     const requestedPath = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
     const filePath = path.resolve(rootPath, requestedPath.slice(1));
     if (!filePath.startsWith(rootPath + path.sep) && filePath !== rootPath) {
@@ -851,6 +876,12 @@ async function capture(context, baseUrl, name, payloadName, actionName, width, h
   const shotPath = path.join(shotDir, `${name}.png`);
   fs.writeFileSync(htmlPath, makePage(name, payloadName, actionName, width, height), "utf-8");
   const page = await context.newPage();
+  const consoleErrors = [];
+  const pageErrors = [];
+  page.on("console", message => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  page.on("pageerror", error => pageErrors.push(error?.message || String(error)));
   await page.setViewportSize({ width, height });
   await page.goto(`${baseUrl}/tools/render_audit/pages/${name}.html`, { waitUntil: "load", timeout: 30000 });
   try {
@@ -869,13 +900,17 @@ async function capture(context, baseUrl, name, payloadName, actionName, width, h
     console.error(`debug ${name}: ${JSON.stringify(debug, null, 2)}`);
     throw error;
   }
+  const auditError = await page.evaluate(() => document.body?.dataset?.auditError || "");
+  if (auditError || consoleErrors.length || pageErrors.length) {
+    throw new Error(`${name} render failed: ${JSON.stringify({ auditError, consoleErrors, pageErrors })}`);
+  }
   const captureMeta = width <= 560
     ? await expandMobileFrameForFullPage(page, width, height)
     : { fullPage: false, contentHeight: height, captureHeight: height };
   const runtimeMeta = await getRuntimeMeta(page);
   await page.screenshot({ path: shotPath, fullPage: captureMeta.fullPage });
   await page.close();
-  return { shotPath, captureMeta, runtimeMeta };
+  return { shotPath, captureMeta, runtimeMeta, consoleErrorCount: 0, pageErrorCount: 0 };
 }
 
 async function runRenderAudit() {
@@ -912,8 +947,8 @@ async function runRenderAudit() {
     for (const item of captures) {
       const [name, payloadName, actionName, width, height] = item;
       console.log(`capture ${name}`);
-      const { shotPath, captureMeta, runtimeMeta } = await capture(context, baseUrl, name, payloadName, actionName, width, height);
-      manifest.push({ name, payloadName, actionName, viewport: { width, height }, shotPath, capture: captureMeta, runtime: runtimeMeta });
+      const { shotPath, captureMeta, runtimeMeta, consoleErrorCount, pageErrorCount } = await capture(context, baseUrl, name, payloadName, actionName, width, height);
+      manifest.push({ name, payloadName, actionName, viewport: { width, height }, shotPath, capture: captureMeta, runtime: runtimeMeta, consoleErrorCount, pageErrorCount });
     }
     fs.writeFileSync(path.join(auditDir, "manifest.json"), JSON.stringify({ generatedAt: new Date().toISOString(), captures: manifest }, null, 2), "utf-8");
     console.log(JSON.stringify({ count: manifest.length, shotDir }, null, 2));
