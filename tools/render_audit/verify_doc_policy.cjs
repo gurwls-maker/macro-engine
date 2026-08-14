@@ -288,25 +288,25 @@ if (failures.length === 0) {
       "completionOwnershipSnapshot",
       "onboarding Settings re-entry submit preserves non-onboarding ownership",
       "onboarding existing-data confirmation preserves user-owned Settings and Today data",
-      "onboarding incomplete full restore rebases ownership snapshot to restored backup",
+      "onboarding current v2 incomplete full backup rejects before mutation",
       "onboarding completed full restore clears stale ownership snapshot",
-      "smart-restore record-add should keep the existing Settings/Today ownership snapshot",
       "if (shouldShowFirstRunSetup()) return;",
       "if (shouldShowFirstRunSetup() && !onboardingUiState.reentry)",
     ]) {
       if (!indexHtml.includes(signal)) fail(`index.html missing onboarding truthfulness signal: ${signal}`);
     }
-    const restoreStart = indexHtml.indexOf("function restoreFullBackupData(data){");
-    const restoreEnd = indexHtml.indexOf("\n    function confirmDataManagementImport", restoreStart);
-    if (restoreStart < 0 || restoreEnd < 0) {
-      fail("index.html missing full-backup restore boundary for onboarding snapshot policy");
+    const normalizeStart = indexHtml.indexOf("function normalizeFullBackupPayload(parsed){");
+    const normalizeEnd = indexHtml.indexOf("\n    function detectBackupImportPayload", normalizeStart);
+    if (normalizeStart < 0 || normalizeEnd < 0) {
+      fail("index.html missing current-v2 full-backup normalization boundary for onboarding completion policy");
     } else {
-      const restoreBody = indexHtml.slice(restoreStart, restoreEnd);
-      const settingsAppliedAt = restoreBody.indexOf("Object.assign(state, settings");
-      const snapshotClearedAt = restoreBody.indexOf("onboardingUiState.completionOwnershipSnapshot = null;");
-      const incompletePreparedAt = restoreBody.indexOf("prepareIncompleteOnboardingState();");
-      if (!(settingsAppliedAt >= 0 && snapshotClearedAt > settingsAppliedAt && incompletePreparedAt > snapshotClearedAt)) {
-        fail("full-backup restore must clear stale onboarding ownership after applying B and before incomplete B recapture");
+      const normalizeBody = indexHtml.slice(normalizeStart, normalizeEnd);
+      if (!normalizeBody.includes("parsed.data.onboardingCompletedVersion !== ONBOARDING_VERSION") ||
+          !normalizeBody.includes('throwUnsupportedCurrentBackup("invalid_onboarding_version")')) {
+        fail("current-v2 full backup must reject an incomplete onboarding completion version during normalization");
+      }
+      if (normalizeBody.includes("[null, ONBOARDING_VERSION]")) {
+        fail("current-v2 full backup must not accept a null onboarding completion version");
       }
     }
   }

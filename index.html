@@ -13,7 +13,9 @@ Current basis: v8.4 joint-axis-retired continuous macro scoring production path 
 
 Notes:
 - v8.3 app display label alignment: title/header/helper/full backup appVersion metadata use v8.3.
-- package.json package version and FULL_BACKUP_VERSION remain unchanged.
+- package.json app version은 유지하고, current-only 전체/기록 백업은 각각 엄격한 v2/v4 계약을 사용한다.
+- A3 current-only restore는 검증된 현재 포맷만 수용하며 storage/runtime/DOM을 원자적으로 반영하거나 모두 되돌린다.
+- 이하 항목은 이전 작업 당시 기록이며 현재 백업 계약의 실행 권위가 아니다.
 - v8.4 joint-axis-retired continuous macro scoring is the current production scoring basis.
 - v8.0 final release.
 - RC1~RC6 release gate 통과 기준 반영.
@@ -17039,7 +17041,71 @@ Notes:
     const CARDIO_PRESET_STORAGE_KEY = "cardioPresets.v1";
     const MEAL_TEMPLATE_STORAGE_KEY = "mealTemplates.v1";
     const FULL_BACKUP_KIND = "full-backup";
-    const FULL_BACKUP_VERSION = 1;
+    const FULL_BACKUP_VERSION = 2;
+    const FULL_BACKUP_ENVELOPE_FIELDS = Object.freeze([
+      "app",
+      "kind",
+      "backupVersion",
+      "appVersion",
+      "createdAt",
+      "data"
+    ]);
+    const FULL_BACKUP_DATA_FIELDS = Object.freeze([
+      "onboardingCompletedVersion",
+      "settings",
+      "records",
+      "inbodyRecords",
+      "cardioPresets",
+      "mealTemplates",
+      "todayCalculationValues",
+      "weeklyTrainingState"
+    ]);
+    const FULL_BACKUP_SETTINGS_FIELDS = Object.freeze([
+      "mode",
+      "weight",
+      "height",
+      "age",
+      "bodyFat",
+      "skeletal",
+      "bodyCompositionConfirmed",
+      "gender",
+      "activityLevel",
+      "workType",
+      "sleepHours",
+      "workHours",
+      "lifestyleHours",
+      "workAdj",
+      "homeInbody",
+      "expertLbmAlpha",
+      "exerciseManagementMode",
+      "weeklyTrainingDays",
+      "weeklyTrainingDaysManual",
+      "generalAdvancedSettings",
+      "generalLowDigestCarbs",
+      "adaptiveMacroTargetsEnabled",
+      "proteinTargetLevel",
+      "exerciseProfile",
+      "profileSession",
+      "routineWeekdaySchedule",
+      "weekdayTimeDefaults",
+      "routinePlan",
+      "routine",
+      "intensityOverride",
+      "weightDuration",
+      "goal",
+      "cardioType",
+      "cardioDuration",
+      "cardioSpeed",
+      "cardioIncline",
+      "bodyFatMass"
+    ]);
+    const RECORDS_BACKUP_VERSION = 4;
+    const RECORDS_BACKUP_FIELDS = Object.freeze([
+      "version",
+      "exportedAt",
+      "records",
+      "inbodyRecords"
+    ]);
     const TODAY_CARDIO_DRAFT_FIELDS = [
       "todayCardioType",
       "todayCardioDuration",
@@ -18209,8 +18275,14 @@ Notes:
       render();
     }
 
-    function normalizeTodayCalculationDraft(raw = {}){
+    function normalizeTodayCalculationDraft(raw = {}, context = {}){
       const normalized = {};
+      const contextualExerciseProfile = normalizeExerciseProfile(
+        context.exerciseProfile ?? raw.exerciseProfile ?? state.exerciseProfile
+      );
+      const contextualCardioType = isAllowedOption(context.cardioType, Object.keys(CARDIO_TYPES))
+        ? context.cardioType
+        : (isAllowedOption(raw.cardioType, Object.keys(CARDIO_TYPES)) ? raw.cardioType : state.cardioType);
       TODAY_CALCULATION_DRAFT_NUMBER_FIELDS.forEach(field => {
         const domainField = getTodayCurrentNumberDomainField(field);
         const value = domainField
@@ -18229,17 +18301,24 @@ Notes:
       const routinePlan = typeof raw.todayRoutinePlan === "string" ? raw.todayRoutinePlan.trim() : "";
       if (routinePlan && isRoutinePlanAllowedForAnyProfile(routinePlan)) {
         const profileForPlan = normalized.todayExerciseProfile
-          || normalizeExerciseProfile(raw.exerciseProfile || state.exerciseProfile);
+          || contextualExerciseProfile;
         normalized.todayRoutinePlan = normalizeRoutinePlanForProfile(profileForPlan, routinePlan);
       }
       const profileSession = raw.todayProfileSession;
       if (typeof profileSession === "string" && profileSession.trim()) {
         const profileForSession = normalized.todayExerciseProfile
-          || normalizeExerciseProfile(raw.exerciseProfile || state.exerciseProfile);
+          || contextualExerciseProfile;
         normalized.todayProfileSession = normalizeProfileSessionForProfile(profileSession, profileForSession);
       }
       const cardioType = raw.todayCardioType;
       if (isAllowedOption(cardioType, Object.keys(CARDIO_TYPES))) normalized.todayCardioType = cardioType;
+      const effectiveCardioType = normalized.todayCardioType || contextualCardioType;
+      if (
+        effectiveCardioType === "outdoor_run"
+        && Object.prototype.hasOwnProperty.call(normalized, "todayCardioIncline")
+      ) {
+        normalized.todayCardioIncline = 0;
+      }
       const routineSession = raw.todayRoutineSession;
       if (typeof routineSession === "string" && routineSession.trim()) normalized.todayRoutineSession = routineSession;
       if (raw.todayRoutineExplicit === true || raw.todayRoutineExplicit === "true") {
@@ -18297,12 +18376,44 @@ Notes:
       return normalized;
     }
 
-    function normalizeTodayCalculationDraftCollection(raw = {}){
+    function normalizeTodayCalculationDraftCollection(raw = {}, context = {}){
       return Object.entries(raw || {}).reduce((acc, [date, draft]) => {
         const normalizedDate = normalizeDateString(date);
         if (!normalizedDate) return acc;
-        const normalized = normalizeTodayCalculationDraft(draft);
+        const normalized = normalizeTodayCalculationDraft(draft, context);
         if (Object.keys(normalized).length) acc[normalizedDate] = normalized;
+        return acc;
+      }, {});
+    }
+
+    function serializeCurrentTodayCalculationDraftsForBackup(raw = todayCalculationDrafts, context = {}){
+      const normalized = normalizeTodayCalculationDraftCollection(raw || {}, context);
+      return Object.entries(normalized).reduce((acc, [date, draft]) => {
+        const serialized = { ...draft };
+        if (
+          serialized.bodyStatusSource === TODAY_BODY_STATUS_SOURCE_INBODY &&
+          serialized.bodyStatusLoadType === TODAY_BODY_STATUS_LOAD_AUTO &&
+          serialized.bodyStatusEdited !== true
+        ) {
+          TODAY_BODY_STATUS_DRAFT_FIELDS.forEach(field => delete serialized[field]);
+          delete serialized.bodyStatusSource;
+          delete serialized.bodyStatusSourceDate;
+          delete serialized.bodyStatusLoadType;
+          delete serialized.bodyStatusEdited;
+        }
+        if (
+          serialized.cardioSource === TODAY_CARDIO_SOURCE_DEFAULT_PRESET &&
+          serialized.cardioEdited !== true
+        ) {
+          TODAY_CARDIO_DRAFT_FIELDS.forEach(field => delete serialized[field]);
+          TODAY_CARDIO_SOURCE_DRAFT_FIELDS.forEach(field => delete serialized[field]);
+          delete serialized.cardioSource;
+          delete serialized.cardioEdited;
+          delete serialized.cardioPresetId;
+          delete serialized.cardioPresetName;
+        }
+        const canonical = normalizeTodayCalculationDraft(serialized, context);
+        if (Object.keys(canonical).length) acc[date] = canonical;
         return acc;
       }, {});
     }
@@ -18371,7 +18482,7 @@ Notes:
         cardioType,
         cardioDuration: duration,
         cardioSpeed: duration > 0 ? speed : 0,
-        cardioIncline: duration > 0 ? incline : 0,
+        cardioIncline: duration > 0 && cardioType !== "outdoor_run" ? incline : 0,
         createdAt: raw.createdAt || fallback?.createdAt || new Date().toISOString(),
         updatedAt: raw.updatedAt || new Date().toISOString()
       };
@@ -18476,9 +18587,10 @@ Notes:
       }
     }
 
-    function serializeMealTemplateState(){
+    function serializeNormalizedMealTemplateState(raw = {}){
+      const normalized = normalizeMealTemplateState(raw);
       return {
-        items: mealTemplateState.items.map(({ id, name, mealLabel, carbs, protein, fat, alcoholKcal, otherKcal, memo, createdAt, updatedAt }) => ({
+        items: normalized.items.map(({ id, name, mealLabel, carbs, protein, fat, alcoholKcal, otherKcal, memo, createdAt, updatedAt }) => ({
           id,
           name,
           mealLabel,
@@ -18492,6 +18604,10 @@ Notes:
           updatedAt
         }))
       };
+    }
+
+    function serializeMealTemplateState(){
+      return serializeNormalizedMealTemplateState(mealTemplateState);
     }
 
     function saveMealTemplates(){
@@ -18655,7 +18771,8 @@ Notes:
       safe.sleepHours = normalizeCurrentExerciseNumber("sleepHours", raw.sleepHours, safe.sleepHours);
       safe.workHours = normalizeCurrentExerciseNumber("workHours", raw.workHours, safe.workHours);
       safe.lifestyleHours = normalizeCurrentExerciseNumber("lifestyleHours", raw.lifestyleHours, safe.lifestyleHours);
-      safe.workAdj = clamp(parseNumberOrDefault(raw.workAdj, safe.workAdj), -2000, 2000);
+      const workAdjBounds = getCurrentWorkAdjBounds(safe.activityLevel, safe.workType);
+      safe.workAdj = clamp(parseNumberOrDefault(raw.workAdj, safe.workAdj), workAdjBounds.min, workAdjBounds.max);
       safe.homeInbody = raw.homeInbody === true || raw.homeInbody === "true";
       safe.expertLbmAlpha = clamp(parseNumberOrDefault(raw.expertLbmAlpha, safe.expertLbmAlpha), EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max);
       safe.exerciseManagementMode = normalizeExerciseManagementMode(raw.exerciseManagementMode);
@@ -18689,6 +18806,7 @@ Notes:
       safe.cardioDuration = normalizeCurrentExerciseNumber("cardioDuration", raw.cardioDuration, safe.cardioDuration);
       safe.cardioSpeed = normalizeCurrentExerciseNumber("cardioSpeed", raw.cardioSpeed, safe.cardioSpeed);
       safe.cardioIncline = normalizeCurrentExerciseNumber("cardioIncline", raw.cardioIncline, safe.cardioIncline);
+      if (safe.cardioType === "outdoor_run") safe.cardioIncline = 0;
       if (getCurrentCardioCombinationIssue(safe.cardioDuration, safe.cardioSpeed)) {
         safe.cardioDuration = DEFAULT_STATE.cardioDuration;
         safe.cardioSpeed = DEFAULT_STATE.cardioSpeed;
@@ -18740,9 +18858,10 @@ Notes:
       });
     }
 
-    function serializeCardioPresetState(){
+    function serializeNormalizedCardioPresetState(raw = {}){
+      const normalized = normalizeCardioPresetState(raw);
       return {
-        items: cardioPresetState.items.map(({ id, name, cardioType, cardioDuration, cardioSpeed, cardioIncline, createdAt, updatedAt }) => ({
+        items: normalized.items.map(({ id, name, cardioType, cardioDuration, cardioSpeed, cardioIncline, createdAt, updatedAt }) => ({
           id,
           name,
           cardioType,
@@ -18752,15 +18871,34 @@ Notes:
           createdAt,
           updatedAt
         })),
-        defaultId: cardioPresetState.items.some(item => item.id === cardioPresetState.defaultId) ? cardioPresetState.defaultId : null
+        defaultId: normalized.items.some(item => item.id === normalized.defaultId) ? normalized.defaultId : null
       };
     }
 
-    function serializeTodayCalculationDrafts(){
-      return normalizeTodayCalculationDraftCollection(todayCalculationDrafts || {});
+
+    function serializeCardioPresetState(){
+      return serializeNormalizedCardioPresetState(cardioPresetState);
+    }
+
+    function serializeTodayCalculationDrafts(context = {}){
+      return serializeCurrentTodayCalculationDraftsForBackup(todayCalculationDrafts || {}, context);
     }
 
     function buildFullBackupPayload(createdAt = new Date().toISOString()){
+      if (!getOnboardingCompletionState().completed) {
+        throw new Error("current_full_backup_requires_completed_onboarding");
+      }
+      const records = getSortedRecords();
+      const settingsSnapshot = getSettingsBackupSnapshot();
+      const weeklyTrainingDaysManual = !!state.weeklyTrainingDaysManual;
+      const weeklyTrainingDays = weeklyTrainingDaysManual
+        ? clamp(Math.round(Number(ids.weeklyTrainingDays?.value) || 0), 0, 14)
+        : 0;
+      const settings = normalizeSettingsBackup({
+        ...settingsSnapshot,
+        weeklyTrainingDaysManual,
+        weeklyTrainingDays
+      });
       return {
         app: "macro-engine",
         kind: FULL_BACKUP_KIND,
@@ -18768,16 +18906,19 @@ Notes:
         appVersion: getCurrentAppVersionLabel(),
         createdAt,
         data: {
-          onboardingCompletedVersion: getOnboardingCompletionState().completed ? ONBOARDING_VERSION : null,
-          settings: getSettingsBackupSnapshot(),
-          records: getSortedRecords(),
+          onboardingCompletedVersion: ONBOARDING_VERSION,
+          settings,
+          records,
           inbodyRecords: normalizeInbodyRecordCollection(state.inbodyRecords),
           cardioPresets: serializeCardioPresetState(),
           mealTemplates: serializeMealTemplateState(),
-          todayCalculationValues: serializeTodayCalculationDrafts(),
+          todayCalculationValues: serializeTodayCalculationDrafts({
+            exerciseProfile: settings.exerciseProfile,
+            cardioType: settings.cardioType
+          }),
           weeklyTrainingState: {
-            weeklyTrainingDaysManual: !!state.weeklyTrainingDaysManual,
-            weeklyTrainingDays: clamp(Math.round(Number(ids.weeklyTrainingDays?.value) || 0), 0, 14)
+            weeklyTrainingDaysManual,
+            weeklyTrainingDays
           }
         }
       };
@@ -18792,35 +18933,132 @@ Notes:
       };
     }
 
+    function isPlainBackupObject(value){
+      return !!value && typeof value === "object" && !Array.isArray(value);
+    }
+
+    function hasExactBackupFields(value, fields = []){
+      if (!isPlainBackupObject(value)) return false;
+      const actual = Object.keys(value).sort();
+      const expected = [...fields].sort();
+      return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+    }
+
+    function canonicalizeBackupJsonValue(value){
+      if (Array.isArray(value)) return value.map(canonicalizeBackupJsonValue);
+      if (!isPlainBackupObject(value)) return value;
+      return Object.keys(value).sort().reduce((acc, key) => {
+        if (value[key] !== undefined) acc[key] = canonicalizeBackupJsonValue(value[key]);
+        return acc;
+      }, {});
+    }
+
+    function backupJsonValuesMatch(left, right){
+      return JSON.stringify(canonicalizeBackupJsonValue(left)) === JSON.stringify(canonicalizeBackupJsonValue(right));
+    }
+
+    function isCurrentBackupTimestamp(value){
+      if (typeof value !== "string" || !value) return false;
+      const date = new Date(value);
+      return Number.isFinite(date.getTime()) && date.toISOString() === value;
+    }
+
+    function hasDuplicateRecordMealIds(records = []){
+      return records.some(record => {
+        const mealIds = (Array.isArray(record?.meals) ? record.meals : [])
+          .map(meal => typeof meal?.id === "string" ? meal.id.trim() : "")
+          .filter(Boolean);
+        return new Set(mealIds).size !== mealIds.length;
+      });
+    }
+
+    function throwUnsupportedCurrentBackup(reason){
+      const error = new Error("unsupported_full_backup");
+      error.reason = reason;
+      throw error;
+    }
+
     function normalizeFullBackupPayload(parsed){
-      if (!parsed || parsed.app !== "macro-engine" || parsed.kind !== FULL_BACKUP_KIND || Number(parsed.backupVersion) !== FULL_BACKUP_VERSION || !parsed.data) {
-        throw new Error("unsupported_full_backup");
-      }
-      const rawSettings = parsed.data.settings || {};
+      if (!hasExactBackupFields(parsed, FULL_BACKUP_ENVELOPE_FIELDS)) throwUnsupportedCurrentBackup("invalid_envelope_fields");
+      if (parsed.app !== "macro-engine" || parsed.kind !== FULL_BACKUP_KIND) throwUnsupportedCurrentBackup("invalid_identity");
+      if (parsed.backupVersion !== FULL_BACKUP_VERSION) throwUnsupportedCurrentBackup("unsupported_version");
+      if (parsed.appVersion !== getCurrentAppVersionLabel()) throwUnsupportedCurrentBackup("unsupported_app_version");
+      if (!isCurrentBackupTimestamp(parsed.createdAt)) throwUnsupportedCurrentBackup("invalid_created_at");
+      if (!hasExactBackupFields(parsed.data, FULL_BACKUP_DATA_FIELDS)) throwUnsupportedCurrentBackup("invalid_data_fields");
+      const rawSettings = parsed.data.settings;
+      if (!hasExactBackupFields(rawSettings, FULL_BACKUP_SETTINGS_FIELDS)) throwUnsupportedCurrentBackup("invalid_settings_fields");
+      if (!Array.isArray(parsed.data.records)) throwUnsupportedCurrentBackup("invalid_records");
+      if (!Array.isArray(parsed.data.inbodyRecords)) throwUnsupportedCurrentBackup("invalid_inbody_records");
+      if (!isPlainBackupObject(parsed.data.cardioPresets)) throwUnsupportedCurrentBackup("invalid_cardio_presets");
+      if (!isPlainBackupObject(parsed.data.mealTemplates)) throwUnsupportedCurrentBackup("invalid_meal_templates");
+      if (!isPlainBackupObject(parsed.data.todayCalculationValues)) throwUnsupportedCurrentBackup("invalid_today_values");
+      if (!isPlainBackupObject(parsed.data.weeklyTrainingState)) throwUnsupportedCurrentBackup("invalid_weekly_training_state");
+      if (parsed.data.onboardingCompletedVersion !== ONBOARDING_VERSION) throwUnsupportedCurrentBackup("invalid_onboarding_version");
       const onboardingEvidence = classifyOnboardingEvidence({
         completionVersion: parsed.data.onboardingCompletedVersion,
         settings: rawSettings,
-        records: parsed.data.records || [],
-        inbodyRecords: parsed.data.inbodyRecords || [],
-        todayCalculationValues: parsed.data.todayCalculationValues || {},
-        cardioPresets: parsed.data.cardioPresets || {},
-        mealTemplates: parsed.data.mealTemplates || {}
+        records: parsed.data.records,
+        inbodyRecords: parsed.data.inbodyRecords,
+        todayCalculationValues: parsed.data.todayCalculationValues,
+        cardioPresets: parsed.data.cardioPresets,
+        mealTemplates: parsed.data.mealTemplates
       });
       const settings = normalizeSettingsBackup(rawSettings);
-      return {
+      const records = normalizeRecordsCollection(parsed.data.records);
+      const inbodyRecords = normalizeInbodyRecordCollection(parsed.data.inbodyRecords);
+      const cardioPresets = serializeNormalizedCardioPresetState(parsed.data.cardioPresets);
+      const mealTemplates = serializeNormalizedMealTemplateState(parsed.data.mealTemplates);
+      const todayCalculationValues = serializeCurrentTodayCalculationDraftsForBackup(parsed.data.todayCalculationValues, {
+        exerciseProfile: settings.exerciseProfile,
+        cardioType: settings.cardioType
+      });
+      const weeklyTrainingState = normalizeWeeklyTrainingBackup(parsed.data.weeklyTrainingState, settings);
+      const currentDate = getTodayDateString();
+      const recordDates = parsed.data.records.map(record => normalizeDateString(record?.date)).filter(Boolean);
+      if (new Set(recordDates).size !== recordDates.length || recordDates.some(date => date > currentDate)) {
+        throwUnsupportedCurrentBackup("invalid_record_dates");
+      }
+      if (hasDuplicateRecordMealIds(parsed.data.records)) throwUnsupportedCurrentBackup("duplicate_record_meal_ids");
+      if (Object.keys(parsed.data.todayCalculationValues).some(date => !normalizeDateString(date) || date > currentDate)) {
+        throwUnsupportedCurrentBackup("invalid_today_dates");
+      }
+      const presetIds = cardioPresets.items.map(item => item.id);
+      if (new Set(presetIds).size !== presetIds.length) throwUnsupportedCurrentBackup("duplicate_cardio_preset_ids");
+      const mealTemplateIds = mealTemplates.items.map(item => item.id);
+      if (new Set(mealTemplateIds).size !== mealTemplateIds.length) throwUnsupportedCurrentBackup("duplicate_meal_template_ids");
+      if (!backupJsonValuesMatch(rawSettings, settings)) throwUnsupportedCurrentBackup("noncanonical_settings");
+      if (!backupJsonValuesMatch(parsed.data.records, records)) throwUnsupportedCurrentBackup("noncanonical_records");
+      if (!backupJsonValuesMatch(parsed.data.inbodyRecords, inbodyRecords)) throwUnsupportedCurrentBackup("noncanonical_inbody_records");
+      if (!backupJsonValuesMatch(parsed.data.cardioPresets, cardioPresets)) throwUnsupportedCurrentBackup("noncanonical_cardio_presets");
+      if (!backupJsonValuesMatch(parsed.data.mealTemplates, mealTemplates)) throwUnsupportedCurrentBackup("noncanonical_meal_templates");
+      if (!backupJsonValuesMatch(parsed.data.todayCalculationValues, todayCalculationValues)) throwUnsupportedCurrentBackup("noncanonical_today_values");
+      if (!backupJsonValuesMatch(parsed.data.weeklyTrainingState, weeklyTrainingState)) throwUnsupportedCurrentBackup("noncanonical_weekly_training_state");
+      if (
+        settings.weeklyTrainingDaysManual !== weeklyTrainingState.weeklyTrainingDaysManual ||
+        settings.weeklyTrainingDays !== weeklyTrainingState.weeklyTrainingDays
+      ) {
+        throwUnsupportedCurrentBackup("weekly_training_mismatch");
+      }
+      if (
+        !weeklyTrainingState.weeklyTrainingDaysManual &&
+        weeklyTrainingState.weeklyTrainingDays !== 0
+      ) {
+        throwUnsupportedCurrentBackup("noncanonical_auto_weekly_training_days");
+      }
+      return Object.freeze({
         settings,
-        records: normalizeRecordsCollection(parsed.data.records || []),
-        inbodyRecords: normalizeInbodyRecordCollection(parsed.data.inbodyRecords || []),
-        cardioPresets: normalizeCardioPresetState(parsed.data.cardioPresets || {}),
-        mealTemplates: normalizeMealTemplateState(parsed.data.mealTemplates || {}),
-        todayCalculationValues: normalizeTodayCalculationDraftCollection(parsed.data.todayCalculationValues || {}),
-        weeklyTrainingState: normalizeWeeklyTrainingBackup(parsed.data.weeklyTrainingState || {}, settings),
-        onboardingCompletedVersion: normalizeOnboardingVersion(parsed.data.onboardingCompletedVersion),
-        onboardingClassification: onboardingEvidence.classification,
+        records,
+        inbodyRecords,
+        cardioPresets: normalizeCardioPresetState(cardioPresets),
+        mealTemplates: normalizeMealTemplateState(mealTemplates),
+        todayCalculationValues,
+        weeklyTrainingState,
+        onboardingCompletedVersion: ONBOARDING_VERSION,
+        onboardingClassification: ONBOARDING_CLASSIFICATIONS.COMPLETED,
         onboardingEvidence,
-        appVersion: typeof parsed.appVersion === "string" ? parsed.appVersion : "",
-        createdAt: typeof parsed.createdAt === "string" ? parsed.createdAt : ""
-      };
+        appVersion: parsed.appVersion,
+        createdAt: parsed.createdAt
+      });
     }
 
     function getBackupImportSummary(type, data, meta = {}){
@@ -18987,6 +19225,7 @@ Notes:
       const backupMeals = normalizeMeals(backup.meals || []);
       const existing = new Set(localMeals.map(getMealImportSignature).filter(Boolean));
       const existingLoose = new Set(localMeals.map(getMealImportLooseSignature).filter(Boolean));
+      const usedMealIds = new Set(localMeals.map(meal => String(meal.id || "").trim()).filter(Boolean));
       let addedMealCount = 0;
       let duplicateMealCount = 0;
       let possibleDuplicateMealCount = 0;
@@ -19003,41 +19242,28 @@ Notes:
         }
         existing.add(signature);
         existingLoose.add(looseSignature);
-        mergedMeals.push({ ...meal, id: meal.id || createMealId() });
+        const incomingId = String(meal.id || "").trim();
+        let mergedId = incomingId;
+        if (!mergedId || usedMealIds.has(mergedId)) {
+          const generatedId = createMealId();
+          mergedId = generatedId;
+          let suffix = 2;
+          while (usedMealIds.has(mergedId)) {
+            mergedId = `${generatedId}_${suffix}`;
+            suffix += 1;
+          }
+        }
+        usedMealIds.add(mergedId);
+        mergedMeals.push({ ...meal, id: mergedId });
         addedMealCount += 1;
       });
       const mergedRecord = normalizeRecord({ ...local, meals: mergedMeals });
       return {
-        record: addedMealCount > 0 ? recalculateImportedRecordMealScore(mergedRecord) : mergedRecord,
+        record: mergedRecord,
         addedMealCount,
         duplicateMealCount,
         possibleDuplicateMealCount
       };
-    }
-
-    function recalculateImportedRecordMealScore(record){
-      const normalized = normalizeRecord(record);
-      if (inferRecordMode(normalized).recordMode !== "detailed" || !normalized.meals.length || !normalized.goalSnapshot) {
-        return normalized;
-      }
-      const previousItems = recordsState.items;
-      try {
-        recordsState.items = normalizeRecordsCollection([
-          ...normalizeRecordsCollection(previousItems).filter(item => normalizeDateString(item.date) !== normalized.date),
-          normalized
-        ]);
-        const score = getDailyAdherenceScore(normalized.date, calculate(), { goalSnapshot: normalized.goalSnapshot });
-        const hasAutoPercent = Number.isFinite(score?.percent);
-        return normalizeRecord({
-          ...normalized,
-          adherencePercent: score?.isAvailable ? score.percent : null,
-          adherenceSource: score?.isAvailable ? "auto" : "manual",
-          adherenceScoringVersion: hasAutoPercent ? (score.detail?.scoringVersion || ADHERENCE_SCORING_VERSION) : null,
-          adherenceLockedAt: score?.isAvailable ? new Date().toISOString() : normalized.adherenceLockedAt
-        });
-      } finally {
-        recordsState.items = previousItems;
-      }
     }
 
     function buildSmartRestoreImportPreview(data = {}){
@@ -19080,15 +19306,15 @@ Notes:
     }
 
     function detectBackupImportPayload(parsed){
-      if (parsed && parsed.app === "macro-engine" && parsed.kind === FULL_BACKUP_KIND) {
+      const looksLikeFullBackup = isPlainBackupObject(parsed) && ["app", "kind", "backupVersion", "data"].some(field =>
+        Object.prototype.hasOwnProperty.call(parsed, field)
+      );
+      if (looksLikeFullBackup) {
         const data = normalizeFullBackupPayload(parsed);
         return { type: "full", data, summary: getBackupImportSummary("full", data, { createdAt: parsed.createdAt }) };
       }
-      const records = parseImportedRecordsPayload(parsed);
-      const hasInbodyRecords = Array.isArray(parsed?.inbodyRecords);
-      const inbodyRecords = hasInbodyRecords ? normalizeInbodyRecordCollection(parsed.inbodyRecords) : [];
-      const data = { records, inbodyRecords, hasInbodyRecords };
-      return { type: "records-only", data, summary: getBackupImportSummary("records-only", data, { createdAt: parsed?.exportedAt || parsed?.createdAt }) };
+      const data = normalizeRecordsBackupPayload(parsed);
+      return { type: "records-only", data, summary: getBackupImportSummary("records-only", data, { createdAt: parsed.exportedAt }) };
     }
 
     const BACKUP_SAVE_PICKER_ID = "macroEngineBackup";
@@ -19769,6 +19995,9 @@ Notes:
           values.bodyFatPercent = values.bodyFatMass / values.calculationWeight * 100;
         }
       }
+      if (values.todayCardioType === "outdoor_run") {
+        values.todayCardioIncline = 0;
+      }
       if (!isExerciseManagementEnabled()) {
         values.todayProfileSession = "rest";
         values.todayRoutineSession = "REST";
@@ -20227,10 +20456,13 @@ Notes:
       ids.gender.value = isAllowedOption(state.gender, ["male", "female"]) ? state.gender : "";
       ids.activityLevel.value = state.activityLevel;
       ids.workType.value = state.workType;
+      const workAdjBounds = getCurrentWorkAdjBounds(state.activityLevel, state.workType);
+      ids.workAdj.min = String(workAdjBounds.min);
+      ids.workAdj.max = String(workAdjBounds.max);
       ids.sleepHours.value = formatCurrentUserCommittedValue("sleepHours", state.sleepHours);
       ids.workHours.value = formatCurrentUserCommittedValue("workHours", state.workHours);
       ids.lifestyleHours.value = formatCurrentUserCommittedValue("lifestyleHours", state.lifestyleHours);
-      ids.workAdj.value = state.workAdj;
+      ids.workAdj.value = clamp(Number(state.workAdj), workAdjBounds.min, workAdjBounds.max).toFixed(2);
       ids.homeInbody.checked = state.homeInbody;
       if (ids.expertLbmAlpha) ids.expertLbmAlpha.value = String(Math.round(clamp(state.expertLbmAlpha, EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max) * 100));
       state.exerciseManagementMode = normalizeExerciseManagementMode(state.exerciseManagementMode);
@@ -23627,6 +23859,7 @@ Notes:
       if (ids.cardioType.value === "outdoor_run"){
         ids.cardioIncline.value = "0";
         inclineInput.disabled = true;
+        inclineInput.setAttribute("aria-disabled", "true");
         if (inclineHint) {
           inclineHint.textContent = "실외 러닝은 경사도를 0%로 해석합니다.";
         }
@@ -23634,6 +23867,7 @@ Notes:
       }
 
       inclineInput.disabled = false;
+      inclineInput.setAttribute("aria-disabled", "false");
     }
 
     function updateAdvancedVisibility(){
@@ -24274,15 +24508,20 @@ Notes:
     function syncTodayQuickEditControls(date = getTodayDateString()){
       const targetDate = normalizeDateString(date) || getTodayDateString();
       const todayValues = getEffectiveTodayCalculationValues(targetDate);
+      const outdoorCardio = todayValues.todayCardioType === "outdoor_run";
       TODAY_QUICK_EDIT_FIELD_MAP.forEach(({ quickId, draftField, digits = 0 }) => {
         const quick = document.getElementById(quickId);
         if (!quick) return;
-        const value = todayValues[draftField];
+        const value = quickId === "todayQuickCardioIncline" && outdoorCardio
+          ? 0
+          : todayValues[draftField];
         const nextValue = quick.tagName === "SELECT"
           ? String(value || "")
           : (Number.isFinite(value) ? formatInputNumber(value, digits) : "");
         if (quick.value !== nextValue) quick.value = nextValue;
-        quick.disabled = false;
+        const disabled = quickId === "todayQuickCardioIncline" && outdoorCardio;
+        quick.disabled = disabled;
+        quick.setAttribute("aria-disabled", disabled ? "true" : "false");
       });
       syncTodayQuickProfileControls(todayValues);
       syncTodayQuickRoutineControls(todayValues);
@@ -24336,6 +24575,16 @@ Notes:
       feedback.className = `cardio-preset-feedback ${tone || ""}`.trim();
     }
 
+    function syncCardioPresetInclineControl(){
+      const type = document.getElementById("cardioPresetType");
+      const incline = document.getElementById("cardioPresetIncline");
+      if (!type || !incline) return;
+      const outdoor = type.value === "outdoor_run";
+      if (outdoor) incline.value = "0";
+      incline.disabled = outdoor;
+      incline.setAttribute("aria-disabled", outdoor ? "true" : "false");
+    }
+
     function resetCardioPresetForm(){
       const preset = {
         name: document.getElementById("cardioPresetName"),
@@ -24349,19 +24598,21 @@ Notes:
       if (preset.duration) preset.duration.value = "";
       if (preset.speed) preset.speed.value = "";
       if (preset.incline) preset.incline.value = "";
+      syncCardioPresetInclineControl();
       cardioPresetState.editingId = null;
       const saveButton = document.getElementById("saveCardioPresetBtn");
       if (saveButton) saveButton.textContent = "프리셋 저장";
     }
 
     function readCardioPresetForm(){
+      const cardioType = document.getElementById("cardioPresetType")?.value || DEFAULT_STATE.cardioType;
       return {
         id: cardioPresetState.editingId || undefined,
         name: document.getElementById("cardioPresetName")?.value || "",
-        cardioType: document.getElementById("cardioPresetType")?.value || DEFAULT_STATE.cardioType,
+        cardioType,
         cardioDuration: document.getElementById("cardioPresetDuration")?.value,
         cardioSpeed: document.getElementById("cardioPresetSpeed")?.value,
-        cardioIncline: document.getElementById("cardioPresetIncline")?.value
+        cardioIncline: cardioType === "outdoor_run" ? 0 : document.getElementById("cardioPresetIncline")?.value
       };
     }
 
@@ -24399,6 +24650,7 @@ Notes:
       if (duration) duration.value = String(preset.cardioDuration);
       if (speed) speed.value = String(preset.cardioSpeed);
       if (incline) incline.value = String(preset.cardioIncline);
+      syncCardioPresetInclineControl();
       const saveButton = document.getElementById("saveCardioPresetBtn");
       if (saveButton) saveButton.textContent = "수정 저장";
       setCardioPresetFeedback("수정할 값을 확인한 뒤 저장하세요.", "");
@@ -25227,6 +25479,7 @@ Notes:
       if (![targetCal, protein, carbs, fat].every(Number.isFinite)) return null;
       const exerciseProfile = normalizeExerciseProfileOrNull(raw.exerciseProfile);
       const profileSession = normalizeProfileSessionForSnapshot(raw.profileSession, exerciseProfile);
+      const cardioType = isAllowedOption(raw.cardioType, Object.keys(CARDIO_TYPES)) ? raw.cardioType : null;
       return {
         targetCal,
         protein,
@@ -25256,10 +25509,10 @@ Notes:
         routine: typeof raw.routine === "string" ? raw.routine : null,
         intensityOverride: normalizeOptionalFiniteNumber(raw.intensityOverride),
         weightDuration: normalizeOptionalFiniteNumber(raw.weightDuration),
-        cardioType: isAllowedOption(raw.cardioType, Object.keys(CARDIO_TYPES)) ? raw.cardioType : null,
+        cardioType,
         cardioDuration: normalizeOptionalFiniteNumber(raw.cardioDuration),
         cardioSpeed: normalizeOptionalFiniteNumber(raw.cardioSpeed),
-        cardioIncline: normalizeOptionalFiniteNumber(raw.cardioIncline),
+        cardioIncline: cardioType === "outdoor_run" ? 0 : normalizeOptionalFiniteNumber(raw.cardioIncline),
         workAdj: normalizeOptionalFiniteNumber(raw.workAdj),
         homeInbody: raw.homeInbody === true,
         expertLbmAlpha: Number.isFinite(normalizeOptionalFiniteNumber(raw.expertLbmAlpha)) ? clamp(normalizeOptionalFiniteNumber(raw.expertLbmAlpha), EXPERT_LBM_ALPHA_RANGE.min, EXPERT_LBM_ALPHA_RANGE.max) : MODE_LBM_ALPHA.expert,
@@ -26472,7 +26725,139 @@ Notes:
       reader.readAsText(file, "utf-8");
     }
 
+    function setRestoreStorageEntry(entries, name, value){
+      entries.set(storageKey(name), value === null || value === undefined ? null : String(value));
+    }
+
+    function buildFullRestoreStorageEntries(data){
+      const entries = new Map();
+      FULL_BACKUP_SETTINGS_FIELDS.forEach(field => {
+        const value = data.settings[field];
+        if (field === "routineWeekdaySchedule" || field === "weekdayTimeDefaults") {
+          setRestoreStorageEntry(entries, field, JSON.stringify(value || {}));
+          return;
+        }
+        setRestoreStorageEntry(entries, field, value);
+      });
+      setRestoreStorageEntry(entries, ONBOARDING_STORAGE_KEY, data.onboardingCompletedVersion);
+      setRestoreStorageEntry(entries, "records", JSON.stringify(data.records));
+      setRestoreStorageEntry(entries, "inbodyRecords", JSON.stringify(data.inbodyRecords));
+      const cardioPresets = serializeNormalizedCardioPresetState(data.cardioPresets);
+      setRestoreStorageEntry(entries, CARDIO_PRESET_STORAGE_KEY, cardioPresets.items.length ? JSON.stringify(cardioPresets) : null);
+      const mealTemplates = serializeNormalizedMealTemplateState(data.mealTemplates);
+      setRestoreStorageEntry(entries, MEAL_TEMPLATE_STORAGE_KEY, mealTemplates.items.length ? JSON.stringify(mealTemplates) : null);
+      const todayEntries = Object.entries(data.todayCalculationValues || {})
+        .filter(([date, draft]) => normalizeDateString(date) && draft && Object.keys(draft).length);
+      setRestoreStorageEntry(
+        entries,
+        TODAY_CALCULATION_DRAFT_STORAGE_KEY,
+        todayEntries.length ? JSON.stringify(Object.fromEntries(todayEntries)) : null
+      );
+      return entries;
+    }
+
+    function buildRecordsRestoreStorageEntries(records, inbodyRecords = null){
+      const entries = new Map();
+      setRestoreStorageEntry(entries, "records", JSON.stringify(normalizeRecordsCollection(records)));
+      if (Array.isArray(inbodyRecords)) {
+        setRestoreStorageEntry(entries, "inbodyRecords", JSON.stringify(normalizeInbodyRecordCollection(inbodyRecords)));
+      }
+      return entries;
+    }
+
+    function restoreStorageEntrySnapshot(snapshot = new Map()){
+      const errors = [];
+      [...snapshot.entries()].reverse().forEach(([key, value]) => {
+        try {
+          if (value === null) localStorage.removeItem(key);
+          else localStorage.setItem(key, value);
+        } catch (error) {
+          errors.push({ key, error });
+        }
+      });
+      return errors;
+    }
+
+    function commitRestoreStorageEntriesAtomically(entries){
+      const before = new Map([...entries.keys()].map(key => [key, localStorage.getItem(key)]));
+      try {
+        entries.forEach((value, key) => {
+          if (value === null) localStorage.removeItem(key);
+          else localStorage.setItem(key, value);
+        });
+        return { committed: true, entries, before, error: null, rollbackErrors: [] };
+      } catch (error) {
+        const rollbackErrors = restoreStorageEntrySnapshot(before);
+        return { committed: false, entries, before, error, rollbackErrors };
+      }
+    }
+
+    function cloneRestoreRuntimeValue(value){
+      return JSON.parse(JSON.stringify(value));
+    }
+
+    function captureRestoreRuntimeSnapshot(){
+      const onboarding = { ...onboardingUiState, returnFocus: null };
+      const recordInputIds = [
+        "recordWeight", "recordAdherence", "recordNote", "mealLabel", "mealCarbs", "mealProtein",
+        "mealFat", "mealAlcoholKcal", "mealOtherKcal", "mealMemo"
+      ];
+      return {
+        state: cloneRestoreRuntimeValue(state),
+        settings: cloneRestoreRuntimeValue(getSettingsBackupSnapshot()),
+        uiState: cloneRestoreRuntimeValue(uiState),
+        onboarding: cloneRestoreRuntimeValue(onboarding),
+        onboardingReturnFocus: onboardingUiState.returnFocus,
+        records: cloneRestoreRuntimeValue(recordsState.items),
+        recordsFeedback: cloneRestoreRuntimeValue(recordsState.feedback),
+        dataFeedback: cloneRestoreRuntimeValue(dataManagementState.feedback),
+        pendingImport: dataManagementState.pendingImport,
+        cardioPresets: cloneRestoreRuntimeValue(cardioPresetState),
+        mealTemplates: cloneRestoreRuntimeValue(mealTemplateState),
+        todayValues: cloneRestoreRuntimeValue(todayCalculationDrafts),
+        recordDate: ids.recordDate?.value || "",
+        recordInputs: Object.fromEntries(recordInputIds.map(id => [id, document.getElementById(id)?.value ?? null]))
+      };
+    }
+
+    function replaceRestoreRuntimeObject(target, snapshot){
+      Object.keys(target).forEach(key => delete target[key]);
+      Object.assign(target, cloneRestoreRuntimeValue(snapshot));
+    }
+
+    function restoreRuntimeSnapshot(snapshot){
+      const exactState = cloneRestoreRuntimeValue(snapshot.state);
+      replaceRestoreRuntimeObject(state, { ...exactState, ...cloneRestoreRuntimeValue(snapshot.settings) });
+      replaceRestoreRuntimeObject(uiState, snapshot.uiState);
+      replaceRestoreRuntimeObject(onboardingUiState, snapshot.onboarding);
+      onboardingUiState.returnFocus = snapshot.onboardingReturnFocus;
+      recordsState.items = cloneRestoreRuntimeValue(snapshot.records);
+      recordsState.feedback = cloneRestoreRuntimeValue(snapshot.recordsFeedback);
+      dataManagementState.feedback = cloneRestoreRuntimeValue(snapshot.dataFeedback);
+      dataManagementState.pendingImport = snapshot.pendingImport;
+      cardioPresetState = cloneRestoreRuntimeValue(snapshot.cardioPresets);
+      mealTemplateState = cloneRestoreRuntimeValue(snapshot.mealTemplates);
+      todayCalculationDrafts = cloneRestoreRuntimeValue(snapshot.todayValues);
+      applyStateToInputs();
+      replaceRestoreRuntimeObject(state, exactState);
+      if (ids.recordDate) ids.recordDate.value = snapshot.recordDate;
+      if (!shouldShowFirstRunSetup()) syncRecordInputsForDate(snapshot.recordDate);
+      render();
+      Object.entries(snapshot.recordInputs || {}).forEach(([id, value]) => {
+        const input = document.getElementById(id);
+        if (input && value !== null) input.value = value;
+      });
+    }
+
+    function getRestoreFailureMessage(transaction){
+      return transaction?.rollbackErrors?.length
+        ? "복원 중 저장 오류가 발생했습니다. 브라우저를 새로고침한 뒤 현재 데이터를 확인해 주세요."
+        : "복원하지 못했습니다. 현재 데이터는 변경하지 않았습니다.";
+    }
+
     function applySmartRestoreImportData(data, conflictMode = "keep"){
+      const pendingImport = dataManagementState.pendingImport;
+      const runtimeSnapshot = captureRestoreRuntimeSnapshot();
       const mode = ["keep", "replace", "meals"].includes(conflictMode) ? conflictMode : "keep";
       const backupRecords = normalizeRecordsCollection(data.records || []);
       const localMap = getRecordDateMap(recordsState.items || []);
@@ -26505,28 +26890,73 @@ Notes:
         data.inbodyRecords || [],
         mode
       );
-      recordsState.items = normalizeRecordsCollection([...localMap.values()]);
-      if (inbodyMerge.added || inbodyMerge.replaced) {
-        state.inbodyRecords = inbodyMerge.records;
-        saveInbodyRecords();
+      const nextRecords = normalizeRecordsCollection([...localMap.values()]);
+      const nextInbodyRecords = inbodyMerge.records;
+      const storageEntries = buildRecordsRestoreStorageEntries(nextRecords, nextInbodyRecords);
+      const transaction = commitRestoreStorageEntriesAtomically(storageEntries);
+      if (!transaction.committed) {
+        setDataManagementFeedback("bad", getRestoreFailureMessage(transaction));
+        renderDataManagementPanel();
+        renderDataImportConfirmDialog();
+        return {
+          ...mergeStats,
+          addedInbody: 0,
+          replacedInbody: 0,
+          keptInbodyConflicts: inbodyMerge.kept,
+          exactInbodyDuplicates: inbodyMerge.exactDuplicates,
+          mode,
+          applied: false,
+          reason: "storage_commit_failed",
+          transaction
+        };
       }
-      const selectedDate = normalizeDateString(ids.recordDate?.value) || getTodayDateString();
-      syncRecordInputsForDate(selectedDate);
-      dataManagementState.pendingImport = null;
       const actionLabel = mode === "replace" ? "백업 기록으로 교체" : mode === "meals" ? "식사만 합치기" : "현재 기록 유지";
       const reflectedInbodyCount = inbodyMerge.added + inbodyMerge.replaced;
       const message = `추가 기록만 가져왔습니다. ${actionLabel} 기준으로 새 기록 ${mergeStats.addedRecords}일, InBody ${reflectedInbodyCount}개를 반영했습니다.`;
-      setRecordFeedback("ok", message);
-      setDataManagementFeedback("ok", message);
-      saveState();
-      render();
+      try {
+        recordsState.items = nextRecords;
+        state.inbodyRecords = nextInbodyRecords;
+        uiState.inbodyCollectionIssue = null;
+        const selectedDate = normalizeDateString(ids.recordDate?.value) || getTodayDateString();
+        syncRecordInputsForDate(selectedDate);
+        dataManagementState.pendingImport = null;
+        setRecordFeedback("ok", message);
+        setDataManagementFeedback("ok", message);
+        document.getElementById("dataImportConfirmOverlay")?.classList.add("hidden");
+        document.getElementById("dataImportConfirmOverlay")?.setAttribute("aria-hidden", "true");
+        render();
+      } catch (error) {
+        const rollbackErrors = restoreStorageEntrySnapshot(transaction.before);
+        try {
+          restoreRuntimeSnapshot(runtimeSnapshot);
+        } catch (_restoreError) {
+          // The original storage snapshot remains the recovery authority when rendering is unavailable.
+        }
+        dataManagementState.pendingImport = pendingImport;
+        setDataManagementFeedback("bad", getRestoreFailureMessage({ rollbackErrors }));
+        renderDataManagementPanel();
+        renderDataImportConfirmDialog();
+        return {
+          ...mergeStats,
+          addedInbody: 0,
+          replacedInbody: 0,
+          keptInbodyConflicts: inbodyMerge.kept,
+          exactInbodyDuplicates: inbodyMerge.exactDuplicates,
+          mode,
+          applied: false,
+          reason: "runtime_commit_failed",
+          error,
+          rollbackErrors
+        };
+      }
       return {
         ...mergeStats,
         addedInbody: inbodyMerge.added,
         replacedInbody: inbodyMerge.replaced,
         keptInbodyConflicts: inbodyMerge.kept,
         exactInbodyDuplicates: inbodyMerge.exactDuplicates,
-        mode
+        mode,
+        applied: true
       };
     }
 
@@ -26540,8 +26970,6 @@ Notes:
         renderDataImportConfirmDialog();
         return { pendingConflict: true, preview };
       }
-      document.getElementById("dataImportConfirmOverlay")?.classList.add("hidden");
-      document.getElementById("dataImportConfirmOverlay")?.setAttribute("aria-hidden", "true");
       return applySmartRestoreImportData(pending.data, "keep");
     }
 
@@ -26555,31 +26983,57 @@ Notes:
     function confirmSmartRestoreConflict(mode){
       const pending = dataManagementState.pendingImport;
       if (!pending || pending.type !== "full") return null;
-      document.getElementById("dataImportConfirmOverlay")?.classList.add("hidden");
-      document.getElementById("dataImportConfirmOverlay")?.setAttribute("aria-hidden", "true");
       return applySmartRestoreImportData(pending.data, mode);
     }
 
     function applyRecordsOnlyImportData(data, message = "기록 중심 파일을 불러왔습니다. 설정과 Today 계산값은 그대로 유지했습니다."){
-      recordsState.items = normalizeRecordsCollection(data.records || []);
-      if (data.hasInbodyRecords === true) {
-        state.inbodyRecords = normalizeInbodyRecordCollection(data.inbodyRecords);
-        saveInbodyRecords();
+      const pendingImport = dataManagementState.pendingImport;
+      const runtimeSnapshot = captureRestoreRuntimeSnapshot();
+      const nextRecords = normalizeRecordsCollection(data.records || []);
+      const nextInbodyRecords = normalizeInbodyRecordCollection(data.inbodyRecords || []);
+      const transaction = commitRestoreStorageEntriesAtomically(
+        buildRecordsRestoreStorageEntries(nextRecords, nextInbodyRecords)
+      );
+      if (!transaction.committed) {
+        setDataManagementFeedback("bad", getRestoreFailureMessage(transaction));
+        renderDataManagementPanel();
+        renderDataImportConfirmDialog();
+        return { applied: false, reason: "storage_commit_failed", transaction };
       }
-      if (!shouldShowFirstRunSetup()) syncRecordInputsForDate(getSelectedRecordDate());
-      setRecordFeedback("ok", message);
-      setDataManagementFeedback("ok", message);
-      saveState();
-      if (shouldShowFirstRunSetup()) {
-        const evidence = refreshOnboardingClassification({ autoCompleteConfirmed: false });
-        onboardingUiState.open = true;
-        onboardingUiState.reentry = false;
-        onboardingUiState.step = 0;
-        onboardingUiState.draft = buildOnboardingDraft({ classification: evidence.classification });
-        onboardingUiState.needsPopulate = true;
-        prepareIncompleteOnboardingState();
+      try {
+        recordsState.items = nextRecords;
+        state.inbodyRecords = nextInbodyRecords;
+        uiState.inbodyCollectionIssue = null;
+        if (!shouldShowFirstRunSetup()) syncRecordInputsForDate(getSelectedRecordDate());
+        setRecordFeedback("ok", message);
+        setDataManagementFeedback("ok", message);
+        dataManagementState.pendingImport = null;
+        document.getElementById("dataImportConfirmOverlay")?.classList.add("hidden");
+        document.getElementById("dataImportConfirmOverlay")?.setAttribute("aria-hidden", "true");
+        if (shouldShowFirstRunSetup()) {
+          const evidence = refreshOnboardingClassification({ autoCompleteConfirmed: false });
+          onboardingUiState.open = true;
+          onboardingUiState.reentry = false;
+          onboardingUiState.step = 0;
+          onboardingUiState.draft = buildOnboardingDraft({ classification: evidence.classification });
+          onboardingUiState.needsPopulate = true;
+          prepareIncompleteOnboardingState();
+        }
+        render();
+        return { applied: true, records: nextRecords.length, inbody: nextInbodyRecords.length };
+      } catch (error) {
+        const rollbackErrors = restoreStorageEntrySnapshot(transaction.before);
+        try {
+          restoreRuntimeSnapshot(runtimeSnapshot);
+        } catch (_restoreError) {
+          // The original storage snapshot remains the recovery authority when rendering is unavailable.
+        }
+        dataManagementState.pendingImport = pendingImport;
+        setDataManagementFeedback("bad", getRestoreFailureMessage({ rollbackErrors }));
+        renderDataManagementPanel();
+        renderDataImportConfirmDialog();
+        return { applied: false, reason: "runtime_commit_failed", error, rollbackErrors };
       }
-      render();
     }
 
     function selectRestoredRecordDate(records){
@@ -26596,68 +27050,102 @@ Notes:
       return { restoredRecords, selectedDate };
     }
 
-    function restoreFullBackupData(data){
+    function applyFullRestoreCandidateToRuntime(data){
       const settings = normalizeSettingsBackup(data.settings || {});
       const restoredRecords = normalizeRecordsCollection(data.records || []);
       state.inbodyRecords = normalizeInbodyRecordCollection(data.inbodyRecords || []);
       cardioPresetState = normalizeCardioPresetState(data.cardioPresets || {});
       mealTemplateState = normalizeMealTemplateState(data.mealTemplates || {});
-      todayCalculationDrafts = normalizeTodayCalculationDraftCollection(data.todayCalculationValues || {});
+      todayCalculationDrafts = normalizeTodayCalculationDraftCollection(data.todayCalculationValues || {}, {
+        exerciseProfile: settings.exerciseProfile,
+        cardioType: settings.cardioType
+      });
       Object.assign(state, settings, { renderedRoutineKey: "", renderedGoalKey: "" });
       recordsState.items = restoredRecords;
       const weekly = normalizeWeeklyTrainingBackup(data.weeklyTrainingState || {}, settings);
       state.weeklyTrainingDaysManual = weekly.weeklyTrainingDaysManual;
       state.weeklyTrainingDays = state.weeklyTrainingDaysManual ? weekly.weeklyTrainingDays : getRecentWeightTrainingDayCount();
-      persistSettingsSnapshot(settings);
-      const importedClassification = data.onboardingClassification || ONBOARDING_CLASSIFICATIONS.FRESH;
-      const autoMigratedBackup = normalizeOnboardingVersion(data.onboardingCompletedVersion) < ONBOARDING_VERSION
-        && importedClassification === ONBOARDING_CLASSIFICATIONS.EXISTING_PROFILE_CONFIRMED;
-      const importedCompleted = normalizeOnboardingVersion(data.onboardingCompletedVersion) >= ONBOARDING_VERSION
-        || importedClassification === ONBOARDING_CLASSIFICATIONS.EXISTING_PROFILE_CONFIRMED
-        || importedClassification === ONBOARDING_CLASSIFICATIONS.COMPLETED;
-      setOnboardingCompletionVersion(importedCompleted ? ONBOARDING_VERSION : 0);
-      onboardingUiState.classification = importedCompleted ? ONBOARDING_CLASSIFICATIONS.COMPLETED : importedClassification;
+      onboardingUiState.classification = ONBOARDING_CLASSIFICATIONS.COMPLETED;
       onboardingUiState.evidence = data.onboardingEvidence
-        ? { ...data.onboardingEvidence, autoMigrated: autoMigratedBackup }
-        : { autoMigrated: autoMigratedBackup };
-      onboardingUiState.open = !importedCompleted;
+        ? { ...data.onboardingEvidence, autoMigrated: false }
+        : { autoMigrated: false };
+      onboardingUiState.open = false;
       onboardingUiState.reentry = false;
       onboardingUiState.step = 0;
       onboardingUiState.draft = buildOnboardingDraft({ classification: onboardingUiState.classification });
       onboardingUiState.needsPopulate = true;
       onboardingUiState.completionOwnershipSnapshot = null;
-      if (importedCompleted) {
-        neutralizeAutoMigratedHistoricalTodayDefaults();
-        applyStateToInputs();
-        if (Number.isFinite(settings.bodyFatMass) && ids.bodyFatMass) ids.bodyFatMass.value = formatInputNumber(settings.bodyFatMass, 2);
-      } else {
-        prepareIncompleteOnboardingState();
-      }
+      applyStateToInputs();
+      if (Number.isFinite(settings.bodyFatMass) && ids.bodyFatMass) ids.bodyFatMass.value = formatInputNumber(settings.bodyFatMass, 2);
       normalizeInbodyRecords();
       recordsState.items = restoredRecords;
       selectRestoredRecordDate(restoredRecords);
-      saveState();
-      saveInbodyRecords();
-      saveCardioPresets();
-      saveMealTemplates();
-      saveTodayCalculationDrafts();
       recordsState.feedback = null;
       dataManagementState.pendingImport = null;
       setDataManagementFeedback("ok", "전체 백업을 복원했습니다.");
+      document.getElementById("dataImportConfirmOverlay")?.classList.add("hidden");
+      document.getElementById("dataImportConfirmOverlay")?.setAttribute("aria-hidden", "true");
       render();
+      return { restored: true, records: restoredRecords.length, inbody: state.inbodyRecords.length };
+    }
+
+    function restoreFullBackupData(data){
+      if (data?.onboardingCompletedVersion !== ONBOARDING_VERSION) {
+        return { restored: false, reason: "invalid_onboarding_version" };
+      }
+      const pendingImport = dataManagementState.pendingImport;
+      const runtimeSnapshot = captureRestoreRuntimeSnapshot();
+      const settings = normalizeSettingsBackup(data.settings || {});
+      const weeklyTrainingState = normalizeWeeklyTrainingBackup(data.weeklyTrainingState || {}, settings);
+      const candidate = {
+        ...data,
+        settings: {
+          ...settings,
+          weeklyTrainingDaysManual: weeklyTrainingState.weeklyTrainingDaysManual,
+          weeklyTrainingDays: weeklyTrainingState.weeklyTrainingDays
+        },
+        records: normalizeRecordsCollection(data.records || []),
+        inbodyRecords: normalizeInbodyRecordCollection(data.inbodyRecords || []),
+        cardioPresets: normalizeCardioPresetState(data.cardioPresets || {}),
+        mealTemplates: normalizeMealTemplateState(data.mealTemplates || {}),
+        todayCalculationValues: normalizeTodayCalculationDraftCollection(data.todayCalculationValues || {}, {
+          exerciseProfile: settings.exerciseProfile,
+          cardioType: settings.cardioType
+        }),
+        weeklyTrainingState,
+        onboardingCompletedVersion: ONBOARDING_VERSION
+      };
+      const transaction = commitRestoreStorageEntriesAtomically(buildFullRestoreStorageEntries(candidate));
+      if (!transaction.committed) {
+        setDataManagementFeedback("bad", getRestoreFailureMessage(transaction));
+        renderDataManagementPanel();
+        renderDataImportConfirmDialog();
+        return { restored: false, reason: "storage_commit_failed", transaction };
+      }
+      try {
+        return applyFullRestoreCandidateToRuntime(candidate);
+      } catch (error) {
+        const rollbackErrors = restoreStorageEntrySnapshot(transaction.before);
+        try {
+          restoreRuntimeSnapshot(runtimeSnapshot);
+        } catch (_restoreError) {
+          // The original storage snapshot remains the recovery authority when rendering is unavailable.
+        }
+        dataManagementState.pendingImport = pendingImport;
+        setDataManagementFeedback("bad", getRestoreFailureMessage({ rollbackErrors }));
+        renderDataManagementPanel();
+        renderDataImportConfirmDialog();
+        return { restored: false, reason: "runtime_commit_failed", error, rollbackErrors };
+      }
     }
 
     function confirmDataManagementImport(){
       const pending = dataManagementState.pendingImport;
       if (!pending) return;
-      document.getElementById("dataImportConfirmOverlay")?.classList.add("hidden");
-      document.getElementById("dataImportConfirmOverlay")?.setAttribute("aria-hidden", "true");
       if (pending.type === "full") {
-        restoreFullBackupData(pending.data);
-        return;
+        return restoreFullBackupData(pending.data);
       }
-      dataManagementState.pendingImport = null;
-      applyRecordsOnlyImportData(pending.data);
+      return applyRecordsOnlyImportData(pending.data);
     }
 
     function cancelDataManagementImport(){
@@ -35907,10 +36395,10 @@ Notes:
 
     async function exportRecordsJson(){
       const payload = {
-        version: 3,
+        version: RECORDS_BACKUP_VERSION,
         exportedAt: new Date().toISOString(),
         records: getSortedRecords(),
-        inbodyRecords: Array.isArray(state.inbodyRecords) ? [...state.inbodyRecords] : []
+        inbodyRecords: normalizeInbodyRecordCollection(state.inbodyRecords)
       };
       const result = await downloadJsonFile(payload, `runstep-records-backup-${getTodayDateString()}.json`);
       if (!result?.saved) {
@@ -35923,10 +36411,27 @@ Notes:
       render();
     }
 
+    function normalizeRecordsBackupPayload(parsed){
+      if (!hasExactBackupFields(parsed, RECORDS_BACKUP_FIELDS)) throw new Error("unsupported_records_backup");
+      if (parsed.version !== RECORDS_BACKUP_VERSION) throw new Error("unsupported_records_backup");
+      if (!isCurrentBackupTimestamp(parsed.exportedAt)) throw new Error("unsupported_records_backup");
+      if (!Array.isArray(parsed.records) || !Array.isArray(parsed.inbodyRecords)) throw new Error("unsupported_records_backup");
+      const records = normalizeRecordsCollection(parsed.records);
+      const inbodyRecords = normalizeInbodyRecordCollection(parsed.inbodyRecords);
+      const currentDate = getTodayDateString();
+      const recordDates = parsed.records.map(record => normalizeDateString(record?.date)).filter(Boolean);
+      if (new Set(recordDates).size !== recordDates.length || recordDates.some(date => date > currentDate)) {
+        throw new Error("unsupported_records_backup");
+      }
+      if (hasDuplicateRecordMealIds(parsed.records)) throw new Error("unsupported_records_backup");
+      if (!backupJsonValuesMatch(parsed.records, records) || !backupJsonValuesMatch(parsed.inbodyRecords, inbodyRecords)) {
+        throw new Error("unsupported_records_backup");
+      }
+      return Object.freeze({ records, inbodyRecords, hasInbodyRecords: true, exportedAt: parsed.exportedAt });
+    }
+
     function parseImportedRecordsPayload(parsed){
-      const incoming = Array.isArray(parsed) ? parsed : parsed?.records;
-      if (!Array.isArray(incoming)) throw new Error("invalid");
-      return normalizeRecordsCollection(incoming);
+      return normalizeRecordsBackupPayload(parsed).records;
     }
 
     function importRecordsJson(file){
@@ -37765,7 +38270,9 @@ Notes:
         cardioType,
         cardioDuration: normalizeCurrentExerciseNumber("cardioDuration", raw.cardioDuration, fallback.cardioDuration),
         cardioSpeed: normalizeCurrentExerciseNumber("cardioSpeed", raw.cardioSpeed, fallback.cardioSpeed),
-        cardioIncline: normalizeCurrentExerciseNumber("cardioIncline", raw.cardioIncline, fallback.cardioIncline)
+        cardioIncline: cardioType === "outdoor_run"
+          ? 0
+          : normalizeCurrentExerciseNumber("cardioIncline", raw.cardioIncline, fallback.cardioIncline)
       };
       return applyExerciseManagementEffectiveState(basis);
     }
@@ -37912,6 +38419,21 @@ Notes:
       const nextIntensity = clamp(Number(entry.xw) || 0, 0, 1);
       intensityField.value = nextIntensity.toFixed(2);
       return nextIntensity;
+    }
+
+    function syncRecordDetailCardioInclineFromForm(root){
+      if (!root) return false;
+      const type = root.querySelector('[data-detail-basis-field="cardioType"]');
+      const incline = root.querySelector('[data-detail-basis-field="cardioIncline"]');
+      if (!type || !incline) return false;
+      const outdoor = type.value === "outdoor_run";
+      if (outdoor) {
+        incline.value = formatInputNumber(0, RECORD_EDIT_NUMERIC_DIGITS.basis.cardioIncline);
+        incline.dataset.currentUserCommitDirty = "true";
+      }
+      incline.disabled = outdoor;
+      incline.setAttribute("aria-disabled", outdoor ? "true" : "false");
+      return outdoor;
     }
 
     function withRecordDetailTemporaryBasis(basis, callback){
@@ -38106,6 +38628,7 @@ Notes:
       const genderItems = Object.keys(GENDER_LABELS).map(value => ({ value, label: GENDER_LABELS[value] }));
       const routinePlanItems = getRoutinePlanItemsForProfile(basis.exerciseProfile);
       const cardioItems = Object.keys(CARDIO_TYPES).map(value => ({ value, label: CARDIO_TYPES[value].label }));
+      const cardioInclineDisabled = basis.cardioType === "outdoor_run";
       return `
         <details class="record-detail-section record-detail-collapsible record-detail-basis-edit" data-record-detail-section="basis"${getRecordDetailSectionOpenAttr(draft.date, "basis")}>
           <summary>당시 목표 / 계산 기준 수정</summary>
@@ -38202,7 +38725,7 @@ Notes:
             </div>
             <div class="record-detail-edit-field">
               <label>유산소 경사도 %</label>
-              <input type="number" min="${CURRENT_EXERCISE_NUMBER_DOMAINS.cardioIncline.min}" max="${CURRENT_EXERCISE_NUMBER_DOMAINS.cardioIncline.max}" step="1" inputmode="numeric" data-detail-basis-field="cardioIncline" value="${escapeHtml(formatInputNumber(basis.cardioIncline, RECORD_EDIT_NUMERIC_DIGITS.basis.cardioIncline))}">
+              <input type="number" min="${CURRENT_EXERCISE_NUMBER_DOMAINS.cardioIncline.min}" max="${CURRENT_EXERCISE_NUMBER_DOMAINS.cardioIncline.max}" step="1" inputmode="numeric" data-detail-basis-field="cardioIncline" value="${escapeHtml(formatInputNumber(basis.cardioIncline, RECORD_EDIT_NUMERIC_DIGITS.basis.cardioIncline))}"${cardioInclineDisabled ? ' disabled aria-disabled="true"' : ' aria-disabled="false"'}>
             </div>
             <div class="record-detail-edit-field is-check">
               <label>가정용 InBody 기준</label>
@@ -38820,6 +39343,18 @@ Notes:
       if (workAdjIssue && !firstInvalidField) {
         firstInvalidField = workAdjInput;
         firstIssue = workAdjIssue;
+      }
+      if (!firstInvalidField) {
+        const cardioType = root.querySelector('[data-detail-basis-field="cardioType"]')?.value;
+        const cardioInclineInput = fields.cardioIncline;
+        const cardioIncline = Number(String(cardioInclineInput?.value ?? "").trim());
+        if (cardioType === "outdoor_run" && cardioIncline !== 0) {
+          const issue = "야외 러닝은 경사도를 0%로 저장합니다.";
+          cardioInclineInput?.setCustomValidity?.(issue);
+          cardioInclineInput?.setAttribute?.("aria-invalid", "true");
+          firstInvalidField = cardioInclineInput;
+          firstIssue = issue;
+        }
       }
       if (!firstInvalidField) {
         const relationshipIssue = getBodyCompositionRelationshipIssues({
@@ -42607,6 +43142,7 @@ Notes:
         applySelectedInbodyRecordToToday(button.getAttribute("data-apply-inbody-record"));
       });
       document.getElementById("saveCardioPresetBtn")?.addEventListener("click", saveCardioPresetFromForm);
+      document.getElementById("cardioPresetType")?.addEventListener("change", syncCardioPresetInclineControl);
       document.getElementById("clearCardioPresetFormBtn")?.addEventListener("click", () => {
         resetCardioPresetForm();
         setCardioPresetFeedback("", "");
@@ -43060,6 +43596,9 @@ Notes:
           if (basisFieldName === "routine") {
             syncRecordDetailRoutineIntensityFromForm(detailRoot);
           }
+          if (basisFieldName === "cardioType") {
+            syncRecordDetailCardioInclineFromForm(detailRoot);
+          }
           if (["routine", "weightDuration"].includes(basisFieldName)) {
             syncRecordDetailAutoWeeklyTrainingDaysFromForm(detailRoot);
           }
@@ -43382,6 +43921,58 @@ Notes:
       return snapshot;
     }
 
+    function makeCurrentFullBackupTestPayload(overrides = {}){
+      const createdAt = overrides.createdAt || "2026-08-14T00:00:00.000Z";
+      const base = buildFullBackupPayload(createdAt);
+      const rawData = { ...base.data, ...(overrides.data || {}) };
+      const rawSettings = normalizeSettingsBackup({ ...base.data.settings, ...(rawData.settings || {}) });
+      const records = normalizeRecordsCollection(rawData.records || []);
+      const normalizedWeeklyTrainingState = normalizeWeeklyTrainingBackup(
+        rawData.weeklyTrainingState || base.data.weeklyTrainingState,
+        rawSettings
+      );
+      const weeklyTrainingState = normalizedWeeklyTrainingState.weeklyTrainingDaysManual
+        ? normalizedWeeklyTrainingState
+        : {
+            weeklyTrainingDaysManual: false,
+            weeklyTrainingDays: 0
+          };
+      const settings = normalizeSettingsBackup({
+        ...rawSettings,
+        weeklyTrainingDaysManual: weeklyTrainingState.weeklyTrainingDaysManual,
+        weeklyTrainingDays: weeklyTrainingState.weeklyTrainingDays
+      });
+      return {
+        app: "macro-engine",
+        kind: FULL_BACKUP_KIND,
+        backupVersion: FULL_BACKUP_VERSION,
+        appVersion: getCurrentAppVersionLabel(),
+        createdAt,
+        data: {
+          onboardingCompletedVersion: rawData.onboardingCompletedVersion === ONBOARDING_VERSION ? ONBOARDING_VERSION : null,
+          settings,
+          records,
+          inbodyRecords: normalizeInbodyRecordCollection(rawData.inbodyRecords || []),
+          cardioPresets: serializeNormalizedCardioPresetState(rawData.cardioPresets || {}),
+          mealTemplates: serializeNormalizedMealTemplateState(rawData.mealTemplates || {}),
+          todayCalculationValues: serializeCurrentTodayCalculationDraftsForBackup(rawData.todayCalculationValues || {}, {
+            exerciseProfile: settings.exerciseProfile,
+            cardioType: settings.cardioType
+          }),
+          weeklyTrainingState
+        }
+      };
+    }
+
+    function makeCurrentRecordsBackupTestPayload(overrides = {}){
+      return {
+        version: RECORDS_BACKUP_VERSION,
+        exportedAt: overrides.exportedAt || "2026-08-14T00:00:00.000Z",
+        records: normalizeRecordsCollection(overrides.records || []),
+        inbodyRecords: normalizeInbodyRecordCollection(overrides.inbodyRecords || [])
+      };
+    }
+
     function restorePrefixedStorage(snapshot = {}){
       Object.keys(localStorage)
         .filter(key => key.startsWith(STORAGE_PREFIX))
@@ -43681,12 +44272,13 @@ Notes:
           assertTest(document.getElementById("targetCal").textContent === "—", "records-only import should keep target placeholder");
         }));
 
-        results.push(runNamedTest("onboarding old full backup with exact defaults stays unconfirmed", () => {
+        results.push(runNamedTest("onboarding old full backup is rejected by the current-only boundary", () => {
           clearPrefixedStorageForTest();
+          const before = JSON.stringify(snapshotPrefixedStorage());
           const parsed = {
             app: "macro-engine",
             kind: FULL_BACKUP_KIND,
-            backupVersion: FULL_BACKUP_VERSION,
+            backupVersion: 1,
             appVersion: "v8.3",
             createdAt: "2026-07-01T00:00:00.000Z",
             data: {
@@ -43699,268 +44291,55 @@ Notes:
               weeklyTrainingState: { weeklyTrainingDaysManual: false, weeklyTrainingDays: 0 }
             }
           };
-          const normalized = normalizeFullBackupPayload(parsed);
-          assertTest(normalized.onboardingClassification === ONBOARDING_CLASSIFICATIONS.EXISTING_DATA_PROFILE_UNCONFIRMED, "old full backup data must not confirm exact historical Settings");
-          restoreFullBackupData(normalized);
-          assertTest(!getOnboardingCompletionState().completed && recordsState.items.length === 1, "old backup should preserve data while requiring profile confirmation");
+          let rejected = false;
+          try {
+            normalizeFullBackupPayload(parsed);
+          } catch (error) {
+            rejected = error?.reason === "unsupported_version";
+          }
+          assertTest(rejected, "old backup version should be rejected before normalization");
+          assertTest(JSON.stringify(snapshotPrefixedStorage()) === before, "old backup rejection should not mutate current storage");
         }));
 
-        results.push(runNamedTest("onboarding incomplete full restore rebases ownership snapshot to restored backup", () => {
-          const clone = value => JSON.parse(JSON.stringify(value));
-          const pickOwnership = (source, keys) => Object.fromEntries(keys.map(key => [key, clone(source[key])]));
-          const readStoredOwnership = expected => Object.fromEntries(Object.entries(expected).map(([key, value]) => {
-            const raw = readStoredValue(key);
-            if (value && typeof value === "object") return [key, parseOnboardingStoredJson(raw, {})];
-            if (typeof value === "boolean") return [key, raw === "true"];
-            if (typeof value === "number") return [key, Number(raw)];
-            return [key, raw];
-          }));
-          const aDate = "2026-06-01";
-          const bDraftDate = "2026-06-15";
-          const bRecordDate = getTodayDateString();
-          const aPresets = normalizeCardioPresetState({
-            items: [{
-              id: "A_PRESET_SENTINEL",
-              name: "A_PRESET_SENTINEL",
-              cardioType: "treadmill_walk",
-              cardioDuration: 20,
-              cardioSpeed: 5.1,
-              cardioIncline: 7,
-              createdAt: "2026-06-01T00:00:00.000Z",
-              updatedAt: "2026-06-01T00:00:00.000Z"
-            }],
-            defaultId: "A_PRESET_SENTINEL"
-          });
-          const aTemplates = normalizeMealTemplateState({
-            items: [normalizeMealTemplate({
-              id: "A_TEMPLATE_SENTINEL",
-              name: "A_TEMPLATE_SENTINEL",
-              mealLabel: "아침",
-              carbs: 40,
-              protein: 30,
-              fat: 10,
-              memo: "A_TEMPLATE_SENTINEL",
-              createdAt: "2026-06-01T08:00:00.000Z",
-              updatedAt: "2026-06-01T08:00:00.000Z"
-            })]
-          });
-          const aDrafts = {
-            [aDate]: normalizeTodayCalculationDraft({
-              todayRoutineSession: "PULL",
-              todayWeightDuration: 70,
-              todayCardioType: "treadmill_walk",
-              todayCardioDuration: 20,
-              todayCardioSpeed: 5.1,
-              todayCardioIncline: 7
-            })
-          };
-
-          clearPrefixedStorageForTest();
-          seedHistoricalOnboardingSettings({
-            mode: "athlete",
-            workAdj: 0.11,
-            homeInbody: true,
-            expertLbmAlpha: 0.9,
-            generalAdvancedSettings: true,
-            generalLowDigestCarbs: false,
-            adaptiveMacroTargetsEnabled: false,
-            proteinTargetLevel: "high",
-            routine: "PULL",
-            profileSession: "bodybuilding_pull",
-            intensityOverride: 0.91,
-            weightDuration: 70,
-            cardioDuration: 20,
-            cardioSpeed: 5.1,
-            cardioIncline: 7,
-            routineWeekdaySchedule: { ppl_ul: { PULL: ["mon"] } },
-            weekdayTimeDefaults: { mon: { enabled: true, sleepHours: 8, workHours: 7, lifestyleHours: 3 } }
-          });
-          localStorage.setItem(storageKey("records"), JSON.stringify([{ date: aDate, weight: 75, recordMode: "weight_only", note: "A_RECORD_SENTINEL" }]));
-          localStorage.setItem(storageKey("inbodyRecords"), JSON.stringify([{ date: aDate, weight: 75, skeletalMuscle: 35, bodyFat: 11.25, bodyFatPercent: 15, note: "A_INBODY_SENTINEL" }]));
-          localStorage.setItem(storageKey(CARDIO_PRESET_STORAGE_KEY), JSON.stringify(aPresets));
-          localStorage.setItem(storageKey(MEAL_TEMPLATE_STORAGE_KEY), JSON.stringify(aTemplates));
-          localStorage.setItem(storageKey(TODAY_CALCULATION_DRAFT_STORAGE_KEY), JSON.stringify(aDrafts));
-          const aEvidence = getRawOnboardingEvidence();
-          assertTest(aEvidence.classification === ONBOARDING_CLASSIFICATIONS.EXISTING_DATA_PROFILE_UNCONFIRMED, "A sentinel data should require profile confirmation");
-          loadState();
-          activatePendingOnboardingForTest(aEvidence.classification);
-          const aSnapshotJson = JSON.stringify(onboardingUiState.completionOwnershipSnapshot);
-          assertIncludesAll(aSnapshotJson, ["high", "PULL", "70"], "A ownership snapshot should be captured before restore");
-
-          applyRecordsOnlyImportData({
-            records: [{ date: "2026-06-02", weight: 74, recordMode: "weight_only", note: "A_RECORDS_ONLY_SENTINEL" }],
-            hasInbodyRecords: false
-          });
-          assertTest(JSON.stringify(onboardingUiState.completionOwnershipSnapshot) === aSnapshotJson, "records-only import should keep the existing Settings/Today ownership snapshot");
-
-          applySmartRestoreImportData({
-            records: [{ date: "2026-06-03", weight: 73.5, recordMode: "weight_only", note: "A_SMART_RESTORE_SENTINEL" }],
-            inbodyRecords: []
-          }, "keep");
-          assertTest(JSON.stringify(onboardingUiState.completionOwnershipSnapshot) === aSnapshotJson, "smart-restore record-add should keep the existing Settings/Today ownership snapshot");
-
-          const bPreset = {
-            id: "B_PRESET_SENTINEL",
-            name: "B_PRESET_SENTINEL",
-            cardioType: "treadmill_walk",
-            cardioDuration: 33,
-            cardioSpeed: 4.4,
-            cardioIncline: 6,
-            createdAt: "2026-06-15T00:00:00.000Z",
-            updatedAt: "2026-06-15T00:00:00.000Z"
-          };
-          const bTemplate = normalizeMealTemplate({
-            id: "B_TEMPLATE_SENTINEL",
-            name: "B_TEMPLATE_SENTINEL",
-            mealLabel: "점심",
-            carbs: 55,
-            protein: 35,
-            fat: 12,
-            memo: "B_TEMPLATE_SENTINEL",
-            createdAt: "2026-06-15T12:00:00.000Z",
-            updatedAt: "2026-06-15T12:00:00.000Z"
-          });
-          const bPayload = {
-            app: "macro-engine",
-            kind: FULL_BACKUP_KIND,
-            backupVersion: FULL_BACKUP_VERSION,
-            appVersion: "v8.3",
-            createdAt: "2026-06-15T13:00:00.000Z",
-            data: {
-              onboardingCompletedVersion: null,
-              settings: {
-                ...ONBOARDING_HISTORICAL_SETTINGS,
-                mode: "expert",
-                workAdj: 0.18,
-                homeInbody: false,
-                expertLbmAlpha: 0.6,
-                generalAdvancedSettings: true,
-                generalLowDigestCarbs: true,
-                adaptiveMacroTargetsEnabled: true,
-                proteinTargetLevel: "low",
-                routine: "PUSH",
-                profileSession: "bodybuilding_push",
-                intensityOverride: 0.44,
-                weightDuration: 44,
-                cardioType: "treadmill_walk",
-                cardioDuration: 33,
-                cardioSpeed: 4.4,
-                cardioIncline: 6,
-                routineWeekdaySchedule: { ppl_ul: { PUSH: ["tue"] } },
-                weekdayTimeDefaults: { tue: { enabled: true, sleepHours: 7, workHours: 8, lifestyleHours: 3 } }
-              },
-              records: [{ date: bRecordDate, weight: 64, recordMode: "weight_only", note: "B_RECORD_SENTINEL" }],
-              inbodyRecords: [{ date: "2026-06-15", weight: 64, skeletalMuscle: 28, bodyFat: 14, bodyFatPercent: 21.9, note: "B_INBODY_SENTINEL" }],
-              cardioPresets: { items: [bPreset], defaultId: bPreset.id },
-              mealTemplates: { items: [bTemplate] },
-              todayCalculationValues: {
-                [bDraftDate]: normalizeTodayCalculationDraft({
-                  todayRoutineSession: "PUSH",
-                  todayWeightDuration: 44,
-                  todayCardioType: "treadmill_walk",
-                  todayCardioDuration: 33,
-                  todayCardioSpeed: 4.4,
-                  todayCardioIncline: 6
-                }),
-                [bRecordDate]: normalizeTodayCalculationDraft({
-                  calculationWeight: 64,
-                  skeletalMuscle: 28,
-                  bodyFatMass: 14,
-                  bodyFatPercent: 21.9,
-                  todayCardioType: "treadmill_walk",
-                  todayCardioDuration: 33,
-                  todayCardioSpeed: 4.4,
-                  todayCardioIncline: 6,
-                  bodyStatusSource: "latest_inbody",
-                  bodyStatusSourceDate: "2026-06-15",
-                  bodyStatusLoadType: "auto",
-                  cardioSource: "default_preset",
-                  cardioPresetId: bPreset.id,
-                  cardioPresetName: bPreset.name
-                })
-              },
-              weeklyTrainingState: { weeklyTrainingDaysManual: false, weeklyTrainingDays: 0 }
-            }
-          };
-          const restoredB = normalizeFullBackupPayload(bPayload);
-          assertTest(restoredB.onboardingClassification === ONBOARDING_CLASSIFICATIONS.EXISTING_DATA_PROFILE_UNCONFIRMED, "B backup should remain profile-unconfirmed");
-          const ownershipKeys = Object.keys(onboardingUiState.completionOwnershipSnapshot.state);
-          const expectedBOwnership = pickOwnership(restoredB.settings, ownershipKeys);
-          restoreFullBackupData(restoredB);
-          assertTest(onboardingUiState.completionOwnershipSnapshot?.mode === ONBOARDING_CLASSIFICATIONS.EXISTING_DATA_PROFILE_UNCONFIRMED, "incomplete full restore should create a B ownership snapshot");
-          assertTest(JSON.stringify(onboardingUiState.completionOwnershipSnapshot?.state) === JSON.stringify(expectedBOwnership), "incomplete full restore should replace stale A ownership with restored B ownership");
-          assertTest(onboardingUiState.completionOwnershipSnapshot?.neutralizeHistoricalToday === false, "non-historical B Today values should not be neutralized");
-
-          setOnboardingStep(1);
-          fillValidOnboardingForm({
-            onboardingGender: "female",
-            onboardingAge: "35",
-            onboardingHeight: "166",
-            onboardingWeight: "64",
-            onboardingGoal: "diet",
-            onboardingActivityLevel: "active",
-            onboardingWorkType: "office",
-            onboardingSleepHours: "7",
-            onboardingWorkHours: "8",
-            onboardingLifestyleHours: "3",
-            exerciseManagementMode: EXERCISE_MANAGEMENT_MODES.EXERCISE,
-            onboardingExerciseProfile: "bodybuilding",
-            onboardingWeeklyTrainingDays: "4"
-          });
-          assertTest(completeFirstRunSetup(), "restored B profile confirmation should complete");
-          assertTest(JSON.stringify(pickOwnership(state, ownershipKeys)) === JSON.stringify(expectedBOwnership), "memory state should retain restored B ownership after completion");
-          assertTest(state.weight === 64 && state.goal === "diet" && state.weeklyTrainingDays === 4, "onboarding-collected profile fields should apply on top of B ownership");
-          assertTest(
-            ids.proteinTargetLevel?.value === "low"
-              && ids.adaptiveMacroTargetsEnabled?.checked === true
-              && ids.profileSession?.value === "bodybuilding_push"
-              && ids.intensityOverride?.value === "0.44"
-              && ids.weightDuration?.value === "44"
-              && ids.cardioType?.value === "treadmill_walk"
-              && ids.cardioDuration?.value === "33"
-              && ids.cardioSpeed?.value === "4.4"
-              && ids.cardioIncline?.value === "6.0",
-            "DOM inputs should render restored B ownership values"
-          );
-          const storedBOwnership = readStoredOwnership(expectedBOwnership);
-          const storedOwnershipMismatches = ownershipKeys.filter(key => JSON.stringify(storedBOwnership[key]) !== JSON.stringify(expectedBOwnership[key]));
-          assertTest(storedOwnershipMismatches.length === 0, `localStorage should persist restored B ownership values (${storedOwnershipMismatches.map(key => `${key}:${JSON.stringify(storedBOwnership[key])}!=${JSON.stringify(expectedBOwnership[key])}`).join(", ")})`);
-          assertTest(JSON.stringify(recordsState.items) === JSON.stringify(restoredB.records), "Records should remain deep-equal to B");
-          assertTest(JSON.stringify(state.inbodyRecords) === JSON.stringify(restoredB.inbodyRecords), "InBody should remain deep-equal to B");
-          assertTest(
-            JSON.stringify(todayCalculationDrafts) === JSON.stringify(restoredB.todayCalculationValues),
-            `Today drafts should remain deep-equal to B (${JSON.stringify(todayCalculationDrafts)} != ${JSON.stringify(restoredB.todayCalculationValues)})`
-          );
-          assertTest(
-            JSON.stringify(serializeCardioPresetState()) === JSON.stringify({ items: restoredB.cardioPresets.items, defaultId: restoredB.cardioPresets.defaultId }),
-            "cardio presets should remain deep-equal to B"
-          );
-          assertTest(JSON.stringify(serializeMealTemplateState()) === JSON.stringify({ items: restoredB.mealTemplates.items }), "meal templates should remain deep-equal to B");
-
-          const completedBPayload = buildFullBackupPayload("2026-06-15T14:00:00.000Z");
-          const finalBeforeReload = JSON.stringify({
-            ownership: pickOwnership(state, ownershipKeys),
+        results.push(runNamedTest("onboarding current v2 incomplete full backup rejects before mutation", () => {
+          seedCompletedOnboardingOwnershipStateForTest();
+          dataManagementState.pendingImport = null;
+          renderDataImportConfirmDialog();
+          const incompletePayload = buildFullBackupPayload("2026-06-15T13:00:00.000Z");
+          incompletePayload.data.onboardingCompletedVersion = null;
+          const captureAuthority = () => JSON.stringify({
+            storage: snapshotPrefixedStorage(),
+            state,
+            uiState,
+            onboarding: { ...onboardingUiState, returnFocus: null },
             records: recordsState.items,
-            inbody: state.inbodyRecords,
-            drafts: todayCalculationDrafts,
-            presets: serializeCardioPresetState(),
-            templates: serializeMealTemplateState(),
-            backup: completedBPayload,
-            storage: snapshotPrefixedStorage()
+            inbodyRecords: state.inbodyRecords,
+            todayCalculationValues: todayCalculationDrafts,
+            cardioPresets: serializeCardioPresetState(),
+            mealTemplates: serializeMealTemplateState(),
+            pendingImport: dataManagementState.pendingImport,
+            dom: {
+              bodyClass: document.body.className,
+              onboardingClass: document.getElementById("onboardingOverlay")?.className || "",
+              onboardingAriaHidden: document.getElementById("onboardingOverlay")?.getAttribute("aria-hidden") || "",
+              importClass: document.getElementById("dataImportConfirmOverlay")?.className || "",
+              importAriaHidden: document.getElementById("dataImportConfirmOverlay")?.getAttribute("aria-hidden") || "",
+              weight: ids.weight?.value || "",
+              recordDate: ids.recordDate?.value || "",
+              recordWeight: ids.recordWeight?.value || "",
+              recordNote: ids.recordNote?.value || "",
+              targetCal: document.getElementById("targetCal")?.textContent || ""
+            }
           });
-          assertIncludesAll(finalBeforeReload, ["B_RECORD_SENTINEL", "B_PRESET_SENTINEL", "B_TEMPLATE_SENTINEL"], "final state should contain B sentinels");
-          assertExcludesAll(finalBeforeReload, ["A_RECORD_SENTINEL", "A_RECORDS_ONLY_SENTINEL", "A_SMART_RESTORE_SENTINEL", "A_PRESET_SENTINEL", "A_TEMPLATE_SENTINEL", "bodybuilding_pull"], "final state should not contain stale A sentinels");
-
-          Object.assign(state, { proteinTargetLevel: "high", adaptiveMacroTargetsEnabled: false, routine: "PULL", weightDuration: 70, cardioDuration: 20 });
-          recordsState.items = [];
-          state.inbodyRecords = [];
-          todayCalculationDrafts = {};
-          cardioPresetState = normalizeCardioPresetState();
-          mealTemplateState = normalizeMealTemplateState();
-          loadState();
-          const afterReloadPayload = buildFullBackupPayload("2026-06-15T14:00:00.000Z");
-          assertTest(JSON.stringify(afterReloadPayload) === JSON.stringify(completedBPayload), "save/reload should reproduce the completed B backup exactly");
-          assertTest(JSON.stringify(pickOwnership(state, ownershipKeys)) === JSON.stringify(expectedBOwnership), "reload should restore B ownership from localStorage");
+          const before = captureAuthority();
+          let rejectionReason = null;
+          try {
+            queueDataManagementImport(incompletePayload);
+          } catch (error) {
+            rejectionReason = error?.reason || null;
+          }
+          assertTest(rejectionReason === "invalid_onboarding_version", "incomplete current v2 backup should be rejected before import preview");
+          assertTest(captureAuthority() === before, "incomplete current v2 backup rejection should preserve storage, memory, and DOM exactly");
         }));
 
         results.push(runNamedTest("onboarding completed full restore clears stale ownership snapshot", () => {
@@ -45376,26 +45755,34 @@ Notes:
           assertTest(normalized.weight === 75, "weight should survive normalization");
           assertTest(normalized.recordMode === null, "legacy record without explicit mode should stay inferable");
         }));
-        results.push(runNamedTest("import compatibility", () => {
-          const legacyImported = parseImportedRecordsPayload({ records: [{ date: "2026-04-22", weight: 75, adherence: "medium", note: "" }] });
-          const modernImported = parseImportedRecordsPayload({
-            version: 3,
-            records: [{
-              date: "2026-04-22",
-              recordMode: "detailed",
-              weight: 75,
-              adherence: "medium",
-              note: "",
-              meals: [{ id: "m1", mealLabel: "아침", carbs: 50, protein: 30, fat: 10, memo: "", createdAt: "2026-04-22T10:30:00.000Z" }]
-            }]
+        results.push(runNamedTest("current-only import boundary", () => {
+          const currentRecord = normalizeRecord({
+            date: "2026-04-22",
+            recordMode: "detailed",
+            weight: 75,
+            adherence: "medium",
+            note: "",
+            meals: [{ id: "m1", mealLabel: "아침", carbs: 50, protein: 30, fat: 10, alcoholKcal: 0, otherKcal: 0, memo: "", createdAt: "2026-04-22T10:30:00.000Z" }]
           });
-          assertTest(legacyImported.length === 1, "legacy import should produce one record");
-          assertTest(legacyImported[0].meals.length === 0, "legacy import should add empty meals array");
-          assertTest(modernImported.length === 1, "modern import should produce one record");
-          assertTest(modernImported[0].meals.length === 1, "modern import should preserve meals");
-          assertTest(modernImported[0].recordMode === "detailed", "modern import should preserve recordMode");
-          assertTest(modernImported[0].meals[0].alcoholKcal === 0, "modern import should default missing alcohol kcal to zero");
-          assertTest(modernImported[0].meals[0].otherKcal === 0, "modern import should default missing other kcal to zero");
+          const currentImported = parseImportedRecordsPayload(makeCurrentRecordsBackupTestPayload({
+            exportedAt: "2026-08-14T00:00:00.000Z",
+            records: [currentRecord],
+            inbodyRecords: []
+          }));
+          let oldRejected = 0;
+          [
+            [{ date: "2026-04-22", weight: 75 }],
+            { version: 3, records: [currentRecord], inbodyRecords: [] }
+          ].forEach(payload => {
+            try {
+              parseImportedRecordsPayload(payload);
+            } catch (_error) {
+              oldRejected += 1;
+            }
+          });
+          assertTest(oldRejected === 2, "old and unversioned import formats should be rejected");
+          assertTest(currentImported.length === 1 && currentImported[0].meals.length === 1, "current v4 import should preserve canonical meals");
+          assertTest(currentImported[0].recordMode === "detailed", "current v4 import should preserve recordMode");
         }));
         results.push(runNamedTest("invalid guard", () => {
           const imported = normalizeRecordsCollection([{ date: "wrong", meals: "bad" }, { date: "2026-04-22", meals: [{}] }]);
@@ -48944,13 +49331,13 @@ Notes:
         }));
 
         results.push(runNamedTest("recordMode export import preserves explicit mode", () => {
-          const imported = parseImportedRecordsPayload({
-            version: 3,
+          const imported = parseImportedRecordsPayload(makeCurrentRecordsBackupTestPayload({
             records: [
               { date: "2026-05-23", recordMode: "simple", adherence: "low" },
               { date: "2026-05-24", recordMode: "detailed", meals: [makeMeal()] }
-            ]
-          });
+            ],
+            inbodyRecords: []
+          }));
           assertTest(imported[0].recordMode === "detailed" && imported[1].recordMode === "simple", "imported sorted records should preserve recordMode");
         }));
 
@@ -52056,11 +52443,7 @@ Notes:
         };
         const fullPayload = () => {
           const settings = { ...getSettingsBackupSnapshot(), height: 181, weight: 88, goal: "bulk" };
-          return {
-            app: "macro-engine",
-            kind: FULL_BACKUP_KIND,
-            backupVersion: FULL_BACKUP_VERSION,
-            appVersion: getCurrentAppVersionLabel(),
+          return makeCurrentFullBackupTestPayload({
             createdAt: "2026-05-17T09:00:00.000Z",
             data: {
               onboardingCompletedVersion: ONBOARDING_VERSION,
@@ -52071,7 +52454,7 @@ Notes:
               todayCalculationValues: { [backupOnlyDate]: normalizeTodayCalculationDraft({ calculationWeight: 75.5 }) },
               weeklyTrainingState: { weeklyTrainingDaysManual: false, weeklyTrainingDays: 0 }
             }
-          };
+          });
         };
         const queueFull = () => {
           seedLocal();
@@ -52258,11 +52641,7 @@ Notes:
           note: "backup only",
           meals: [makeMeal("backup-only", "저녁")]
         });
-        const backupPayload = () => ({
-          app: "macro-engine",
-          kind: FULL_BACKUP_KIND,
-          backupVersion: FULL_BACKUP_VERSION,
-          appVersion: getCurrentAppVersionLabel(),
+        const backupPayload = () => makeCurrentFullBackupTestPayload({
           createdAt: "2026-05-01T09:00:00.000Z",
           data: {
             onboardingCompletedVersion: ONBOARDING_VERSION,
@@ -52274,10 +52653,10 @@ Notes:
             weeklyTrainingState: { weeklyTrainingDaysManual: false, weeklyTrainingDays: 0 }
           }
         });
-        const recordsOnlyPayload = () => ({
-          version: 3,
+        const recordsOnlyPayload = () => makeCurrentRecordsBackupTestPayload({
           exportedAt: "2026-05-16T12:00:00.000Z",
-          records: [backupPartialRecord]
+          records: [backupPartialRecord],
+          inbodyRecords: state.inbodyRecords
         });
         const seedLocal = () => {
           setValidTodayBalanceTestInputs();
@@ -52375,7 +52754,7 @@ Notes:
           assertTest(ids.height.value === before.height && state.goal === before.goal && state.mode === before.mode, "records-only should preserve Settings profile and goal mode");
           assertClose(todayCalculationDrafts[sameDate]?.calculationWeight, before.todaySameDateWeight, 0.0001, "records-only should preserve existing same-date Today calculation weight");
           assertClose(todayCalculationDrafts[localOnlyDate]?.calculationWeight, before.todayLocalOnlyDateWeight, 0.0001, "records-only should preserve existing local-only Today calculation weight");
-          assertTest(JSON.stringify(state.inbodyRecords) === before.inbody, "records-only without InBody payload should preserve InBody");
+          assertTest(JSON.stringify(state.inbodyRecords) === before.inbody, "current records backup should preserve its included InBody values");
           assertTest(JSON.stringify(serializeCardioPresetState()) === before.presets, "records-only should preserve cardio presets");
         }));
 
@@ -52457,11 +52836,7 @@ Notes:
           note: "backup only",
           meals: [makeMeal("backup-only", "저녁", backupOnlyDate)]
         });
-        const backupPayload = () => ({
-          app: "macro-engine",
-          kind: FULL_BACKUP_KIND,
-          backupVersion: FULL_BACKUP_VERSION,
-          appVersion: getCurrentAppVersionLabel(),
+        const backupPayload = () => makeCurrentFullBackupTestPayload({
           createdAt: "2026-05-01T09:00:00.000Z",
           data: {
             onboardingCompletedVersion: ONBOARDING_VERSION,
@@ -52693,8 +53068,7 @@ Notes:
           saveState();
         };
 
-        const legacyRecordsPayload = () => ({
-          version: 3,
+        const currentRecordsPayload = () => makeCurrentRecordsBackupTestPayload({
           exportedAt: "2026-05-15T00:00:00.000Z",
           records: [normalizeRecord({
             date: olderDate,
@@ -52702,7 +53076,8 @@ Notes:
             weight: 71.5,
             note: "records only import",
             meals: []
-          })]
+          })],
+          inbodyRecords: state.inbodyRecords
         });
 
         results.push(runNamedTest("C4.7-A Data Management UI is present in Settings", () => {
@@ -52791,7 +53166,7 @@ Notes:
             todayDraft: JSON.stringify(todayCalculationDrafts[today]),
             inbodyCount: state.inbodyRecords.length
           };
-          const detected = detectBackupImportPayload(legacyRecordsPayload());
+          const detected = detectBackupImportPayload(currentRecordsPayload());
           assertTest(detected.type === "records-only", "legacy records payload should be detected as records-only");
           applyRecordsOnlyImportData(detected.data);
           assertTest(recordsState.items.length === 1 && recordsState.items[0].date === olderDate, "records-only import should replace Records");
@@ -52839,7 +53214,7 @@ Notes:
           const modalText = document.getElementById("dataImportConfirmOverlay")?.textContent || "";
           assertTest(previewText.trim() === "", "full backup inline preview should not duplicate the modal");
           assertIncludesAll(modalText, ["백업을 어떻게 불러올까요?", "아직 복원되지 않았습니다.", "전체 복원", "추가 기록만 가져오기", "그대로 두기"], "full backup preview modal should show restore choices");
-          queueDataManagementImport(legacyRecordsPayload());
+          queueDataManagementImport(currentRecordsPayload());
           const legacyText = document.getElementById("dataImportConfirmOverlay")?.textContent || "";
           assertIncludesAll(legacyText, ["기록 파일을 불러올까요?", "기록 중심 파일", "설정", "Today"], "records-only preview modal should explain missing app settings");
           cancelDataManagementImport();
@@ -53017,8 +53392,7 @@ Notes:
           saveState();
         };
 
-        const legacyRecordsPayload = () => ({
-          version: 3,
+        const currentRecordsPayload = () => makeCurrentRecordsBackupTestPayload({
           exportedAt: "2026-05-16T00:00:00.000Z",
           records: [normalizeRecord({
             date: backupDate,
@@ -53026,7 +53400,8 @@ Notes:
             weight: 82.1,
             note: "records only meal",
             meals: [backupRecord.meals[0]]
-          })]
+          })],
+          inbodyRecords: state.inbodyRecords
         });
 
         const importModalVisible = () => {
@@ -53111,7 +53486,7 @@ Notes:
             const preservedPreset = JSON.stringify(serializeCardioPresetState());
             const preservedTodayDraft = JSON.stringify(todayCalculationDrafts[backupDate]);
             const preservedInbody = JSON.stringify(state.inbodyRecords);
-            queueDataManagementImport(legacyRecordsPayload());
+            queueDataManagementImport(currentRecordsPayload());
             assertTest(importModalVisible(), "records-only import should open confirm modal");
             assertIncludesAll(importModalText(), ["기록 파일을 불러올까요?", "기록 중심 파일", "설정", "Today", "복원하기", "그대로 두기"], "records-only modal should explain scoped import");
             assertTest(getSortedRecords()[0]?.note === "full backup record", "records-only preview should not apply before confirm");
@@ -53221,7 +53596,7 @@ Notes:
             const preservedPreset = JSON.stringify(serializeCardioPresetState());
             const preservedTodayDraft = JSON.stringify(todayCalculationDrafts[backupDate]);
             const preservedInbody = JSON.stringify(state.inbodyRecords);
-            const detected = detectBackupImportPayload(legacyRecordsPayload());
+            const detected = detectBackupImportPayload(currentRecordsPayload());
             assertTest(detected.type === "records-only", "legacy payload should stay records-only");
             applyRecordsOnlyImportData(detected.data);
             assertTest(recordsState.items.length === 1 && recordsState.items[0].date === backupDate, "records-only import should replace Records");
@@ -53484,7 +53859,8 @@ Notes:
             "Version: 8.3",
             "Stage: v8.3 display alignment",
             "v8.3 app display label alignment",
-            "package.json package version and FULL_BACKUP_VERSION remain unchanged",
+            "current-only 전체/기록 백업은 각각 엄격한 v2/v4 계약을 사용한다",
+            "storage/runtime/DOM을 원자적으로 반영하거나 모두 되돌린다",
             "v8.4 joint-axis-retired continuous macro scoring is the current production scoring basis",
             "v8.0 final release",
             "RC1~RC6 release gate 통과 기준 반영",
@@ -53681,7 +54057,11 @@ Notes:
           state.inbodyRecords = normalizeInbodyRecordCollection([{ date: today, weight: 75.4, skeletalMuscle: 35, bodyFat: 12, bodyFatPercent: 16 }]);
           const full = buildFullBackupPayload("2026-05-16T00:00:00.000Z");
           assertTest(full.kind === FULL_BACKUP_KIND && full.data.settings && full.data.todayCalculationValues, "full backup should keep settings and Today values");
-          const recordsOnly = detectBackupImportPayload({ version: 3, records: recordsState.items, inbodyRecords: state.inbodyRecords });
+          const recordsOnly = detectBackupImportPayload(makeCurrentRecordsBackupTestPayload({
+            exportedAt: "2026-08-14T00:00:00.000Z",
+            records: recordsState.items,
+            inbodyRecords: state.inbodyRecords
+          }));
           assertTest(recordsOnly.type === "records-only", "records-only file should remain detected separately");
           assertTest(!recordsOnly.data.settings && !recordsOnly.data.todayCalculationValues, "records-only path should not include Settings or Today values");
         }));
@@ -54374,7 +54754,10 @@ Notes:
           seedRecentMeal();
           saveReusableMealAsTemplate(yesterday, "template-source-lunch");
           const before = JSON.stringify(serializeMealTemplateState());
-          queueDataManagementImport({ records: [{ date: today, recordMode: "weight_only", weight: 75.1 }] });
+          queueDataManagementImport(makeCurrentRecordsBackupTestPayload({
+            records: [{ date: today, recordMode: "weight_only", weight: 75.1 }],
+            inbodyRecords: []
+          }));
           confirmDataManagementImport();
           assertTest(JSON.stringify(serializeMealTemplateState()) === before, "records-only import should preserve meal templates");
         }));
@@ -57404,6 +57787,659 @@ Notes:
         }
         assertTest(result.completed === false && result.reason === "storage_commit_failed", "injected storage failure should fail completion");
         assertTest(JSON.stringify(recordsState.items) === beforeMemory && localStorage.getItem(getRecordsStorageKey()) === beforeStorage, "failed completion should restore memory and storage byte-for-byte");
+      });
+
+      return results;
+    }
+
+    function withA3CurrentBackupTestSandbox(callback){
+      const storageSnapshot = snapshotPrefixedStorage();
+      const onboardingSnapshot = cloneRestoreRuntimeValue({ ...onboardingUiState, returnFocus: null });
+      const onboardingReturnFocus = onboardingUiState.returnFocus;
+      try {
+        return withRecordTestSandbox(callback);
+      } finally {
+        replaceRestoreRuntimeObject(onboardingUiState, onboardingSnapshot);
+        onboardingUiState.returnFocus = onboardingReturnFocus;
+        render();
+        restorePrefixedStorage(storageSnapshot);
+      }
+    }
+
+    function runA3CurrentBackupRestoreSafetyTests(){
+      const results = [];
+      const test = (name, callback) => results.push(runNamedTest(name, () => withA3CurrentBackupTestSandbox(callback)));
+      const today = getTodayDateString();
+      const pastDate = shiftDateString(today, -1);
+      const olderDate = shiftDateString(today, -2);
+      const fixedTimestamp = `${today}T00:00:00.000Z`;
+      const literalFullEnvelopeFields = ["app", "kind", "backupVersion", "appVersion", "createdAt", "data"];
+      const literalFullDataFields = [
+        "onboardingCompletedVersion", "settings", "records", "inbodyRecords", "cardioPresets",
+        "mealTemplates", "todayCalculationValues", "weeklyTrainingState"
+      ];
+      const literalRecordsEnvelopeFields = ["version", "exportedAt", "records", "inbodyRecords"];
+
+      const sortedKeys = value => Object.keys(value || {}).sort();
+      const sortedStorageEntries = () => Object.fromEntries(
+        Object.entries(snapshotPrefixedStorage()).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      );
+      const clone = value => JSON.parse(JSON.stringify(value));
+      const findFirstDifference = (left, right, path = "root") => {
+        if (JSON.stringify(left) === JSON.stringify(right)) return "";
+        if (!left || !right || typeof left !== "object" || typeof right !== "object") {
+          return `${path}: ${JSON.stringify(left)} !== ${JSON.stringify(right)}`;
+        }
+        const keys = [...new Set([...Object.keys(left), ...Object.keys(right)])].sort();
+        for (const key of keys) {
+          const difference = findFirstDifference(left[key], right[key], `${path}.${key}`);
+          if (difference) return difference;
+        }
+        return `${path}: values differ`;
+      };
+      const buildMeal = (id, label, snapshot, share, memo = "") => normalizeMeal({
+        id,
+        mealLabel: label,
+        carbs: snapshot.carbs * share,
+        protein: snapshot.protein * share,
+        fat: snapshot.fat * share,
+        alcoholKcal: 0,
+        otherKcal: 0,
+        memo,
+        createdAt: `${pastDate}T${share === 0.5 ? "08" : "18"}:00:00.000Z`
+      }, share === 0.5 ? 0 : 1);
+      const buildRichFullPayload = () => {
+        setValidTodayBalanceTestInputs();
+        state.goal = "recomp";
+        state.weeklyTrainingDaysManual = true;
+        state.weeklyTrainingDays = 4;
+        ids.weeklyTrainingDays.value = "4";
+        const currentResult = calculate({ date: today });
+        assertTest(currentResult.isCalculable === true, "A3 fixture calculation should be available");
+        const snapshot = normalizeGoalSnapshot(buildGoalSnapshotFromCurrentState(currentResult, "saved_at_entry"));
+        const meals = [
+          buildMeal("a3-meal-1", "아침 한글", snapshot, 0.5, "복원 전 메모"),
+          buildMeal("a3-meal-2", "저녁 한글", snapshot, 0.5, "")
+        ];
+        const completed = makeCompletedRecordTestFixture({
+          date: pastDate,
+          recordMode: "detailed",
+          weight: 75.1,
+          note: "완료 기록 한글",
+          goalSnapshot: snapshot,
+          snapshotSource: "saved_at_entry",
+          meals,
+          adherencePercent: 87,
+          completedAt: `${pastDate}T21:00:00.000Z`
+        });
+        const draft = normalizeRecord({
+          date: today,
+          recordMode: "detailed",
+          weight: 75.4,
+          note: "작성 중 기록",
+          goalSnapshot: snapshot,
+          snapshotSource: "record_detail_edit",
+          meals: [normalizeMeal({
+            id: "a3-draft-meal",
+            mealLabel: "점심",
+            carbs: 30,
+            protein: 20,
+            fat: 10,
+            alcoholKcal: 0,
+            otherKcal: 0,
+            memo: "임시",
+            createdAt: `${today}T12:00:00.000Z`
+          }, 0)]
+        });
+        const inbody = makeCurrentInbodyTestRecord(olderDate, {
+          weight: 74.8,
+          skeletalMuscle: 35.2,
+          bodyFat: 12
+        });
+        return makeCurrentFullBackupTestPayload({
+          createdAt: fixedTimestamp,
+          data: {
+            records: [completed, draft],
+            inbodyRecords: [inbody],
+            cardioPresets: {
+              items: [{
+                id: "a3-cardio",
+                name: "한글 걷기",
+                cardioType: "treadmill_walk",
+                cardioDuration: 35,
+                cardioSpeed: 5.5,
+                cardioIncline: 4,
+                createdAt: `${olderDate}T08:00:00.000Z`,
+                updatedAt: `${pastDate}T08:00:00.000Z`
+              }],
+              defaultId: "a3-cardio"
+            },
+            mealTemplates: {
+              items: [{
+                id: "a3-template",
+                name: "한글 아침 식단",
+                mealLabel: "아침",
+                carbs: 55,
+                protein: 32,
+                fat: 14,
+                alcoholKcal: 0,
+                otherKcal: 20,
+                memo: "템플릿 메모",
+                createdAt: `${olderDate}T07:00:00.000Z`,
+                updatedAt: `${pastDate}T07:00:00.000Z`
+              }]
+            },
+            todayCalculationValues: {
+              [today]: normalizeTodayCalculationDraft({
+                calculationWeight: 75.4,
+                todayWeightDuration: 80,
+                todayCardioType: "treadmill_walk",
+                todayCardioDuration: 25,
+                todayCardioSpeed: 5.5,
+                todayCardioIncline: 4
+              })
+            }
+          }
+        });
+      };
+      const captureAuthority = () => {
+        const authorityState = clone(state);
+        delete authorityState.renderedGoalKey;
+        delete authorityState.renderedRoutineKey;
+        return JSON.stringify({
+          storage: sortedStorageEntries(),
+          state: authorityState,
+          records: clone(recordsState.items),
+          cardioPresets: serializeCardioPresetState(),
+          mealTemplates: serializeMealTemplateState(),
+          todayCalculationValues: serializeTodayCalculationDrafts({
+            exerciseProfile: state.exerciseProfile,
+            cardioType: state.cardioType
+          }),
+          onboarding: clone({ ...onboardingUiState, returnFocus: null }),
+          recordDate: ids.recordDate?.value || "",
+          recordWeight: ids.recordWeight?.value || "",
+          recordNote: ids.recordNote?.value || "",
+          weightInput: ids.weight?.value || "",
+          pendingImport: dataManagementState.pendingImport ? clone(dataManagementState.pendingImport) : null,
+          importOverlayHidden: document.getElementById("dataImportConfirmOverlay")?.classList.contains("hidden") !== false
+        });
+      };
+      const expectRejectedWithoutMutation = payload => {
+        const before = captureAuthority();
+        let rejected = false;
+        try {
+          queueDataManagementImport(payload);
+        } catch (_error) {
+          rejected = true;
+        }
+        assertTest(rejected, "invalid current backup should be rejected");
+        assertTest(captureAuthority() === before, "rejected backup should be an authority byte-noop");
+      };
+      const showPendingImport = payload => {
+        const pending = queueDataManagementImport(payload);
+        assertTest(!!pending, "A3 fixture should open a pending import");
+        const overlay = document.getElementById("dataImportConfirmOverlay");
+        assertTest(!!overlay && !overlay.classList.contains("hidden") && overlay.getAttribute("aria-hidden") === "false", "pending import dialog should stay visible");
+        return pending;
+      };
+      const withOneShotStorageFailure = (failAt, callback) => {
+        const originalSetItem = Storage.prototype.setItem;
+        const originalRemoveItem = Storage.prototype.removeItem;
+        let mutationCount = 0;
+        let injected = false;
+        const shouldFail = () => {
+          mutationCount += 1;
+          if (!injected && mutationCount === failAt) {
+            injected = true;
+            throw new Error(`A3 injected storage failure ${failAt}`);
+          }
+        };
+        Storage.prototype.setItem = function(key, value){
+          shouldFail();
+          return originalSetItem.call(this, key, value);
+        };
+        Storage.prototype.removeItem = function(key){
+          shouldFail();
+          return originalRemoveItem.call(this, key);
+        };
+        try {
+          const value = callback();
+          assertTest(injected, `storage failure ${failAt} should be injected`);
+          return value;
+        } finally {
+          Storage.prototype.setItem = originalSetItem;
+          Storage.prototype.removeItem = originalRemoveItem;
+        }
+      };
+
+      test("A3-01 full export uses the exact current v2 envelope and UTF-8 JSON", () => {
+        const payload = buildRichFullPayload();
+        assertTest(JSON.stringify(sortedKeys(payload)) === JSON.stringify([...literalFullEnvelopeFields].sort()), "full envelope keys should be exact literals");
+        assertTest(JSON.stringify(sortedKeys(payload.data)) === JSON.stringify([...literalFullDataFields].sort()), "full data keys should be exact literals");
+        assertTest(payload.app === "macro-engine" && payload.kind === "full-backup" && payload.backupVersion === 2 && payload.appVersion === "v8.3", "full identity and version should use current literals");
+        assertIncludesAll(JSON.stringify(payload), ["한글", "완료 기록", "템플릿 메모"], "full export should preserve Korean text");
+        const autoMaterializedDraft = normalizeTodayCalculationDraft({
+          calculationWeight: 75,
+          skeletalMuscle: 35,
+          bodyFatMass: 12,
+          bodyFatPercent: 16,
+          bodyStatusSource: TODAY_BODY_STATUS_SOURCE_INBODY,
+          bodyStatusSourceDate: pastDate,
+          bodyStatusLoadType: TODAY_BODY_STATUS_LOAD_AUTO,
+          todayWeightDuration: 42,
+          todayCardioType: "treadmill_walk",
+          todayCardioDuration: 20,
+          todayCardioSpeed: 5,
+          todayCardioIncline: 2,
+          cardioSource: TODAY_CARDIO_SOURCE_DEFAULT_PRESET,
+          cardioPresetId: "derived-default",
+          cardioPresetName: "자동 기본"
+        });
+        const projected = serializeCurrentTodayCalculationDraftsForBackup({ [today]: autoMaterializedDraft });
+        assertTest(
+          JSON.stringify(projected) === JSON.stringify({ [today]: { todayWeightDuration: 42 } }),
+          "backup authority should omit automatic InBody and default-cardio materialization while preserving explicit fields"
+        );
+        const autoOnly = { ...autoMaterializedDraft };
+        delete autoOnly.todayWeightDuration;
+        assertTest(Object.keys(serializeCurrentTodayCalculationDraftsForBackup({ [today]: autoOnly })).length === 0, "automatic-only Today materialization should not create a backup date");
+        const explicitLoads = serializeCurrentTodayCalculationDraftsForBackup({
+          [today]: {
+            ...autoMaterializedDraft,
+            bodyStatusLoadType: TODAY_BODY_STATUS_LOAD_LATEST,
+            cardioSource: TODAY_CARDIO_SOURCE_PRESET
+          }
+        });
+        assertTest(
+          explicitLoads[today]?.bodyFatMass === 12 && explicitLoads[today]?.todayCardioDuration === 20,
+          "explicit InBody and cardio preset applications should remain backup authority"
+        );
+      });
+
+      test("A3-02 current v2 payload validates and round-trips exactly", () => {
+        const payload = buildRichFullPayload();
+        const detected = detectBackupImportPayload(clone(payload));
+        assertTest(detected.type === "full", "current full payload should detect as full");
+        const restored = restoreFullBackupData(detected.data);
+        assertTest(restored.restored === true, "current full payload should restore");
+        const exported = buildFullBackupPayload(fixedTimestamp);
+        assertTest(JSON.stringify(exported) === JSON.stringify(payload), `full restore and re-export should be exact (${findFirstDifference(payload, exported)})`);
+        assertTest(getRecordByDate(pastDate)?.recordLifecycle === "completed" && getRecordByDate(today)?.recordLifecycle === "draft", "A2 lifecycle authority should round-trip");
+
+        const widerWorkAdjustment = clone(payload);
+        widerWorkAdjustment.data.settings.activityLevel = "moderate";
+        widerWorkAdjustment.data.settings.workType = "office";
+        widerWorkAdjustment.data.settings.workAdj = 0.2;
+        state.activityLevel = "very_active";
+        state.workType = "heavy_field";
+        ids.activityLevel.value = state.activityLevel;
+        ids.workType.value = state.workType;
+        syncWorkAdjBounds();
+        assertTest(Number(ids.workAdj.max) === 0.1, "A3 fixture should begin with the narrower local work-adjustment bound");
+        const widerDetected = detectBackupImportPayload(clone(widerWorkAdjustment));
+        assertTest(widerDetected.type === "full", "a current payload should validate against its own Settings context");
+        const widerRestored = restoreFullBackupData(widerDetected.data);
+        assertTest(widerRestored.restored === true, "the candidate work-adjustment boundary should restore");
+        assertTest(Number(ids.workAdj.max) === 0.2 && Number(ids.workAdj.value) === 0.2, "restore should apply candidate bounds before assigning the candidate work adjustment");
+        const widerExported = buildFullBackupPayload(fixedTimestamp);
+        assertTest(JSON.stringify(widerExported) === JSON.stringify(widerWorkAdjustment), `candidate-context restore and re-export should be exact (${findFirstDifference(widerWorkAdjustment, widerExported)})`);
+      });
+
+      test("A3-03 missing old future string versions and incomplete onboarding all reject", () => {
+        const payload = buildRichFullPayload();
+        [undefined, 1, 999, "2"].forEach(version => {
+          const invalid = clone(payload);
+          if (version === undefined) delete invalid.backupVersion;
+          else invalid.backupVersion = version;
+          expectRejectedWithoutMutation(invalid);
+        });
+        const incompleteOnboarding = clone(payload);
+        incompleteOnboarding.data.onboardingCompletedVersion = null;
+        expectRejectedWithoutMutation(incompleteOnboarding);
+      });
+
+      test("A3-04 wrong identity app version and timestamp reject", () => {
+        const payload = buildRichFullPayload();
+        [
+          { ...clone(payload), app: "other-app" },
+          { ...clone(payload), kind: "records" },
+          { ...clone(payload), appVersion: "v8.2" },
+          { ...clone(payload), createdAt: "2026-08-14" }
+        ].forEach(expectRejectedWithoutMutation);
+      });
+
+      test("A3-05 missing and unknown full envelope fields reject", () => {
+        const payload = buildRichFullPayload();
+        const missing = clone(payload);
+        delete missing.createdAt;
+        const unknown = { ...clone(payload), extra: true };
+        expectRejectedWithoutMutation(missing);
+        expectRejectedWithoutMutation(unknown);
+      });
+
+      test("A3-06 missing and unknown full data fields reject", () => {
+        const payload = buildRichFullPayload();
+        const missing = clone(payload);
+        delete missing.data.mealTemplates;
+        const unknown = clone(payload);
+        unknown.data.extra = [];
+        expectRejectedWithoutMutation(missing);
+        expectRejectedWithoutMutation(unknown);
+      });
+
+      test("A3-07 missing unknown and noncanonical settings reject", () => {
+        const payload = buildRichFullPayload();
+        const missing = clone(payload);
+        delete missing.data.settings.weight;
+        const unknown = clone(payload);
+        unknown.data.settings.extra = 1;
+        const noncanonical = clone(payload);
+        noncanonical.data.settings.weight = "75";
+        const outOfRangeWorkAdjustment = clone(payload);
+        outOfRangeWorkAdjustment.data.settings.activityLevel = "very_active";
+        outOfRangeWorkAdjustment.data.settings.workType = "heavy_field";
+        outOfRangeWorkAdjustment.data.settings.workAdj = 0.11;
+        const noncanonicalOutdoorIncline = clone(payload);
+        noncanonicalOutdoorIncline.data.settings.cardioType = "outdoor_run";
+        noncanonicalOutdoorIncline.data.settings.cardioIncline = 8;
+        [missing, unknown, noncanonical, outOfRangeWorkAdjustment, noncanonicalOutdoorIncline].forEach(expectRejectedWithoutMutation);
+      });
+
+      test("A3-08 wrong full nested container types reject", () => {
+        const payload = buildRichFullPayload();
+        [
+          ["records", {}], ["inbodyRecords", {}], ["cardioPresets", []],
+          ["mealTemplates", []], ["todayCalculationValues", []], ["weeklyTrainingState", []]
+        ].forEach(([field, value]) => {
+          const invalid = clone(payload);
+          invalid.data[field] = value;
+          expectRejectedWithoutMutation(invalid);
+        });
+      });
+
+      test("A3-09 duplicate or future Record dates reject", () => {
+        const payload = buildRichFullPayload();
+        const duplicate = clone(payload);
+        duplicate.data.records.push(clone(duplicate.data.records[0]));
+        const future = clone(payload);
+        future.data.records[0].date = "2099-01-01";
+        expectRejectedWithoutMutation(duplicate);
+        expectRejectedWithoutMutation(future);
+      });
+
+      test("A3-10 duplicate meal identifiers reject in full and records-only files", () => {
+        const payload = buildRichFullPayload();
+        const duplicateMeals = clone(payload);
+        const completed = duplicateMeals.data.records.find(record => record.date === pastDate);
+        completed.meals[1].id = completed.meals[0].id;
+        expectRejectedWithoutMutation(duplicateMeals);
+        const recordsOnly = {
+          version: 4,
+          exportedAt: fixedTimestamp,
+          records: clone(duplicateMeals.data.records),
+          inbodyRecords: clone(payload.data.inbodyRecords)
+        };
+        expectRejectedWithoutMutation(recordsOnly);
+      });
+
+      test("A3-11 future Today and noncanonical nested or derived values reject", () => {
+        const payload = buildRichFullPayload();
+        const futureToday = clone(payload);
+        futureToday.data.todayCalculationValues["2099-01-01"] = futureToday.data.todayCalculationValues[today];
+        const noncanonicalPreset = clone(payload);
+        noncanonicalPreset.data.cardioPresets.items[0].cardioDuration = "35";
+        const noncanonicalInbody = clone(payload);
+        noncanonicalInbody.data.inbodyRecords[0].weight = "74.8";
+        const noncanonicalAutoWeeklyDays = clone(payload);
+        noncanonicalAutoWeeklyDays.data.settings.weeklyTrainingDaysManual = false;
+        noncanonicalAutoWeeklyDays.data.settings.weeklyTrainingDays = 1;
+        noncanonicalAutoWeeklyDays.data.weeklyTrainingState.weeklyTrainingDaysManual = false;
+        noncanonicalAutoWeeklyDays.data.weeklyTrainingState.weeklyTrainingDays = 1;
+        const noncanonicalOutdoorPreset = clone(payload);
+        noncanonicalOutdoorPreset.data.cardioPresets.items[0].cardioType = "outdoor_run";
+        noncanonicalOutdoorPreset.data.cardioPresets.items[0].cardioIncline = 8;
+        const noncanonicalOutdoorToday = clone(payload);
+        noncanonicalOutdoorToday.data.todayCalculationValues[today].todayCardioType = "outdoor_run";
+        noncanonicalOutdoorToday.data.todayCalculationValues[today].todayCardioIncline = 8;
+        const noncanonicalOutdoorRecord = clone(payload);
+        const historicalRecord = noncanonicalOutdoorRecord.data.records.find(record => record.date === pastDate);
+        historicalRecord.goalSnapshot.cardioType = "outdoor_run";
+        historicalRecord.goalSnapshot.cardioIncline = 8;
+        [
+          futureToday,
+          noncanonicalPreset,
+          noncanonicalInbody,
+          noncanonicalAutoWeeklyDays,
+          noncanonicalOutdoorPreset,
+          noncanonicalOutdoorToday,
+          noncanonicalOutdoorRecord
+        ].forEach(expectRejectedWithoutMutation);
+      });
+
+      test("A3-12 invalid completed lifecycle shape is rejected instead of downgraded", () => {
+        const payload = buildRichFullPayload();
+        const invalid = clone(payload);
+        invalid.data.records.find(record => record.date === pastDate).completedAt = null;
+        expectRejectedWithoutMutation(invalid);
+      });
+
+      test("A3-13 preview and cancel never mutate current authority", () => {
+        const payload = buildRichFullPayload();
+        const before = captureAuthority();
+        showPendingImport(payload);
+        const previewAuthority = JSON.parse(captureAuthority());
+        const originalAuthority = JSON.parse(before);
+        delete previewAuthority.pendingImport;
+        delete previewAuthority.importOverlayHidden;
+        delete originalAuthority.pendingImport;
+        delete originalAuthority.importOverlayHidden;
+        assertTest(JSON.stringify(previewAuthority) === JSON.stringify(originalAuthority), "preview should not mutate application authority");
+        cancelDataManagementImport();
+        const afterCancel = JSON.parse(captureAuthority());
+        delete afterCancel.pendingImport;
+        delete afterCancel.importOverlayHidden;
+        assertTest(JSON.stringify(afterCancel) === JSON.stringify(originalAuthority), "cancel should preserve current application authority");
+      });
+
+      test("A3-14 full confirm replaces all current surfaces in one commit", () => {
+        const payload = buildRichFullPayload();
+        const detected = detectBackupImportPayload(payload);
+        recordsState.items = [];
+        state.inbodyRecords = [];
+        cardioPresetState = normalizeCardioPresetState();
+        mealTemplateState = normalizeMealTemplateState();
+        todayCalculationDrafts = {};
+        ids.weight.value = "64";
+        const restored = restoreFullBackupData(detected.data);
+        assertTest(restored.restored === true && recordsState.items.length === 2 && state.inbodyRecords.length === 1, "full restore should replace Records and InBody together");
+        assertTest(cardioPresetState.items[0]?.name === "한글 걷기" && mealTemplateState.items[0]?.name === "한글 아침 식단", "full restore should replace reusable items together");
+        assertTest(todayCalculationDrafts[today]?.todayWeightDuration === 80, "full restore should replace Today drafts together");
+        assertTest(localStorage.getItem(getRecordsStorageKey()) === JSON.stringify(payload.data.records), "full restore storage should match canonical records exactly");
+      });
+
+      test("A3-15 smart preview uses date-key counts and has no scoring side effects", () => {
+        const payload = buildRichFullPayload();
+        recordsState.items = normalizeRecordsCollection([payload.data.records[0]]);
+        state.inbodyRecords = normalizeInbodyRecordCollection(payload.data.inbodyRecords);
+        const before = captureAuthority();
+        const preview = buildSmartRestoreImportPreview(normalizeFullBackupPayload(payload));
+        assertTest(preview.backupOnlyRecordCount === 1 && preview.conflictRecordCount === 1, "smart preview should separate new and same-date Records");
+        assertTest(preview.backupOnlyInbodyCount === 0 && preview.conflictingInbodyCount === 0, "exact same-date InBody should not be announced as new");
+        assertTest(captureAuthority() === before, "smart preview should be a pure authority no-op");
+      });
+
+      test("A3-16 smart keep preserves local conflicts and adds new dates", () => {
+        const payload = buildRichFullPayload();
+        const backupConflict = payload.data.records.find(record => record.date === pastDate);
+        const local = normalizeRecord({ ...backupConflict, weight: 64.2, note: "LOCAL_KEEP" });
+        recordsState.items = [local];
+        state.inbodyRecords = normalizeInbodyRecordCollection(payload.data.inbodyRecords);
+        dataManagementState.pendingImport = { type: "full", data: normalizeFullBackupPayload(payload) };
+        const result = applySmartRestoreImportData(dataManagementState.pendingImport.data, "keep");
+        assertTest(result.applied === true && result.addedRecords === 1, "smart keep should add only backup-only dates");
+        assertTest(getRecordByDate(pastDate)?.note === "LOCAL_KEEP" && !!getRecordByDate(today), "smart keep should retain local conflict and add new date");
+      });
+
+      test("A3-17 smart replace replaces conflicts and preserves Today drafts", () => {
+        const payload = buildRichFullPayload();
+        const backupConflict = payload.data.records.find(record => record.date === pastDate);
+        recordsState.items = [normalizeRecord({ ...backupConflict, weight: 64.2, note: "LOCAL_REPLACE" })];
+        todayCalculationDrafts = { [today]: normalizeTodayCalculationDraft({ calculationWeight: 64.2 }) };
+        const beforeToday = JSON.stringify(todayCalculationDrafts);
+        dataManagementState.pendingImport = { type: "full", data: normalizeFullBackupPayload(payload) };
+        const result = applySmartRestoreImportData(dataManagementState.pendingImport.data, "replace");
+        assertTest(result.applied === true && getRecordByDate(pastDate)?.note === "완료 기록 한글", "smart replace should use the backup conflict record");
+        assertTest(JSON.stringify(todayCalculationDrafts) === beforeToday, "smart restore should never replace Today drafts");
+      });
+
+      test("A3-18 smart meal merge demotes completed evidence atomically", () => {
+        const payload = buildRichFullPayload();
+        const localCompleted = payload.data.records.find(record => record.date === pastDate);
+        const collidingMealId = localCompleted.meals[0].id;
+        const addedMeal = normalizeMeal({
+          id: collidingMealId,
+          mealLabel: "간식",
+          carbs: 10,
+          protein: 5,
+          fat: 2,
+          alcoholKcal: 0,
+          otherKcal: 0,
+          memo: "BACKUP_MEAL",
+          createdAt: `${pastDate}T15:00:00.000Z`
+        }, 2);
+        const backupRecord = normalizeRecord({ ...localCompleted, meals: [addedMeal] });
+        recordsState.items = [localCompleted];
+        dataManagementState.pendingImport = {
+          type: "full",
+          data: normalizeFullBackupPayload(makeCurrentFullBackupTestPayload({ data: { ...payload.data, records: [backupRecord] } }))
+        };
+        const result = applySmartRestoreImportData(dataManagementState.pendingImport.data, "meals");
+        const merged = getRecordByDate(pastDate);
+        assertTest(result.applied === true && merged.meals.length === 3, "smart meal merge should append only new meals");
+        const mergedIds = merged.meals.map(meal => meal.id);
+        const importedMeal = merged.meals.find(meal => meal.memo === "BACKUP_MEAL");
+        assertTest(new Set(mergedIds).size === mergedIds.length && importedMeal?.id !== collidingMealId, "smart meal merge should re-key cross-source identifier collisions");
+        assertTest(merged.recordLifecycle === "draft" && merged.adherencePercent === null && merged.completedAt === null && merged.completionEvidenceSignature === null, "nutrition merge should clear completed authority");
+        deleteMealEntry(pastDate, collidingMealId);
+        const afterDelete = getRecordByDate(pastDate);
+        assertTest(afterDelete.meals.length === 2 && afterDelete.meals.some(meal => meal.id === importedMeal.id), "deleting the local meal should preserve the re-keyed imported meal");
+      });
+
+      test("A3-19 records-only export uses the exact current v4 envelope", () => {
+        const payload = buildRichFullPayload();
+        recordsState.items = normalizeRecordsCollection(payload.data.records);
+        state.inbodyRecords = normalizeInbodyRecordCollection(payload.data.inbodyRecords);
+        const exported = {
+          version: 4,
+          exportedAt: fixedTimestamp,
+          records: getSortedRecords(),
+          inbodyRecords: normalizeInbodyRecordCollection(state.inbodyRecords)
+        };
+        assertTest(JSON.stringify(sortedKeys(exported)) === JSON.stringify([...literalRecordsEnvelopeFields].sort()), "records-only envelope keys should be exact literals");
+        assertTest(detectBackupImportPayload(exported).type === "records-only", "current v4 records-only payload should validate");
+      });
+
+      test("A3-20 bare old future missing and string records versions reject", () => {
+        const payload = buildRichFullPayload();
+        const current = { version: 4, exportedAt: fixedTimestamp, records: payload.data.records, inbodyRecords: payload.data.inbodyRecords };
+        [
+          clone(current.records),
+          { ...clone(current), version: 3 },
+          { ...clone(current), version: 999 },
+          { ...clone(current), version: "4" },
+          (() => { const value = clone(current); delete value.version; return value; })()
+        ].forEach(expectRejectedWithoutMutation);
+      });
+
+      test("A3-21 records-only extra fields future dates and duplicate dates reject", () => {
+        const payload = buildRichFullPayload();
+        const current = { version: 4, exportedAt: fixedTimestamp, records: payload.data.records, inbodyRecords: payload.data.inbodyRecords };
+        const extra = { ...clone(current), extra: true };
+        const future = clone(current);
+        future.records[0].date = "2099-01-01";
+        const duplicate = clone(current);
+        duplicate.records.push(clone(duplicate.records[0]));
+        [extra, future, duplicate].forEach(expectRejectedWithoutMutation);
+      });
+
+      test("A3-22 records-only success replaces Records and InBody but preserves Settings and Today", () => {
+        const payload = buildRichFullPayload();
+        const current = { version: 4, exportedAt: fixedTimestamp, records: payload.data.records, inbodyRecords: payload.data.inbodyRecords };
+        const settingsBefore = JSON.stringify(getSettingsBackupSnapshot());
+        todayCalculationDrafts = { [today]: normalizeTodayCalculationDraft({
+          calculationWeight: 66.6,
+          bodyFatMass: 10.656,
+          bodyFatPercent: 16,
+          skeletalMuscle: 30,
+          bodyStatusSource: TODAY_BODY_STATUS_SOURCE_USER,
+          bodyStatusEdited: true
+        }) };
+        saveTodayCalculationDrafts();
+        const todayBefore = JSON.stringify(todayCalculationDrafts);
+        showPendingImport(current);
+        const result = confirmDataManagementImport();
+        assertTest(result.applied === true && recordsState.items.length === 2 && state.inbodyRecords.length === 1, "records-only confirm should replace both included record stores");
+        assertTest(JSON.stringify(getSettingsBackupSnapshot()) === settingsBefore && JSON.stringify(todayCalculationDrafts) === todayBefore, "records-only import should preserve Settings and Today");
+      });
+
+      test("A3-23 full early middle and late storage failures roll back exactly", () => {
+        const entryCount = buildFullRestoreStorageEntries(normalizeFullBackupPayload(buildRichFullPayload())).size;
+        [1, Math.ceil(entryCount / 2), entryCount].forEach(failAt => {
+          const payload = buildRichFullPayload();
+          showPendingImport(payload);
+          const before = captureAuthority();
+          const result = withOneShotStorageFailure(failAt, () => confirmDataManagementImport());
+          assertTest(result.restored === false && result.reason === "storage_commit_failed", `full failure ${failAt} should report storage failure`);
+          assertTest(captureAuthority() === before, `full failure ${failAt} should preserve storage memory DOM and pending state`);
+          cancelDataManagementImport();
+        });
+      });
+
+      test("A3-24 full runtime failure rolls storage memory and DOM back exactly", () => {
+        const payload = buildRichFullPayload();
+        saveState();
+        showPendingImport(payload);
+        const before = captureAuthority();
+        const originalRender = render;
+        let injected = false;
+        render = function(){
+          if (!injected) {
+            injected = true;
+            throw new Error("A3 injected runtime render failure");
+          }
+          return originalRender();
+        };
+        let result;
+        try {
+          result = confirmDataManagementImport();
+        } finally {
+          render = originalRender;
+        }
+        assertTest(injected && result.restored === false && result.reason === "runtime_commit_failed", "runtime failure should be reported");
+        const after = captureAuthority();
+        assertTest(after === before, `runtime failure should roll storage memory DOM and pending state back exactly (${findFirstDifference(JSON.parse(before), JSON.parse(after))})`);
+      });
+
+      test("A3-25 smart restore second-write failure preserves retry state exactly", () => {
+        const payload = buildRichFullPayload();
+        recordsState.items = [normalizeRecord({ ...payload.data.records[0], weight: 64.2, note: "LOCAL_SMART" })];
+        state.inbodyRecords = [makeCurrentInbodyTestRecord(olderDate, { weight: 73.8, skeletalMuscle: 34.8, bodyFat: 11.5 })];
+        showPendingImport(payload);
+        const before = captureAuthority();
+        const result = withOneShotStorageFailure(2, () => confirmSmartRestoreConflict("replace"));
+        assertTest(result.applied === false && result.reason === "storage_commit_failed", "smart failure should report storage failure");
+        assertTest(captureAuthority() === before, "smart failure should preserve storage memory DOM and pending retry state");
+      });
+
+      test("A3-26 records-only second-write failure preserves retry state exactly", () => {
+        const payload = buildRichFullPayload();
+        const recordsOnly = { version: 4, exportedAt: fixedTimestamp, records: payload.data.records, inbodyRecords: payload.data.inbodyRecords };
+        showPendingImport(recordsOnly);
+        const before = captureAuthority();
+        const result = withOneShotStorageFailure(2, () => confirmDataManagementImport());
+        assertTest(result.applied === false && result.reason === "storage_commit_failed", "records-only failure should report storage failure");
+        assertTest(captureAuthority() === before, "records-only failure should preserve storage memory DOM and pending retry state");
       });
 
       return results;
@@ -106320,11 +107356,7 @@ Notes:
         }
 
         function makeBackupRestoreFullPayload(records, overrides = {}){
-          return {
-            app: "macro-engine",
-            kind: FULL_BACKUP_KIND,
-            backupVersion: FULL_BACKUP_VERSION,
-            appVersion: getCurrentAppVersionLabel(),
+          return makeCurrentFullBackupTestPayload({
             createdAt: overrides.createdAt || "2026-07-12T00:00:00.000Z",
             data: {
               onboardingCompletedVersion: ONBOARDING_VERSION,
@@ -106336,7 +107368,7 @@ Notes:
               todayCalculationValues: overrides.todayCalculationValues || {},
               weeklyTrainingState: overrides.weeklyTrainingState || { weeklyTrainingDaysManual: false, weeklyTrainingDays: 0 }
             }
-          };
+          });
         }
 
         function assertBackupRestoreFixedSnapshot(snapshot, expected, label){
@@ -111483,11 +112515,10 @@ Notes:
           resetFixture();
           setInbodyRecords(olderInbody, latestInbody);
           applySelectedInbodyRecordToToday(0);
-          const payload = JSON.stringify({
-            version: 3,
+          const payload = JSON.stringify(makeCurrentRecordsBackupTestPayload({
             records: getSortedRecords(),
             inbodyRecords: Array.isArray(state.inbodyRecords) ? [...state.inbodyRecords] : []
-          });
+          }));
           assertExcludesAll(payload, ["todayCalculationDraft", "bodyStatusSource", "bodyStatusEdited", "bodyStatusLoadType", "selectedMacroBasis", "uiState"], "export payload should not expose Today source state");
         }));
 
@@ -111747,11 +112778,10 @@ Notes:
           setInbodyRecords(latestInbody);
           resetDrafts();
           loadLatestInbodyToTodayInputs();
-          const payload = JSON.stringify({
-            version: 3,
+          const payload = JSON.stringify(makeCurrentRecordsBackupTestPayload({
             records: getSortedRecords(),
             inbodyRecords: Array.isArray(state.inbodyRecords) ? [...state.inbodyRecords] : []
-          });
+          }));
           assertExcludesAll(payload, ["todayCalculationDraft", "bodyStatusSource", "bodyStatusEdited", "selectedMacroBasis", "uiState"], "export payload should exclude Today draft and source metadata");
         }));
 
@@ -111861,11 +112891,10 @@ Notes:
             feedbackText: document.getElementById("inbodyFeedback")?.textContent || ""
           };
         };
-        const exportPayloadText = () => JSON.stringify({
-          version: 3,
+        const exportPayloadText = () => JSON.stringify(makeCurrentRecordsBackupTestPayload({
           records: getSortedRecords(),
           inbodyRecords: Array.isArray(state.inbodyRecords) ? [...state.inbodyRecords] : []
-        });
+        }));
 
         results.push(runNamedTest("C4.4.1 same InBody values skip Today apply choice", () => {
           resetChoiceFixture();
@@ -113868,6 +114897,7 @@ Notes:
     window.runTodayQuickEditTests = runTodayQuickEditTests;
     window.runA1CurrentInputDateInBodySafetyTests = runA1CurrentInputDateInBodySafetyTests;
     window.runA2CurrentRecordScoreLifecycleTests = runA2CurrentRecordScoreLifecycleTests;
+    window.runA3CurrentBackupRestoreSafetyTests = runA3CurrentBackupRestoreSafetyTests;
     window.runTodayRecordConfirmationTests = runTodayRecordConfirmationTests;
     window.runUserFacingModeRemovalTests = runUserFacingModeRemovalTests;
     window.runModeFreeCalculationContextTests = runModeFreeCalculationContextTests;
