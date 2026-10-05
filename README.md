@@ -41,3 +41,14 @@ npm run test:all
 과학적 근거와 모델 선택: [docs/evidence.md](docs/evidence.md). 재구성 판단·의도 보존·검증 결과: [docs/rebuild.md](docs/rebuild.md).
 
 기존 v8 코드·문서·테스트는 Git 태그 `archive/v8-before-rebuild-2026-10-05`에서 복구할 수 있습니다. 이전 브라우저 저장 키와 `user-data/`는 변경하지 않습니다. 새 버전 저장 키는 `macro-engine.v9`입니다.
+
+## Codex 운동 일지
+
+기존 외부 폴더의 원본 이미지를 그대로 사용하고, 추출 결과와 교정 이력만 Git에서 제외된 `user-data/coach/`에 저장합니다. 개인 경로는 로컬 설정에만 있습니다. `coach-diary` 스킬과 아래 도구는 분석 요청 때 새 이미지·변경 파일을 확인하고, 이미 처리한 이미지는 저장된 결과를 재사용합니다. 상시 감시·외부 AI API·브라우저 앱의 세트 일지 가져오기는 아직 연결하지 않았습니다.
+
+```sh
+npm run diary -- scan
+npm run diary -- context --from 2026-09-01 --to 2026-10-05
+```
+
+이미지의 동일 내용 복사본은 한 번만 처리합니다. 기존 OCR 요약은 미검증 이력을 표시하고, 이전에 읽지 않은 사진은 보류로 남깁니다. 평소에는 파일 크기·수정 메타데이터가 그대로면 기존 해시를 재사용하며, 전체 바이트 검사는 `scan --verify-all`입니다. Git 제외는 암호화나 백업이 아니므로 원본 폴더와 `user-data/coach/`를 함께 개인 백업해야 합니다.

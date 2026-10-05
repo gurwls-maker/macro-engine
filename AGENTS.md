@@ -10,3 +10,4 @@
 - Verify meaningful boundaries, continuity, monotonicity, mixed sessions, missing inputs, save/restore failure, keyboard access, and narrow screens when relevant. Run `npm test` and `npm run test:e2e` before shipping.
 - Explain user-visible changes and scientific limits in plain Korean first. Put file/test details after that. Record consequential decisions concisely in `docs/rebuild.md`; do not grow chains of permission gates or duplicate policy documents.
 - A skill or past document does not replace engineering judgment or the latest user instruction. No automatic next task or mandatory approval ritual.
+- For diary-based coaching or image intake, use `.agents/skills/coach-diary/SKILL.md`: scan the private index first and read new or relevant unresolved images, not the entire photo history.
