@@ -38,6 +38,122 @@ test("current backup round trip preserves Korean, decimals, completion and snaps
   assert.equal(input.profile.weightKg, 65);
 });
 
+test("optional coach check-in preserves older v9 days and explicit unanswered states", () => {
+  const original = fixture();
+  const store = memoryStorage({ [Storage.STORAGE_KEY]: JSON.stringify(original) });
+  const loaded = Storage.load(store);
+  assert.deepEqual(loaded.state, original);
+  assert.equal(Object.hasOwn(loaded.state.days["2026-10-05"], "coachCheckin"), false);
+  assert.deepEqual(Storage.parseBackup(Storage.exportBackup(loaded.state)).state, original);
+  for (const coachCheckin of [null, { energy: null, hunger: null, sleep: null }]) {
+    const state = fixture();
+    state.days["2026-10-05"].coachCheckin = coachCheckin;
+    const saved = Storage.save(state, store);
+    assert.deepEqual(Storage.load(store).state, saved);
+    assert.deepEqual(Storage.parseBackup(Storage.exportBackup(state)).state, state);
+  }
+  assert.equal(Storage.VERSION, 9);
+  assert.equal(Storage.STORAGE_KEY, "macro-engine.v9");
+});
+
+test("all coach check-in response combinations round trip without changing completed snapshots", () => {
+  let count = 0;
+  for (const energy of [null, "low", "okay", "good"]) {
+    for (const hunger of [null, "low", "okay", "high"]) {
+      for (const sleep of [null, "poor", "okay", "good"]) {
+        const state = fixture();
+        const day = state.days["2026-10-05"];
+        const planBefore = structuredClone(day.planSnapshot);
+        day.coachCheckin = { energy, hunger, sleep };
+        const restored = Storage.parseBackup(Storage.exportBackup(state)).state;
+        assert.deepEqual(restored, state);
+        assert.deepEqual(restored.days[day.date].planSnapshot, planBefore);
+        assert.equal(restored.days[day.date].complete, true);
+        restored.days[day.date].coachCheckin.energy = "low";
+        assert.equal(day.coachCheckin.energy, energy);
+        count += 1;
+      }
+    }
+  }
+  assert.equal(count, 64);
+});
+
+test("optional coaching context keys preserve older three-answer check-ins and individual additions", () => {
+  const originalCheckin = { energy: "okay", hunger: "high", sleep: "poor" };
+  for (const addition of [{}, { trainingPlan: null }, { mealConstraint: null }, { performance: null }, { trainingPlan: "planned" }, { mealConstraint: "busy" }, { performance: "down" }]) {
+    const state = fixture();
+    const checkin = { ...originalCheckin, ...addition };
+    state.days["2026-10-05"].coachCheckin = checkin;
+    const saved = Storage.save(state, memoryStorage());
+    assert.deepEqual(saved.days["2026-10-05"].coachCheckin, checkin);
+    const restored = Storage.parseBackup(Storage.exportBackup(state)).state;
+    assert.deepEqual(restored, state);
+    assert.deepEqual(Object.keys(restored.days["2026-10-05"].coachCheckin), Object.keys(checkin));
+  }
+});
+
+test("all six-signal coach check-ins round trip without inventing performed sessions or changing snapshots", () => {
+  const Nutrition = require("../src/nutrition.js");
+  const input = fixture();
+  const day = input.days["2026-10-05"];
+  day.sessions = [];
+  const planBefore = Nutrition.calculatePlan(input.profile, day, []);
+  day.planSnapshot = planBefore;
+  let count = 0;
+  for (const energy of [null, "low", "okay", "good"]) for (const hunger of [null, "low", "okay", "high"]) {
+    for (const sleep of [null, "poor", "okay", "good"]) for (const trainingPlan of [null, "rest", "planned"]) {
+      for (const mealConstraint of [null, "none", "busy", "low-appetite", "digestive"]) for (const performance of [null, "down", "steady", "up"]) {
+        day.coachCheckin = { energy, hunger, sleep, trainingPlan, mealConstraint, performance };
+        const restored = Storage.parseBackup(Storage.exportBackup(input)).state;
+        assert.deepEqual(restored, input);
+        assert.deepEqual(restored.days[day.date].sessions, []);
+        assert.deepEqual(restored.days[day.date].planSnapshot, planBefore);
+        count += 1;
+      }
+    }
+  }
+  assert.equal(count, 3840);
+  assert.deepEqual(Nutrition.calculatePlan(input.profile, day, []), planBefore);
+});
+
+test("invalid coach check-in shapes, enums and unknown keys fail before any write", () => {
+  const invalidCheckins = [
+    false, 0, "okay", [], {},
+    { energy: "good", hunger: "okay" },
+    { energy: "good", hunger: "okay", sleep: "good", mood: "good" },
+    { energy: "high", hunger: "okay", sleep: "good" },
+    { energy: "good", hunger: "good", sleep: "good" },
+    { energy: "good", hunger: "okay", sleep: "low" },
+    { energy: 1, hunger: "okay", sleep: "good" },
+    { energy: "good", hunger: [], sleep: "good" },
+    { energy: "good", hunger: "okay", sleep: {} },
+    { energy: "good", hunger: "okay", sleep: "good", trainingPlan: "completed" },
+    { energy: "good", hunger: "okay", sleep: "good", mealConstraint: "unknown" },
+    { energy: "good", hunger: "okay", sleep: "good", performance: "good" },
+    { energy: "good", hunger: "okay", sleep: "good", trainingPlan: true },
+    { energy: "good", hunger: "okay", sleep: "good", mealConstraint: [] },
+    { energy: "good", hunger: "okay", sleep: "good", performance: {} },
+    { trainingPlan: "planned", mealConstraint: "busy", performance: "down" },
+    { energy: "good", hunger: "okay", sleep: "good", trainingPlan: "planned", mealConstraint: "busy", performance: "down", unexpected: null }
+  ];
+  const original = Storage.exportBackup(fixture());
+  const store = memoryStorage({ [Storage.STORAGE_KEY]: original });
+  let writes = 0;
+  store.setItem = () => { writes += 1; };
+  for (const coachCheckin of invalidCheckins) {
+    const state = fixture();
+    state.days["2026-10-05"].coachCheckin = coachCheckin;
+    assert.throws(() => Storage.parseBackup(JSON.stringify(state)), /코치 체크인/);
+    assert.throws(() => Storage.save(state, store), /코치 체크인/);
+    assert.equal(store.getItem(Storage.STORAGE_KEY), original);
+  }
+  const unknownDayField = fixture();
+  unknownDayField.days["2026-10-05"].coachCheckin = null;
+  unknownDayField.days["2026-10-05"].unexpected = true;
+  assert.throws(() => Storage.save(unknownDayField, store), /하루 기록/);
+  assert.equal(writes, 0);
+});
+
 test("save performs one atomic write and never mutates the input", () => {
   const store = memoryStorage();
   const input = fixture();

@@ -3,6 +3,7 @@
   const N = window.MacroNutrition;
   const S = window.MacroStorage;
   const I = window.MacroInsights;
+  const C = window.MacroCoach;
   const loaded = S.load();
   let state = loaded.state;
   let blocked = loaded.storageBlocked === true;
@@ -11,6 +12,11 @@
   let pendingImport = null;
   let toastTimer;
   let dialogReturnFocus;
+  let lastMutation = null;
+  let coachQuestion = null;
+  let onboardingStep = 0;
+  let profileInitialized = false;
+  let profileDirty = false;
   const $ = id => document.getElementById(id);
   const clone = value => JSON.parse(JSON.stringify(value));
   const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -19,7 +25,7 @@
   const sportNames = { none: '운동 없음', strength: '근력운동', running: '달리기', cycling: '사이클', swimming: '수영', team: '구기·팀 스포츠', mixed: '복합 운동', walking: '걷기' };
   const goalNames = { lose: '체지방 감량', maintain: '체중 유지', gain: '근육 증가', recomp: '체성분 개선', performance: '운동 수행' };
   const intensityNames = { easy: '가볍게', moderate: '보통', hard: '힘들게' };
-  const titles = { today: '오늘', trends: '기록과 추세', profile: '내 기준', data: '데이터' };
+  const titles = { today: '오늘의 기록', coach: '앱코치', trends: '기록과 추세', profile: '내 기준', data: '데이터' };
   const icon = name => `<i data-lucide="${name}" aria-hidden="true"></i>`;
   const command = (action, text, symbol = 'plus', extra = '', primary = false) => `<button type="button" class="button ${primary ? 'button-primary' : 'button-secondary'}" data-action="${action}" ${extra}>${icon(symbol)}<span>${text}</span></button>`;
   const iconButton = (action, name, symbol, extra = '') => `<button type="button" class="icon-button" data-action="${action}" title="${name}" aria-label="${name}" ${extra}>${icon(symbol)}</button>`;
@@ -58,21 +64,22 @@
     }
     toastTimer = setTimeout(() => { $('toast').hidden = true; }, error ? 10000 : 4500);
   }
-  function save(next, message, allowReplace = false) {
+  function save(next, message, allowReplace = false, mutation = null) {
     if (blocked && !allowReplace) { toast('저장된 원본을 보호하고 있어요. 데이터 화면에서 원본을 내보내거나 검증된 백업을 복원해 주세요.', true); return false; }
     try {
       state = S.save(next);
+      lastMutation = mutation;
       if (allowReplace) blocked = false;
       if (message) toast(message);
       render();
       return true;
     } catch (error) { toast(error.message, true); return false; }
   }
-  function mutateDay(change, message) {
+  function mutateDay(change, message, mutation = null) {
     const next = clone(state);
     if (!next.days[selectedDate]) next.days[selectedDate] = emptyDay();
     change(next.days[selectedDate]);
-    return save(next, message);
+    return save(next, message, false, mutation);
   }
   function selectView(next, focus = true) {
     view = titles[next] ? next : 'today';
@@ -88,9 +95,13 @@
       $('pageSubtitle').textContent = view === 'today' && state.profile
         ? `${goalNames[frozen?.context?.goal || state.profile.goal]} · ${frozen ? '저장 당시 기준' : sportNames[state.profile.sport]}` : '';
     }
-    if (view === 'profile') populateProfile();
+    if (view === 'profile') { if (!profileInitialized) populateProfile(); updateProfileStage(); }
+    if (view === 'coach') renderCoach();
     if (view === 'trends') drawChart();
+    $('headerActions').innerHTML = view !== 'profile' ? iconButton('nav-profile', '내 기준', 'sliders-horizontal') : '';
+    $('sidebarContext').innerHTML = state.profile ? `<span>나의 방향</span><strong>${goalNames[state.profile.goal]}</strong><small>${sportNames[state.profile.sport]} · ${state.profile.trainingYears == null ? '경력 미입력' : `${fmt(state.profile.trainingYears, 1)}년`}</small>` : '<span>나의 방향</span><strong>내 몸에서 시작하기</strong><small>목표와 일상을 함께 살펴봐요.</small>';
     if (focus) { $('pageTitle').tabIndex = -1; $('pageTitle').focus({ preventScroll: true }); window.scrollTo({ top: 0 }); }
+    icons();
   }
   function metric(label, value, unit, detail, className = '', progress = null) {
     return `<div class="metric ${className}"><div class="metric-label">${label}</div><div class="metric-value">${fmt(value, unit === 'kg' ? 1 : 0)} <span class="metric-unit">${unit}</span></div><div class="metric-detail">${detail}</div>${progress === null ? '' : `<div class="progress-track" aria-hidden="true"><div class="progress-fill" style="width:${Math.max(0, Math.min(100, progress))}%"></div></div>`}</div>`;
@@ -101,41 +112,53 @@
     const detail = target === null ? '개별 목표 미설정' : `목표 ${fmt(target)}g · ${fmt(Math.abs(left))}g ${left >= 0 ? '남음' : '초과'}`;
     return metric(label, totals[key], 'g', detail, className, target ? totals[key] / target * 100 : null);
   }
+  function coachFor(current = day()) {
+    return C.buildCoach(effectiveProfile(current.date), current, state.days, { lastMutation });
+  }
+  function coachAction(item, primary = false) {
+    if (day().complete && ['meal-add', 'session-add', 'measurement', 'coach-checkin', 'complete'].includes(item?.action)) return command('reopen', '기록을 다시 열어 확인', 'pencil', '', primary);
+    return item?.action ? command(item.action, item.actionLabel || '함께 확인하기', { 'meal-add': 'plus', 'session-add': 'dumbbell', measurement: 'scale', 'coach-checkin': 'heart-pulse', 'nav-profile': 'sliders-horizontal', 'nav-trends': 'chart-line', complete: 'check', reopen: 'pencil' }[item.action] || 'arrow-right', '', primary) : '';
+  }
+  function coachRail(coach) {
+    const first = coach.priorities[0];
+    return `<aside class="coach-rail" aria-label="오늘의 앱코치"><div class="coach-label">${icon('messages-square')}<strong>앱코치</strong><span>${day().complete ? '하루 돌아보기' : '지금의 방향'}</span></div><h2>${escape(coach.headline)}</h2><p class="coach-summary">${escape(coach.summary)}</p>${first ? `<div class="coach-next ${first.tone === 'attention' ? 'coach-attention' : ''}"><span class="eyebrow">먼저 함께 할 일</span><strong>${escape(first.title)}</strong><p>${escape(first.body)}</p>${coachAction(first, true)}</div>` : ''}<button type="button" class="coach-open" data-action="nav-coach">코치와 더 살펴보기${icon('arrow-up-right')}</button></aside>`;
+  }
+  function renderCoach() {
+    const current = day(), coach = coachFor(current), plan = planFor(current);
+    const selected = coach.questions.find(item => item.id === coachQuestion);
+    const checkin = current.coachCheckin;
+    const labels = { energy: { low: '많이 지침', okay: '보통', good: '좋음' }, hunger: { low: '별로 없음', okay: '보통', high: '많이 배고픔' }, sleep: { poor: '잘 못 잠', okay: '보통', good: '잘 잠' } };
+    const first = coach.priorities[0];
+    $('coachContent').innerHTML = `<div class="coach-session-meta"><span class="coach-label">${icon('messages-square')}<strong>나의 영양 · 회복 코치</strong></span><span>${selectedDate} · ${current.complete ? '저장 당시 기준' : '기록 중'}</span></div><div class="coaching-grid"><div class="coaching-main"><section class="coach-brief"><span class="eyebrow">지금 함께 살펴볼 것</span><h2>${escape(coach.headline)}</h2><p>${escape(coach.summary)}</p></section>${first ? `<section class="coach-priority ${first.tone === 'attention' ? 'coach-attention' : ''}"><div class="coach-priority-heading"><span class="priority-number">01</span><h3>${escape(first.title)}</h3></div><p>${escape(first.body)}</p>${coachAction(first, true)}</section>` : ''}<section class="coach-checkin"><div class="section-header"><h2>오늘 몸은 어때요?</h2>${!current.complete ? command('coach-checkin', checkin ? '상태 수정' : '컨디션 체크', 'heart-pulse') : ''}</div><div class="checkin-summary">${['energy', 'hunger', 'sleep'].map((key, index) => `<div><span>${['에너지', '허기', '수면'][index]}</span><strong>${labels[key][checkin?.[key]] || '아직 모름'}</strong></div>`).join('')}</div>${!checkin ? '<p class="form-help">기록된 섭취량만으로 허기나 회복 상태를 알 수는 없어요.</p>' : ''}</section><section class="coach-conversation"><div class="section-header"><h2>함께 짚어보기</h2></div><div class="coach-topics" aria-label="코치에게 확인할 주제">${coach.questions.map(item => `<button type="button" data-action="coach-question" data-question="${escape(item.id)}" aria-pressed="${item.id === coachQuestion}">${escape(item.label)}${icon('arrow-up-right')}</button>`).join('')}</div>${selected ? `<div id="coachAnswer" class="coach-answer" role="region" tabindex="-1" aria-label="${escape(selected.label)}"><span class="eyebrow">지금 기록을 기준으로</span><h3>${escape(selected.label)}</h3><p>${escape(selected.answer)}</p>${coachAction(selected)}</div>` : ''}</section>${coach.priorities.length > 1 ? `<section class="coach-supporting"><h2>그다음에 볼 것</h2>${coach.priorities.slice(1).map(item => `<details><summary>${escape(item.title)}</summary><p>${escape(item.body)}</p>${coachAction(item)}</details>`).join('')}</section>` : ''}</div><aside class="coach-context"><span class="eyebrow">코치가 보고 있는 맥락</span><h2>내 기록에서 시작해요</h2><dl><div><dt>목표</dt><dd>${goalNames[plan.context?.goal || state.profile?.goal] || '아직 모름'}</dd></div><div><dt>운동</dt><dd>${current.sessions.length ? current.sessions.map(item => `${sportNames[item.sport]} ${fmt(item.durationMin)}분`).join(' · ') : '오늘 입력한 운동 없음'}</dd></div><div><dt>식사</dt><dd>${current.meals.length}개 · ${fmt(I.mealTotals(current.meals).kcal)}kcal</dd></div><div><dt>하루 상태</dt><dd>${current.complete ? '완료 · 저장 당시 목표' : '진행 중 · 하루 평가 전'}</dd></div></dl><p class="form-help">코치는 입력한 정보와 기록을 해석해요. 통증·질환의 진단, 운동 자세 평가, 음식의 질과 미량영양소는 이 기록만으로 판단할 수 없어요.</p>${command('nav-trends', '최근 변화 함께 보기', 'chart-line')}${command('nav-profile', '내 기준 살펴보기', 'sliders-horizontal')}</aside></div>`;
+  }
+  function energyOverview(plan, totals, frozen) {
+    const target = plan.status === 'ready' ? plan.energy.targetKcal : null;
+    const ratio = target ? Math.max(0, Math.min(1, totals.kcal / target)) : 0;
+    const left = target === null ? null : target - totals.kcal;
+    return `<section class="nutrition-overview"><div class="section-header"><div><span class="eyebrow">${frozen ? '저장 당시의 기준' : '오늘의 섭취'}</span><h2>오늘의 균형</h2></div><span class="muted">${target === null ? '개별 목표 미설정' : '추정 시작점'}</span></div><div class="nutrition-grid"><div class="energy-summary"><div class="energy-dial"><svg viewBox="0 0 160 160" aria-hidden="true"><circle class="dial-track" cx="80" cy="80" r="70"/><circle class="dial-progress" cx="80" cy="80" r="70" stroke-dasharray="439.823" stroke-dashoffset="${439.823 * (1 - ratio)}"/></svg><div><strong>${fmt(totals.kcal)}</strong><span>섭취 kcal</span></div></div><div class="energy-caption"><strong>${left === null ? '기록하는 하루' : `${fmt(Math.abs(left))}kcal ${left >= 0 ? '남음' : '초과'}`}</strong><span>${target === null ? '먹은 양을 함께 살펴봐요' : `시작 목표 ${fmt(target)}kcal`}</span></div></div><div class="macro-rows">${[['protein', '단백질', 'P'], ['carbs', '탄수화물', 'C'], ['fat', '지방', 'F']].map(([key, label, initial]) => { const macro = plan.status === 'ready' ? plan.macros[key] : null; return `<div class="macro-row macro-${key}"><div class="macro-row-top"><span><i>${initial}</i>${label}</span><strong>${fmt(totals[key], 1)} <small>/ ${macro ? fmt(macro.target) : '—'}g</small></strong></div><div class="progress-track" aria-hidden="true"><div class="progress-fill" style="width:${macro ? Math.min(100, totals[key] / macro.target * 100) : 0}%"></div></div><span class="macro-range">${macro ? `계획 범위 ${fmt(macro.min)}–${fmt(macro.max)}g` : '목표 미설정'}</span></div>`; }).join('')}</div></div></section>`;
+  }
   function renderToday() {
-    const current = day();
-    const plan = planFor(current);
-    const totals = I.mealTotals(current.meals);
-    const ready = plan.status === 'ready';
-    const frozen = current.complete;
-    const target = ready ? plan.energy.targetKcal : null;
-    const calorieDetail = ready ? `목표 ${fmt(target)}kcal · ${fmt(Math.abs(target - totals.kcal))}kcal ${target >= totals.kcal ? '남음' : '초과'}` : '섭취한 양만 기록해요';
-    const problems = (plan.reasons || []).filter(Boolean);
+    const current = day(), plan = planFor(current), totals = I.mealTotals(current.meals), ready = plan.status === 'ready', frozen = current.complete;
+    const recent = frozen ? [] : previousMeals();
     const basePlan = ready && !frozen ? N.calculatePlan(effectiveProfile(), current, []) : plan;
-    const allocationMin = ready ? Math.max(basePlan.macros.carbs.min - basePlan.macros.carbs.target, (basePlan.macros.fat.target - basePlan.macros.fat.max) * 9 / 4) : 0;
-    const allocationMax = ready ? Math.min(basePlan.macros.carbs.max - basePlan.macros.carbs.target, (basePlan.macros.fat.target - basePlan.macros.fat.min) * 9 / 4) : 0;
-    $('todayContent').innerHTML = `
-      <div class="toolbar"><div class="date-control">${iconButton('previous-day', '이전 날짜', 'chevron-left', selectedDate <= '1900-01-01' ? 'disabled' : '')}<label class="sr-only" for="dayDate">기록 날짜</label><input id="dayDate" type="date" min="1900-01-01" max="${I.dateKey()}" value="${selectedDate}">${iconButton('next-day', '다음 날짜', 'chevron-right', selectedDate >= I.dateKey() ? 'disabled' : '')}</div><span class="badge ${frozen ? 'badge-complete' : ''}">${frozen ? '기록 완료' : '기록 중'}</span></div>
-      ${!state.profile ? `<div class="notice notice-info"><strong>먼저 내 기준을 알려 주세요.</strong><p>몸과 운동에 맞는 시작 목표를 계산할 수 있어요. 식사 기록은 바로 남길 수 있어요.</p>${command('go-profile', '내 기준 입력', 'sliders-horizontal', '', true)}</div>` : ''}
-      ${state.profile && !ready ? `<div class="notice notice-warning"><strong>개별 영양 계획이 필요한 상태예요.</strong><p>${problems.map(escape).join(' ')}</p><p>자동 섭취 목표는 제시하지 않지만 식사와 몸 상태는 계속 기록할 수 있어요.</p></div>` : ''}
-      <section class="section"><div class="section-header"><div><div class="section-kicker">${frozen ? '저장 당시의 기준' : '오늘의 섭취'}</div><h2>먹은 양과 남은 양</h2></div>${!frozen ? command('meal-add', '식사 추가', 'plus', '', true) : command('reopen', '기록 수정', 'pencil')}</div><div class="metrics-grid">${metric('총열량', totals.kcal, 'kcal', calorieDetail, 'metric-energy', target ? totals.kcal / target * 100 : null)}${macroMetric('단백질', 'protein', plan, totals, 'metric-protein')}${macroMetric('탄수화물', 'carbs', plan, totals, 'metric-carbs')}${macroMetric('지방', 'fat', plan, totals, 'metric-fat')}</div></section>
-      <div class="split-layout"><section class="section"><div class="section-header"><h2>식사 기록</h2><span class="muted">${current.meals.length}개</span></div>${current.meals.length ? `<ul class="item-list">${current.meals.map(meal => `<li class="item-row"><div class="item-main"><strong>${escape(meal.name)}</strong><div class="secondary-text">${fmt(I.mealTotals([meal]).kcal)}kcal · 단 ${fmt(meal.protein, 1)} · 탄 ${fmt(meal.carbs, 1)} · 지 ${fmt(meal.fat, 1)}g${meal.alcoholG ? ` · 알코올 ${fmt(meal.alcoholG, 1)}g` : ''}</div></div>${frozen ? '' : `<div class="item-actions">${iconButton('meal-edit', `${escape(meal.name)} 수정`, 'pencil', `data-id="${escape(meal.id)}"`)}${iconButton('meal-copy', `${escape(meal.name)} 한 번 더 추가`, 'copy', `data-id="${escape(meal.id)}"`)}${iconButton('meal-delete', `${escape(meal.name)} 삭제`, 'trash-2', `data-id="${escape(meal.id)}"`)}</div>`}</li>`).join('')}</ul>` : `<div class="empty-state">${icon('utensils')}<p>기록한 식사가 없어요.</p></div>`}${!frozen && previousMeals().length ? `<div class="recent-meals"><span class="muted">최근 식사</span>${previousMeals().map(meal => `<button class="text-button" type="button" data-action="meal-reuse" data-id="${escape(meal.id)}">${icon('plus')}${escape(meal.name)}</button>`).join('')}</div>` : ''}${!frozen && current.meals.length ? `<div class="form-actions">${command('complete', '하루 기록 완료', 'check', '', true)}</div>` : ''}</section>
-      <section class="section"><div class="section-header"><h2>운동과 몸 상태</h2>${!frozen ? command('session-add', '운동 추가', 'plus') : ''}</div>${current.sessions.length ? `<ul class="item-list">${current.sessions.map(session => `<li class="item-row"><div class="item-main"><strong>${sportNames[session.sport] || escape(session.sport)}</strong><div class="secondary-text">${fmt(session.durationMin)}분 · ${intensityNames[session.intensity]}</div></div>${frozen ? '' : `<div class="item-actions">${iconButton('session-edit', '운동 수정', 'pencil', `data-id="${escape(session.id)}"`)}${iconButton('session-delete', '운동 삭제', 'trash-2', `data-id="${escape(session.id)}"`)}</div>`}</li>`).join('')}</ul>` : '<p class="muted">오늘 입력한 운동이 없어요. 휴식일 목표를 사용해요.</p>'}<div class="body-summary"><span>체중 <strong>${fmt(current.weightKg, 1)}kg</strong></span><span>체지방 <strong>${fmt(current.bodyFatPct, 1)}%</strong></span><span>골격근 <strong>${fmt(current.skeletalMuscleKg, 1)}kg</strong></span></div>${!frozen ? command('measurement', '몸 상태 기록', 'scale') : ''}</section></div>
-      <section class="section"><div class="section-header"><div><div class="section-kicker">${frozen ? '하루 돌아보기' : '다음 식사를 위해'}</div><h2>지금 챙길 것</h2></div></div><ul class="guidance-list">${I.dailyGuidance(plan, current).map(item => `<li><strong>${escape(item.title)}</strong><p>${escape(item.body)}</p></li>`).join('')}</ul></section>
-      ${ready ? `<section class="section"><div class="section-header"><h2>목표의 기준</h2><span class="badge">추정 시작점</span></div><div class="facts-grid"><div><span class="muted">안정시대사 추정</span><strong>${fmt(plan.energy.restingKcal)}kcal</strong></div><div><span class="muted">오늘 운동 추가 소모</span><strong>${fmt(plan.energy.exerciseKcal)}kcal</strong></div><div><span class="muted">총소모 추정</span><strong>${fmt(plan.energy.tdeeKcal)}kcal</strong></div><div><span class="muted">섭취 시작 목표</span><strong>${fmt(target)}kcal</strong></div></div><p class="form-help">${escape(plan.energy.method)} · 체성분은 감량 조정·단백질 기준·회복 참고에 반영해요. 안정시대사량에 골격근량을 임의로 더하지 않아요. 실제 필요량은 체중 추세와 회복 상태에 따라 달라져요. ${frozen ? '이 날 완료할 때의 목표를 보존하고 있어요.' : '일상 활동과 입력한 오늘 운동만 반영해요.'}</p>${problems.length ? `<p class="notice notice-info">${problems.map(escape).join(' ')}</p>` : ''}
-      ${!frozen && allocationMax - allocationMin > 1 ? `<div class="allocation-control"><label for="allocation"><strong>탄수화물·지방 배분</strong></label><div class="allocation-labels"><span>지방 쪽으로</span><span>탄수화물 쪽으로</span></div><input id="allocation" type="range" min="${Math.ceil(allocationMin)}" max="${Math.floor(allocationMax)}" step="1" value="${Math.max(Math.ceil(allocationMin), Math.min(Math.floor(allocationMax), current.carbAdjustmentG || 0))}" aria-describedby="allocationNote"><p id="allocationNote" class="form-help">단백질과 총열량을 유지해요. 탄수화물 25g과 지방 약 11g은 각각 100kcal예요.</p>${command('allocation-reset', '기본 배분', 'rotate-ccw')}</div>` : ''}
-      <details class="source-details"><summary>계산 근거와 적용 범위</summary><p class="form-help">열량·영양소 목표는 진단이나 최적 섭취량의 확정값이 아니에요. 식품의 질, 알레르기, 약물, 질환별 식이 처방은 별도로 판단해야 해요.</p><ul>${(plan.sources || []).filter(source => /^https:\/\//.test(source.url)).map(source => `<li><a href="${escape(source.url)}" target="_blank" rel="noopener noreferrer">${escape(source.label)}</a></li>`).join('')}</ul></details></section>` : ''}`;
+    const minimum = ready ? Math.ceil(Math.max(basePlan.macros.carbs.min - basePlan.macros.carbs.target, (basePlan.macros.fat.target - basePlan.macros.fat.max) * 9 / 4)) : 0;
+    const maximum = ready ? Math.floor(Math.min(basePlan.macros.carbs.max - basePlan.macros.carbs.target, (basePlan.macros.fat.target - basePlan.macros.fat.min) * 9 / 4)) : 0;
+    $('todayContent').innerHTML = `<div class="daily-toolbar"><div class="date-control">${iconButton('previous-day', '이전 날짜', 'chevron-left', selectedDate <= '1900-01-01' ? 'disabled' : '')}<label class="sr-only" for="dayDate">기록 날짜</label><input id="dayDate" type="date" min="1900-01-01" max="${I.dateKey()}" value="${selectedDate}">${iconButton('next-day', '다음 날짜', 'chevron-right', selectedDate >= I.dateKey() ? 'disabled' : '')}</div><span class="day-status">${icon(frozen ? 'circle-check' : 'circle-dashed')}${frozen ? '하루 기록 완료' : '기록 중'}</span></div><div class="today-grid"><div class="today-main">${state.profile && !ready ? `<div class="notice notice-warning"><strong>개별 영양 계획이 필요한 상태예요.</strong><p>${(plan.reasons || []).map(escape).join(' ')}</p><p>자동 목표 없이 식사와 몸 상태를 기록할 수 있어요.</p></div>` : ''}${energyOverview(plan, totals, frozen)}<section class="section meal-section"><div class="section-header"><div><span class="eyebrow">FOOD LOG</span><h2>식사 기록 <small>${current.meals.length}</small></h2></div>${command(frozen ? 'reopen' : 'meal-add', frozen ? '기록 수정' : '식사 추가', frozen ? 'pencil' : 'plus', '', true)}</div>${current.meals.length ? `<ul class="item-list">${current.meals.map((meal, index) => `<li class="item-row"><span class="entry-index">${String(index + 1).padStart(2, '0')}</span><div class="item-main"><strong>${escape(meal.name)}</strong><div class="secondary-text"><b>${fmt(I.mealTotals([meal]).kcal)}kcal</b><span>단 ${fmt(meal.protein, 1)} · 탄 ${fmt(meal.carbs, 1)} · 지 ${fmt(meal.fat, 1)}g${meal.alcoholG ? ` · 알코올 ${fmt(meal.alcoholG, 1)}g` : ''}</span></div></div>${frozen ? '' : `<div class="item-actions">${iconButton('meal-edit', `${escape(meal.name)} 수정`, 'pencil', `data-id="${escape(meal.id)}"`)}${iconButton('meal-copy', `${escape(meal.name)} 한 번 더 추가`, 'copy', `data-id="${escape(meal.id)}"`)}${iconButton('meal-delete', `${escape(meal.name)} 삭제`, 'trash-2', `data-id="${escape(meal.id)}"`)}</div>`}</li>`).join('')}</ul>` : `<div class="empty-state">${icon('utensils')}<div><strong>오늘의 첫 식사를 남겨볼까요?</strong><p>먹은 양을 알면 다음 식사를 함께 계획할 수 있어요.</p></div></div>`}${recent.length ? `<div class="recent-meals"><span class="muted">최근 식사</span>${recent.map(meal => `<button class="text-button" type="button" data-action="meal-reuse" data-id="${escape(meal.id)}">${icon('plus')}${escape(meal.name)}</button>`).join('')}</div>` : ''}${!frozen && current.meals.length ? `<div class="day-completion"><p>오늘 먹은 식사를 모두 기록했나요?</p>${command('complete', '하루 기록 완료', 'check')}</div>` : ''}</section><section class="section movement-section"><div class="section-header"><div><span class="eyebrow">MOVEMENT & BODY</span><h2>운동과 몸 상태</h2></div>${!frozen ? command('session-add', '운동 추가', 'plus') : ''}</div>${current.sessions.length ? `<ul class="item-list">${current.sessions.map(session => `<li class="item-row"><span class="entry-symbol">${icon(session.sport === 'strength' ? 'dumbbell' : 'activity')}</span><div class="item-main"><strong>${sportNames[session.sport] || escape(session.sport)}</strong><div class="secondary-text">${fmt(session.durationMin)}분 · ${intensityNames[session.intensity]}</div></div>${frozen ? '' : `<div class="item-actions">${iconButton('session-edit', '운동 수정', 'pencil', `data-id="${escape(session.id)}"`)}${iconButton('session-delete', '운동 삭제', 'trash-2', `data-id="${escape(session.id)}"`)}</div>`}</li>`).join('')}</ul>` : '<p class="muted movement-empty">아직 입력한 운동이 없어요. 운동했다면 함께 남겨주세요.</p>'}<div class="body-summary"><div><span>체중</span><strong>${fmt(current.weightKg, 1)}<small> kg</small></strong></div><div><span>체지방률</span><strong>${fmt(current.bodyFatPct, 1)}<small> %</small></strong></div><div><span>골격근량</span><strong>${fmt(current.skeletalMuscleKg, 1)}<small> kg</small></strong></div>${!frozen ? iconButton('measurement', '몸 상태 기록', 'scale') : ''}</div></section>${ready ? `<section class="section target-section"><details class="target-details"><summary><span>${icon('sliders-horizontal')}목표와 배분 살펴보기</span><span>${fmt(plan.energy.targetKcal)}kcal</span></summary><div class="facts-grid"><div><span>안정시대사 추정</span><strong>${fmt(plan.energy.restingKcal)}kcal</strong></div><div><span>오늘 운동 추가 소모</span><strong>${fmt(plan.energy.exerciseKcal)}kcal</strong></div><div><span>총소모 추정</span><strong>${fmt(plan.energy.tdeeKcal)}kcal</strong></div><div><span>섭취 시작 목표</span><strong>${fmt(plan.energy.targetKcal)}kcal</strong></div></div><p class="form-help">${escape(plan.energy.method)}. 실제 필요량은 추세와 회복 상태로 함께 확인해요.</p>${!frozen && maximum - minimum > 1 ? `<div class="allocation-control"><label for="allocation"><strong>탄수화물·지방 배분</strong></label><div class="allocation-labels"><span>지방 쪽으로</span><span>탄수화물 쪽으로</span></div><input id="allocation" type="range" min="${minimum}" max="${maximum}" step="1" value="${Math.max(minimum, Math.min(maximum, current.carbAdjustmentG || 0))}" aria-describedby="allocationNote"><p id="allocationNote" class="form-help">단백질과 총열량은 유지해요. 탄수 25g ↔ 지방 약 11g.</p>${command('allocation-reset', '기본 배분', 'rotate-ccw')}</div>` : ''}<details class="source-details"><summary>계산 근거와 적용 범위</summary><p class="form-help">측정값이나 진단이 아닌 시작 추정이에요. 식품의 질·알레르기·질환별 식이 처방은 따로 판단해야 해요.</p><ul>${(plan.sources || []).filter(source => /^https:\/\//.test(source.url)).map(source => `<li><a href="${escape(source.url)}" target="_blank" rel="noopener noreferrer">${escape(source.label)}</a></li>`).join('')}</ul></details></details></section>` : ''}</div>${coachRail(coachFor(current))}</div>`;
   }
   function previousMeals() {
-    const names = new Set();
-    return Object.values(state.days).filter(item => item.date < selectedDate).sort((a, b) => b.date.localeCompare(a.date)).flatMap(item => item.meals).filter(meal => {
-      if (names.has(meal.name)) return false;
-      names.add(meal.name); return true;
-    }).slice(0, 4);
+    const names = new Set(), result = [];
+    const dates = Object.keys(state.days).filter(date => date < selectedDate).sort().reverse();
+    for (const date of dates) for (const meal of state.days[date].meals) {
+      if (names.has(meal.name)) continue;
+      names.add(meal.name); result.push(meal);
+      if (result.length === 4) return result;
+    }
+    return result;
   }
   function renderTrends() {
     const summary = I.historySummary(state.days, I.dateKey(), state.profile?.goal);
     const dates = Object.values(state.days).sort((a, b) => b.date.localeCompare(a.date));
-    $('trendsContent').innerHTML = `<section class="section"><div class="section-header"><div><div class="section-kicker">최근 28일</div><h2>하루 숫자보다 꾸준한 변화</h2></div><span class="badge">체중 ${summary.weights.length}회</span></div><div class="metrics-grid">${metric('최근 주간 체중 중앙값', summary.laterWeight, 'kg', '최근 7일의 측정값', 'metric-energy')}${metric('이전 주간 체중 중앙값', summary.earlierWeight, 'kg', '그 이전 7일의 측정값')}${metric('식사 기록 완료', summary.completed.length, '일', '현재 목표와 같은 기준')}${metric('완료 기록 평균 섭취', summary.averageKcal, 'kcal', '완료한 날만 계산')}</div><div class="chart-wrap"><canvas id="weightChart" role="img" aria-label="최근 28일 체중 추세. 각 측정값은 아래 날짜별 기록에서 확인할 수 있습니다."></canvas></div><p class="notice notice-info">${escape(summary.trendMessage)}</p></section><section class="section"><div class="section-header"><h2>날짜별 기록</h2><span class="muted">${dates.length}일</span></div>${dates.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">날짜</th><th scope="col">상태</th><th scope="col">체중</th><th scope="col">체지방 / 골격근</th><th scope="col">섭취 / 목표</th><th scope="col"><span class="sr-only">열기</span></th></tr></thead><tbody>${dates.map(item => `<tr><th scope="row">${escape(item.date)}</th><td>${item.complete ? '완료' : '기록 중'}</td><td>${fmt(item.weightKg, 1)}kg</td><td>${fmt(item.bodyFatPct, 1)}% / ${fmt(item.skeletalMuscleKg, 1)}kg</td><td>${fmt(I.mealTotals(item.meals).kcal)} / ${fmt(item.planSnapshot?.energy?.targetKcal)}kcal</td><td>${iconButton('open-day', `${item.date} 기록 열기`, 'arrow-up-right', `data-date="${item.date}"`)}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty-state">${icon('chart-no-axes-combined')}<p>기록이 쌓이면 이곳에서 함께 볼 수 있어요.</p>${command('go-today', '오늘 기록하기', 'arrow-right')}</div>`}</section>`;
+    $('trendsContent').innerHTML = `<section class="section"><div class="section-header"><div><div class="section-kicker">최근 28일</div><h2>하루 숫자보다 꾸준한 변화</h2></div><span class="badge">체중 ${summary.weights.length}회</span></div><div class="metrics-grid">${metric('최근 주간 체중 중앙값', summary.laterWeight, 'kg', '최근 7일의 측정값', 'metric-energy')}${metric('이전 주간 체중 중앙값', summary.earlierWeight, 'kg', '그 이전 7일의 측정값')}${metric('식사 기록 완료', summary.completed.length, '일', '현재 목표와 같은 기준')}${metric('완료 기록 평균 섭취', summary.averageKcal, 'kcal', '완료한 날만 계산')}</div><div class="chart-wrap"><canvas id="weightChart" role="img" aria-label="최근 28일 체중 추세. 각 측정값은 아래 날짜별 기록에서 확인할 수 있습니다."></canvas></div><p class="notice notice-info">${escape(summary.trendMessage)}</p></section><section class="section"><div class="section-header"><h2>날짜별 기록</h2><span class="muted">${dates.length}일</span></div>${dates.length ? `<div class="table-wrap"><table class="data-table history-table"><thead><tr><th scope="col">날짜</th><th scope="col">상태</th><th scope="col">체중</th><th scope="col">체지방 / 골격근</th><th scope="col">섭취 / 목표</th><th scope="col"><span class="sr-only">열기</span></th></tr></thead><tbody>${dates.map(item => `<tr><th scope="row"><button type="button" class="date-link" data-action="open-day" data-date="${item.date}" aria-label="${item.date} 기록 열기">${escape(item.date)}</button></th><td>${item.complete ? '완료' : '기록 중'}</td><td>${fmt(item.weightKg, 1)}kg</td><td>${fmt(item.bodyFatPct, 1)}% / ${fmt(item.skeletalMuscleKg, 1)}kg</td><td>${fmt(I.mealTotals(item.meals).kcal)} / ${fmt(item.planSnapshot?.energy?.targetKcal)}kcal</td><td>${iconButton('open-day', `${item.date} 기록 열기`, 'arrow-up-right', `data-date="${item.date}"`)}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty-state">${icon('chart-no-axes-combined')}<p>기록이 쌓이면 이곳에서 함께 볼 수 있어요.</p>${command('go-today', '오늘 기록하기', 'arrow-right')}</div>`}</section>`;
   }
   function drawChart() {
     const canvas = $('weightChart');
@@ -186,6 +209,51 @@
     form.reset();
     if (state.profile) Object.entries(state.profile).forEach(([key, value]) => { if (form.elements.namedItem(key)) form.elements.namedItem(key).value = value ?? ''; });
     if (form.elements.bodyFatDate) form.elements.bodyFatDate.max = I.dateKey();
+    profileInitialized = true;
+    profileDirty = false;
+    updateProfileStage();
+  }
+  function updateProfileStage() {
+    const onboarding = !state.profile;
+    $('profileSteps').hidden = !onboarding;
+    document.querySelectorAll('[data-profile-step]').forEach(section => { section.hidden = onboarding && Number(section.dataset.profileStep) !== onboardingStep; });
+    $('profileBack').hidden = !onboarding || onboardingStep === 0;
+    $('profileNext').hidden = !onboarding || onboardingStep === 2;
+    $('profileSubmit').hidden = onboarding && onboardingStep !== 2;
+    document.querySelectorAll('[data-action="profile-step"]').forEach(button => {
+      button.disabled = Number(button.dataset.step) > onboardingStep + 1;
+      if (Number(button.dataset.step) === onboardingStep) button.setAttribute('aria-current', 'step'); else button.removeAttribute('aria-current');
+    });
+    $('profileIntro').textContent = onboarding ? ['먼저 내 몸을 알려주세요. 모르는 체성분은 나중에 살펴봐도 괜찮아요.', '운동과 일상, 그리고 가장 중요한 목표를 함께 정해요.', '측정한 체성분이 있다면 더해주세요. 없어도 시작할 수 있어요.'][onboardingStep] : '몸, 일상, 목표. 코치가 함께 살펴볼 출발점이에요.';
+    $('profileSaveNote').textContent = onboarding ? `${onboardingStep + 1} / 3 단계${onboardingStep === 2 ? ' · 체성분은 선택 사항이에요.' : ''}` : profileDirty ? '아직 저장하지 않은 변경이 있어요.' : '완료한 과거 기록의 목표는 바뀌지 않아요.';
+    renderProfileSummary();
+  }
+  function moveProfileStep(next) {
+    if (next > onboardingStep) {
+      const inputs = $('profileForm').querySelectorAll(`fieldset[data-profile-step="${onboardingStep}"] [required]`);
+      for (const input of inputs) if (!input.checkValidity()) { input.reportValidity(); return; }
+    }
+    onboardingStep = Math.max(0, Math.min(2, next)); updateProfileStage();
+    $('profileSteps').scrollIntoView({ block: 'start' });
+    $('profileForm').querySelector('fieldset:not([hidden]) input, fieldset:not([hidden]) select')?.focus({ preventScroll: true });
+  }
+  function renderProfileSummary() {
+    const form = new FormData($('profileForm')), goal = goalNames[form.get('goal')], sport = sportNames[form.get('sport')];
+    const profile = Object.fromEntries(form);
+    for (const key of ['age', 'heightCm', 'weightKg', 'trainingYears', 'bodyFatPct', 'bodyFatWeightKg']) profile[key] = form.get(key) === '' ? null : Number(form.get(key));
+    profile.bodyFatDate = form.get('bodyFatDate') || null;
+    const plan = N.calculatePlan(profile, { date: I.dateKey(), sessions: [] }, []);
+    $('profileSummary').innerHTML = `<span class="eyebrow">MY STARTING POINT</span><h2>${goal || '내 몸에 맞는 출발점'}</h2><dl><div><dt>현재 체중</dt><dd>${profile.weightKg == null ? '아직 모름' : `${fmt(profile.weightKg, 1)}kg`}</dd></div><div><dt>주로 하는 운동</dt><dd>${sport || '아직 모름'}</dd></div><div><dt>운동 경력</dt><dd>${profile.trainingYears == null ? '아직 모름' : `${fmt(profile.trainingYears, 1)}년`}</dd></div></dl>${plan.status === 'ready' ? `<div class="profile-estimate"><span>휴식일 섭취 시작 목표</span><strong>${fmt(plan.energy.targetKcal)}<small> kcal</small></strong><p>운동한 날은 실제 세션을 따로 반영해요.</p></div>` : '<div class="profile-estimate"><span>먼저 알아야 할 것</span><p>체중뿐 아니라 일상 활동과 운동, 목표를 함께 봐요. 정보가 모이면 시작 목표를 살펴볼 수 있어요.</p></div>'}<p class="form-help">모르는 값은 추측해 넣지 않아도 돼요. 숫자는 시작점이고, 이후 몸의 변화와 컨디션으로 함께 확인해요.</p>`;
+  }
+  function checkinDialog() {
+    const value = day().coachCheckin || {};
+    const choices = { energy: [['low', '많이 지침'], ['okay', '보통'], ['good', '좋음']], hunger: [['low', '별로 없음'], ['okay', '보통'], ['high', '많이 배고픔']], sleep: [['poor', '잘 못 잠'], ['okay', '보통'], ['good', '잘 잠']] };
+    const selects = { trainingPlan: [['rest', '오늘은 쉬기로 했어요'], ['planned', '아직 할 운동이 있어요']], mealConstraint: [['none', '특별한 어려움 없음'], ['busy', '바빠서 챙겨 먹기 어려움'], ['low-appetite', '입맛이 없어 먹기 어려움'], ['digestive', '속이 불편해서 먹기 어려움']], performance: [['down', '평소보다 떨어짐'], ['steady', '평소와 비슷함'], ['up', '평소보다 좋아짐']] };
+    openDialog('오늘 몸은 어때요?', `<p class="form-help">지금 느끼는 상태를 알려주세요. 모르는 항목은 비워두셔도 돼요.</p><div class="checkin-fields">${Object.entries(choices).map(([key, options], index) => `<fieldset><legend>${['에너지와 피로', '허기', '지난밤 수면'][index]}</legend><div class="checkin-options">${[['', '아직 모름'], ...options].map(([id, label]) => `<label><input type="radio" name="${key}" value="${id}" ${(!value[key] && !id) || value[key] === id ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div></fieldset>`).join('')}</div><details class="checkin-more"><summary>오늘의 계획과 식사 여건도 알려주기</summary><div class="form-grid">${Object.entries(selects).map(([key, options], index) => `<label class="field ${index === 1 ? 'full-width' : ''}"><span>${['앞으로 할 운동', '식사를 챙기는 여건', '최근 운동 수행'][index]}</span><select name="${key}"><option value="">아직 모름</option>${options.map(([id, label]) => `<option value="${id}" ${value[key] === id ? 'selected' : ''}>${label}</option>`).join('')}</select></label>`).join('')}</div></details>${actions('코치에게 알려주기')}`, form => {
+      const checkin = Object.fromEntries(['energy', 'hunger', 'sleep', 'trainingPlan', 'mealConstraint', 'performance'].map(key => [key, form.get(key) || null]));
+      if (!Object.values(checkin).some(Boolean)) throw new Error('오늘 느끼는 상태나 여건을 한 가지 이상 알려주세요.');
+      if (mutateDay(current => { current.coachCheckin = checkin; }, '오늘 상태를 저장하고 코칭에 반영했어요.')) closeDialog();
+    });
   }
   function field(label, name, value = '', options = {}) {
     return `<label class="field"><span>${label}</span><input name="${name}" type="${options.type || 'number'}" ${options.type === 'text' ? 'maxlength="200"' : `min="${options.min ?? 0}" max="${options.max ?? 1000}" step="${options.step ?? 0.1}" inputmode="decimal"`} value="${escape(value)}" ${options.required ? 'required' : ''}></label>`;
@@ -214,7 +282,7 @@
     openDialog(copy ? '최근 식사 가져오기' : existing ? '식사 수정' : '식사 추가', `<div class="form-grid">${field('식사 이름', 'name', meal.name, { type: 'text', required: true })}${field('단백질 (g)', 'protein', meal.protein, { required: true })}${field('탄수화물 (g)', 'carbs', meal.carbs, { required: true })}${field('지방 (g)', 'fat', meal.fat, { required: true })}</div><details class="source-details"><summary>기타 열량·술</summary><div class="form-grid">${field('탄단지·알코올 외 열량 (kcal)', 'otherKcal', meal.otherKcal, { max: 10000, required: true })}${field('순알코올 (g)', 'alcoholG', meal.alcoholG, { max: 500, required: true })}</div><p class="form-help">알코올은 1g당 7kcal로 별도 합산해요. 술의 탄수화물과 안주는 각 영양소에 기록해 주세요.</p></details><p id="mealPreview" class="notice notice-info"></p>${actions()}`, form => {
       const entry = { id: existing && !copy ? existing.id : id(), name: String(form.get('name')).trim(), protein: readNumber(form, 'protein'), carbs: readNumber(form, 'carbs'), fat: readNumber(form, 'fat'), otherKcal: readNumber(form, 'otherKcal'), alcoholG: readNumber(form, 'alcoholG') };
       if (!entry.name || I.mealTotals([entry]).kcal <= 0) throw new Error('식사 이름과 먹은 양을 입력해 주세요.');
-      if (mutateDay(current => { const index = current.meals.findIndex(item => item.id === entry.id); if (index < 0) current.meals.push(entry); else current.meals[index] = entry; }, '식사를 저장했어요.')) closeDialog();
+      if (mutateDay(current => { const index = current.meals.findIndex(item => item.id === entry.id); if (index < 0) current.meals.push(entry); else current.meals[index] = entry; }, '식사를 저장했어요.', { date: selectedDate, type: existing && !copy ? 'meal-updated' : 'meal-added', mealId: entry.id })) closeDialog();
     });
     const update = () => { const form = new FormData($('entryForm')); const numbers = {}; ['protein', 'carbs', 'fat', 'otherKcal', 'alcoholG'].forEach(key => { numbers[key] = Math.max(0, Number(form.get(key)) || 0); }); $('mealPreview').textContent = `총 ${fmt(I.mealTotals([numbers]).kcal)}kcal`; };
     $('entryForm').addEventListener('input', update); update();
@@ -293,7 +361,7 @@
         todayDraft.bodyFatMethod = todayDraft.bodyFatPct === null ? 'unknown' : profile.bodyFatMethod;
         if (todayDraft.skeletalMuscleKg !== null && todayDraft.skeletalMuscleKg > profile.weightKg * (1 - (todayDraft.bodyFatPct || 0) / 100)) todayDraft.skeletalMuscleKg = null;
       }
-      if (save(next, '내 기준을 저장했어요. 완료한 과거 기록은 그대로예요.')) { $('profileErrors').hidden = true; selectedDate = I.dateKey(); render(); selectView('today'); }
+      if (save(next, '내 기준을 저장했어요. 완료한 과거 기록은 그대로예요.')) { $('profileErrors').hidden = true; profileInitialized = false; profileDirty = false; selectedDate = I.dateKey(); render(); selectView('today'); }
     } catch (error) { $('profileErrors').hidden = false; $('profileErrors').textContent = error.message; $('profileErrors').tabIndex = -1; $('profileErrors').focus(); }
   });
   document.addEventListener('click', event => {
@@ -303,10 +371,17 @@
     if (!button || button.disabled) return;
     const action = button.dataset.action;
     const current = day();
-    const edits = ['meal-add', 'meal-edit', 'meal-copy', 'meal-delete', 'meal-reuse', 'session-add', 'session-edit', 'session-delete', 'measurement', 'allocation-reset'];
+    const edits = ['meal-add', 'meal-edit', 'meal-copy', 'meal-delete', 'meal-reuse', 'session-add', 'session-edit', 'session-delete', 'measurement', 'allocation-reset', 'coach-checkin'];
     if (current.complete && edits.includes(action)) { toast('완료한 기록은 먼저 기록 수정을 눌러 주세요.'); return; }
     try {
-      if (action === 'go-profile') selectView('profile');
+      if (action === 'go-profile' || action === 'nav-profile') selectView('profile');
+      else if (action === 'nav-coach') selectView('coach');
+      else if (action === 'nav-trends') selectView('trends');
+      else if (action === 'coach-checkin') checkinDialog();
+      else if (action === 'coach-question') { coachQuestion = button.dataset.question; selectView('coach', false); $('coachAnswer')?.focus({ preventScroll: true }); }
+      else if (action === 'profile-next') moveProfileStep(onboardingStep + 1);
+      else if (action === 'profile-back') moveProfileStep(onboardingStep - 1);
+      else if (action === 'profile-step') moveProfileStep(Number(button.dataset.step));
       else if (action === 'go-today') { selectedDate = I.dateKey(); render(); selectView('today'); }
       else if (action === 'dialog-close') closeDialog();
       else if (action === 'previous-day' || action === 'next-day') { selectedDate = I.shiftDate(selectedDate, action === 'previous-day' ? -1 : 1); if (selectedDate > I.dateKey()) selectedDate = I.dateKey(); if (selectedDate < '1900-01-01') selectedDate = '1900-01-01'; render(); }
@@ -330,7 +405,7 @@
         if (!incoming) return;
         if (blocked && incoming.kind !== 'current') throw new Error('보호 중인 저장소는 검증된 전체 백업으로 복원하거나 초기화해야 해요.');
         const next = incoming.kind === 'current' ? incoming.state : { ...clone(state), legacy: incoming.state.legacy };
-        if (save(next, '백업을 복원했어요.', incoming.kind === 'current')) { pendingImport = null; render(); }
+        if (save(next, '백업을 복원했어요.', incoming.kind === 'current')) { pendingImport = null; profileInitialized = false; profileDirty = false; render(); }
       }
       else if (action === 'legacy-preview') { pendingImport = { kind: 'legacy', state: S.importLegacy(S.detectLegacy()) }; showImportPreview(); }
       else if (action === 'legacy-export') download(JSON.stringify(state.legacy.raw, null, 2), `macro-engine-previous-${I.dateKey()}.json`);
@@ -342,10 +417,11 @@
       }
       else if (action === 'reset') confirmDialog('이 버전의 기록 초기화', '프로필과 식사·운동·몸 상태·이전 기록 보관함을 삭제합니다. 먼저 전체 백업을 보관했는지 확인해 주세요.', '초기화', () => {
         if (!save(S.createEmpty(), '초기화했어요.', true)) return false;
-        pendingImport = null; selectedDate = I.dateKey(); render(); selectView('profile'); return true;
+        pendingImport = null; profileInitialized = false; profileDirty = false; onboardingStep = 0; selectedDate = I.dateKey(); render(); selectView('profile'); return true;
       }, '초기화');
     } catch (error) { toast(error.message, true); }
   });
+  $('profileForm').addEventListener('input', () => { profileDirty = true; renderProfileSummary(); $('profileSaveNote').textContent = '아직 저장하지 않은 변경이 있어요.'; });
   document.addEventListener('change', event => {
     if (event.target.id === 'dayDate') {
       if (S.isValidDate(event.target.value) && event.target.value <= I.dateKey()) { selectedDate = event.target.value; render(); }

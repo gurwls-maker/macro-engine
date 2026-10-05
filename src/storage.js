@@ -189,7 +189,25 @@
     if (!own(day, "skeletalMuscleKg")) day.skeletalMuscleKg = null;
     if (!own(day, "bodyFatMethod")) day.bodyFatMethod = "unknown";
     if (!own(day, "carbAdjustmentG")) day.carbAdjustmentG = 0;
-    fields(day, ["date", "weightKg", "bodyFatPct", "skeletalMuscleKg", "bodyFatMethod", "carbAdjustmentG", "meals", "sessions", "complete", "planSnapshot"], "하루 기록");
+    const dayFields = ["date", "weightKg", "bodyFatPct", "skeletalMuscleKg", "bodyFatMethod", "carbAdjustmentG", "meals", "sessions", "complete", "planSnapshot"];
+    if (own(day, "coachCheckin")) dayFields.push("coachCheckin");
+    fields(day, dayFields, "하루 기록");
+    if (own(day, "coachCheckin") && day.coachCheckin !== null) {
+      const checkinFields = ["energy", "hunger", "sleep"];
+      if (plain(day.coachCheckin)) {
+        for (const name of ["trainingPlan", "mealConstraint", "performance"]) {
+          if (own(day.coachCheckin, name)) checkinFields.push(name);
+        }
+      }
+      fields(day.coachCheckin, checkinFields, "코치 체크인");
+      const checkinOptions = {
+        energy: ["low", "okay", "good"], hunger: ["low", "okay", "high"], sleep: ["poor", "okay", "good"],
+        trainingPlan: ["rest", "planned"], mealConstraint: ["none", "busy", "low-appetite", "digestive"], performance: ["down", "steady", "up"]
+      };
+      for (const [name, options] of Object.entries(checkinOptions)) {
+        if (own(day.coachCheckin, name) && day.coachCheckin[name] !== null && !options.includes(day.coachCheckin[name])) fail("코치 체크인의 선택값을 확인해 주세요.");
+      }
+    }
     if (!isValidDate(key) || day.date !== key) fail("기록 날짜와 저장 위치가 일치하지 않습니다.");
     number(day.weightKg, 15, 500, "기록 체중", true);
     number(day.bodyFatPct, 1, 75, "기록 체지방률", true);

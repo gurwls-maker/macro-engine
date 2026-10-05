@@ -51,7 +51,7 @@ async function upload(page, state, name = "backup.json") {
 
 async function addMeal(page, name = "간식") {
   await nav(page, "today");
-  await page.locator('[data-action="meal-add"]').click();
+  await page.locator('#view-today .meal-section [data-action="meal-add"]').click();
   await page.locator('#entryForm [name="name"]').fill(name);
   await page.locator('#entryForm [name="protein"]').fill("15");
   await page.locator('#entryForm [name="carbs"]').fill("30");
@@ -143,7 +143,7 @@ const cases = [
     name: "review profile may complete an unscored diary with null targets",
     seed: (() => { const state = fixture(); state.profile.healthContext = "pregnancy"; return { [Storage.STORAGE_KEY]: JSON.stringify(state) }; })(),
     async run(page) {
-      await page.locator('[data-action="complete"]').click();
+      await page.locator('#view-today .day-completion [data-action="complete"]').click();
       await page.locator('#entryForm button[type="submit"]').click();
       await page.waitForFunction(({ key, date }) => JSON.parse(localStorage.getItem(key)).days[date].complete, { key: Storage.STORAGE_KEY, date: today });
       const saved = JSON.parse(await raw(page)).days[today];
