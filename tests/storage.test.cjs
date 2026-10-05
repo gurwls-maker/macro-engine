@@ -1,0 +1,265 @@
+"use strict";
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const Storage = require("../src/storage.js");
+
+function snapshot() {
+  return { status: "ready", reasons: [], version: "9.0.0", energy: { targetKcal: 2110, tdeeKcal: 2110, restingKcal: 1500, exerciseKcal: 200, range: [1900, 2400], method: "test estimate" }, macros: { protein: { target: 120, min: 100, max: 140 }, carbs: { target: 250, min: 200, max: 300 }, fat: { target: 70, min: 50, max: 80 } }, context: {}, guidance: [{ id: "goal", title: "유지", body: "최근 체중을 함께 확인해 주세요." }], sources: [{ label: "source", url: "https://example.com/source" }] };
+}
+
+function memoryStorage(initial = {}) {
+  const entries = new Map(Object.entries(initial));
+  return {
+    get length() { return entries.size; },
+    key(index) { return [...entries.keys()][index] ?? null; },
+    getItem(key) { return entries.get(key) ?? null; },
+    setItem(key, value) { entries.set(key, String(value)); },
+    removeItem(key) { entries.delete(key); },
+    entries
+  };
+}
+
+function fixture() {
+  const state = Storage.createEmpty();
+  state.profile = { sex: "female", age: 35, heightCm: 165, weightKg: 65, bodyFatPct: null, bodyFatMethod: "unknown", bodyFatDate: null, bodyFatWeightKg: null, trainingYears: 2, sport: "strength", goal: "maintain", activity: "active", healthContext: "general", proteinPreference: "standard" };
+  state.days["2026-10-05"] = { date: "2026-10-05", weightKg: 64.8, bodyFatPct: null, skeletalMuscleKg: null, bodyFatMethod: "unknown", carbAdjustmentG: 0, meals: [{ id: "meal-1", name: "점심 식사", protein: 30, carbs: 80, fat: 15, otherKcal: 10, alcoholG: 0 }], sessions: [{ id: "session-1", sport: "strength", durationMin: 45, intensity: "moderate" }], complete: true, planSnapshot: snapshot() };
+  return state;
+}
+
+test("current backup round trip preserves Korean, decimals, completion and snapshot", () => {
+  const input = fixture();
+  const text = Storage.exportBackup(input);
+  const parsed = Storage.parseBackup(text);
+  assert.deepEqual(parsed.state, input);
+  assert.equal(parsed.kind, "current");
+  assert.deepEqual(parsed.summary, { days: 1, meals: 1, sessions: 1, completedDays: 1, legacyDays: 0, hasProfile: true });
+  assert.ok(text.includes("점심 식사"));
+  parsed.state.profile.weightKg = 80;
+  assert.equal(input.profile.weightKg, 65);
+});
+
+test("save performs one atomic write and never mutates the input", () => {
+  const store = memoryStorage();
+  const input = fixture();
+  input.updatedAt = "2026-01-01T00:00:00.000Z";
+  const saved = Storage.save(input, store);
+  assert.equal(input.updatedAt, "2026-01-01T00:00:00.000Z");
+  assert.equal(store.length, 1);
+  assert.deepEqual(Storage.load(store).state, saved);
+  const previous = store.getItem(Storage.STORAGE_KEY);
+  store.setItem = () => { throw new Error("QuotaExceededError"); };
+  assert.throws(() => Storage.save(fixture(), store), /저장하지 못했습니다/);
+  assert.equal(store.getItem(Storage.STORAGE_KEY), previous);
+});
+
+test("corrupt and inaccessible storage remains intact and blocks automatic writes in caller", () => {
+  const store = memoryStorage({ [Storage.STORAGE_KEY]: "{broken" });
+  const loaded = Storage.load(store);
+  assert.equal(loaded.storageBlocked, true);
+  assert.equal(loaded.corruptedRaw, "{broken");
+  assert.equal(store.getItem(Storage.STORAGE_KEY), "{broken");
+  assert.ok(loaded.warnings.length);
+  assert.equal(Storage.load({ getItem() { throw new Error("denied"); } }).storageBlocked, true);
+});
+
+test("strict schema rejects coercion, unsupported versions, non-finite numbers and extra fields before storage write", () => {
+  const mutations = [
+    state => { state.version = 10; },
+    state => { state.profile.age = "35"; },
+    state => { state.profile.weightKg = NaN; },
+    state => { state.profile.bodyFatPct = 85; },
+    state => { state.profile.trainingYears = 40; },
+    state => { state.days["2026-10-05"].complete = "true"; },
+    state => { state.days["2026-10-05"].meals[0].protein = -1; },
+    state => { state.extra = true; },
+    state => { state.days["2026-10-05"].meals[0].unexpected = 1; },
+    state => { state.days["2026-10-05"].planSnapshot = null; },
+    state => { state.days["2026-10-05"].meals = []; },
+    state => { state.updatedAt = "2026-02-30T00:00:00.000Z"; }
+  ];
+  for (const mutate of mutations) {
+    const state = fixture();
+    mutate(state);
+    assert.throws(() => Storage.validateState(state));
+  }
+  const store = memoryStorage({ [Storage.STORAGE_KEY]: "original" });
+  const invalid = fixture();
+  invalid.profile.age = "35";
+  assert.throws(() => Storage.save(invalid, store));
+  assert.equal(store.getItem(Storage.STORAGE_KEY), "original");
+});
+
+test("calendar dates, cross-day duplicate IDs and total session duration are validated", () => {
+  for (const valid of ["2024-02-29", "2026-10-05", "2000-02-29"]) assert.equal(Storage.isValidDate(valid), true);
+  for (const invalid of ["2025-02-29", "2026-04-31", "2026-13-01", "26-10-05", "2026-10-05T00:00:00Z"]) assert.equal(Storage.isValidDate(invalid), false);
+  let state = fixture();
+  state.days["2026-10-05"].date = "2026-10-06";
+  assert.throws(() => Storage.validateState(state));
+  state = fixture();
+  state.days["2026-10-06"] = { ...structuredClone(state.days["2026-10-05"]), date: "2026-10-06" };
+  assert.throws(() => Storage.validateState(state), /중복/);
+  state = fixture();
+  state.days["2026-10-05"].sessions = [{ id: "a", sport: "walking", durationMin: 800, intensity: "easy" }, { id: "b", sport: "walking", durationMin: 800, intensity: "easy" }];
+  assert.throws(() => Storage.validateState(state), /24시간/);
+});
+
+test("prototype pollution, cycles, oversized payloads and excessive nesting are rejected", () => {
+  for (const key of ["__proto__", "constructor", "prototype"]) {
+    assert.throws(() => Storage.parseBackup(`{"${key}":{"polluted":true}}`), /허용하지 않는/);
+  }
+  assert.equal({}.polluted, undefined);
+  const state = fixture();
+  state.days["2026-10-05"].planSnapshot.loop = state;
+  assert.throws(() => Storage.validateState(state), /순환/);
+  assert.throws(() => Storage.parseBackup(" ".repeat(Storage.MAX_BYTES + 1)), /10MB/);
+  let deep = {};
+  for (let index = 0; index < 26; index += 1) deep = { child: deep };
+  assert.throws(() => Storage.parseBackup(JSON.stringify(deep)), /복잡/);
+});
+
+test("dated body composition needs same-day weight and physically consistent skeletal mass", () => {
+  const state = fixture();
+  const day = state.days["2026-10-05"];
+  day.bodyFatPct = 25;
+  day.bodyFatMethod = "bia";
+  day.skeletalMuscleKg = 30;
+  assert.equal(Storage.validateState(state).days[day.date].skeletalMuscleKg, 30);
+  day.weightKg = null;
+  assert.throws(() => Storage.validateState(state), /체중/);
+  day.weightKg = 64.8;
+  day.skeletalMuscleKg = 60;
+  assert.throws(() => Storage.validateState(state), /제지방량/);
+  day.skeletalMuscleKg = 30;
+  day.bodyFatMethod = "guessed";
+  assert.throws(() => Storage.validateState(state), /측정 방법/);
+});
+
+test("body-fat measurement weight is optional and never inferred from current weight", () => {
+  const state = fixture();
+  delete state.profile.bodyFatWeightKg;
+  state.profile.bodyFatPct = 25;
+  state.profile.bodyFatDate = "2026-06-01";
+  assert.equal(Storage.validateState(state).profile.bodyFatWeightKg, null);
+  state.profile.bodyFatWeightKg = 80;
+  assert.equal(Storage.validateState(state).profile.bodyFatWeightKg, 80);
+  state.profile.bodyFatWeightKg = 400;
+  assert.throws(() => Storage.validateState(state), /측정 당시/);
+  state.profile.bodyFatWeightKg = 80;
+  state.profile.bodyFatPct = null;
+  assert.throws(() => Storage.validateState(state), /체지방률/);
+});
+
+test("unknown training experience, supported contexts and default allocation round trip", () => {
+  const state = fixture();
+  state.profile.trainingYears = null;
+  delete state.days["2026-10-05"].carbAdjustmentG;
+  assert.equal(Storage.validateState(state).days["2026-10-05"].carbAdjustmentG, 0);
+  assert.equal(Storage.validateState(state).profile.trainingYears, null);
+  state.days["2026-10-05"].carbAdjustmentG = 501;
+  assert.throws(() => Storage.validateState(state), /조정량/);
+  state.days["2026-10-05"].carbAdjustmentG = -500;
+  state.profile.healthContext = "pregnancy";
+  state.profile.age = 16;
+  assert.equal(Storage.validateState(state).profile.healthContext, "pregnancy");
+  state.profile.sex = "unexpected";
+  assert.throws(() => Storage.validateState(state), /선택값/);
+});
+
+test("malicious or inconsistent plan snapshots are rejected before they can reach rendering", () => {
+  const mutations = [
+    plan => { plan.status = "unknown"; },
+    plan => { plan.energy.targetKcal = "2110"; },
+    plan => { plan.macros.protein = null; },
+    plan => { plan.macros.carbs.min = 500; },
+    plan => { plan.macros.fat.target = 60; },
+    plan => { plan.reasons = "not an array"; },
+    plan => { plan.guidance[0].body = {}; },
+    plan => { plan.sources[0].url = "javascript:alert(1)"; },
+    plan => { plan.sources[0].url = "https://user:password@example.com"; },
+    plan => { plan.context.energyAvailability = "bad"; }
+  ];
+  for (const mutate of mutations) {
+    const state = fixture();
+    mutate(state.days["2026-10-05"].planSnapshot);
+    assert.throws(() => Storage.parseBackup(JSON.stringify(state)));
+  }
+});
+
+test("legacy backup is preserved separately without inventing completion, profile or new scores", () => {
+  const raw = { app: "macro-engine", kind: "full-backup", backupVersion: 2, appVersion: "v8.3", data: { settings: { weight: 75 }, records: [{ date: "2026-07-15", weight: 74.12, adherencePercent: 83, adherenceScoringVersion: "v8.4", goalSnapshot: { targetCal: 2400, protein: 140, carbs: 300, fat: 80 }, meals: [{ id: "old", mealLabel: "김밥", protein: 20, carbs: 50, fat: 10, alcoholKcal: 70, otherKcal: 0 }] }], inbodyRecords: [{ date: "2026-07-15", skeletalMuscle: 35.123 }] } };
+  const parsed = Storage.parseBackup(JSON.stringify(raw));
+  assert.equal(parsed.kind, "legacy");
+  assert.equal(parsed.state.profile, null);
+  assert.deepEqual(parsed.state.days, {});
+  assert.deepEqual(parsed.state.legacy.raw, raw);
+  const old = parsed.state.legacy.records[0];
+  assert.equal(old.completion, "unconfirmed");
+  assert.equal(old.score, 83);
+  assert.equal(old.intake.kcal, 440);
+  assert.equal(old.readOnly, true);
+  assert.deepEqual(Storage.parseBackup(Storage.exportBackup(parsed.state)).state, parsed.state);
+  const corrupted = structuredClone(parsed.state);
+  corrupted.legacy.records[0].score = {};
+  assert.throws(() => Storage.parseBackup(JSON.stringify(corrupted)), /점수/);
+});
+
+test("legacy localStorage detection never writes or imports silently", () => {
+  const raw = [{ date: "2026-07-15", weight: 75, meals: [] }];
+  const entries = { runstep_macro_v1_records: JSON.stringify(raw), runstep_macro_v1_weight: "75", unrelated: "leave" };
+  const store = memoryStorage(entries);
+  const loaded = Storage.load(store);
+  assert.equal(loaded.legacyAvailable, true);
+  assert.equal(loaded.state.legacy, null);
+  assert.equal(store.length, 3);
+  const detected = Storage.detectLegacy(store);
+  assert.equal(detected.entries.unrelated, undefined);
+  const imported = Storage.importLegacy(detected);
+  assert.equal(imported.legacy.records.length, 1);
+  assert.equal(imported.legacy.records[0].score, null);
+  assert.deepEqual(Object.fromEntries(store.entries), entries);
+});
+
+test("invalid legacy records retain original bytes as data but do not become interpreted records", () => {
+  const raw = { kind: "legacy-local-storage", entries: { runstep_macro_v1_records: "broken JSON" } };
+  const state = Storage.importLegacy(raw);
+  assert.deepEqual(state.legacy.raw, raw);
+  assert.deepEqual(state.legacy.records, []);
+  assert.throws(() => Storage.parseBackup('{"version":99,"records":[]}'), /지원하지 않는/);
+  const invalidNutrition = { version: 4, records: [{ date: "2026-10-05", meals: [{ protein: 10, carbs: 30, fat: 5, alcoholKcal: -1 }] }] };
+  assert.equal(Storage.importLegacy(invalidNutrition).legacy.records[0].intake, null);
+});
+
+test("real nutrition snapshots round trip across sexes, goals, sports and body sizes", () => {
+  const Nutrition = require("../src/nutrition.js");
+  let count = 0;
+  for (const sex of Nutrition.ENUMS.sex) for (const goal of Nutrition.ENUMS.goal) {
+    for (const sport of Nutrition.ENUMS.sport) for (const weightKg of [45, 75, 120]) {
+      const state = fixture();
+      Object.assign(state.profile, { sex, goal, sport, weightKg, heightCm: 170, trainingYears: null });
+      const day = state.days["2026-10-05"];
+      day.weightKg = null;
+      day.sessions = sport === "none" ? [] : [{ id: "training", sport, durationMin: 45, intensity: "moderate" }];
+      day.planSnapshot = Nutrition.calculatePlan(state.profile, day, []);
+      day.complete = day.planSnapshot.status === "ready";
+      const restored = Storage.parseBackup(Storage.exportBackup(state)).state;
+      assert.deepEqual(restored.days[day.date].planSnapshot, day.planSnapshot);
+      count += 1;
+    }
+  }
+  assert.equal(count, 315);
+});
+
+test("completed diary can preserve review or incomplete plan without inventing calorie targets", () => {
+  const Nutrition = require("../src/nutrition.js");
+  for (const profile of [{ ...fixture().profile, healthContext: "pregnancy" }, null]) {
+    const state = fixture();
+    state.profile = profile;
+    const day = state.days["2026-10-05"];
+    day.planSnapshot = Nutrition.calculatePlan(profile, day, []);
+    assert.notEqual(day.planSnapshot.status, "ready");
+    const restored = Storage.parseBackup(Storage.exportBackup(state)).state;
+    assert.equal(restored.days[day.date].complete, true);
+    assert.equal(restored.days[day.date].planSnapshot.energy.targetKcal, null);
+    assert.equal(restored.days[day.date].planSnapshot.macros.protein.target, null);
+  }
+});
