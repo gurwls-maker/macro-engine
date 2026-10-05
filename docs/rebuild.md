@@ -64,6 +64,8 @@
 - 현재 검증: `npm run preflight:product`, `npm test`, `npm run test:e2e`. 계산 grid 11,340개, 운동 단조성 sweep 7,560개, 저장된 실제 엔진 출력 315개 왕복 포함.
 - 최종 로컬 결과: 단위 검증 36개, 파일 직접 열기 전체 사용자 흐름, HTTP 저장·복원 브라우저 시나리오 8개 통과. 콘솔·런타임 오류 및 페이지 가로 넘침 없음. 소스 UTF-8 확인 통과.
 - 로컬 브랜치 36개를 포함 관계 확인 후 정리했고 `master`를 현재 원격 기준으로 맞췄다. 미병합 역사 실험 2개는 `archive/unused-v8-score-preview-2026-10-05`, `archive/unused-ui-experiment-2026-10-05` 태그에 따로 보존했다.
+- 원격은 새 코드와 복구 태그를 먼저 push한 뒤 오래된 브랜치149개를 정리했다. 각 ref의 기존 SHA를 조건으로 삭제해 작업 중 바뀐 브랜치를 지우지 않도록 했다. 로컬·원격 모두 `master`와 `codex/release-rebuild` 두 브랜치를 남겼다.
+- 제품 커밋 `4474fb6`을 push했고 [GitHub CI](https://github.com/gurwls-maker/macro-engine/actions/runs/37247580402)가 성공했다. `master` 병합·공개 서비스 배포는 수행하지 않았다.
 - 정리 전 전체 Git refs를 검증된 `../macro-engine-local-archive/2026-10-05-pre-v9/git-before-cleanup.bundle`에 저장했다. 옛 테스트 산출물·화면 참고·전용 브라우저 프로필 약492MB도 같은 로컬 보관소로 옮겼다. 사용자 메모와 원본 데이터는 이동·삭제하지 않았다.
 - 새 개인정보·기존 user-data·실제 사용자 백업을 테스트 fixture로 커밋하지 않는다.
 
