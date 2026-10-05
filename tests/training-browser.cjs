@@ -69,6 +69,129 @@ async function uploadImage(page, kind) {
   assert.equal((await started).status(), 200);
 }
 
+async function verifyProgramWorkflow(browser, temporary, artifacts) {
+  const server = createServer({ bridge: { data: path.join(temporary, 'program-workflow'), runtime: fakeRuntime() } });
+  let context;
+  try {
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const initial = Storage.createEmpty(); initial.profile = profile; initial.training = TrainingStore.createEmpty();
+    context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await context.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: Storage.STORAGE_KEY, value: initial });
+    const page = await context.newPage(), errors = []; page.setDefaultTimeout(10000); page.on('pageerror', error => errors.push(error.message));
+    await page.goto(`http://127.0.0.1:${server.address().port}`);
+    await navigate(page, 'training');
+    await page.locator('[data-action="training-tab"][data-tab="program"]').click();
+    await page.locator('[data-action="program-settings"]').click();
+    await page.locator('[name="daysPerWeek"]').fill('1'); await submit(page);
+    await page.locator('[data-action="program-save"]').click();
+    await page.locator('[name="name"]').fill('합성 PT 계획'); await submit(page);
+    await page.locator('[data-action="program-edit-day"]').click();
+    const exerciseCount = await page.locator('#entryForm input[name$="-remove"]').count();
+    for (let index = 1; index < exerciseCount; index++) await page.locator(`[name="${index}-remove"]`).check();
+    for (const [key, value] of Object.entries({ sets: 2, repsMin: 8, repsMax: 12, rir: 2, restSeconds: 120, loadKg: 50 })) await page.locator(`[name="0-${key}"]`).fill(String(value));
+    await page.locator('[name="0-equipmentKey"]').fill('합성 장비'); await page.locator('[name="0-loadConvention"]').selectOption('total'); await submit(page);
+    await page.locator('[data-action="program-schedule"]').click(); await page.locator('[name="date-0"]').fill(today); await submit(page);
+    let saved = await state(page), assigned = saved.training.planning.schedule[0];
+    assert.equal(assigned.prescription.exercises[0].loadKg, 50); assert.equal(assigned.status, 'planned'); assert.equal(assigned.recordId, null);
+    assert.equal(saved.training.records.length, 0); assert.equal(Object.keys(saved.days).length, 0, 'planning creates neither exercise nor nutrition days');
+    await page.locator('[data-action="program-edit-day"]').click();
+    await page.locator('[name="0-repsMin"]').fill('10'); await page.locator('[name="0-repsMax"]').fill('14'); await page.locator('[name="0-loadKg"]').fill('55'); await submit(page);
+    saved = await state(page); assert.equal(saved.training.planning.programs[0].days[0].exercises[0].loadKg, 55);
+    assert.equal(saved.training.planning.schedule[0].prescription.exercises[0].loadKg, 50, 'saved edits do not rewrite dated targets');
+    await page.locator('[data-action="schedule-adjust"]').click();
+    await page.locator('[name="kind"]').selectOption('progression'); await page.locator('[name="reason"]').fill('확인한 장비의 단계 직접 선택');
+    await page.locator('[name="reviewDate"]').fill(today);
+    await page.locator('#entryForm summary').filter({ hasText: '다음 중량' }).click(); await page.locator('[name="loadKg"]').fill('52.5');
+    await page.locator('#entryForm input[type="checkbox"]').check(); await submit(page);
+    saved = await state(page); assigned = saved.training.planning.schedule[0];
+    assert.equal(assigned.prescription.exercises[0].loadKg, 52.5); assert.equal(assigned.adjustment.originalPrescription.exercises[0].loadKg, 50);
+    await page.locator('[data-action="schedule-start"]').click();
+    assert.match(await page.locator('#entryForm').innerText(), /배치 당시 목표/);
+    for (const key of ['loadKg', 'reps', 'rir']) assert.equal(await page.locator(`[name="0-0-${key}"]`).inputValue(), '');
+    for (const [name, value] of Object.entries({ '0-0-loadKg': 52.5, '0-0-reps': 10, '0-0-rir': 2, '0-1-loadKg': 52.5, '0-1-reps': 12 })) await page.locator(`[name="${name}"]`).fill(String(value));
+    await page.locator('[name="pain"]').selectOption('none'); await submit(page);
+    saved = await state(page); assert.equal(saved.training.records.length, 1); assert.equal(saved.training.planning.schedule[0].status, 'performed');
+    assert.equal(saved.training.records[0].exercises[0].sets[1].rir, null); assert.equal(Object.keys(saved.days).length, 0);
+    await page.locator('.scheduled-session summary').click(); assert.match(await page.locator('.scheduled-session').innerText(), /비교할 숫자·기준 미확인/);
+    await page.locator('.scheduled-session [data-action="training-open"]').click(); await page.locator('[data-action="training-edit"]').click();
+    await page.locator('[name="0-1-rir"]').fill('2'); await submit(page);
+    await page.locator('[data-action="training-tab"][data-tab="program"]').click();
+    assert.match(await page.locator('.scheduled-session summary').innerText(), /기록 조건 확인/);
+    await page.locator('[data-action="schedule-review"]').click();
+    await page.locator('#entryForm input[type="checkbox"]').check(); await submit(page);
+    assert.equal((await state(page)).training.planning.schedule[0].adjustment.reviewed, true, 'review records an explicit check rather than automatically declaring recovery');
+    const nextDate = Insights.shiftDate(today, 1);
+    await page.locator('[data-action="program-schedule"]').click(); await page.locator('[name="date-0"]').fill(nextDate); await submit(page);
+    await page.locator('[data-action="schedule-adjust"]').click(); await page.locator('[name="kind"]').selectOption('deload');
+    await page.locator('[name="reason"]').fill('다음 훈련 부담을 직접 낮추고 다시 확인');
+    await page.locator('#entryForm summary').filter({ hasText: '부담 낮추기' }).click(); await page.locator('[name="setReduction"]').fill('1'); await page.locator('[name="rirIncrease"]').fill('1');
+    await page.locator('#entryForm input[type="checkbox"]').check(); await submit(page);
+    saved = await state(page); const future = saved.training.planning.schedule[1];
+    assert.equal(future.prescription.exercises[0].sets, 1); assert.equal(future.prescription.exercises[0].rir, 3);
+    assert.equal(future.adjustment.originalPrescription.exercises[0].sets, 2); assert.equal(future.adjustment.reviewed, false);
+    assert.equal(saved.training.records.length, 1, 'adjusting the future plan does not fabricate another performance');
+    await page.reload(); await navigate(page, 'training'); await page.locator('[data-action="training-tab"][data-tab="program"]').click();
+    assert.equal((await state(page)).training.planning.schedule.length, 2);
+    await page.locator('[data-action="schedule-week"][data-offset="7"]').focus(); await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.action), 'schedule-week');
+    await page.locator('[data-action="schedule-week"][data-offset="-7"]').click();
+    await page.screenshot({ path: path.join(artifacts, 'program-workflow-desktop.png'), fullPage: true });
+    await page.setViewportSize({ width: 320, height: 820 }); await overflow(page, 'saved program narrow');
+    await page.locator('[data-action="program-edit-day"]').click(); await overflow(page, 'program edit narrow');
+    await page.screenshot({ path: path.join(artifacts, 'program-workflow-mobile.png'), fullPage: true });
+    await page.keyboard.press('Escape');
+    const unknownId = 'synthetic_future_exercise', unknownLabel = '합성 원문 <img src=x onerror=alert(1)>';
+    await page.evaluate(({ key, unknownId, unknownLabel }) => {
+      const value = JSON.parse(localStorage.getItem(key)), target = value.training.planning.programs[0].days[0].exercises[0];
+      target.exerciseId = unknownId; target.label = unknownLabel;
+      localStorage.setItem(key, JSON.stringify(window.MacroStorage.validateState(value)));
+    }, { key: Storage.STORAGE_KEY, unknownId, unknownLabel });
+    await page.reload(); await navigate(page, 'training'); await page.locator('[data-action="training-tab"][data-tab="program"]').click();
+    const unknownBefore = (await state(page)).training.planning.programs[0].days[0].exercises[0];
+    await page.locator('[data-action="program-edit-day"]').click();
+    assert.equal(await page.locator('[name="0-exercise"]').inputValue(), unknownId, 'an imported unknown ID remains selected rather than becoming the first catalog option');
+    assert.match(await page.locator('[name="0-exercise"] option:checked').innerText(), /합성 원문.*카탈로그 미등록/);
+    assert.equal(await page.locator('#entryForm img').count(), 0, 'unknown exercise labels are escaped');
+    await page.locator('[name="programName"]').fill('다른 항목만 수정한 합성 계획'); await submit(page);
+    assert.deepEqual((await state(page)).training.planning.programs[0].days[0].exercises[0], unknownBefore, 'editing another field preserves unknown ID, label, personal load and equipment');
+    await page.locator('[data-action="program-edit-day"]').click();
+    await page.locator('[name="0-exercise"]').selectOption('bench_press'); await submit(page);
+    const replaced = (await state(page)).training.planning.programs[0].days[0].exercises[0];
+    assert.equal(replaced.exerciseId, 'bench_press'); assert.equal(replaced.loadKg, null); assert.equal(replaced.equipmentKey, null); assert.equal(replaced.loadConvention, 'as-recorded');
+    const pastDate = Insights.shiftDate(today, -7);
+    await page.evaluate(({ key, pastDate }) => {
+      const value = JSON.parse(localStorage.getItem(key));
+      value.training.records[0].pain = 'stop';
+      const day = { date: pastDate, weightKg: null, bodyFatPct: null, skeletalMuscleKg: null, bodyFatMethod: 'unknown', carbAdjustmentG: 0,
+        meals: [{ id: 'past-snapshot-meal', name: '과거 확인한 식사', protein: 100, carbs: 250, fat: 60, otherKcal: 0, alcoholG: 0 }], sessions: [], complete: false, planSnapshot: null };
+      day.planSnapshot = window.MacroNutrition.calculatePlan(value.profile, day, []); day.complete = true;
+      value.days[pastDate] = day;
+      localStorage.setItem(key, JSON.stringify(window.MacroStorage.validateState(value)));
+    }, { key: Storage.STORAGE_KEY, pastDate });
+    await page.reload(); await navigate(page, 'today');
+    await page.locator('#dayDate').fill(pastDate); await page.locator('#dayDate').dispatchEvent('change');
+    const beforeSafetyChecks = await state(page);
+    await navigate(page, 'training'); await page.locator('[data-action="training-tab"][data-tab="analysis"]').click();
+    assert.equal(await page.locator('#trainingDate').inputValue(), pastDate);
+    assert.doesNotMatch(await page.locator('.recovery-section h2').innerText(), /통증 확인/, 'historical analysis must not import a later pain report');
+    await page.locator('[data-action="training-tab"][data-tab="program"]').click();
+    assert.equal(await page.locator('[data-action="program-save"]').count(), 0, 'past analysis selection cannot bypass current pain for a new program');
+    assert.match(await page.locator('.program-template .program-reason').innerText(), /통증/);
+    assert.equal(await page.locator('[data-action="program-edit-day"]').count(), 1, 'saved programs remain readable and editable instead of being removed');
+    for (const kind of ['maintain', 'progression', 'deload']) {
+      await page.locator('[data-action="schedule-adjust"]').click();
+      await page.locator('[name="kind"]').selectOption(kind); await page.locator('[name="reason"]').fill('과거 기준일에서 미래 계획 조정 안전 검증');
+      if (kind === 'progression') { await page.locator('#entryForm summary').filter({ hasText: '다음 중량' }).click(); await page.locator('[name="loadKg"]').fill('60'); }
+      if (kind === 'deload') { await page.locator('#entryForm summary').filter({ hasText: '부담 낮추기' }).click(); await page.locator('[name="setReduction"]').fill('1'); }
+      await page.locator('#entryForm input[type="checkbox"]').check(); await page.locator('#entryForm button[type="submit"]').click();
+      assert.match(await page.locator('#entryErrors').innerText(), /현재 건강·통증·회복 맥락/);
+      assert.deepEqual(await state(page), beforeSafetyChecks, `${kind}: blocked future adjustment preserves actual records, saved plans and completed snapshots`);
+      await page.keyboard.press('Escape');
+    }
+    assert.deepEqual(errors, []);
+  } finally { await context?.close(); await new Promise(resolve => server.close(resolve)); server.bridge?.close?.(); }
+}
+
 async function verifyConversationRecovery(browser, temporary, artifacts) {
   const data = path.join(temporary, 'conversation-recovery');
   const runtime = fakeRuntime();
@@ -166,7 +289,7 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     await page.locator('#trainingContent [data-action="bridge-connect"]').click();
     assert.equal((await attached).status(), 200);
     const oldStatus = await (await page.request.get(`${url}/api/bridge/status`)).json();
-    await new Promise(resolve => server.close(resolve));
+    await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
     server = makeServer(); await waitListening(port);
     const newStatus = await (await page.request.get(`${url}/api/bridge/status`)).json();
     assert.notEqual(newStatus.token, oldStatus.token, 'restarting the synthetic server rotates its request token');
@@ -195,7 +318,7 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     const restored = page.waitForResponse(response => response.url().endsWith('/api/state') && response.request().method() === 'POST');
     const backup = page.waitForEvent('download');
     await page.locator('#entryForm button[type="submit"]').click();
-    await attachStarted;
+    await Promise.race([attachStarted, new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('PC reconnect POST did not start within 10s')), 10000); timer.unref(); })]);
     assert.equal(await page.locator('#entryForm').getAttribute('aria-busy'), 'true');
     assert.equal(await page.locator('#entryForm button[type="submit"]').isDisabled(), true);
     assert.match(await page.locator('#entryForm button[type="submit"]').innerText(), /처리 중/);
@@ -234,6 +357,7 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
   try {
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
     browser = await chromium.launch({ headless: true, ...(fs.existsSync(chromium.executablePath()) ? {} : { channel: 'chrome' }) });
+    if (process.argv.includes('--program-only')) { await verifyProgramWorkflow(browser, temporary, artifacts); console.log('Saved program workflow browser acceptance passed.'); return; }
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
     const initial = Storage.createEmpty(); initial.profile = profile;
     await context.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, value); }, { key: Storage.STORAGE_KEY, value: JSON.stringify(Storage.validateState(initial)) });
@@ -412,10 +536,16 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     await sendChat(page, '합성 기록으로 AI 완료 흐름 확인');
     await page.locator('[data-action="coach-job-cancel"]').waitFor();
     assert.equal(runtime.jobs.length, 1);
-    runtime.complete(result('chat', { answer: '테스트 AI 완료 응답', questions: ['장비 기준을 확인했나요?'], uncertainties: ['같은 머신인지 확인되지 않았어요.'] }));
+    runtime.complete(result('chat', { answer: '테스트 AI 완료 응답', questions: ['장비 기준을 확인했나요?'], uncertainties: ['같은 머신인지 확인되지 않았어요.'], coaching: { claims: [], followUp: { topic: 'training', note: '같은 장비와 표기 기준 다시 확인', reviewDate: today } } }));
     await page.getByText('테스트 AI 완료 응답', { exact: false }).waitFor();
     assert.equal((await state(page)).training.messages.at(-1).source, 'codex');
     assert.match((await state(page)).training.messages.at(-1).text, /판단의 한계: 같은 머신인지 확인되지 않았어요\./, 'AI uncertainty is persisted with the answer');
+    assert.equal((await state(page)).training.followUps.length, 0, 'AI proposal cannot silently create an agreed follow-up');
+    await page.locator('[data-action="coach-followup-proposal"]').click();
+    assert.equal(await page.locator('#entryForm [name="note"]').inputValue(), '같은 장비와 표기 기준 다시 확인');
+    await submit(page);
+    assert.equal((await state(page)).training.followUps.length, 1);
+    assert.equal(await page.locator('[data-action="coach-followup-proposal"]').count(), 0);
     await sendChat(page, '합성 기록으로 AI 취소 및 재시도 확인');
     await page.locator('[data-action="coach-job-cancel"]').waitFor();
     await page.locator('[data-action="coach-job-cancel"]').click();
@@ -569,6 +699,8 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     assert.deepEqual(Storage.validateState(JSON.parse(fs.readFileSync(diskStatePath, 'utf8'))), await state(page), 'visible reconnection uploads the selected browser version');
     assert.equal(await page.locator('#trainingContent .connection-error').count(), 0);
     assert.deepEqual(errors, [], 'no browser runtime or console errors');
+    console.log('Primary training browser flow passed; checking saved programs and connection recovery.');
+    await verifyProgramWorkflow(browser, temporary, artifacts);
     await verifyConversationRecovery(browser, temporary, artifacts);
     console.log('Training browser acceptance passed: synthetic private server; manual workout, set draft/focus, equipment mapping, reuse, observed progression, nutrition link deduplication and completed snapshot lock; program drafts; chat draft retention, original-question continuation and urgent local safety; delayed-start lock, conversation scrolling and token/initial-connection recovery; JSON preview/conflict backup; fake AI completion/cancellation/retry and uncertainty; cached image resume, unknown values, body measurement merge/replacement review; PC sync failure/reconnection; six views and training tabs at 320/390/1280px; keyboard and reload.');
   } catch (error) {

@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const N = require("../src/nutrition.js");
-const { buildCoach } = require("../src/coach.js");
+const { buildCoach, buildFacts } = require("../src/coach.js");
 
 const profile = { sex: "male", age: 35, heightCm: 175, weightKg: 75, bodyFatPct: null, bodyFatWeightKg: null, bodyFatMethod: "unknown", bodyFatDate: null, trainingYears: 3, sport: "strength", goal: "maintain", activity: "light", healthContext: "general", proteinPreference: "standard" };
 const day = { date: "2026-10-05", weightKg: null, meals: [], sessions: [], complete: false, carbAdjustmentG: 0 };
@@ -72,7 +72,8 @@ test("completed records use saved targets even when current profile differs or i
   assert.equal(result.context.planSource, "saved-target");
   assert.equal(result.context.targetKcal, p.energy.targetKcal);
   assert.equal(result.context.goal, "maintain");
-  assert.equal(result.priorities[0].id, "balanced");
+  assert.equal(result.priorities[0].id, "current-care");
+  assert.equal(result.priorities[0].kind, "safety");
   assert.equal(buildCoach(null, d).status, "complete");
   const missing = buildCoach(profile, { ...d, planSnapshot: null });
   assert.equal(missing.status, "incomplete");
@@ -233,7 +234,7 @@ test("planned exercise and rest are user plans, never completed exercise or calo
 });
 
 test("meal constraints change executable advice without fabricating allergies or meal timing", () => {
-  const expected = { busy: /바로 먹을 수 있는/, "low-appetite": /작은 식사로 나누어/, digestive: /평소 잘 견디는/ };
+  const expected = { busy: /준비가 덜 필요한/, "low-appetite": /조금씩 나눠/, digestive: /잘 견디는 음식/ };
   for (const [mealConstraint, pattern] of Object.entries(expected)) {
     const result = buildCoach(profile, { ...day, meals: [meal(1)], coachCheckin: { energy: "okay", hunger: "okay", sleep: "good", mealConstraint } });
     assert.match(result.priorities[0].body, pattern);
@@ -395,4 +396,98 @@ test("partial training payload remains unknown rather than zero or malformed num
   assert.equal(result.context.training.muscles[0].directSets, null);
   assert.equal(result.context.training.recovery.status, "insufficient");
   assert.ok(!/NaN|Infinity|undefined/.test(JSON.stringify(result)));
+});
+
+test("detailed activity explains replacement of rest without relabeling net exercise as the TDEE increment", () => {
+  const time = { sleepHours: 8, workHours: 8, workType: "seated", lifestyleHours: 2, lifestyleType: "light" };
+  const p = { ...profile, activityMode: "detailed", dailyActivity: time, weekdayActivity: { "1": { ...time, workHours: 6 } } };
+  const d = { ...day, meals: [meal(1)], sessions: [{ sport: "running", durationMin: 60, intensity: "moderate" }] };
+  const result = buildCoach(p, d);
+  const expected = N.calculatePlan(p, d);
+  const answer = result.questions.find(row => row.id === "training").answer;
+  assert.match(answer, /순소모/);
+  assert.match(answer, /휴식을 운동으로 바꿔 계산/);
+  assert.match(answer, /목표에 이미 포함/);
+  assert.ok(!answer.includes("추가 소모 추정"));
+  assert.notEqual(expected.context.dailyActivity.exerciseIncrementKcal, expected.energy.exerciseKcal);
+  assert.equal(result.context.exerciseKcal, expected.energy.exerciseKcal);
+  assert.match(result.context.observations.find(row => row.id === "daily-activity").value, /요일별 시간표.*남은 휴식 7시간/);
+  assert.match(result.questions.find(row => row.id === "target").answer, /요일별 시간표/);
+  const fact = buildFacts(result, d).find(row => row.id === "today.exercise.kcal");
+  assert.equal(fact.value, expected.energy.exerciseKcal);
+  assert.equal(fact.source, "exercise-model");
+  assert.equal(fact.estimated, true);
+  assert.equal(fact.label, "운동 순소모 추정");
+  const saved = completed(d.meals, { sessions: d.sessions }, p);
+  const historical = buildCoach({ ...profile, activityMode: "simple", weightKg: 100 }, saved);
+  assert.equal(historical.context.targetKcal, saved.planSnapshot.energy.targetKcal);
+  assert.match(historical.context.observations.find(row => row.id === "daily-activity").label, /완료 당시/);
+  assert.match(historical.questions.find(row => row.id === "training").answer, /휴식을 운동으로 바꿔 계산/);
+});
+
+test("a just-recorded meal stays ahead of ordinary training commentary, while safety still comes first", () => {
+  const d = { ...day, meals: [meal(1), meal(2)], coachCheckin: { energy: "okay", hunger: "okay", sleep: "good" } };
+  const options = { trainingAnalysis: syntheticTraining(), lastMutation: { type: "meal-added", date: day.date, mealId: 2 } };
+  const result = buildCoach(profile, d, [], options);
+  assert.equal(result.priorities[0].id, "next-meal");
+  assert.equal(result.priorities[0].source, "session-only");
+  assert.ok(result.priorities.some(row => row.id === "training-progression"));
+  const tired = buildCoach(profile, { ...d, coachCheckin: { ...d.coachCheckin, energy: "low" } }, [], options);
+  assert.equal(tired.priorities[0].kind, "safety");
+  assert.ok(tired.priorities.some(row => row.id === "next-meal"));
+  assert.ok(result.priorities.length <= 3 && tired.priorities.length <= 3);
+});
+
+test("non-pain recovery review does not invent a painful movement in the priority card", () => {
+  const result = buildCoach(profile, day, [], { trainingAnalysis: syntheticTraining({ recovery: { status: "review", pain: "none", reasons: ["수행 저하와 낮은 수면이 반복됐어요."], questions: [] } }) });
+  assert.equal(result.priorities[0].id, "training-safety");
+  assert.match(result.priorities[0].body, /수행 저하와 낮은 수면/);
+  assert.ok(!/통증이 있는 동작|통증이 생기는 동작/.test(result.priorities[0].title + result.priorities[0].body));
+  assert.equal(result.context.training.recovery.pain, "none");
+});
+
+test("an empty completed day requests reopening instead of pretending meals were missed or are editable", () => {
+  const result = buildCoach(profile, completed([]));
+  assert.equal(result.status, "complete");
+  assert.equal(result.priorities[0].id, "start");
+  assert.equal(result.priorities[0].action, "reopen");
+  assert.equal(result.context.dayAssessmentAvailable, false);
+  assert.ok(!result.priorities.some(row => row.id === "low-energy"));
+  assert.match(result.priorities[0].body, /먹지 않았다는 뜻으로 보지/);
+});
+
+test("current individual-care scope changes advice but never the completed historical facts or target", () => {
+  const snapshot = N.calculatePlan(profile, day);
+  const d = completed(matchingMeals(snapshot));
+  const before = JSON.stringify(d);
+  const ordinary = buildCoach(profile, d);
+  for (const change of [{ healthContext: "clinical" }, { healthContext: "pregnancy" }, { healthContext: "breastfeeding" }, { healthContext: "eating_disorder" }, { age: 17 }, { age: 81 }]) {
+    const current = buildCoach({ ...profile, ...change }, d, [], { trainingAnalysis: syntheticTraining() });
+    assert.equal(current.status, "complete");
+    assert.equal(current.context.planSource, "saved-target");
+    assert.equal(current.context.targetKcal, snapshot.energy.targetKcal);
+    assert.equal(current.priorities[0].id, "current-care");
+    assert.equal(current.priorities[0].kind, "safety");
+    assert.ok(current.priorities.length <= 3);
+    assert.ok(!current.priorities.some(row => ["balanced", "protein", "low-energy", "high-energy"].includes(row.id)));
+    assert.match(current.questions.find(row => row.id === "target").answer, /지금의 처방으로 사용하지/);
+    const retained = buildFacts(current, d).filter(row => !row.id.startsWith("training.") && !row.id.startsWith("muscle.") && !row.id.startsWith("progression."));
+    assert.deepEqual(retained, buildFacts(ordinary, d));
+    assert.equal(JSON.stringify(d), before);
+  }
+});
+
+test("direct coach calls use the selected day's paired measurements without rewriting prior snapshots", () => {
+  const d = { ...day, weightKg: 80, bodyFatPct: 25, bodyFatMethod: "bia", meals: [meal(1)] };
+  const p = { ...profile, goal: "lose", bodyFatPct: 15, bodyFatWeightKg: 75, bodyFatDate: "2026-09-01", bodyFatMethod: "dxa" };
+  const original = JSON.stringify({ p, d });
+  const result = buildCoach(p, d);
+  const effective = N.profileForDay(p, d);
+  const expected = N.calculatePlan(effective, d);
+  assert.equal(result.context.targetKcal, expected.energy.targetKcal);
+  assert.equal(result.context.weightKg, 80);
+  assert.match(result.questions.find(row => row.id === "composition").answer, /80kg.*60kg/);
+  assert.equal(JSON.stringify({ p, d }), original);
+  const saved = { ...d, complete: true, planSnapshot: N.calculatePlan(profile, day) };
+  assert.equal(buildCoach(p, saved).context.targetKcal, saved.planSnapshot.energy.targetKcal);
 });

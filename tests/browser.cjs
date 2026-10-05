@@ -159,10 +159,12 @@ async function noHorizontalOverflow(page, label) {
     await page.locator('#importPreview [role="alert"]').waitFor();
     assert.deepEqual(await appState(page), beforeInvalid, 'invalid import must preserve all existing state');
     await page.locator('#backupFile').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(backup) });
+    await page.locator('#importPreview summary').filter({ hasText: '전체 데이터를 백업으로 교체' }).click();
     await page.locator('[data-action="import-confirm"]').waitFor();
-    await page.locator('[data-action="import-cancel"]').click();
+    await page.locator('[data-action="import-cancel"]').first().click();
     assert.deepEqual(await appState(page), beforeInvalid);
     await page.locator('#backupFile').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(backup) });
+    await page.locator('#importPreview summary').filter({ hasText: '전체 데이터를 백업으로 교체' }).click();
     await page.locator('[data-action="import-confirm"]').click();
     assert.deepEqual((await appState(page)).days, beforeInvalid.days);
 

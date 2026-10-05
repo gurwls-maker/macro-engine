@@ -262,7 +262,7 @@
     return { version: VERSION, windowStart, windowEnd, coverage, muscles, sessions, lastSession: sessions.at(-1) || null, progression, recovery, limitations };
   }
 
-  function recommendProgram(profile, settings = {}, analysis = {}) {
+  function recommendProgram(profile, settings = {}, analysis = {}, preferences = {}) {
     settings = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
     analysis = analysis && typeof analysis === "object" && !Array.isArray(analysis) ? analysis : {};
     const limitations = ["일반 성인의 시작용 예시이며 자세 평가·의료 재활·대회 준비 프로그램이 아니에요.", "프로그램을 만들었다고 실제 운동 기록이나 영양 목표가 바뀌지 않아요.", "반복 범위·RIR·휴식·시간 예산과 분할 구성은 보수적인 제품 선택이며 개인의 최적점은 아니에요."];
@@ -273,6 +273,8 @@
     const { daysPerWeek, sessionMinutes, equipment } = settings;
     if (!Number.isInteger(daysPerWeek) || daysPerWeek < 1 || daysPerWeek > 6 || !finite(sessionMinutes) || sessionMinutes < 20 || sessionMinutes > 150 || !["gym", "home", "bodyweight"].includes(equipment) || (settings.priorityMuscles !== undefined && (!Array.isArray(settings.priorityMuscles) || settings.priorityMuscles.some(id => !Object.hasOwn(muscleLabels, id))))) return result("incomplete", "주 1~6회, 회당 20~150분, 사용 가능한 장비와 우선 부위를 확인해 주세요.");
     const priority = new Set(settings.priorityMuscles || []);
+    const excluded = new Set(Array.isArray(preferences.excludedExerciseIds) ? preferences.excludedExerciseIds : []);
+    const preferred = (Array.isArray(preferences.preferredExerciseIds) ? preferences.preferredExerciseIds : []).filter(id => byId.has(id) && !excluded.has(id));
     const years = finite(profile.trainingYears) && profile.trainingYears >= 0 ? profile.trainingYears : null;
     const endurance = ["running", "cycling", "swimming", "team"].includes(profile.sport);
     const desiredSets = years !== null && years >= 1 && !endurance && ["gain", "recomp"].includes(profile.goal) && analysis.recovery?.status !== "watch" ? 3 : 2;
@@ -310,6 +312,9 @@
       const extra = equipment === "gym" ? { chest: "cable_fly", back: "lat_pulldown", shoulders: "dumbbell_lateral_raise", biceps: "dumbbell_curl", triceps: "triceps_pushdown", quads: "leg_extension", hamstrings: "leg_curl", glutes: "glute_bridge", calves: "calf_raise", core: "dead_bug", hip_adductors: "hip_adduction", hip_abductors: "hip_abduction" } : { chest: equipment === "home" ? "dumbbell_floor_press" : "push_up", back: equipment === "home" ? "dumbbell_row" : "prone_w_raise", shoulders: "prone_w_raise", biceps: equipment === "home" ? "dumbbell_curl" : null, triceps: equipment === "home" ? "dumbbell_triceps_extension" : "push_up", quads: "bodyweight_squat", hamstrings: equipment === "home" ? "dumbbell_rdl" : "glute_bridge", glutes: "glute_bridge", calves: "calf_raise", core: "dead_bug", hip_adductors: "side_lying_adduction", hip_abductors: "side_lying_abduction" };
       const priorityIds = [...priority].map(id => extra[id]).filter(Boolean);
       ids = [...ids.slice(0, 4), ...priorityIds, ...ids.slice(4)].filter((id, index, all) => all.indexOf(id) === index).slice(0, 6);
+      const available = equipment === "gym" ? new Set(catalog.map(row => row.id)) : new Set([...Object.values(pools).flat(), ...Object.values(extra).filter(Boolean)]);
+      ids = ids.map(id => preferred.find(other => available.has(other) && byId.get(other).pattern === byId.get(id).pattern) || id)
+        .filter((id, index, all) => !excluded.has(id) && all.indexOf(id) === index);
       const output = [];
       let seconds = 300;
       const restFor = id => ["squat", "hinge", "horizontal-push", "horizontal-pull", "vertical-push", "vertical-pull", "lunge"].includes(byId.get(id).pattern) ? 120 : 90;
@@ -328,8 +333,68 @@
     });
     const unserved = [...priority].filter(id => !days.some(day => day.exercises.some(row => byId.get(row.exerciseId).primaryMuscles.includes(id))));
     if (unserved.length) limitations.push(`${unserved.map(id => muscleLabels[id]).join("·")} 우선 요청은 현재 시간·장비 구성에서 직접 동작으로 채우지 못했어요. 시간을 확보하거나 가능한 장비를 확인한 뒤 조정해 주세요.`);
+    if (excluded.size) limitations.push("제외한 운동은 초안에서 뺐어요. 빠진 움직임을 모두 대체한 것은 아니므로 저장 전에 구성을 확인해 주세요.");
+    if (days.some(day => !day.exercises.length)) return result("incomplete", "제외 운동과 시간 조건 때문에 비어 있는 세션이 있어요. 조건을 조정한 뒤 다시 구성해 주세요.");
     return result("ready", `${daysPerWeek}회와 회당 ${sessionMinutes}분에 맞춘 시작 계획이에요. ${priority.size ? "우선 부위는 보조 동작 선택과 순서에 반영했어요." : "주요 움직임을 나누어 배치했어요."} 세트 수는 근성장 보장량이 아니며 통증·회복과 실제 기록에 따라 검토해야 해요.`, days, daysPerWeek <= 3 ? "전신 기본 계획" : daysPerWeek === 4 ? "상체·하체 분할" : "밀기·당기기·하체 분할");
   }
 
-  return Object.freeze({ VERSION, catalog, muscleLabels, resolveExercise, analyze, recommendProgram });
+  function createProgram(draft, options = {}) {
+    if (draft?.status !== "ready" || !text(options.id) || !text(options.createdAt)) throw new Error("저장할 시작 계획과 식별자·작성 시각이 필요해요.");
+    return { id: options.id, name: text(options.name) || draft.name, createdAt: options.createdAt, source: options.source || "template",
+      days: draft.days.map((day, index) => ({ id: `${options.id}:day:${index}`, label: day.label,
+        exercises: day.exercises.map((row, x) => { const parts = String(row.reps).split("-").map(Number); return {
+          id: `${options.id}:day:${index}:exercise:${x}`, exerciseId: row.exerciseId, label: row.label,
+          sets: row.sets, repsMin: parts[0], repsMax: parts[1] ?? parts[0], rir: row.rir, restSeconds: row.restSeconds,
+          loadKg: null, equipmentKey: null, loadConvention: "as-recorded"
+        }; }) })) };
+  }
+  function createAssignment(program, dayId, date, id) {
+    const day = program?.days?.find(row => row.id === dayId);
+    if (!day || dateNumber(date) === null || !text(id)) throw new Error("배치할 세션과 실제 날짜를 확인해 주세요.");
+    return { id, date, programId: program.id, dayId, prescription: JSON.parse(JSON.stringify(day)), recordId: null, status: "planned", adjustment: null };
+  }
+  function evaluateAssignment(assignment, records = []) {
+    const record = records.find(row => row.id === assignment.recordId);
+    if (!record || assignment.status !== "performed") return { status: assignment.status === "skipped" ? "skipped" : "unrecorded", rows: [], restVerified: false, message: assignment.status === "skipped" ? "사용자가 수행하지 않았다고 표시한 계획이에요. 휴식 여부는 별개예요." : "연결된 실제 일지가 없어요. 운동하지 않았거나 쉬었다고 판단하지 않아요." };
+    if (record.date !== assignment.date) return { status: "review", rows: [], restVerified: false, message: "계획과 연결한 일지의 날짜가 달라 수행을 비교하지 않았어요." };
+    const rows = assignment.prescription.exercises.map(target => {
+      const exercises = record.exercises.filter(row => row.exerciseId === target.exerciseId);
+      const sets = exercises.flatMap(row => row.sets.filter(set => set.marker === null));
+      const observed = sets.slice(0, target.sets), complete = observed.length === target.sets;
+      const knownReps = complete && observed.every(set => finite(set.reps));
+      const knownRir = complete && observed.every(set => finite(set.rir));
+      const repRangeMet = knownReps ? observed.every(set => set.reps >= target.repsMin && set.reps <= target.repsMax) : null;
+      const rirMet = knownRir ? observed.every(set => set.rir >= target.rir) : null;
+      const comparableLoad = target.equipmentKey !== null && target.loadConvention !== "as-recorded" && exercises.length > 0
+        && exercises.every(row => row.equipmentKey === target.equipmentKey && row.loadConvention === target.loadConvention);
+      const loadMet = target.loadKg !== null && comparableLoad && complete && observed.every(set => finite(set.loadKg)) ? observed.every(set => set.loadKg === target.loadKg) : null;
+      const unknown = repRangeMet === null || rirMet === null || target.loadKg !== null && loadMet === null;
+      return { id: target.id, exerciseId: target.exerciseId, label: target.label, plannedSets: target.sets, recordedSets: sets.length,
+        repRangeMet, rirMet, loadMet, upperRangeMet: knownReps && knownRir && comparableLoad && loadMet !== false && observed.every(set => finite(set.loadKg) && set.loadKg === observed[0].loadKg && set.reps >= target.repsMax && set.rir >= target.rir),
+        status: !sets.length ? "unrecorded" : !complete ? "partial" : unknown ? "unknown" : repRangeMet && rirMet && loadMet !== false ? "met" : "different" };
+    });
+    return { status: rows.every(row => row.status === "met") ? "met" : "review", rows, restVerified: false,
+      message: "계획의 일반 세트 수·반복 범위·최소 RIR 여유와 기록을 비교했어요. 추가 세트는 별도 수행이며 휴식 시간·자세는 검증하지 않았어요." };
+  }
+  function adjustAssignment(assignment, change, context = {}) {
+    if (assignment.status !== "planned" || assignment.recordId !== null || context.completed === true) throw new Error("수행했거나 완료한 날짜의 계획은 바꾸지 않아요. 다음 날짜에 새 계획을 배치해 주세요.");
+    if (context.recovery?.status === "stop" || ["mild", "stop"].includes(context.recovery?.pain) || context.profile && (context.profile.healthContext !== "general" || context.profile.age < 18 || context.profile.age > 80)) throw new Error("현재 건강·통증·회복 맥락은 개별 확인이 먼저예요. 수치 조정을 적용하지 않았어요.");
+    if (!["maintain", "deload", "progression"].includes(change.kind) || !text(change.reason) || dateNumber(change.reviewDate) === null || change.reviewDate < assignment.date) throw new Error("조정 이유와 계획 이후 검토 날짜를 입력해 주세요.");
+    if (change.kind === "progression" && ["watch", "review"].includes(context.recovery?.status)) throw new Error("회복 신호를 먼저 확인한 뒤 증량을 검토해 주세요.");
+    const next = JSON.parse(JSON.stringify(assignment));
+    const originalPrescription = next.adjustment?.originalPrescription || JSON.parse(JSON.stringify(next.prescription));
+    if (change.kind === "progression") {
+      const target = next.prescription.exercises.find(row => row.id === change.exerciseId);
+      if (!target || !finite(change.loadKg) || change.loadKg < 0 || change.loadKg > 10000 || !target.equipmentKey || target.loadConvention === "as-recorded") throw new Error("같은 장비·중량 기준을 확인하고 사용자가 선택한 다음 중량을 입력해 주세요.");
+      target.loadKg = change.loadKg;
+    }
+    if (change.kind === "deload") {
+      if (!Number.isInteger(change.setReduction) || change.setReduction < 0 || change.setReduction > 19 || !finite(change.rirIncrease) || change.rirIncrease < 0 || change.rirIncrease > 10 || !change.setReduction && !change.rirIncrease) throw new Error("줄일 세트 또는 늘릴 반복 여유를 직접 선택해 주세요.");
+      next.prescription.exercises.forEach(row => { row.sets = Math.max(1, row.sets - change.setReduction); row.rir = Math.min(10, row.rir + change.rirIncrease); });
+    }
+    next.adjustment = { kind: change.kind, reason: text(change.reason), reviewDate: change.reviewDate, reviewed: false, originalPrescription };
+    return next;
+  }
+
+  return Object.freeze({ VERSION, catalog, muscleLabels, resolveExercise, analyze, recommendProgram, createProgram, createAssignment, evaluateAssignment, adjustAssignment });
 });

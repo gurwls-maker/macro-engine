@@ -136,7 +136,11 @@ test("summary preserves completed saved plans despite current profile changes", 
   state.profile.weightKg = 90;
   const summary = Runtime.summarizeState(state, day.date);
   assert.deepEqual(summary.today.planSnapshot, original);
-  assert.deepEqual(summary.recentDays[0].savedPlan, original);
+  assert.deepEqual(summary.recentDays[0].savedPlan.energy, original.energy);
+  assert.deepEqual(summary.recentDays[0].savedPlan.macros, original.macros);
+  assert.equal(summary.recentDays[0].savedPlan.status, original.status);
+  assert.equal(summary.recentDays[0].savedPlan.version, original.version);
+  assert.deepEqual(day.planSnapshot, original);
   assert.equal(summary.recentDays[0].mealCount, 1);
   assert.equal(summary.recentDays[0].intake.kcal, 290);
   assert.equal(summary.profile.weightKg, 90);
@@ -350,4 +354,222 @@ test("Codex binary override resolves a configured path without probing installed
     if (previous === undefined) delete process.env.MACRO_CODEX_BIN;
     else process.env.MACRO_CODEX_BIN = previous;
   }
+});
+
+test("fact packets distinguish unknown intake, estimates and measured composition", () => {
+  const state = fixture(), date = "2026-10-05";
+  let context = Runtime.summarizeState(state, date);
+  assert.equal(context.contractVersion, 2);
+  assert.ok(!context.facts.some(fact => fact.id.startsWith("today.intake.")));
+  assert.equal(context.facts.find(fact => fact.id === "today.target.kcal").estimated, true);
+  state.days[date].weightKg = 65;
+  state.days[date].meals = [{ id: "known", name: "합성 기록", protein: 20, carbs: 30, fat: 10, otherKcal: 0, alcoholG: 0 }];
+  context = Runtime.summarizeState(state, date);
+  assert.equal(context.facts.find(fact => fact.id === "today.intake.kcal").value, 290);
+  assert.equal(context.facts.find(fact => fact.id === "measurement.weightKg").estimated, false);
+  assert.ok(!context.facts.some(fact => fact.id === "measurement.skeletalMuscleKg"));
+});
+
+test("AI numeric claims must refer to an exact known fact and stated quantities are checked", () => {
+  const context = { contractVersion: 2, date: "2026-10-05", facts: [{ id: "known", value: 12, unit: "회" }] };
+  const result = { ...answer(), answer: "기록은 12회예요.", coaching: { claims: [{ factId: "known", value: 12 }], followUp: null } };
+  assert.equal(Runtime.validateResult(result, "chat", context), result);
+  for (const change of [
+    value => { value.coaching.claims[0].value = 13; },
+    value => { value.coaching.claims[0].factId = "invented"; },
+    value => { value.answer = "기록은 18회예요."; },
+    value => { value.answer = "기록은 4~12회예요."; },
+    value => { value.answer = "기록은 12.4회예요."; },
+    value => { value.answer = "12kg이에요."; },
+    value => { value.answer = "RIR 12예요."; },
+    value => { value.coaching.claims.push({ factId: "known", value: 12 }); }
+  ]) {
+    const changed = structuredClone(result); change(changed);
+    assert.throws(() => Runtime.validateResult(changed, "chat", context));
+  }
+  assert.throws(() => Runtime.validateResult(answer(), "chat", context), /기록 근거/);
+});
+
+test("follow-up proposals are bounded drafts and cannot contain writes or arbitrary fields", () => {
+  const context = { date: "2026-10-05", facts: [] };
+  const result = { ...answer(), coaching: { claims: [], followUp: { topic: "recovery", note: "수면과 수행이 돌아왔는지 확인", reviewDate: "2026-10-12" } } };
+  assert.equal(Runtime.validateResult(result, "chat", context), result);
+  for (const date of ["2026-10-04", "2027-02-01", "2026-02-30"]) {
+    const changed = structuredClone(result); changed.coaching.followUp.reviewDate = date;
+    assert.throws(() => Runtime.validateResult(changed, "chat", context));
+  }
+  const changed = structuredClone(result); changed.coaching.followUp.apply = true;
+  assert.throws(() => Runtime.validateResult(changed, "chat", context));
+  assert.throws(() => Runtime.validateResult({ ...answer("workout"), coaching: result.coaching }, "workout"));
+});
+
+test("older relevant messages are recalled within a budget, never future memories", () => {
+  const state = fixture();
+  state.training = require("../src/training-store.js").createEmpty();
+  state.training.messages = Array.from({ length: 20 }, (_, index) => ({ id: `message-${index}`, role: index % 2 ? "coach" : "user", text: index === 0 ? "벤치에서 기구를 바꾸기로 했어요." : "일상적인 합성 대화", createdAt: `2026-09-${String(index + 1).padStart(2, "0")}T12:00:00.000Z`, source: "local", replyTo: null, contextDigest: null, status: "answered" }));
+  state.training.memory = { constraints: "미래에 입력한 조건", focus: "", agreements: "", updatedAt: "2026-10-07T12:00:00.000Z" };
+  const before = JSON.stringify(state);
+  const context = Runtime.summarizeState(state, "2026-10-05", "벤치 기구");
+  assert.equal(context.recall.memory, null);
+  assert.equal(context.recall.conversation[0].id, "message-0");
+  assert.equal(context.conversation.length, 12);
+  assert.ok(!context.conversation.some(message => message.id === "message-0"));
+  assert.equal(JSON.stringify(state), before);
+});
+
+test('selected-day measurements use the same pure profile helper as the browser without modifying either input', () => {
+  const state = fixture(), day = state.days['2026-10-05'];
+  Object.assign(state.profile, { sex: 'male', age: 35, heightCm: 180, weightKg: 80, bodyFatPct: 30, bodyFatWeightKg: 80, bodyFatDate: '2026-09-30', bodyFatMethod: 'dxa', trainingYears: 5, goal: 'lose' });
+  Object.assign(day, { weightKg: 80, bodyFatPct: 12, bodyFatMethod: 'dxa' });
+  const before = structuredClone(state);
+  const effective = Nutrition.profileForDay(state.profile, day);
+  const plan = Nutrition.calculatePlan(effective, day, []);
+  const context = Runtime.summarizeState(state, day.date);
+  assert.deepEqual(context.calculationProfile, effective);
+  assert.equal(context.facts.find(fact => fact.id === 'today.target.kcal').value, plan.energy.targetKcal);
+  assert.notEqual(plan.energy.targetKcal, Nutrition.calculatePlan(state.profile, day, []).energy.targetKcal);
+  assert.deepEqual(state, before);
+  assert.deepEqual(Nutrition.profileForDay(state.profile, {}), state.profile);
+  assert.notEqual(Nutrition.profileForDay(state.profile, {}), state.profile);
+  assert.equal(Nutrition.profileForDay(null, day), null);
+});
+
+test('recent nutrition and measurements expose citeable facts instead of rejecting correct history quantities', () => {
+  const state = fixture(), day = state.days['2026-10-05'];
+  state.days['2026-10-04'] = { ...structuredClone(day), date: '2026-10-04', weightKg: 64.7, bodyFatPct: 24.1,
+    meals: [{ id: 'previous-meal', name: '합성 식사', protein: 17.3, carbs: 55, fat: 11, otherKcal: 0, alcoholG: 0 }] };
+  const context = Runtime.summarizeState(state, day.date);
+  const protein = context.facts.find(fact => fact.id === 'packet.recentDays.1.intake.protein');
+  const weight = context.facts.find(fact => fact.id === 'packet.recentDays.1.weightKg');
+  assert.equal(protein.value, 17.3); assert.equal(protein.unit, 'g'); assert.equal(protein.date, '2026-10-04');
+  const value = { ...answer(), answer: '10월 4일에 기록한 단백질은 17.3그램, 체중은 64.7kg이에요.',
+    coaching: { claims: [protein, weight].map(fact => ({ factId: fact.id, value: fact.value })), followUp: null } };
+  assert.equal(Runtime.validateResult(value, 'chat', context), value);
+});
+
+test('known calendar dates and follow-up dates are separate from quantities and invented dates fail', () => {
+  const context = { contractVersion: 2, date: '2026-10-05', facts: [{ id: 'weight', unit: 'kg', value: 65 }] };
+  const value = { ...answer(), answer: '2026년 10월 5일 기록은 65kg이에요. 10월 12일에 다시 확인할까요?', coaching: {
+    claims: [{ factId: 'weight', value: 65 }], followUp: { topic: 'general', note: '2026-10-12에 기록을 확인', reviewDate: '2026-10-12' } } };
+  assert.equal(Runtime.validateResult(value, 'chat', context), value);
+  for (const text of ['10월 6일 기록은 65kg이에요.', '2025년 10월 5일 기록은 65kg이에요.', '체중은 5일 동안 같은 조건으로 기록하세요.']) {
+    assert.throws(() => Runtime.validateResult({ ...value, answer: text }, 'chat', context));
+  }
+});
+
+test('Korean quantity aliases, compatible units, full-width digits and RIR particles do not bypass claim checks', () => {
+  const context = { contractVersion: 2, date: '2026-10-05', facts: [
+    { id: 'protein', unit: 'g', value: 20 }, { id: 'weight', unit: 'kg', value: 65 },
+    { id: 'training.rir', unit: '회', value: 2 }, { id: 'duration', unit: '분', value: 60 }
+  ] };
+  const base = { ...answer(), coaching: { claims: context.facts.map(fact => ({ factId: fact.id, value: fact.value })), followUp: null } };
+  for (const text of ['단백질은 20그램이에요.', '체중은 65킬로그램이에요.', 'RIR은 2로 기록했어요.', '반복 여유는 2예요.', '기록 시간은 1시간이에요.']) {
+    assert.doesNotThrow(() => Runtime.validateResult({ ...base, answer: text }, 'chat', context));
+  }
+  for (const text of ['단백질은 500그램을 먹으세요.', '체중은 ６６kg이에요.', 'RIR은 9로 하세요.', 'RIR: 2~4로 하세요.', '반복 여유는 5예요.', '운동은 2시간이에요.']) {
+    assert.throws(() => Runtime.validateResult({ ...base, answer: text }, 'chat', context));
+  }
+});
+
+test('saved programs cannot override current clinical or pain review and are not current recommendations', () => {
+  const state = fixture();
+  state.training = require('../src/training-store.js').createEmpty();
+  const T = require('../src/training.js');
+  const draft = T.recommendProgram(state.profile, state.training.settings, {});
+  const saved = T.createProgram(draft, { id: 'saved', name: '합성 계획', createdAt: '2026-09-01T00:00:00.000Z' });
+  state.training.planning.programs = [saved]; state.training.planning.activeProgramId = saved.id;
+  state.profile.healthContext = 'clinical';
+  const context = Runtime.summarizeState(state, '2026-10-05');
+  assert.equal(context.program.status, 'review');
+  assert.deepEqual(context.program.days, []);
+  assert.equal(context.savedProgram.name, '합성 계획');
+  assert.equal(context.savedProgram.applicability, 'review');
+  assert.ok(!context.facts.some(fact => fact.id.startsWith('program.')));
+  assert.match(Runtime.promptFor({ kind: 'chat', context }), /savedProgram.*ready가 아니면/);
+  state.profile.healthContext = 'general';
+  state.training.records = [{ ...denseWorkout('2026-10-05', 501), pain: 'stop' }];
+  const stopped = Runtime.summarizeState(state, '2026-10-05');
+  assert.equal(stopped.trainingAnalysis.recovery.status, 'stop');
+  assert.equal(stopped.program.status, 'review');
+  assert.equal(stopped.savedProgram.applicability, 'review');
+  state.training.planning.programs[0].createdAt = '2026-10-06T12:00:00.000Z';
+  assert.equal(Runtime.summarizeState(state, '2026-10-05').savedProgram, null);
+});
+
+test('older meal-note recall includes the matching wording without changing dates or original notes', () => {
+  const state = fixture();
+  for (let index = 1; index <= 23; index++) {
+    const date = `2026-09-${String(index).padStart(2, '0')}`;
+    state.days[date] = { ...structuredClone(state.days['2026-10-05']), date,
+      meals: [{ id: `meal-${index}`, name: '합성 식사', note: index === 1 ? '유제품 뒤 소화 불편' : '', protein: 20, carbs: 30, fat: 10, otherKcal: 0, alcoholG: 0 }] };
+  }
+  const before = JSON.stringify(state);
+  const context = Runtime.summarizeState(state, '2026-10-05', '유제품 소화');
+  assert.equal(context.recall.days[0].date, '2026-09-01');
+  assert.equal(context.recall.days[0].meals[0].note, '유제품 뒤 소화 불편');
+  assert.equal(JSON.stringify(state), before);
+});
+
+function denseWorkout(date, index) {
+  return { id: `record-${index}`, date, time: '18:30', label: `합성 훈련 ${index}`, durationMinutes: 70, reportedSetCount: 56,
+    reportedVolumeKg: 12345, reportedEnergyKcal: null,
+    source: { kind: 'manual', hash: null, paths: [], uncertainties: [], revision: null }, notes: '', effort: 7, pain: 'none',
+    exercises: Array.from({ length: 7 }, (_, exerciseIndex) => ({ id: `exercise-${index}-${exerciseIndex}`, rawName: exerciseIndex === 6 ? '벤치프레스' : '합성 기구', exerciseId: null,
+      equipmentKey: null, loadConvention: 'as-recorded', durationMinutes: null, repsTotal: null, reportedVolumeKg: null, notes: exerciseIndex === 6 ? '벤치 중량 확인' : '',
+      sets: Array.from({ length: 8 }, (_, setIndex) => ({ id: `set-${index}-${exerciseIndex}-${setIndex}`, loadKg: 40 + index, reps: 10 + setIndex, rir: 2, marker: null })) })) };
+}
+test('bounded workout samples preserve original counts, relevant blocks and complete volume aggregates', () => {
+  const state = fixture(); state.training = require('../src/training-store.js').createEmpty();
+  for (let index = 0; index < 16; index++) state.training.records.push(denseWorkout(require('../src/insights.js').shiftDate('2026-10-05', -index), index));
+  state.training.records[0].source.uncertainties = ['머신 표시와 합산 여부 미확인'];
+  state.training.records.push(denseWorkout('2026-10-06', 99));
+  const context = Runtime.summarizeState(state, '2026-10-05', '벤치 중량');
+  assert.equal(context.workoutIndex.length, 12);
+  assert.equal(context.recentWorkouts.length, 4);
+  assert.equal(context.recall.workouts.length, 3);
+  assert.equal(context.trainingAnalysis.coverage.workingSets, 16 * 56);
+  assert.equal(context.workoutIndex[0].originalSetCount, 56);
+  assert.deepEqual(context.recentWorkouts[0].uncertainties, ['머신 표시와 합산 여부 미확인']);
+  assert.equal(context.facts.find(fact => fact.id === 'packet.trainingSettings.sessionMinutes').value, 60);
+  for (const record of [...context.recentWorkouts, ...context.recall.workouts]) {
+    assert.ok(record.date <= context.date);
+    assert.equal(record.originalExerciseCount, 7);
+    assert.equal(record.originalSetCount, 56);
+    assert.equal(record.sampled, true);
+    assert.ok(record.exercises.length <= 6);
+    assert.equal(record.exercises[0].rawName, '벤치프레스');
+    assert.equal(record.exercises[0].sourceExercisePosition, 7);
+    for (const exercise of record.exercises) { assert.ok(exercise.sets.length <= 6 && exercise.sets.length >= 1); assert.equal(exercise.originalSetCount, 8); assert.equal(exercise.sampled, true); }
+  }
+  assert.ok(Buffer.byteLength(Runtime.promptFor({ kind: 'chat', question: '벤치 중량', context }), 'utf8') < 256 * 1024);
+  assert.equal(context.samplingReducedForBudget, true);
+  const facts = new Map(context.facts.map(fact => [fact.id, fact]));
+  function assertProjected(value, prefix = 'packet') {
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value)) {
+      if (key === 'facts') continue;
+      const position = `${prefix}.${key}`;
+      if (typeof child === 'number') assert.equal(facts.get(position)?.value, child, `missing citeable numeric field ${position}`);
+      else if (child && typeof child === 'object') assertProjected(child, position);
+    }
+  }
+  assertProjected(context);
+  for (const prefix of ['packet.recentWorkouts.0.exercises.0.sets.0', 'packet.recall.workouts.0.exercises.0.sets.0']) {
+    const load = facts.get(`${prefix}.loadKg`), reps = facts.get(`${prefix}.reps`), rir = facts.get(`${prefix}.rir`);
+    const output = { ...answer(), answer: `${load.date} 기록에서 ${load.value}kg, ${reps.value}회, RIR은 ${rir.value}였어요.`,
+      coaching: { claims: [load, reps, rir].map(fact => ({ factId: fact.id, value: fact.value })), followUp: null } };
+    assert.doesNotThrow(() => Runtime.validateResult(output, 'chat', context));
+  }
+});
+
+test('new runtime contract does not silently reuse pre-guard cached answers', t => {
+  const h = harness(t), input = { kind: 'chat', question: 'cache boundary' };
+  const oldId = Runtime.digest({ pipelineVersion: 3, input }).slice(0, 32);
+  const folder = path.join(h.directory, 'jobs', oldId); fs.mkdirSync(folder);
+  fs.writeFileSync(path.join(folder, 'job.json'), JSON.stringify({ id: oldId, kind: 'chat', status: 'completed', result: answer(), createdAt: '2026-10-01T00:00:00.000Z' }));
+  const current = h.runtime.start(input);
+  assert.notEqual(current.id, oldId);
+  assert.equal(current.status, 'running'); assert.equal(h.calls.length, 1);
+  assert.equal(h.runtime.get(oldId).status, 'completed');
+  h.finish(answer());
 });

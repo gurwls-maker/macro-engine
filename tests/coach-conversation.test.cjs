@@ -23,6 +23,34 @@ function program() {
 }
 function context(overrides = {}) { return { profile, day, history: [], trainingAnalysis: analysis(), program: program(), ...overrides }; }
 
+test("an explicitly requested missing muscle never falls back to another muscle", () => {
+  const result = Conversation.respond("어깨 직접 간접 세트 수", context());
+  assert.equal(result.topic, "muscles");
+  assert.ok(!result.text.includes("가슴: 직접"));
+  assert.equal(result.requiresPersonalReview, true);
+});
+
+test("a known missing exercise does not borrow a different exercise's progression", () => {
+  const result = Conversation.respond("레그 익스텐션 중량 변화", context());
+  assert.equal(result.topic, "progression");
+  assert.ok(!result.text.includes("50kg"));
+  assert.equal(result.requiresPersonalReview, true);
+});
+
+test("negated current symptoms are not positive pain reports", () => {
+  for (const prompt of ["아프지 않아요. 최근 운동 기록", "숨이 안 차요. 최근 운동 기록"]) {
+    assert.equal(Conversation.respond(prompt, context()).topic, "training");
+  }
+});
+
+test("compound recovery and food questions retain both contexts without assigning a cause", () => {
+  const result = Conversation.respond("회복이 안 되고 배고파. 식사도 알려줘", context());
+  assert.equal(result.topic, "personal-review");
+  assert.match(result.text, /반복 여유/);
+  assert.match(result.text, /단백질/);
+  assert.match(result.text, /원인을 하나로 정하기 전에/);
+});
+
 test("local answers are deterministic, pure and explicitly bounded", () => {
   const ctx = context();
   const before = JSON.stringify(ctx);
@@ -74,6 +102,15 @@ test("program answer describes supplied draft rather than inventing new prescrip
   const missing = Conversation.respond("루틴 알려줘", context({ program: null }));
   assert.equal(missing.requiresPersonalReview, true);
   assert.match(missing.text, /가능한 주당 횟수/);
+});
+
+test("saved coaching program is named as saved rather than a new generated draft", () => {
+  const value = context();
+  value.program.source = "saved";
+  value.program.name = "사용자가 저장한 구성";
+  const result = Conversation.respond("내 루틴 알려줘", value);
+  assert.match(result.text, /사용자가 저장한 구성은 저장한 훈련 구성/);
+  assert.doesNotMatch(result.text, /설정에 맞춘 초안/);
 });
 
 test("unconfirmed profile blocks new programs but still allows record observations", () => {
@@ -149,7 +186,8 @@ test("compound causal questions honestly require personal review with useful obs
     const result = Conversation.respond(prompt, context());
     assert.equal(result.topic, "personal-review");
     assert.equal(result.requiresPersonalReview, true);
-    assert.match(result.text, /자유대화 AI가 전체 맥락을 검토한 답변은 아니/);
+    assert.match(result.text, /로컬 안내/);
+    assert.match(result.text, /질문 전체.*개인 AI/);
     assert.match(result.text, /기록/);
   }
 });
@@ -232,4 +270,71 @@ test("legacy summary-only sessions do not become verified zero-set workouts", ()
   assert.match(result.text, /이전 OCR 요약/);
   assert.match(result.text, /새로 검증한 기록은 아니/);
   assert.ok(!result.text.includes("0개"));
+});
+
+test("lower-body questions cannot silently return upper-body rows", () => {
+  const lower = Conversation.respond("하체 세트 수 알려줘", context());
+  assert.equal(lower.topic, "muscles");
+  assert.equal(lower.requiresPersonalReview, true);
+  assert.ok(!/가슴:|삼두:/.test(lower.text));
+  const upper = Conversation.respond("상체 직접 간접 세트 수", context());
+  assert.match(upper.text, /가슴: 직접 6세트/);
+  assert.match(upper.text, /삼두: 직접 0세트/);
+});
+
+test("persistent or double-negated pain is never swallowed as an absent symptom", () => {
+  for (const prompt of ["통증이 없어지지 않았어요. 운동해도 돼?", "통증은 없진 않아요", "아프지 않은 건 아니에요", "안 아프지는 않아요"]) {
+    assert.equal(Conversation.respond(prompt, context()).topic, "pain", prompt);
+  }
+  for (const prompt of ["통증은 없고 최근 운동 기록은?", "통증은 없는데요. 최근 운동 기록", "아프지는 않아요. 최근 운동 기록", "No pain. 최근 운동 기록"]) {
+    assert.equal(Conversation.respond(prompt, context()).topic, "training", prompt);
+  }
+  const urgent = Conversation.respond("흉통이 없어지지 않았어요", context());
+  assert.equal(urgent.topic, "pain");
+  assert.match(urgent.text, /즉시 119/);
+});
+
+test("explicitly absent disease does not erase a stored clinical context or become a new diagnosis", () => {
+  assert.equal(Conversation.respond("질환은 없어요. 단백질 목표는?", context()).topic, "nutrition");
+  assert.equal(Conversation.respond("질환은 없어지지 않았어요. 단백질 목표는?", context()).topic, "clinical");
+  assert.equal(Conversation.respond("질환은 없어요. 단백질 목표는?", context({ profile: { ...profile, healthContext: "clinical" } })).topic, "clinical");
+});
+
+test("short known aliases and unknown named movements never borrow unrelated exercise numbers", () => {
+  for (const prompt of ["스쿼트 중량 변화", "펙 덱 중량 변화", "알파 머신 중량 변화", "알파 프레스 중량은?"]) {
+    const result = Conversation.respond(prompt, context());
+    assert.equal(result.topic, "progression");
+    assert.equal(result.requiresPersonalReview, true, prompt);
+    assert.ok(!result.text.includes("50kg"), prompt);
+  }
+  assert.match(Conversation.respond("중량 수행 변화", context()).text, /50kg × 10회.*50kg × 12회/);
+  assert.match(Conversation.respond("지난번보다 중량은 늘었어?", context()).text, /50kg × 10회.*50kg × 12회/);
+});
+
+test("separately named exercises remain separate instead of selecting only the longest exercise label", () => {
+  const ctx = context();
+  const base = ctx.trainingAnalysis.progression[0];
+  ctx.trainingAnalysis.progression = [
+    { ...base, exerciseId: "bench_press", label: "벤치 프레스" },
+    { ...base, exerciseId: "dumbbell_bulgarian_split_squat", label: "덤벨 불가리안 스플릿 스쿼트", current: { ...base.current, loadKg: 15 }, previous: { ...base.previous, loadKg: 15 }, observed: { current: { ...base.current, loadKg: 15 }, previous: { ...base.previous, loadKg: 15 } } }
+  ];
+  const result = Conversation.respond("벤치 프레스와 덤벨 불가리안 스플릿 스쿼트 중량 변화", ctx);
+  assert.equal(result.topic, "progression");
+  assert.match(result.text, /벤치 프레스.*50kg/);
+  assert.match(result.text, /불가리안 스플릿 스쿼트.*15kg/);
+});
+
+test("allocation and exercise-energy questions reuse the relevant coach answer, not generic next-meal text", () => {
+  const ctx = context({ profile: { ...profile, activityMode: "detailed", dailyActivity: { sleepHours: 8, workHours: 8, workType: "seated", lifestyleHours: 2, lifestyleType: "light" } }, day: { ...day, sessions: [{ sport: "running", durationMin: 60, intensity: "moderate" }], carbAdjustmentG: 25 } });
+  const allocation = Conversation.respond("탄수 지방 배분을 바꾸면?", ctx);
+  assert.equal(allocation.topic, "nutrition");
+  assert.match(allocation.text, /선택한 배분/);
+  assert.match(allocation.text, /총열량과 단백질은 그대로/);
+  const exercise = Conversation.respond("운동 소모량은 이미 들어갔어?", ctx);
+  assert.equal(exercise.topic, "nutrition");
+  assert.match(exercise.text, /휴식을 운동으로 바꿔 계산/);
+  assert.match(exercise.text, /한 번 더 더하지/);
+  const time = Conversation.respond("활동량 시간표는 어떻게 반영돼?", ctx);
+  assert.equal(time.topic, "nutrition");
+  assert.match(time.text, /기본 시간표.*휴식/);
 });

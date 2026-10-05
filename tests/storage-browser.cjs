@@ -6,6 +6,7 @@ const path = require("node:path");
 const { chromium } = require("playwright");
 const Storage = require("../src/storage.js");
 const Nutrition = require("../src/nutrition.js");
+const Insights = require("../src/insights.js");
 const root = path.resolve(__dirname, "..");
 const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(new Date());
 const profile = { sex: "female", age: 35, heightCm: 165, weightKg: 65, bodyFatPct: null, bodyFatMethod: "unknown", bodyFatDate: null, bodyFatWeightKg: null, trainingYears: null, sport: "strength", goal: "maintain", activity: "light", healthContext: "general", proteinPreference: "standard" };
@@ -60,6 +61,133 @@ async function addMeal(page, name = "간식") {
 }
 
 const cases = [
+  {
+    name: "meal metadata, alcohol confirmation, reusable templates and day notes survive reload",
+    seed: { [Storage.STORAGE_KEY]: JSON.stringify(fixture()) },
+    async run(page) {
+      await page.setViewportSize({ width: 320, height: 800 });
+      await page.locator('#view-today .meal-section [data-action="meal-add"]').click();
+      await page.locator('#entryForm [name="name"]').fill('저녁 술과 식사');
+      await page.locator('#entryForm [name="protein"]').fill('25');
+      await page.locator('#entryForm [name="type"]').selectOption('dinner');
+      await page.locator('#entryForm [name="note"]').fill('양과 도수 확인');
+      await page.locator('#entryForm details summary').click();
+      await page.locator('[name="alcoholVolume"]').fill('500');
+      await page.locator('[name="alcoholAbv"]').fill('5');
+      await page.locator('[name="alcoholCount"]').fill('2');
+      await page.locator('[data-action="alcohol-calculate"]').click();
+      assert.equal(await page.locator('[name="alcoholG"]').inputValue(), '39.45');
+      await page.locator('#entryForm button[type="submit"]').click();
+      let saved = JSON.parse(await raw(page));
+      assert.equal(saved.days[today].meals[1].alcoholG, 39.45);
+      assert.equal(saved.days[today].meals[1].type, 'dinner');
+      assert.equal(saved.days[today].meals[1].note, '양과 도수 확인');
+      await page.locator('[data-action="meal-template-save"]').last().click();
+      await page.locator('#entryForm [name="title"]').fill('주말 저녁');
+      await page.locator('#entryForm button[type="submit"]').click();
+      await page.locator('[data-action="meal-templates"]').click();
+      await page.locator('[data-action="meal-template-use"]').click();
+      await page.locator('#entryForm [name="protein"]').fill('35');
+      await page.locator('#entryForm button[type="submit"]').click();
+      await page.locator('[data-action="day-note"]').click();
+      await page.locator('#entryForm [name="note"]').fill('휴일, 평소보다 늦게 식사');
+      await page.locator('#entryForm button[type="submit"]').click();
+      await page.reload();
+      saved = JSON.parse(await raw(page));
+      assert.equal(saved.mealTemplates[0].meal.protein, 25);
+      assert.equal(saved.days[today].meals[2].protein, 35);
+      assert.notEqual(saved.days[today].meals[1].id, saved.days[today].meals[2].id);
+      assert.equal(saved.days[today].note, '휴일, 평소보다 늦게 식사');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    }
+  },
+  {
+    name: "previous-day bulk copy previews duplicate multiplicity and does not collapse same-name meals",
+    seed: (() => {
+      const state = fixture(), date = Insights.shiftDate(today, -1), meal = state.days[today].meals[0];
+      state.days[date] = { ...structuredClone(state.days[today]), date, meals: [{ ...meal, id: 'old-one' }, { ...meal, id: 'old-two' }, { ...meal, id: 'old-three', protein: 55 }] };
+      return { [Storage.STORAGE_KEY]: JSON.stringify(state) };
+    })(),
+    async run(page) {
+      assert.equal(await page.locator('[data-action="meal-reuse"]').count(), 3);
+      const before = await raw(page);
+      await page.locator('[data-action="meal-copy-previous"]').click();
+      assert.equal(await raw(page), before);
+      assert.equal(await page.locator('[name="copyMeal"]:checked').count(), 2);
+      await page.locator('#entryForm button[type="submit"]').click();
+      const saved = JSON.parse(await raw(page));
+      assert.equal(saved.days[today].meals.length, 3);
+      assert.equal(saved.days[today].meals[2].protein, 55);
+      assert.equal(new Set(Object.values(saved.days).flatMap(day => day.meals.map(meal => meal.id))).size, 6);
+    }
+  },
+  {
+    name: "diet merge previews selected open-day replacement and protects completed day and legacy archive",
+    seed: (() => {
+      const state = fixture(true), date = Insights.shiftDate(today, -1);
+      state.legacy = Storage.importLegacy({ version: 4, records: [] }).legacy;
+      state.days[date] = { ...structuredClone(state.days[today]), date, complete: false, planSnapshot: null, meals: [{ ...state.days[today].meals[0], id: 'open-meal' }] };
+      return { [Storage.STORAGE_KEY]: JSON.stringify(state) };
+    })(),
+    async run(page) {
+      const before = JSON.parse(await raw(page)), incoming = structuredClone(before), yesterday = Insights.shiftDate(today, -1), older = Insights.shiftDate(today, -2);
+      incoming.days[today].meals[0].protein = 70;
+      incoming.days[yesterday].meals[0].protein = 45;
+      incoming.days[older] = { ...structuredClone(incoming.days[yesterday]), date: older, meals: [{ ...incoming.days[yesterday].meals[0], id: 'older-meal' }] };
+      incoming.profile.weightKg = 90; incoming.legacy = null;
+      await upload(page, incoming);
+      assert.deepEqual(JSON.parse(await raw(page)), before);
+      const choice = page.locator(`[name="mergeReplace"][value="${yesterday}"]`);
+      await choice.locator('xpath=ancestor::details/summary').click();
+      await choice.check();
+      assert.equal(await page.locator(`[name="mergeReplace"][value="${today}"]`).count(), 0);
+      await page.locator('[data-action="import-merge"]').click();
+      const saved = JSON.parse(await raw(page));
+      assert.equal(saved.days[yesterday].meals[0].protein, 45);
+      assert.equal(saved.days[older].meals.length, 1);
+      assert.deepEqual(saved.days[today], before.days[today]);
+      assert.deepEqual(saved.profile, before.profile);
+      assert.deepEqual(saved.legacy, before.legacy);
+    }
+  },
+  {
+    name: "period comparisons and body observations render nonblank without narrow-screen overflow",
+    seed: (() => {
+      const state = fixture(true), base = state.days[today];
+      state.days = {};
+      for (let index = 0; index < 42; index++) {
+        const date = Insights.shiftDate(today, -index);
+        state.days[date] = { ...structuredClone(base), date, weightKg: 65 + index / 20, bodyFatPct: index % 7 === 0 ? 22 + index / 50 : null, skeletalMuscleKg: index % 7 === 0 ? 25 + index / 100 : null, bodyFatMethod: 'bia', meals: [{ ...base.meals[0], id: `period-${index}` }] };
+      }
+      return { [Storage.STORAGE_KEY]: JSON.stringify(state) };
+    })(),
+    async run(page) {
+      await nav(page, 'trends');
+      for (const period of [7, 14, 28, 42]) {
+        await page.locator('#trendPeriod').selectOption(String(period));
+        assert.equal(await page.locator('.history-table tbody tr').count(), period);
+      }
+      await page.locator('#bodyMetric').selectOption('skeletalMuscleKg');
+      await page.locator('#intakeMetric').selectOption('protein');
+      fs.mkdirSync(path.join(root, 'tests/artifacts'), { recursive: true });
+      for (const width of [320, 390, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.waitForTimeout(30);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `overflow at ${width}`);
+        for (const selector of ['#weightChart', '#intakeChart']) {
+          const colored = await page.locator(selector).evaluate(canvas => {
+            const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+            let count = 0; for (let index = 0; index < pixels.length; index += 4) if (pixels[index] < 100 && pixels[index + 1] > 80 && pixels[index + 1] < 180) count++;
+            return count;
+          });
+          assert.ok(colored > 10, `${selector} must contain actual observations`);
+        }
+        await page.screenshot({ path: path.join(root, `tests/artifacts/observations-${width}.png`) });
+      }
+      await nav(page, 'today');
+      assert.equal(await page.locator('[data-action="meal-copy-previous"]').count(), 0);
+    }
+  },
   {
     name: "corrupt storage blocks normal save, preserves bytes and offers raw download",
     seed: { [Storage.STORAGE_KEY]: "{broken-한글" },

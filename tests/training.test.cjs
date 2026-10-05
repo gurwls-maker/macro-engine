@@ -13,6 +13,90 @@ const analyze = (records = [], options = {}) => T.analyze(records, { date, profi
 const muscle = (result, id) => result.muscles.find(row => row.id === id);
 const neutral = { date, energy: "okay", hunger: "okay", sleep: "good", pain: "none" };
 
+function planned() {
+  const draft = T.recommendProgram(profile, settings, analyze());
+  const saved = T.createProgram(draft, { id: "plan-1", createdAt: "2026-10-05T00:00:00.000Z" });
+  saved.days[0].exercises = [{ id: "target-1", exerciseId: "bench_press", label: "벤치 프레스", sets: 2, repsMin: 8, repsMax: 12, rir: 2, restSeconds: 120, loadKg: 40, equipmentKey: "synthetic-gym-bar-a", loadConvention: "total" }];
+  return { saved, assignment: T.createAssignment(saved, saved.days[0].id, date, "assignment-1") };
+}
+
+test("saved plans and dated prescription snapshots never become actual exercise or change each other", () => {
+  const draft = T.recommendProgram(profile, settings, analyze()), before = structuredClone(draft);
+  const saved = T.createProgram(draft, { id: "saved", createdAt: "2026-10-05T00:00:00.000Z" });
+  assert.deepEqual(draft, before);
+  assert.ok(saved.days.every(day => day.exercises.every(row => row.loadKg === null && row.equipmentKey === null)));
+  const assignment = T.createAssignment(saved, saved.days[0].id, date, "assigned");
+  const prescribedSets = assignment.prescription.exercises[0].sets;
+  saved.days[0].exercises[0].sets = 8;
+  assert.equal(assignment.prescription.exercises[0].sets, prescribedSets);
+  assert.equal(assignment.recordId, null);
+  assert.equal(T.evaluateAssignment(assignment, []).status, "unrecorded");
+  assert.match(T.evaluateAssignment(assignment, []).message, /쉬었다고 판단하지/);
+  assert.equal(T.evaluateAssignment({ ...assignment, status: "skipped" }, []).status, "skipped");
+  assert.throws(() => T.createAssignment(saved, "missing", date, "id"));
+  assert.throws(() => T.createAssignment(saved, saved.days[0].id, "2026-02-30", "id"));
+  assert.throws(() => T.createProgram({ status: "review" }, { id: "id" }));
+});
+
+test("plan adherence compares actual general sets without filling missing reps, RIR, equipment or rest", () => {
+  const { assignment } = planned(); assignment.status = "performed"; assignment.recordId = "actual";
+  const actual = record("actual", date, [ex([set("w", 20, 5, null, "W"), set("a", 40, 10, 2), set("b", 40, 12, 3)])]);
+  const before = structuredClone({ assignment, actual });
+  let result = T.evaluateAssignment(assignment, [actual]);
+  assert.equal(result.status, "met"); assert.equal(result.rows[0].recordedSets, 2); assert.equal(result.restVerified, false);
+  assert.deepEqual({ assignment, actual }, before);
+  actual.exercises[0].sets[2].rir = null;
+  assert.equal(T.evaluateAssignment(assignment, [actual]).rows[0].status, "unknown");
+  actual.exercises[0].sets[2].rir = 0;
+  assert.equal(T.evaluateAssignment(assignment, [actual]).rows[0].status, "different");
+  actual.exercises[0].sets.pop();
+  assert.equal(T.evaluateAssignment(assignment, [actual]).rows[0].status, "partial");
+  actual.exercises[0].sets.push(set("new", 40, 12, 2)); actual.exercises[0].equipmentKey = "different-machine";
+  assert.equal(T.evaluateAssignment(assignment, [actual]).rows[0].loadMet, null);
+  assert.equal(T.evaluateAssignment(assignment, [actual]).rows[0].status, "unknown");
+  actual.exercises[0].exerciseId = "machine_chest_press";
+  assert.equal(T.evaluateAssignment(assignment, [actual]).rows[0].status, "unrecorded");
+  actual.date = "2026-10-04";
+  assert.deepEqual(T.evaluateAssignment(assignment, [actual]).rows, []);
+  assert.match(T.evaluateAssignment(assignment, [actual]).message, /날짜가 달라/);
+});
+
+test("explicit deload choices preserve the original prescription and schedule a review without changing records", () => {
+  const { assignment } = planned(), before = structuredClone(assignment);
+  const change = { kind: "deload", reason: "사용자가 컨디션을 확인하고 선택", reviewDate: "2026-10-12", setReduction: 1, rirIncrease: 1 };
+  const next = T.adjustAssignment(assignment, change, { profile, recovery: { status: "review", pain: null } });
+  assert.deepEqual(assignment, before);
+  assert.equal(next.prescription.exercises[0].sets, 1); assert.equal(next.prescription.exercises[0].rir, 3);
+  assert.deepEqual(next.adjustment.originalPrescription, before.prescription);
+  assert.equal(next.adjustment.reviewed, false); assert.equal(next.adjustment.reviewDate, "2026-10-12");
+  assert.equal(next.recordId, null); assert.equal(next.status, "planned");
+  for (const context of [{ completed: true }, { profile: { ...profile, healthContext: "clinical" } }, { recovery: { status: "stop" } }, { recovery: { status: "review", pain: "mild" } }]) assert.throws(() => T.adjustAssignment(assignment, change, context));
+  assert.throws(() => T.adjustAssignment({ ...assignment, status: "performed", recordId: "actual" }, change));
+  assert.throws(() => T.adjustAssignment(assignment, { ...change, reviewDate: "2026-10-01" }));
+  assert.throws(() => T.adjustAssignment(assignment, { ...change, setReduction: 0, rirIncrease: 0 }));
+});
+
+test("next load is a user choice with confirmed equipment, never inferred from bodyweight or other machines", () => {
+  const { assignment } = planned();
+  const change = { kind: "progression", reason: "장비의 다음 단계 직접 선택", reviewDate: "2026-10-12", exerciseId: "target-1", loadKg: 42.5 };
+  const next = T.adjustAssignment(assignment, change, { profile, recovery: { status: "okay" } });
+  assert.equal(next.prescription.exercises[0].loadKg, 42.5); assert.equal(assignment.prescription.exercises[0].loadKg, 40);
+  assert.throws(() => T.adjustAssignment(assignment, change, { recovery: { status: "watch" } }));
+  assignment.prescription.exercises[0].equipmentKey = null;
+  assert.throws(() => T.adjustAssignment(assignment, change));
+});
+
+test("saved preferences remove excluded exercises and use preferred movements only in supported pools", () => {
+  const prefs = { excludedExerciseIds: ["bench_press"], preferredExerciseIds: ["machine_chest_press"] }, before = structuredClone(prefs);
+  const gym = T.recommendProgram(profile, settings, analyze(), prefs);
+  assert.ok(gym.days.some(day => day.exercises.some(row => row.exerciseId === "machine_chest_press")));
+  assert.ok(gym.days.every(day => day.exercises.every(row => row.exerciseId !== "bench_press")));
+  const home = T.recommendProgram(profile, { ...settings, equipment: "bodyweight" }, analyze(), prefs);
+  assert.ok(home.days.every(day => day.exercises.every(row => T.catalog.find(item => item.id === row.exerciseId).equipment === "bodyweight")));
+  const excluded = T.recommendProgram(profile, settings, analyze(), { excludedExerciseIds: T.catalog.map(row => row.id) });
+  assert.equal(excluded.status, "incomplete"); assert.deepEqual(prefs, before);
+});
+
 test("catalog is immutable, uses valid muscles, and resolves only exact aliases or confirmed mappings", () => {
   assert.ok(T.catalog.length >= 40);
   assert.equal(new Set(T.catalog.map(row => row.id)).size, T.catalog.length);

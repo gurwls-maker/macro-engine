@@ -38,6 +38,222 @@ test("current backup round trip preserves Korean, decimals, completion and snaps
   assert.equal(input.profile.weightKg, 65);
 });
 
+test("optional meal labels, notes, day notes and templates round trip without name merging", () => {
+  const state = fixture();
+  const day = state.days['2026-10-05'];
+  day.note = '야근 후 식사\n수면은 별도로 기록';
+  Object.assign(day.meals[0], { type: 'lunch', note: '밥 반 공기 추가' });
+  state.mealTemplates = [
+    { id: 'template-a', title: '점심', meal: structuredClone(day.meals[0]) },
+    { id: 'template-b', title: '점심', meal: { ...structuredClone(day.meals[0]), carbs: 100 } }
+  ];
+  assert.deepEqual(Storage.parseBackup(Storage.exportBackup(state)).state, state);
+  assert.equal(Storage.parseBackup(Storage.exportBackup(state)).state.mealTemplates.length, 2);
+  const original = fixture();
+  assert.equal(Object.hasOwn(Storage.validateState(original), 'mealTemplates'), false);
+  assert.equal(Object.hasOwn(Storage.validateState(original).days['2026-10-05'], 'note'), false);
+});
+
+function sessionPreset(id = "preset-1", overrides = {}) {
+  return { id, title: "평소 걷기", session: { sport: "walking", durationMin: 30, intensity: "moderate", ...overrides } };
+}
+
+test("optional session presets round trip without becoming performed sessions or changing old backups", () => {
+  const old = fixture();
+  assert.equal(Object.hasOwn(Storage.validateState(old), "sessionPresets"), false);
+  assert.equal(Object.hasOwn(Storage.parseBackup(Storage.exportBackup(old)).summary, "sessionPresets"), false);
+  const state = fixture();
+  state.sessionPresets = [sessionPreset("session-1"), sessionPreset("preset-2", { durationMin: 45, cardio: { environment: "treadmill", speedKmh: null, gradePct: 0 } }), sessionPreset("preset-3", { sport: "strength", cardio: null })];
+  const before = structuredClone(state.days);
+  const parsed = Storage.parseBackup(Storage.exportBackup(state));
+  assert.deepEqual(parsed.state, state);
+  assert.equal(parsed.summary.sessionPresets, 3);
+  assert.equal(parsed.summary.sessions, 1);
+  assert.deepEqual(parsed.state.days, before);
+  assert.equal(parsed.state.sessionPresets[1].session.cardio.speedKmh, null);
+  const store = memoryStorage();
+  const saved = Storage.save(state, store);
+  assert.deepEqual(Storage.load(store).state, saved);
+  saved.sessionPresets[0].session.durationMin = 50;
+  assert.equal(state.sessionPresets[0].session.durationMin, 30);
+  assert.equal(Storage.VERSION, 9);
+  assert.equal(Storage.STORAGE_KEY, "macro-engine.v9");
+});
+
+test("session presets require exact metadata and distinct IDs within the bounded optional list", () => {
+  const good = fixture(); good.sessionPresets = [sessionPreset()];
+  const serialized = Storage.exportBackup(good);
+  const changes = [
+    state => { state.sessionPresets = null; }, state => { state.sessionPresets = {}; },
+    state => { state.sessionPresets[0].id = " "; }, state => { state.sessionPresets[0].id = "a".repeat(129); },
+    state => { state.sessionPresets[0].title = ""; }, state => { state.sessionPresets[0].title = "a".repeat(201); },
+    state => { state.sessionPresets[0].title = "bad\u0000title"; }, state => { state.sessionPresets[0].enabled = true; },
+    state => { state.sessionPresets[0].session.id = "not-a-performed-session"; }, state => { delete state.sessionPresets[0].session.intensity; },
+    state => { state.sessionPresets.push(structuredClone(state.sessionPresets[0])); },
+    state => { state.sessionPresets = Array.from({ length: 101 }, (_, index) => sessionPreset(`preset-${index}`)); }
+  ];
+  let writes = 0;
+  const store = memoryStorage({ [Storage.STORAGE_KEY]: serialized });
+  store.setItem = () => { writes++; };
+  for (const change of changes) {
+    const invalid = structuredClone(good); change(invalid);
+    assert.throws(() => Storage.validateState(invalid));
+    assert.throws(() => Storage.parseBackup(JSON.stringify(invalid)));
+    assert.throws(() => Storage.save(invalid, store));
+    assert.equal(store.getItem(Storage.STORAGE_KEY), serialized);
+  }
+  assert.equal(writes, 0);
+  const full = fixture(); full.sessionPresets = Array.from({ length: 100 }, (_, index) => sessionPreset(`preset-${index}`));
+  assert.equal(Storage.validateState(full).sessionPresets.length, 100);
+  const empty = fixture(); empty.sessionPresets = [];
+  assert.deepEqual(Storage.parseBackup(Storage.exportBackup(empty)).state.sessionPresets, []);
+});
+
+test("presets and actual sessions share numeric and cardio validation without coercing unknowns", () => {
+  const changes = [
+    value => { value.sport = "none"; }, value => { value.sport = "__proto__"; },
+    value => { value.durationMin = null; }, value => { value.durationMin = "30"; }, value => { value.durationMin = 0; }, value => { value.durationMin = 1441; },
+    value => { value.intensity = "fast"; }, value => { value.complete = true; },
+    value => { value.cardio = {}; }, value => { value.cardio = { environment: "outdoor", speedKmh: "5", gradePct: 0 }; },
+    value => { value.cardio = { environment: "outdoor", speedKmh: 5, gradePct: 21 }; },
+    value => { value.cardio = { environment: "outdoor", speedKmh: 31, gradePct: 0 }; },
+    value => { value.cardio = { environment: "pool", speedKmh: 5, gradePct: 0 }; },
+    value => { value.cardio = { environment: "outdoor", speedKmh: 5, gradePct: 0, estimate: 50 }; },
+    value => { value.sport = "cycling"; value.cardio = { environment: "treadmill", speedKmh: 10, gradePct: 0 }; }
+  ];
+  for (const change of changes) {
+    const presetState = fixture(); presetState.sessionPresets = [sessionPreset()];
+    change(presetState.sessionPresets[0].session);
+    assert.throws(() => Storage.validateState(presetState));
+    const actualState = fixture(); actualState.days["2026-10-05"].sessions = [{ id: "actual", ...sessionPreset().session }];
+    change(actualState.days["2026-10-05"].sessions[0]);
+    assert.throws(() => Storage.validateState(actualState));
+  }
+  for (const durationMin of [1, 1.25, 1440]) {
+    const state = fixture(); state.sessionPresets = [sessionPreset("preset", { durationMin, cardio: { environment: "treadmill", speedKmh: null, gradePct: null } })];
+    assert.equal(Storage.validateState(state).sessionPresets[0].session.durationMin, durationMin);
+  }
+  const missingId = fixture(); delete missingId.days["2026-10-05"].sessions[0].id;
+  assert.throws(() => Storage.validateState(missingId));
+});
+
+test("preset merge previews conflicts, adds only new IDs and never matches by title", () => {
+  const current = fixture(); current.sessionPresets = [sessionPreset("shared"), sessionPreset("unchanged")];
+  const incoming = fixture(); incoming.sessionPresets = [sessionPreset("shared", { durationMin: 90 }), sessionPreset("unchanged"), sessionPreset("new", { durationMin: 60 })];
+  const original = structuredClone(current), source = structuredClone(incoming);
+  const preview = Storage.previewMerge(current, incoming);
+  assert.deepEqual(preview.presets.map(row => [row.id, row.status]), [["shared", "conflict"], ["unchanged", "identical"], ["new", "added"]]);
+  const merged = Storage.mergeBackup(current, incoming);
+  assert.equal(merged.sessionPresets.length, 3);
+  assert.equal(merged.sessionPresets.find(row => row.id === "shared").session.durationMin, 30);
+  assert.equal(merged.sessionPresets.find(row => row.id === "new").session.durationMin, 60);
+  assert.deepEqual(merged.days, original.days);
+  assert.deepEqual(merged.profile, original.profile);
+  assert.deepEqual(Storage.mergeBackup(merged, incoming), merged);
+  assert.deepEqual(current, original);
+  assert.deepEqual(incoming, source);
+  merged.sessionPresets[2].session.durationMin = 120;
+  assert.equal(incoming.sessionPresets[2].session.durationMin, 60);
+  assert.equal(Object.hasOwn(Storage.mergeBackup(fixture(), fixture()), "sessionPresets"), false);
+});
+
+test("preset capacity and corruption fail without partial merge or original data loss", () => {
+  const current = fixture(); current.sessionPresets = Array.from({ length: 100 }, (_, index) => sessionPreset(`preset-${index}`));
+  const incoming = fixture(); incoming.sessionPresets = [sessionPreset("new")];
+  const original = JSON.stringify(current), source = JSON.stringify(incoming);
+  assert.throws(() => Storage.mergeBackup(current, incoming), /100개/);
+  assert.equal(JSON.stringify(current), original);
+  assert.equal(JSON.stringify(incoming), source);
+  const corrupt = structuredClone(current); corrupt.sessionPresets[0].session.durationMin = null;
+  const raw = JSON.stringify(corrupt), store = memoryStorage({ [Storage.STORAGE_KEY]: raw });
+  const loaded = Storage.load(store);
+  assert.equal(loaded.storageBlocked, true);
+  assert.equal(loaded.corruptedRaw, raw);
+  assert.equal(store.getItem(Storage.STORAGE_KEY), raw);
+});
+
+test("invalid template and note metadata never writes or coerces unknown nutrition", () => {
+  const mutations = [
+    state => { state.days['2026-10-05'].note = 0; },
+    state => { state.days['2026-10-05'].meals[0].type = 'unknown'; },
+    state => { state.days['2026-10-05'].meals[0].note = 'a'.repeat(4001); },
+    state => { state.mealTemplates = [{ id: 'x', title: '예시', meal: { ...state.days['2026-10-05'].meals[0], protein: null } }]; },
+    state => { const template = { id: 'x', title: '예시', meal: state.days['2026-10-05'].meals[0] }; state.mealTemplates = [template, structuredClone(template)]; },
+    state => { state.mealTemplates = [{ id: 'x', title: '', meal: state.days['2026-10-05'].meals[0] }]; }
+  ];
+  for (const change of mutations) {
+    const original = fixture(), state = structuredClone(original), store = memoryStorage({ [Storage.STORAGE_KEY]: JSON.stringify(original) });
+    change(state);
+    assert.throws(() => Storage.save(state, store));
+    assert.equal(store.getItem(Storage.STORAGE_KEY), JSON.stringify(original));
+  }
+});
+
+test("explicit activity, weekday overrides, preferences and cardio drafts preserve nulls", () => {
+  const state = fixture(), snapshotBefore = structuredClone(state.days['2026-10-05'].planSnapshot);
+  const activity = { sleepHours: 8, workHours: 8, workType: 'seated', lifestyleHours: null, lifestyleType: null };
+  Object.assign(state.profile, { activityMode: 'detailed', dailyActivity: activity, weekdayActivity: { '0': null, '1': { ...activity, workHours: 6 } }, goalPreference: 'conservative', proteinPreference: 'lower' });
+  state.days['2026-10-05'].dailyActivity = { ...activity, sleepHours: null };
+  state.days['2026-10-05'].sessions[0] = { id: 'cardio', sport: 'walking', durationMin: 20, intensity: 'easy', cardio: { environment: 'treadmill', speedKmh: null, gradePct: 0 } };
+  const result = Storage.parseBackup(Storage.exportBackup(state)).state;
+  assert.deepEqual(result, state);
+  assert.deepEqual(result.days['2026-10-05'].planSnapshot, snapshotBefore);
+  assert.equal(result.days['2026-10-05'].sessions[0].cardio.speedKmh, null);
+  for (const change of [
+    value => { value.profile.weekdayActivity['7'] = activity; },
+    value => { value.profile.dailyActivity.sleepHours = '8'; },
+    value => { value.profile.activityMode = 'automatic'; },
+    value => { value.days['2026-10-05'].sessions[0].cardio.gradePct = 21; },
+    value => { value.days['2026-10-05'].sessions[0].sport = 'strength'; }
+  ]) { const invalid = structuredClone(state); change(invalid); assert.throws(() => Storage.validateState(invalid)); }
+});
+
+test("dietary merge previews every conflict, protects complete days, and leaves unrelated context intact", () => {
+  const before = fixture();
+  before.training = require('../src/training-store.js').createEmpty();
+  before.legacy = Storage.importLegacy({ version: 4, records: [] }).legacy;
+  before.days['2026-10-04'] = { ...structuredClone(before.days['2026-10-05']), date: '2026-10-04', complete: false, planSnapshot: null, meals: [{ ...before.days['2026-10-05'].meals[0], id: 'open-meal' }], sessions: [] };
+  const incoming = structuredClone(before);
+  incoming.profile.weightKg = 80;
+  incoming.legacy = null;
+  incoming.days['2026-10-05'].meals[0].carbs = 100;
+  incoming.days['2026-10-04'].meals[0].carbs = 50;
+  incoming.days['2026-10-03'] = { ...structuredClone(incoming.days['2026-10-04']), date: '2026-10-03', meals: [{ ...incoming.days['2026-10-04'].meals[0], id: 'new-meal' }] };
+  incoming.mealTemplates = [{ id: 't', title: '점심', meal: structuredClone(incoming.days['2026-10-04'].meals[0]) }];
+  const original = structuredClone(before), source = structuredClone(incoming);
+  const preview = Storage.previewMerge(before, incoming);
+  assert.deepEqual(preview.counts, { added: 1, identical: 0, conflict: 1, protected: 1, 'id-conflict': 0 });
+  const keep = Storage.mergeBackup(before, incoming);
+  assert.deepEqual(keep.days['2026-10-04'], before.days['2026-10-04']);
+  const replace = Storage.mergeBackup(before, incoming, ['2026-10-04']);
+  assert.deepEqual(replace.days['2026-10-04'], incoming.days['2026-10-04']);
+  assert.deepEqual(replace.days['2026-10-05'], before.days['2026-10-05']);
+  assert.deepEqual(replace.profile, before.profile);
+  assert.deepEqual(replace.legacy, before.legacy);
+  assert.deepEqual(replace.training, before.training);
+  assert.equal(replace.mealTemplates.length, 1);
+  assert.throws(() => Storage.mergeBackup(before, incoming, ['2026-10-05']));
+  assert.throws(() => Storage.mergeBackup(before, incoming, ['2026-10-04', '2026-10-04']));
+  assert.deepEqual(Storage.mergeBackup(replace, incoming), replace);
+  assert.deepEqual(before, original);
+  assert.deepEqual(incoming, source);
+});
+
+test("merge does not identify meals by name or permit IDs reused on different dates", () => {
+  const current = fixture();
+  const incoming = fixture();
+  const row = incoming.days['2026-10-05'];
+  delete incoming.days[row.date];
+  row.date = '2026-10-04'; incoming.days[row.date] = row;
+  assert.equal(Storage.previewMerge(current, incoming).rows[0].status, 'id-conflict');
+  assert.deepEqual(Storage.mergeBackup(current, incoming), current);
+  row.meals[0].id = 'different-meal'; row.sessions[0].id = 'different-session';
+  assert.equal(Storage.previewMerge(current, incoming).rows[0].status, 'added');
+  assert.equal(Object.keys(Storage.mergeBackup(current, incoming).days).length, 2);
+  const reordered = { ...current, days: { '2026-10-05': Object.fromEntries(Object.entries(current.days['2026-10-05']).reverse()) } };
+  assert.equal(Storage.previewMerge(current, reordered).rows[0].status, 'identical');
+});
+
 test("optional coach check-in preserves older v9 days and explicit unanswered states", () => {
   const original = fixture();
   const store = memoryStorage({ [Storage.STORAGE_KEY]: JSON.stringify(original) });
@@ -113,7 +329,10 @@ test("all six-signal coach check-ins round trip without inventing performed sess
     }
   }
   assert.equal(count, 3840);
-  assert.deepEqual(Nutrition.calculatePlan(input.profile, day, []), planBefore);
+  const afterCheckin = Nutrition.calculatePlan(input.profile, day, []);
+  assert.deepEqual(afterCheckin.energy, planBefore.energy);
+  assert.deepEqual(afterCheckin.macros, planBefore.macros);
+  assert.deepEqual(afterCheckin.context, planBefore.context);
 });
 
 test("invalid coach check-in shapes, enums and unknown keys fail before any write", () => {

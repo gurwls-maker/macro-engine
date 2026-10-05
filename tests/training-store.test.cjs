@@ -30,6 +30,63 @@ function message(id = "question", overrides = {}) {
   return { id, role: "user", text: "어떤 기록이 필요한가요?", createdAt: "2026-01-05T12:00:00.000Z", source: "local", replyTo: null, contextDigest: null, status: "pending", ...overrides };
 }
 
+function plannedWorkspace() {
+  const T = require("../src/training.js"), value = workspace();
+  const saved = T.createProgram(T.recommendProgram({ age: 30, healthContext: "general", trainingYears: 1, sport: "strength", goal: "maintain" }, value.settings), { id: "plan", createdAt: "2026-01-01T00:00:00.000Z" });
+  value.planning.programs.push(saved); value.planning.activeProgramId = saved.id;
+  value.planning.schedule.push(T.createAssignment(saved, saved.days[0].id, "2026-01-05", "scheduled"));
+  return value;
+}
+
+test("old workspaces normalize optional planning, memory and follow-ups without touching old records", () => {
+  const value = workspace(), before = structuredClone(value.records);
+  delete value.planning; delete value.memory; delete value.followUps;
+  const normalized = Training.validate(value);
+  assert.deepEqual(normalized.records, before); assert.deepEqual(normalized.planning, Training.createEmpty().planning);
+  assert.deepEqual(normalized.memory, { constraints: "", focus: "", agreements: "", updatedAt: null }); assert.deepEqual(normalized.followUps, []);
+  assert.equal(value.planning, undefined);
+});
+
+test("stored programs, snapshot assignments and explicit reviews survive exchange without record invention", () => {
+  const T = require("../src/training.js"), value = plannedWorkspace();
+  value.planning.schedule[0] = T.adjustAssignment(value.planning.schedule[0], { kind: "deload", reason: "합성 선택", reviewDate: "2026-01-12", setReduction: 1, rirIncrease: 1 });
+  const snapshot = structuredClone(value.planning.schedule[0].prescription);
+  value.planning.programs[0].days[0].exercises[0].sets = 6;
+  const normalized = Training.validate(value);
+  assert.deepEqual(normalized.planning.schedule[0].prescription, snapshot);
+  assert.equal(normalized.planning.schedule[0].recordId, null);
+  assert.deepEqual(JSON.parse(Training.exportExchange(normalized)).training, normalized);
+  normalized.planning.schedule[0].recordId = normalized.records[0].id;
+  normalized.planning.schedule[0].status = "performed";
+  assert.deepEqual(Training.validate(normalized), normalized);
+});
+
+test("plan schema rejects unknown keys, impossible dates, duplicate IDs and inconsistent performed links", () => {
+  const cases = [
+    value => { value.planning.extra = true; },
+    value => { value.planning.programs[0].days[0].exercises[0].sets = "3"; },
+    value => { value.planning.programs[0].days[0].exercises[0].repsMax = 0; },
+    value => { value.planning.programs[0].days[0].exercises[0].rir = null; },
+    value => { value.planning.programs[0].days[0].exercises.push(structuredClone(value.planning.programs[0].days[0].exercises[0])); },
+    value => { value.planning.activeProgramId = "unknown"; },
+    value => { value.planning.schedule[0].date = "2026-02-30"; },
+    value => { value.planning.schedule[0].status = "performed"; },
+    value => { value.planning.schedule[0].recordId = value.records[0].id; },
+    value => { value.planning.schedule[0].recordId = "missing"; value.planning.schedule[0].status = "performed"; },
+    value => { value.planning.schedule[0].recordId = value.records[0].id; value.planning.schedule[0].status = "performed"; value.planning.schedule[0].date = "2026-01-06"; },
+    value => { value.planning.schedule[0].prescription.id = "unrelated"; },
+    value => { value.planning.preferences.preferredExerciseIds = ["bench_press"]; value.planning.preferences.excludedExerciseIds = ["bench_press"]; }
+  ];
+  for (const change of cases) { const value = plannedWorkspace(); change(value); assert.throws(() => Training.validate(value)); }
+});
+
+test("personal memory and agreed follow-ups are bounded explicit data with strict optional contracts", () => {
+  const value = workspace(); value.memory = { constraints: "합성 제약", focus: "합성 초점", agreements: "확인한 합의", updatedAt: "2026-01-05T12:00:00.000Z" };
+  value.followUps.push({ id: "follow-1", topic: "training", note: "다음 운동 후 함께 확인", reviewDate: "2026-01-12", status: "open", createdAt: "2026-01-05T12:00:00.000Z" });
+  assert.deepEqual(Training.validate(value), value);
+  for (const change of [v => { v.memory.constraints = "x".repeat(6001); }, v => { v.memory.extra = "no"; }, v => { v.followUps[0].reviewDate = "2026-02-30"; }, v => { v.followUps[0].status = "automatic"; }, v => { v.followUps.push(structuredClone(v.followUps[0])); }]) { const invalid = structuredClone(value); change(invalid); assert.throws(() => Training.validate(invalid)); }
+});
+
 test("empty workspace and browser UMD expose the same data boundary", () => {
   const empty = Training.createEmpty();
   assert.deepEqual(Training.validate(empty), empty);

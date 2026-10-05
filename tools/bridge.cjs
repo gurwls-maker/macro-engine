@@ -119,7 +119,7 @@ function createBridge(options = {}) {
         if (!['chat', 'workout', 'meal', 'body'].includes(input.kind) || typeof input.question !== 'string' || input.question.length > 6000) throw new Error('질문 종류와 길이를 확인해 주세요.');
         const state = S.validateState(input.state);
         if (!S.isValidDate(input.date)) throw new Error('판독 기준 날짜를 확인해 주세요.');
-        const context = input.kind === 'chat' ? summarizeState(state, input.date) : { date: input.date, scope: '이미지 원문 판독만. 프로필·영양 목표 추론은 하지 않습니다.' };
+        const context = input.kind === 'chat' ? summarizeState(state, input.date, input.question) : { date: input.date, scope: '이미지 원문 판독만. 프로필·영양 목표 추론은 하지 않습니다.' };
         const file = input.kind === 'chat' ? null : imageFile(input.imageHash);
         json(res, 200, runtime.start({ kind: input.kind, question: input.question, imageHash: file ? input.imageHash : null, context }, file, input.retry === true));
       } else if (req.method === 'GET' && url.pathname === '/api/jobs') json(res, 200, { jobs: runtime.list ? runtime.list() : [] });

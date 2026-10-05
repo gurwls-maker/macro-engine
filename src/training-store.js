@@ -140,14 +140,92 @@
     return records;
   }
 
+  function emptyPlanning() {
+    return { activeProgramId: null, programs: [], schedule: [], preferences: { preferredExerciseIds: [], excludedExerciseIds: [] } };
+  }
+  function validatePrescription(day) {
+    fields(day, ["id", "label", "exercises"], "계획 세션");
+    text(day.id, 512, "계획 세션 ID"); text(day.label, 200, "계획 세션 이름");
+    list(day.exercises, 30, "계획 운동");
+    if (!day.exercises.length) fail("계획에는 운동이 하나 이상 필요합니다.");
+    const ids = new Set(), exercises = new Set();
+    for (const exercise of day.exercises) {
+      fields(exercise, ["id", "exerciseId", "label", "sets", "repsMin", "repsMax", "rir", "restSeconds", "loadKg", "equipmentKey", "loadConvention"], "계획 운동");
+      uniqueId(exercise.id, ids, "계획 운동 ID"); text(exercise.exerciseId, 128, "계획 종목"); text(exercise.label, 300, "계획 종목 이름");
+      if (exercises.has(exercise.exerciseId)) fail("한 계획 세션의 같은 운동을 중복 배치할 수 없습니다."); exercises.add(exercise.exerciseId);
+      number(exercise.sets, 1, 20, "계획 세트", false, true);
+      number(exercise.repsMin, 1, 100, "계획 최소 반복", false, true); number(exercise.repsMax, exercise.repsMin, 100, "계획 최대 반복", false, true);
+      number(exercise.rir, 0, 10, "계획 RIR"); number(exercise.restSeconds, 0, 1800, "계획 휴식", false, true);
+      number(exercise.loadKg, 0, 10000, "선택한 계획 중량", true); text(exercise.equipmentKey, 128, "계획 장비", true);
+      if (!LOAD_CONVENTIONS.includes(exercise.loadConvention)) fail("계획 중량 기준을 확인해 주세요.");
+    }
+    return day;
+  }
+  function validatePlanning(planning, records) {
+    fields(planning, ["activeProgramId", "programs", "schedule", "preferences"], "훈련 계획");
+    text(planning.activeProgramId, 512, "선택한 프로그램", true);
+    list(planning.programs, 200, "저장 프로그램"); list(planning.schedule, 10000, "배치한 운동");
+    fields(planning.preferences, ["preferredExerciseIds", "excludedExerciseIds"], "운동 선호");
+    for (const key of ["preferredExerciseIds", "excludedExerciseIds"]) {
+      strings(planning.preferences[key], 500, 128, "운동 선호");
+      if (new Set(planning.preferences[key]).size !== planning.preferences[key].length) fail("운동 선호가 중복되었습니다.");
+    }
+    if (planning.preferences.preferredExerciseIds.some(id => planning.preferences.excludedExerciseIds.includes(id))) fail("선호 운동과 제외 운동이 겹칩니다.");
+    const ids = new Set();
+    for (const program of planning.programs) {
+      fields(program, ["id", "name", "createdAt", "source", "days"], "저장 프로그램");
+      uniqueId(program.id, ids, "프로그램 ID"); text(program.name, 200, "프로그램 이름");
+      if (!iso(program.createdAt) || !["template", "user", "coach"].includes(program.source)) fail("프로그램 작성 시각 또는 출처를 확인해 주세요.");
+      list(program.days, 7, "프로그램 세션"); if (!program.days.length) fail("프로그램 세션이 필요합니다.");
+      const dayIds = new Set();
+      for (const day of program.days) { validatePrescription(day); uniqueId(day.id, dayIds, "프로그램 세션 ID"); }
+    }
+    if (planning.activeProgramId !== null && !ids.has(planning.activeProgramId)) fail("선택한 프로그램을 찾을 수 없습니다.");
+    const assignmentIds = new Set(), linked = new Set();
+    for (const row of planning.schedule) {
+      fields(row, ["id", "date", "programId", "dayId", "prescription", "recordId", "status", "adjustment"], "배치한 운동");
+      uniqueId(row.id, assignmentIds, "배치 ID");
+      if (!date(row.date) || !ids.has(row.programId)) fail("배치 날짜 또는 프로그램을 확인해 주세요.");
+      text(row.dayId, 512, "배치 세션 ID"); validatePrescription(row.prescription);
+      if (row.prescription.id !== row.dayId || !planning.programs.find(p => p.id === row.programId).days.some(d => d.id === row.dayId)) fail("배치 세션 연결을 확인해 주세요.");
+      text(row.recordId, 512, "수행 기록 연결", true);
+      if (!["planned", "performed", "skipped"].includes(row.status) || (row.status === "performed") !== (row.recordId !== null)) fail("계획과 실제 수행 상태가 일치하지 않습니다.");
+      if (row.recordId !== null) {
+        const record = records.find(item => item.id === row.recordId);
+        if (!record || record.date !== row.date || linked.has(row.recordId)) fail("수행 기록 날짜 또는 중복 연결을 확인해 주세요.");
+        linked.add(row.recordId);
+      }
+      if (row.adjustment !== null) {
+        const change = row.adjustment;
+        fields(change, ["kind", "reason", "reviewDate", "reviewed", "originalPrescription"], "훈련 조정");
+        if (!["progression", "deload", "maintain"].includes(change.kind) || !date(change.reviewDate) || change.reviewDate < row.date || typeof change.reviewed !== "boolean") fail("훈련 조정 종류 또는 검토 날짜를 확인해 주세요.");
+        text(change.reason, 2000, "훈련 조정 이유"); validatePrescription(change.originalPrescription);
+        if (change.originalPrescription.id !== row.dayId) fail("조정 전 계획 연결을 확인해 주세요.");
+      }
+    }
+  }
   function createEmpty() {
-    return { version: VERSION, records: [], mappings: [], settings: { daysPerWeek: 3, sessionMinutes: 60, equipment: "gym", priorityMuscles: [] }, messages: [] };
+    return { version: VERSION, records: [], mappings: [], settings: { daysPerWeek: 3, sessionMinutes: 60, equipment: "gym", priorityMuscles: [] }, messages: [], planning: emptyPlanning(), memory: { constraints: "", focus: "", agreements: "", updatedAt: null }, followUps: [] };
   }
   function validate(raw) {
     const workspace = clone(raw);
-    fields(workspace, ["version", "records", "mappings", "settings", "messages"], "훈련 작업공간");
+    if (!own(workspace, "planning")) workspace.planning = emptyPlanning();
+    if (!own(workspace, "memory")) workspace.memory = { constraints: "", focus: "", agreements: "", updatedAt: null };
+    if (!own(workspace, "followUps")) workspace.followUps = [];
+    fields(workspace, ["version", "records", "mappings", "settings", "messages", "planning", "memory", "followUps"], "훈련 작업공간");
     if (workspace.version !== VERSION) fail("지원하지 않는 훈련 저장 버전입니다.");
     validateRecords(workspace.records);
+    validatePlanning(workspace.planning, workspace.records);
+    fields(workspace.memory, ["constraints", "focus", "agreements", "updatedAt"], "개인 코치 기억");
+    for (const key of ["constraints", "focus", "agreements"]) text(workspace.memory[key], 6000, "개인 코치 기억", false, true);
+    if (workspace.memory.updatedAt !== null && !iso(workspace.memory.updatedAt)) fail("개인 기억 수정 시각을 확인해 주세요.");
+    list(workspace.followUps, 1000, "코치 다음 점검");
+    const followUpIds = new Set();
+    for (const followUp of workspace.followUps) {
+      fields(followUp, ["id", "topic", "note", "reviewDate", "status", "createdAt"], "코치 다음 점검");
+      uniqueId(followUp.id, followUpIds, "코치 점검 ID"); text(followUp.note, 4000, "코치 점검 내용");
+      if (!["training", "nutrition", "recovery", "general"].includes(followUp.topic) || !["open", "done"].includes(followUp.status) || !date(followUp.reviewDate) || !iso(followUp.createdAt)) fail("코치 점검 상태 또는 날짜를 확인해 주세요.");
+    }
     list(workspace.mappings, LIMITS.mappings, "종목 연결");
     const mappingKeys = new Set();
     for (const mapping of workspace.mappings) {
@@ -334,5 +412,5 @@
     return output;
   }
 
-  return Object.freeze({ VERSION, MAX_BYTES, LIMITS, LOAD_CONVENTIONS, createEmpty, validate, fromDiaryContext, mergeRecords, parseImport, exportExchange });
+  return Object.freeze({ VERSION, MAX_BYTES, LIMITS, LOAD_CONVENTIONS, createEmpty, validate, validatePrescription, fromDiaryContext, mergeRecords, parseImport, exportExchange });
 });

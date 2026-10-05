@@ -30,6 +30,62 @@
     const middle = Math.floor(sorted.length / 2);
     return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
   }
+  function alcoholGrams(volumeMl, abvPct, count) {
+    if (![volumeMl, abvPct, count].every(finite) || volumeMl < 0 || volumeMl > 10000 || abvPct < 0 || abvPct > 100 || count < 0 || count > 100) return null;
+    return volumeMl * abvPct / 100 * count * 0.789;
+  }
+  function mealSignature(meal) {
+    return JSON.stringify([meal.name, meal.protein, meal.carbs, meal.fat, meal.otherKcal, meal.alcoholG, meal.type ?? null, meal.note ?? '']);
+  }
+  function copyMealPreview(sourceMeals, currentMeals) {
+    const counts = new Map();
+    currentMeals.forEach(meal => { const key = mealSignature(meal); counts.set(key, (counts.get(key) || 0) + 1); });
+    return sourceMeals.map(meal => {
+      const signature = mealSignature(meal), remaining = counts.get(signature) || 0;
+      if (remaining) counts.set(signature, remaining - 1);
+      return { meal, possibleDuplicate: remaining > 0 };
+    });
+  }
+  function observationSummary(days, endDate, period = 28) {
+    if (![7, 14, 28, 42].includes(period)) throw new Error('관찰 기간을 확인해 주세요.');
+    const from = shiftDate(endDate, 1 - period);
+    const list = Object.values(days || {}).filter(day => day.date >= from && day.date <= endDate).sort((a, b) => a.date.localeCompare(b.date));
+    const completed = list.filter(day => day.complete && day.meals?.length);
+    const paired = completed.filter(day => day.planSnapshot?.status === 'ready' && finite(day.planSnapshot.energy?.targetKcal));
+    const keys = ['kcal', 'protein', 'carbs', 'fat'];
+    const averages = Object.fromEntries(keys.map(key => {
+      const intake = paired.map(day => mealTotals(day.meals)[key]);
+      const target = paired.map(day => key === 'kcal' ? day.planSnapshot.energy.targetKcal : day.planSnapshot.macros[key].target);
+      const mean = values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+      const intakeMean = mean(intake), targetMean = mean(target);
+      return [key, { intake: intakeMean, target: targetMean, difference: intakeMean === null ? null : intakeMean - targetMean }];
+    }));
+    return { from, to: endDate, period, list, completed, paired, averages,
+      openCount: list.filter(day => !day.complete).length,
+      missingCount: period - list.length,
+      withoutTargetCount: completed.length - paired.length,
+      goalCount: new Set(paired.map(day => day.planSnapshot.context?.goal).filter(Boolean)).size,
+      body: Object.fromEntries(['weightKg', 'bodyFatPct', 'skeletalMuscleKg'].map(key => [key, list.filter(day => finite(day[key]) && day[key] > 0).map(day => ({ date: day.date, value: day[key], method: day.bodyFatMethod || 'unknown' }))])) };
+  }
+  function suggestAllocation(days, endDate, plan, goal = plan?.context?.goal) {
+    if (plan?.status !== 'ready' || !goal) return { status: 'unavailable', count: 0, deltaG: null, dates: [], reason: '현재 목표의 계산 기준이 필요해요.' };
+    const from = shiftDate(endDate, -28);
+    const eligible = Object.values(days || {}).filter(day => day.date >= from && day.date < endDate && day.complete
+      && day.planSnapshot?.status === 'ready' && day.planSnapshot.context?.goal === goal).map(day => ({ day, totals: mealTotals(day.meals) }))
+      .filter(({ totals }) => totals.alcoholG === 0 && totals.otherKcal === 0 && totals.carbs * 4 + totals.fat * 9 > 0);
+    const dates = eligible.map(item => item.day.date).sort();
+    if (eligible.length < 4) return { status: 'insufficient', count: eligible.length, deltaG: null, dates, reason: '최근 28일 안에 같은 목표로 완료한 비교 가능한 식사가 4일 이상 필요해요. 술·기타 열량이 있는 날은 제외해요.' };
+    const share = median(eligible.map(({ totals }) => totals.carbs * 4 / (totals.carbs * 4 + totals.fat * 9)));
+    const macros = plan.macros, remainder = plan.energy.targetKcal - macros.protein.target * 4;
+    const lower = Math.max(macros.carbs.min, (remainder - macros.fat.max * 9) / 4);
+    const upper = Math.min(macros.carbs.max, (remainder - macros.fat.min * 9) / 4);
+    if (![remainder, lower, upper].every(finite) || remainder <= 0 || lower > upper) return { status: 'unavailable', count: eligible.length, deltaG: null, dates, reason: '현재 목표에서 교환 가능한 범위를 확인할 수 없어요.' };
+    const carbs = Math.max(lower, Math.min(upper, remainder * share / 4));
+    const deltaG = carbs - macros.carbs.target;
+    return { status: Math.abs(deltaG) < 1 ? 'unchanged' : 'ready', count: eligible.length, dates, deltaG, carbEnergyShare: share,
+      proposed: { kcal: plan.energy.targetKcal, protein: macros.protein.target, carbs, fat: (remainder - carbs * 4) / 9 },
+      reason: '완료 기록에서 관찰한 탄수·지방 배분을 현재 범위에 맞춘 선택안이에요. 최적 비율이나 건강 판정이 아니며 총열량과 단백질은 그대로예요.' };
+  }
   function historySummary(days, endDate, goal) {
     const list = Object.values(days || {}).filter(day => day.date <= endDate && day.date >= shiftDate(endDate, -27)).sort((a, b) => a.date.localeCompare(b.date));
     const firstStart = shiftDate(endDate, -13);
@@ -81,5 +137,5 @@
     for (const item of ranked) if (!result.some(existing => existing.id === item.id)) result.push(item);
     return result.slice(0, 5);
   }
-  return { dateKey, shiftDate, mealTotals, median, historySummary, dailyGuidance };
+  return { dateKey, shiftDate, mealTotals, median, historySummary, dailyGuidance, alcoholGrams, mealSignature, copyMealPreview, observationSummary, suggestAllocation };
 });

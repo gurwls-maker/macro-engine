@@ -19,7 +19,7 @@
     goal: ["lose", "maintain", "gain", "recomp", "performance"],
     activity: ["sedentary", "light", "active", "physical"],
     healthContext: ["general", "pregnancy", "breastfeeding", "clinical", "eating_disorder"],
-    proteinPreference: ["standard", "higher"]
+    proteinPreference: ["lower", "standard", "higher"]
   });
   const forbiddenKeys = new Set(["__proto__", "prototype", "constructor"]);
   const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
@@ -113,7 +113,16 @@
   function validateProfile(profile) {
     if (profile === null) return;
     if (plain(profile) && !own(profile, "bodyFatWeightKg")) profile.bodyFatWeightKg = null;
-    fields(profile, ["sex", "age", "heightCm", "weightKg", "bodyFatPct", "bodyFatMethod", "bodyFatDate", "bodyFatWeightKg", "trainingYears", "sport", "goal", "activity", "healthContext", "proteinPreference"], "프로필");
+    const profileFields = ["sex", "age", "heightCm", "weightKg", "bodyFatPct", "bodyFatMethod", "bodyFatDate", "bodyFatWeightKg", "trainingYears", "sport", "goal", "activity", "healthContext", "proteinPreference"];
+    for (const key of ["activityMode", "dailyActivity", "weekdayActivity", "goalPreference"]) if (own(profile, key)) profileFields.push(key);
+    fields(profile, profileFields, "프로필");
+    if (own(profile, "activityMode") && !["simple", "detailed"].includes(profile.activityMode)) fail("생활 활동 입력 방식을 확인해 주세요.");
+    if (own(profile, "goalPreference") && !["standard", "conservative"].includes(profile.goalPreference)) fail("목표 진행 선호를 확인해 주세요.");
+    if (own(profile, "dailyActivity")) validateActivity(profile.dailyActivity);
+    if (own(profile, "weekdayActivity")) {
+      if (!plain(profile.weekdayActivity) || Object.keys(profile.weekdayActivity).some(key => !/^[0-6]$/.test(key))) fail("요일별 생활 시간을 확인해 주세요.");
+      Object.values(profile.weekdayActivity).forEach(validateActivity);
+    }
     ["sex", "bodyFatMethod", "sport", "goal", "activity", "healthContext", "proteinPreference"].forEach(key => string(profile[key], 100, `프로필 ${key}`));
     for (const [key, values] of Object.entries(PROFILE_ENUMS)) {
       if (!values.includes(profile[key])) fail(`프로필 ${key} 선택값을 확인해 주세요.`);
@@ -128,6 +137,53 @@
     number(profile.trainingYears, 0, 100, "운동 경력", true);
     if (profile.trainingYears !== null && profile.trainingYears > profile.age) fail("운동 경력은 나이를 넘을 수 없습니다.");
     if (profile.bodyFatDate !== null && !isValidDate(profile.bodyFatDate)) fail("체성분 측정일을 확인해 주세요.");
+  }
+
+  function validateActivity(activity) {
+    if (activity === null) return;
+    fields(activity, ["sleepHours", "workHours", "workType", "lifestyleHours", "lifestyleType"], "생활 시간");
+    for (const key of ["sleepHours", "workHours", "lifestyleHours"]) number(activity[key], 0, 24, "생활 시간", true);
+    if (![null, "seated", "standing", "physical"].includes(activity.workType)
+      || ![null, "light", "active"].includes(activity.lifestyleType)) fail("생활 활동 종류를 확인해 주세요.");
+  }
+
+  function validateMeal(meal) {
+    const mealFields = ["id", "name", "protein", "carbs", "fat", "otherKcal", "alcoholG"];
+    if (plain(meal)) for (const key of ["source", "type", "note"]) if (own(meal, key)) mealFields.push(key);
+    fields(meal, mealFields, "식사");
+    string(meal.id, 128, "식사 식별자");
+    string(meal.name, 200, "식사 이름");
+    ["protein", "carbs", "fat"].forEach(key => number(meal[key], 0, 10000, "식사 영양소"));
+    number(meal.otherKcal, 0, 100000, "기타 칼로리");
+    number(meal.alcoholG, 0, 2000, "알코올");
+    if (own(meal, "type") && !["breakfast", "lunch", "dinner", "snack", "drinks", "other"].includes(meal.type)) fail("식사 구분을 확인해 주세요.");
+    if (own(meal, "note")) string(meal.note, 4000, "식사 메모", true);
+    if (own(meal, "source")) {
+      fields(meal.source, ["kind", "confidence", "note", "hash"], "식사 출처");
+      if (!["manual", "label", "image", "estimate"].includes(meal.source.kind)
+        || !["known", "estimated"].includes(meal.source.confidence)
+        || (meal.source.kind === "estimate" && meal.source.confidence !== "estimated")) fail("식사 출처와 추정 여부를 확인해 주세요.");
+      string(meal.source.note, 4000, "식사 출처 메모", true);
+      if (meal.source.hash !== null && (typeof meal.source.hash !== "string" || !/^[a-f0-9]{64}$/.test(meal.source.hash))) fail("식사 출처 해시를 확인해 주세요.");
+    }
+  }
+
+  function validateSession(session, withId = true) {
+    const sessionFields = ["sport", "durationMin", "intensity"];
+    if (withId) sessionFields.push("id");
+    if (plain(session) && own(session, "cardio")) sessionFields.push("cardio");
+    fields(session, sessionFields, "운동");
+    if (withId) string(session.id, 128, "운동 식별자");
+    string(session.sport, 100, "운동 종목");
+    if (!["strength", "running", "cycling", "swimming", "team", "mixed", "walking"].includes(session.sport)) fail("운동 종목을 확인해 주세요.");
+    number(session.durationMin, 1, 1440, "운동 시간");
+    if (!["easy", "moderate", "hard"].includes(session.intensity)) fail("운동 강도를 확인해 주세요.");
+    if (own(session, "cardio") && session.cardio !== null) {
+      fields(session.cardio, ["environment", "speedKmh", "gradePct"], "유산소 상세");
+      if (!["walking", "running"].includes(session.sport) || !["treadmill", "outdoor"].includes(session.cardio.environment)) fail("유산소 상세의 종목과 환경을 확인해 주세요.");
+      number(session.cardio.speedKmh, 0, 30, "유산소 속도", true);
+      number(session.cardio.gradePct, 0, 20, "유산소 경사", true);
+    }
   }
 
   function validateSnapshot(plan) {
@@ -192,7 +248,10 @@
     if (!own(day, "carbAdjustmentG")) day.carbAdjustmentG = 0;
     const dayFields = ["date", "weightKg", "bodyFatPct", "skeletalMuscleKg", "bodyFatMethod", "carbAdjustmentG", "meals", "sessions", "complete", "planSnapshot"];
     if (own(day, "coachCheckin")) dayFields.push("coachCheckin");
+    for (const key of ["note", "dailyActivity"]) if (own(day, key)) dayFields.push(key);
     fields(day, dayFields, "하루 기록");
+    if (own(day, "note")) string(day.note, 8000, "하루 메모", true);
+    if (own(day, "dailyActivity")) validateActivity(day.dailyActivity);
     if (own(day, "coachCheckin") && day.coachCheckin !== null) {
       const checkinFields = ["energy", "hunger", "sleep"];
       if (plain(day.coachCheckin)) {
@@ -227,30 +286,12 @@
       allIds.add(id);
     };
     day.meals.forEach(meal => {
-      const mealFields = ["id", "name", "protein", "carbs", "fat", "otherKcal", "alcoholG"];
-      if (plain(meal) && own(meal, "source")) mealFields.push("source");
-      fields(meal, mealFields, "식사");
+      validateMeal(meal);
       checkId(meal.id);
-      string(meal.name, 200, "식사 이름");
-      ["protein", "carbs", "fat"].forEach(key => number(meal[key], 0, 10000, "식사 영양소"));
-      number(meal.otherKcal, 0, 100000, "기타 칼로리");
-      number(meal.alcoholG, 0, 2000, "알코올");
-      if (own(meal, "source")) {
-        fields(meal.source, ["kind", "confidence", "note", "hash"], "식사 출처");
-        if (!["manual", "label", "image", "estimate"].includes(meal.source.kind)
-          || !["known", "estimated"].includes(meal.source.confidence)
-          || (meal.source.kind === "estimate" && meal.source.confidence !== "estimated")) fail("식사 출처와 추정 여부를 확인해 주세요.");
-        string(meal.source.note, 4000, "식사 출처 메모", true);
-        if (meal.source.hash !== null && (typeof meal.source.hash !== "string" || !/^[a-f0-9]{64}$/.test(meal.source.hash))) fail("식사 출처 해시를 확인해 주세요.");
-      }
     });
     day.sessions.forEach(session => {
-      fields(session, ["id", "sport", "durationMin", "intensity"], "운동");
+      validateSession(session);
       checkId(session.id);
-      string(session.sport, 100, "운동 종목");
-      if (!["strength", "running", "cycling", "swimming", "team", "mixed", "walking"].includes(session.sport)) fail("운동 종목을 확인해 주세요.");
-      number(session.durationMin, 1, 1440, "운동 시간");
-      if (!["easy", "moderate", "hard"].includes(session.intensity)) fail("운동 강도를 확인해 주세요.");
     });
     if (day.sessions.reduce((sum, item) => sum + item.durationMin, 0) > 1440) fail("하루 운동 시간은 24시간을 넘을 수 없습니다.");
     validateSnapshot(day.planSnapshot);
@@ -262,12 +303,38 @@
     const state = safeClone(raw);
     const stateFields = ["version", "profile", "days", "legacy", "updatedAt"];
     if (own(state, "training")) stateFields.push("training");
+    if (own(state, "mealTemplates")) stateFields.push("mealTemplates");
+    if (own(state, "sessionPresets")) stateFields.push("sessionPresets");
     fields(state, stateFields, "저장 파일");
     if (state.version !== VERSION) fail("지원하지 않는 저장 파일 버전입니다.");
     validateProfile(state.profile);
     if (!plain(state.days) || Object.keys(state.days).length > MAX_DAYS) fail("날짜별 기록의 형식 또는 개수를 확인해 주세요.");
     const ids = new Set();
     Object.entries(state.days).forEach(([key, value]) => validateDay(value, key, ids));
+    if (own(state, "mealTemplates")) {
+      if (!Array.isArray(state.mealTemplates) || state.mealTemplates.length > 100) fail("저장한 식사는 100개까지 보관할 수 있습니다.");
+      const templateIds = new Set();
+      state.mealTemplates.forEach(template => {
+        fields(template, ["id", "title", "meal"], "저장한 식사");
+        string(template.id, 128, "저장한 식사 식별자");
+        string(template.title, 200, "저장한 식사 이름");
+        if (templateIds.has(template.id)) fail("저장한 식사 식별자가 중복되었습니다.");
+        templateIds.add(template.id);
+        validateMeal(template.meal);
+      });
+    }
+    if (own(state, "sessionPresets")) {
+      if (!Array.isArray(state.sessionPresets) || state.sessionPresets.length > 100) fail("저장한 운동 설정은 100개까지 보관할 수 있습니다.");
+      const presetIds = new Set();
+      state.sessionPresets.forEach(preset => {
+        fields(preset, ["id", "title", "session"], "저장한 운동 설정");
+        string(preset.id, 128, "저장한 운동 설정 식별자");
+        string(preset.title, 200, "저장한 운동 설정 이름");
+        if (presetIds.has(preset.id)) fail("저장한 운동 설정 식별자가 중복되었습니다.");
+        presetIds.add(preset.id);
+        validateSession(preset.session, false);
+      });
+    }
     if (state.legacy !== null) {
       fields(state.legacy, ["format", "importedAt", "raw", "records"], "이전 기록 보관함");
       string(state.legacy.format, 100, "이전 기록 형식");
@@ -450,6 +517,7 @@
       result.trainingMappings = state.training.mappings.length;
       result.coachMessages = state.training.messages.length;
     }
+    if (own(state, "sessionPresets")) result.sessionPresets = state.sessionPresets.length;
     return result;
   }
 
@@ -471,5 +539,53 @@
     return text;
   }
 
-  return Object.freeze({ VERSION, STORAGE_KEY, MAX_BYTES, createEmpty, load, save, parseBackup, exportBackup, detectLegacy, importLegacy, validateState, isValidDate });
+  function sameData(a, b) {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) !== Array.isArray(b)) return false;
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every(key => own(b, key) && sameData(a[key], b[key]));
+  }
+
+  function previewMerge(current, incoming) {
+    const before = validateState(current), source = validateState(incoming);
+    const owners = new Map();
+    Object.values(before.days).forEach(day => [...day.meals, ...day.sessions].forEach(item => owners.set(item.id, day.date)));
+    const rows = Object.values(source.days).sort((a, b) => a.date.localeCompare(b.date)).map(day => {
+      const existing = before.days[day.date];
+      const collision = [...day.meals, ...day.sessions].some(item => owners.has(item.id) && owners.get(item.id) !== day.date);
+      const status = existing && sameData(existing, day) ? "identical" : existing?.complete ? "protected" : collision ? "id-conflict" : existing ? "conflict" : "added";
+      return { date: day.date, status, current: existing || null, incoming: day };
+    });
+    const templates = (source.mealTemplates || []).map(incoming => {
+      const current = (before.mealTemplates || []).find(item => item.id === incoming.id);
+      return { id: incoming.id, title: incoming.title, status: !current ? "added" : sameData(current, incoming) ? "identical" : "conflict" };
+    });
+    const presets = (source.sessionPresets || []).map(incoming => {
+      const current = (before.sessionPresets || []).find(item => item.id === incoming.id);
+      return { id: incoming.id, title: incoming.title, status: !current ? "added" : sameData(current, incoming) ? "identical" : "conflict" };
+    });
+    return { rows, templates, presets, counts: Object.fromEntries(["added", "identical", "conflict", "protected", "id-conflict"].map(status => [status, rows.filter(row => row.status === status).length])) };
+  }
+
+  function mergeBackup(current, incoming, replaceDates = []) {
+    const next = validateState(current), source = validateState(incoming);
+    if (!Array.isArray(replaceDates) || replaceDates.some(date => !isValidDate(date)) || new Set(replaceDates).size !== replaceDates.length) fail("교체할 날짜 선택을 확인해 주세요.");
+    const preview = previewMerge(next, source);
+    for (const date of replaceDates) if (!preview.rows.some(row => row.date === date && row.status === "conflict")) fail("완료한 날짜나 충돌이 없는 날짜는 교체할 수 없습니다.");
+    for (const row of preview.rows) {
+      if (row.status === "added" || (row.status === "conflict" && replaceDates.includes(row.date))) next.days[row.date] = row.incoming;
+    }
+    for (const template of preview.templates.filter(item => item.status === "added")) {
+      next.mealTemplates ||= [];
+      next.mealTemplates.push(source.mealTemplates.find(item => item.id === template.id));
+    }
+    for (const preset of preview.presets.filter(item => item.status === "added")) {
+      next.sessionPresets ||= [];
+      next.sessionPresets.push(source.sessionPresets.find(item => item.id === preset.id));
+    }
+    // Dietary merging deliberately does not replace profiles, training, or the legacy archive.
+    return validateState(next);
+  }
+
+  return Object.freeze({ VERSION, STORAGE_KEY, MAX_BYTES, createEmpty, load, save, parseBackup, exportBackup, detectLegacy, importLegacy, validateState, isValidDate, previewMerge, mergeBackup });
 });

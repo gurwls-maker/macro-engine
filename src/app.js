@@ -17,6 +17,11 @@
   let onboardingStep = 0;
   let profileInitialized = false;
   let profileDirty = false;
+  let trendPeriod = 28;
+  let bodyMetric = 'weightKg';
+  let intakeMetric = 'kcal';
+  let profileActivityDraft = null;
+  let profileWeekdayDraft = {};
   const $ = id => document.getElementById(id);
   const clone = value => JSON.parse(JSON.stringify(value));
   const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -25,6 +30,7 @@
   const sportNames = { none: '운동 없음', strength: '근력운동', running: '달리기', cycling: '사이클', swimming: '수영', team: '구기·팀 스포츠', mixed: '복합 운동', walking: '걷기' };
   const goalNames = { lose: '체지방 감량', maintain: '체중 유지', gain: '근육 증가', recomp: '체성분 개선', performance: '운동 수행' };
   const intensityNames = { easy: '가볍게', moderate: '보통', hard: '힘들게' };
+  const mealTypes = { breakfast: '아침', lunch: '점심', dinner: '저녁', snack: '간식', drinks: '술', other: '기타' };
   const titles = { today: '오늘의 기록', coach: '앱코치', training: '운동', trends: '기록과 추세', profile: '내 기준', data: '데이터' };
   const icon = name => `<i data-lucide="${name}" aria-hidden="true"></i>`;
   const command = (action, text, symbol = 'plus', extra = '', primary = false) => `<button type="button" class="button ${primary ? 'button-primary' : 'button-secondary'}" data-action="${action}" ${extra}>${icon(symbol)}<span>${text}</span></button>`;
@@ -37,17 +43,7 @@
   function emptyDay(date = selectedDate) { return { date, weightKg: null, bodyFatPct: null, skeletalMuscleKg: null, bodyFatMethod: 'unknown', carbAdjustmentG: 0, meals: [], sessions: [], complete: false, planSnapshot: null }; }
   function day() { return state.days[selectedDate] || emptyDay(); }
   function effectiveProfile(date = selectedDate) {
-    if (!state.profile) return null;
-    const profile = { ...state.profile };
-    const measurement = state.days[date];
-    if (measurement?.weightKg != null) profile.weightKg = measurement.weightKg;
-    if (measurement?.bodyFatPct != null) {
-      profile.bodyFatPct = measurement.bodyFatPct;
-      profile.bodyFatDate = measurement.date;
-      profile.bodyFatMethod = measurement.bodyFatMethod;
-      profile.bodyFatWeightKg = measurement.weightKg;
-    }
-    return profile;
+    return N.profileForDay(state.profile, state.days[date] || {});
   }
   function planFor(current = day()) {
     if (current.complete && current.planSnapshot) return current.planSnapshot;
@@ -120,7 +116,7 @@
     return metric(label, totals[key], 'g', detail, className, target ? totals[key] / target * 100 : null);
   }
   function coachFor(current = day()) {
-    return C.buildCoach(effectiveProfile(current.date), current, state.days, { lastMutation, training: state.training, trainingAnalysis: trainingUI.analysis(), program: trainingUI.program() });
+    return C.buildCoach(effectiveProfile(current.date), current, state.days, { lastMutation, training: state.training, trainingAnalysis: trainingUI.analysis(), program: trainingUI.coachingProgram() });
   }
   function coachAction(item, primary = false) {
     if (day().complete && ['meal-add', 'session-add', 'measurement', 'coach-checkin', 'complete'].includes(item?.action)) return command('reopen', '기록을 다시 열어 확인', 'pencil', '', primary);
@@ -139,6 +135,7 @@
     const first = coach.priorities[0];
     $('coachContent').innerHTML = `<div class="coach-session-meta"><span class="coach-label">${icon('messages-square')}<strong>나의 영양 · 회복 코치</strong></span><span>${selectedDate} · ${current.complete ? '저장 당시 기준' : '기록 중'}</span></div><div class="coaching-grid"><div class="coaching-main"><section class="coach-brief"><span class="eyebrow">지금 함께 살펴볼 것</span><h2>${escape(coach.headline)}</h2><p>${escape(coach.summary)}</p></section>${first ? `<section class="coach-priority ${first.tone === 'attention' ? 'coach-attention' : ''}"><div class="coach-priority-heading"><span class="priority-number">01</span><h3>${escape(first.title)}</h3></div><p>${escape(first.body)}</p>${coachAction(first, true)}</section>` : ''}<section class="coach-checkin"><div class="section-header"><h2>오늘 몸은 어때요?</h2>${!current.complete ? command('coach-checkin', checkin ? '상태 수정' : '컨디션 체크', 'heart-pulse') : ''}</div><div class="checkin-summary">${['energy', 'hunger', 'sleep'].map((key, index) => `<div><span>${['에너지', '허기', '수면'][index]}</span><strong>${labels[key][checkin?.[key]] || '아직 모름'}</strong></div>`).join('')}</div>${!checkin ? '<p class="form-help">기록된 섭취량만으로 허기나 회복 상태를 알 수는 없어요.</p>' : ''}</section><section class="coach-conversation"><div class="section-header"><h2>함께 짚어보기</h2></div><div class="coach-topics" aria-label="코치에게 확인할 주제">${coach.questions.map(item => `<button type="button" data-action="coach-question" data-question="${escape(item.id)}" aria-pressed="${item.id === coachQuestion}">${escape(item.label)}${icon('arrow-up-right')}</button>`).join('')}</div>${selected ? `<div id="coachAnswer" class="coach-answer" role="region" tabindex="-1" aria-label="${escape(selected.label)}"><span class="eyebrow">지금 기록을 기준으로</span><h3>${escape(selected.label)}</h3><p>${escape(selected.answer)}</p>${coachAction(selected)}</div>` : ''}</section>${coach.priorities.length > 1 ? `<section class="coach-supporting"><h2>그다음에 볼 것</h2>${coach.priorities.slice(1).map(item => `<details><summary>${escape(item.title)}</summary><p>${escape(item.body)}</p>${coachAction(item)}</details>`).join('')}</section>` : ''}</div><aside class="coach-context"><span class="eyebrow">코치가 보고 있는 맥락</span><h2>내 기록에서 시작해요</h2><dl><div><dt>목표</dt><dd>${goalNames[plan.context?.goal || state.profile?.goal] || '아직 모름'}</dd></div><div><dt>운동</dt><dd>${current.sessions.length ? current.sessions.map(item => `${sportNames[item.sport]} ${fmt(item.durationMin)}분`).join(' · ') : '오늘 입력한 운동 없음'}</dd></div><div><dt>식사</dt><dd>${current.meals.length}개 · ${fmt(I.mealTotals(current.meals).kcal)}kcal</dd></div><div><dt>하루 상태</dt><dd>${current.complete ? '완료 · 저장 당시 목표' : '진행 중 · 하루 평가 전'}</dd></div></dl><p class="form-help">코치는 입력한 정보와 기록을 해석해요. 통증·질환의 진단, 운동 자세 평가, 음식의 질과 미량영양소는 이 기록만으로 판단할 수 없어요.</p>${command('nav-trends', '최근 변화 함께 보기', 'chart-line')}${command('nav-profile', '내 기준 살펴보기', 'sliders-horizontal')}</aside></div>`;
     ($('coachContent').querySelector('.coach-priority') || $('coachContent').querySelector('.coach-brief'))?.insertAdjacentHTML('afterend', trainingUI.chatHTML());
+    $('coachContent').querySelector('.personal-conversation')?.insertAdjacentHTML('beforeend', trainingUI.memoryHTML());
     $('coachContent').querySelector('.coach-context')?.insertAdjacentHTML('beforeend', trainingUI.coachContextHTML());
     trainingUI.enhanceChat();
   }
@@ -163,27 +160,73 @@
       if (source.note) badge.title = source.note;
       element.append(badge);
     });
+    const movement = $('todayContent').querySelector('.movement-section');
+    if ((!frozen && state.profile?.activityMode === 'detailed') || plan.context?.dailyActivity?.mode === 'detailed') {
+      const activity = plan.context?.dailyActivity;
+      const observedActivity = frozen ? activity : current.dailyActivity || state.profile?.weekdayActivity?.[new Date(selectedDate + 'T00:00:00Z').getUTCDay()] || state.profile?.dailyActivity;
+      movement.insertAdjacentHTML('beforeend', `<div class="daily-activity-summary"><div><strong>생활 시간${frozen ? ' · 저장 당시' : ''}</strong><p class="form-help">${activitySummary(observedActivity)}</p></div>${!frozen ? command('day-activity', '이 날만 변경', 'clock-3') : ''}</div>`);
+      if (ready && activity?.mode === 'detailed') {
+        const exercise = $('todayContent').querySelector('.facts-grid > div:nth-child(2)');
+        exercise.querySelector('span').textContent = '휴식 대신 운동한 차이';
+        exercise.querySelector('strong').textContent = `${fmt(activity.exerciseIncrementKcal)}kcal`;
+        $('todayContent').querySelector('.target-details').insertAdjacentHTML('beforeend', `<details class="source-details"><summary>24시간 배분</summary><p>수면 ${fmt(activity.sleepHours, 1)}h · 업무 ${fmt(activity.workHours, 1)}h · 생활 ${fmt(activity.lifestyleHours, 1)}h · 운동 ${fmt(activity.exerciseHours, 1)}h · 나머지 휴식 ${fmt(activity.restHours, 1)}h</p><p class="form-help">${{ day: '이 날짜의 입력', weekday: '요일 설정', profile: '기본 설정' }[activity.source]} 기준입니다. 운동이 차지한 시간을 휴식에서 빼므로 운동 총소모를 다시 더하지 않습니다. 시간·활동계수로 만든 추정이며 실제 소모량 측정은 아닙니다.</p></details>`);
+      }
+    }
+    if (ready && !frozen) $('todayContent').querySelector('.target-details').insertAdjacentHTML('beforeend', `<div class="form-actions">${command('allocation-suggest', '최근 식사 배분 참고', 'chart-no-axes-combined')}</div>`);
+    if (!frozen && (state.sessionPresets || []).length) movement.insertAdjacentHTML('beforeend', `<div class="form-actions">${command('session-presets', '자주 하는 운동', 'bookmark')}</div>`);
+    movement.querySelectorAll('.item-row').forEach((row, index) => {
+      const session = current.sessions[index];
+      if (session.cardio) row.querySelector('.item-main').insertAdjacentHTML('beforeend', `<p class="form-help">${session.cardio.environment === 'treadmill' ? '트레드밀' : '야외 평지'} · ${fmt(session.cardio.speedKmh, 1)}km/h · 경사 ${fmt(session.cardio.gradePct, 1)}%</p>`);
+      if (!frozen) row.querySelector('.item-actions').insertAdjacentHTML('beforeend', iconButton('session-preset-save', '자주 하는 운동으로 저장', 'bookmark-plus', `data-id="${escape(session.id)}"`));
+    });
   }
   function previousMeals() {
-    const names = new Set(), result = [];
+    const result = [];
     const dates = Object.keys(state.days).filter(date => date < selectedDate).sort().reverse();
-    for (const date of dates) for (const meal of state.days[date].meals) {
-      if (names.has(meal.name)) continue;
-      names.add(meal.name); result.push(meal);
-      if (result.length === 4) return result;
+    for (const date of dates) for (const meal of state.days[date].meals.slice().reverse()) {
+      result.push(meal);
+      if (result.length === 8) return result;
     }
     return result;
   }
+  function renderMealTools(current) {
+    const section = $('todayContent').querySelector('.meal-section');
+    section.querySelectorAll('.item-row').forEach((row, index) => {
+      const meal = current.meals[index];
+      if (meal.type || meal.note) row.querySelector('.item-main').insertAdjacentHTML('beforeend', `<p class="form-help">${meal.type ? `<span class="badge">${mealTypes[meal.type]}</span> ` : ''}${escape(meal.note || '')}</p>`);
+      const actions = row.querySelector('.item-actions');
+      if (actions) actions.insertAdjacentHTML('beforeend', iconButton('meal-template-save', `${escape(meal.name)} 자주 먹는 식사로 저장`, 'bookmark-plus', `data-id="${escape(meal.id)}"`));
+    });
+    const recent = section.querySelector('.recent-meals');
+    if (recent) recent.querySelectorAll('[data-action="meal-reuse"]').forEach((button, index) => {
+      const meal = previousMeals()[index];
+      button.insertAdjacentHTML('beforeend', `<small>${fmt(I.mealTotals([meal]).kcal)}kcal · 단 ${fmt(meal.protein)}g</small>`);
+    });
+    const previous = state.days[I.shiftDate(selectedDate, -1)];
+    section.insertAdjacentHTML('beforeend', `<div class="form-actions">${current.complete ? '' : command('meal-templates', `자주 먹는 식사${state.mealTemplates?.length ? ` ${state.mealTemplates.length}` : ''}`, 'bookmark')}${!current.complete && previous?.meals.length ? command('meal-copy-previous', '전날 식사 가져오기', 'copy-plus') : ''}${command('day-note', current.note ? '하루 메모 보기' : '하루 메모', 'notebook-pen', current.complete && !current.note ? 'disabled' : '')}</div>${current.note ? `<p class="form-help">${escape(current.note)}</p>` : ''}`);
+  }
   function renderTrends() {
-    const summary = I.historySummary(state.days, I.dateKey(), state.profile?.goal);
-    const dates = Object.values(state.days).sort((a, b) => b.date.localeCompare(a.date));
-    $('trendsContent').innerHTML = `<section class="section"><div class="section-header"><div><div class="section-kicker">최근 28일</div><h2>하루 숫자보다 꾸준한 변화</h2></div><span class="badge">체중 ${summary.weights.length}회</span></div><div class="metrics-grid">${metric('최근 주간 체중 중앙값', summary.laterWeight, 'kg', '최근 7일의 측정값', 'metric-energy')}${metric('이전 주간 체중 중앙값', summary.earlierWeight, 'kg', '그 이전 7일의 측정값')}${metric('식사 기록 완료', summary.completed.length, '일', '현재 목표와 같은 기준')}${metric('완료 기록 평균 섭취', summary.averageKcal, 'kcal', '완료한 날만 계산')}</div><div class="chart-wrap"><canvas id="weightChart" role="img" aria-label="최근 28일 체중 추세. 각 측정값은 아래 날짜별 기록에서 확인할 수 있습니다."></canvas></div><p class="notice notice-info">${escape(summary.trendMessage)}</p></section><section class="section"><div class="section-header"><h2>날짜별 기록</h2><span class="muted">${dates.length}일</span></div>${dates.length ? `<div class="table-wrap"><table class="data-table history-table"><thead><tr><th scope="col">날짜</th><th scope="col">상태</th><th scope="col">체중</th><th scope="col">체지방 / 골격근</th><th scope="col">섭취 / 목표</th><th scope="col"><span class="sr-only">열기</span></th></tr></thead><tbody>${dates.map(item => `<tr><th scope="row"><button type="button" class="date-link" data-action="open-day" data-date="${item.date}" aria-label="${item.date} 기록 열기">${escape(item.date)}</button></th><td>${item.complete ? '완료' : '기록 중'}</td><td>${fmt(item.weightKg, 1)}kg</td><td>${fmt(item.bodyFatPct, 1)}% / ${fmt(item.skeletalMuscleKg, 1)}kg</td><td>${fmt(I.mealTotals(item.meals).kcal)} / ${fmt(item.planSnapshot?.energy?.targetKcal)}kcal</td><td>${iconButton('open-day', `${item.date} 기록 열기`, 'arrow-up-right', `data-date="${item.date}"`)}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty-state">${icon('chart-no-axes-combined')}<p>기록이 쌓이면 이곳에서 함께 볼 수 있어요.</p>${command('go-today', '오늘 기록하기', 'arrow-right')}</div>`}</section>`;
+    const summary = I.observationSummary(state.days, selectedDate, trendPeriod);
+    const trend = I.historySummary(state.days, selectedDate, state.profile?.goal);
+    const dates = summary.list.slice().reverse();
+    const nutrientNames = { kcal: '열량', protein: '단백질', carbs: '탄수화물', fat: '지방' };
+    const bodyNames = { weightKg: '체중 (kg)', bodyFatPct: '체지방률 (%)', skeletalMuscleKg: '골격근량 (kg)' };
+    $('trendsContent').innerHTML = `<section class="section"><div class="section-header"><div><span class="section-kicker">${summary.from} ~ ${summary.to}</span><h2>기록한 만큼 살펴보기</h2></div><div class="inline-fields"><label class="field"><span>기간</span><select id="trendPeriod">${[7, 14, 28, 42].map(value => `<option value="${value}" ${trendPeriod === value ? 'selected' : ''}>${value}일</option>`).join('')}</select></label><label class="field"><span>마지막 날짜</span><input id="trendsDate" type="date" value="${selectedDate}" min="1900-02-12" max="${I.dateKey()}"></label></div></div><div class="metrics-grid">${metric('완료한 식사', summary.completed.length, '일', `목표 비교 ${summary.paired.length}일`)}${metric('기록 중', summary.openCount, '일', '평균 비교에서 제외')}${metric('미기록', summary.missingCount, '일', '섭취 0으로 세지 않음')}${metric('최근 주간 체중 중앙값', trend.laterWeight, 'kg', '선택일 기준 최근 7일', 'metric-energy')}</div></section><section class="section"><div class="section-header"><h2>섭취와 당시 목표</h2><label class="field"><span class="sr-only">그래프 영양소</span><select id="intakeMetric">${Object.entries(nutrientNames).map(([key, label]) => `<option value="${key}" ${intakeMetric === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div><p class="form-help">완료한 날 중 목표가 함께 저장된 ${summary.paired.length}일의 관찰이에요.${summary.withoutTargetCount ? ` 목표 없는 완료 ${summary.withoutTargetCount}일은 비교에서 제외했어요.` : ''}${summary.goalCount > 1 ? ' 목표가 다른 날도 포함되어 각 날짜의 당시 목표와 비교해요.' : ''}</p><div class="table-wrap"><table class="data-table"><thead><tr><th>하루 평균</th><th>섭취</th><th>당시 목표</th><th>차이</th></tr></thead><tbody>${Object.entries(nutrientNames).map(([key, label]) => { const value = summary.averages[key], unit = key === 'kcal' ? 'kcal' : 'g'; return `<tr><th>${label}</th><td>${fmt(value.intake, 1)} ${unit}</td><td>${fmt(value.target, 1)} ${unit}</td><td>${value.difference > 0 ? '+' : ''}${fmt(value.difference, 1)} ${unit}</td></tr>`; }).join('')}</tbody></table></div><div class="chart-wrap"><canvas id="intakeChart" role="img" aria-label="완료한 날짜의 ${nutrientNames[intakeMetric]} 섭취와 저장 당시 목표. 아래 날짜별 표에서 값을 확인할 수 있습니다."></canvas></div><p class="form-help">초록은 섭취, 주황은 당시 목표예요. 목표와의 차이는 건강 점수나 다음 날 보상할 양이 아니에요.</p></section><section class="section"><div class="section-header"><h2>몸 상태 관찰</h2><label class="field"><span class="sr-only">몸 상태 항목</span><select id="bodyMetric">${Object.entries(bodyNames).map(([key, label]) => `<option value="${key}" ${bodyMetric === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div><span class="badge">${summary.body[bodyMetric].length}회 측정</span><div class="chart-wrap"><canvas id="weightChart" role="img" aria-label="${bodyNames[bodyMetric]} 측정 관찰. 측정 날짜와 값은 아래 기록 표에 있습니다."></canvas></div><p class="form-help">${bodyMetric === 'weightKg' ? escape(trend.trendMessage) : '측정 방법·시간·수분 상태가 다르면 직접 비교하기 어려워요. 이 변화만으로 체지방 감소나 근육 성장을 확정하지 않아요.'}</p></section><section class="section"><div class="section-header"><h2>기간 내 날짜별 기록</h2><span class="muted">${dates.length}일</span></div>${dates.length ? `<div class="table-wrap"><table class="data-table history-table"><thead><tr><th scope="col">날짜</th><th scope="col">상태</th><th scope="col">체중 kg</th><th scope="col">체지방 % / 골격근 kg</th><th scope="col">측정 방식</th><th scope="col">섭취 / 목표 kcal</th><th scope="col">단백질 g</th><th scope="col">탄수 g</th><th scope="col">지방 g</th></tr></thead><tbody>${dates.map(item => { const totals = I.mealTotals(item.meals), plan = item.complete ? item.planSnapshot : null; return `<tr><th scope="row"><button type="button" class="date-link" data-action="open-day" data-date="${item.date}">${escape(item.date)}</button></th><td>${item.complete ? '완료' : '기록 중'}</td><td>${fmt(item.weightKg, 1)}</td><td>${fmt(item.bodyFatPct, 1)} / ${fmt(item.skeletalMuscleKg, 1)}</td><td>${({ bia: 'BIA', dxa: 'DXA', caliper: '피하지방', unknown: '미확인' })[item.bodyFatMethod]}</td><td>${item.meals.length ? fmt(totals.kcal) : '미기록'} / ${fmt(plan?.energy?.targetKcal)}</td>${['protein', 'carbs', 'fat'].map(key => `<td>${item.meals.length ? fmt(totals[key], 1) : '미기록'} / ${fmt(plan?.macros?.[key]?.target, 1)}</td>`).join('')}</tr>`; }).join('')}</tbody></table></div>` : `<div class="empty-state">${icon('chart-no-axes-combined')}<p>선택한 기간에 기록이 없어요.</p>${command('go-today', '오늘 기록하기', 'arrow-right')}</div>`}</section>`;
   }
   function drawChart() {
-    const canvas = $('weightChart');
-    if (!canvas || view !== 'trends') return;
-    const data = I.historySummary(state.days, I.dateKey(), state.profile?.goal).weights;
-    const width = Math.max(240, canvas.parentElement.clientWidth);
+    if (view !== 'trends') return;
+    const summary = I.observationSummary(state.days, selectedDate, trendPeriod);
+    drawObservationChart('weightChart', [{ data: summary.body[bodyMetric], color: '#146857' }], summary);
+    drawObservationChart('intakeChart', [
+      { color: '#146857', data: summary.paired.map(item => ({ date: item.date, value: I.mealTotals(item.meals)[intakeMetric] })) },
+      { color: '#b36a34', data: summary.paired.map(item => ({ date: item.date, value: intakeMetric === 'kcal' ? item.planSnapshot.energy.targetKcal : item.planSnapshot.macros[intakeMetric].target })) }
+    ], summary);
+  }
+  function drawObservationChart(canvasId, series, summary) {
+    const canvas = $(canvasId);
+    if (!canvas) return;
+    const values = series.flatMap(item => item.data.map(point => point.value));
+    const width = Math.max(160, canvas.parentElement.clientWidth);
     const height = 230;
     const ratio = window.devicePixelRatio || 1;
     canvas.width = width * ratio; canvas.height = height * ratio;
@@ -191,23 +234,20 @@
     const ctx = canvas.getContext('2d'); ctx.scale(ratio, ratio);
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, width, height);
     ctx.font = '12px "Malgun Gothic", sans-serif';
-    if (!data.length) { ctx.fillStyle = '#62716e'; ctx.textAlign = 'center'; ctx.fillText('체중을 기록하면 변화가 보여요', width / 2, height / 2); return; }
-    const values = data.map(item => item.weightKg);
+    if (!values.length) { ctx.fillStyle = '#62716e'; ctx.textAlign = 'center'; ctx.fillText('이 기간의 관찰값이 없어요', width / 2, height / 2); return; }
     const minimum = Math.floor(Math.min(...values) - 0.5), maximum = Math.ceil(Math.max(...values) + 0.5);
     const left = 48, right = width - 16, top = 20, bottom = height - 35;
-    const start = Date.parse(I.shiftDate(I.dateKey(), -27) + 'T12:00:00Z');
-    const x = item => left + (Date.parse(item.date + 'T12:00:00Z') - start) / (27 * 86400000) * (right - left);
-    const y = item => bottom - (item.weightKg - minimum) / (maximum - minimum) * (bottom - top);
+    const start = Date.parse(summary.from + 'T12:00:00Z');
+    const x = item => left + (Date.parse(item.date + 'T12:00:00Z') - start) / ((summary.period - 1) * 86400000) * (right - left);
+    const y = item => bottom - (item.value - minimum) / (maximum - minimum) * (bottom - top);
     for (let step = 0; step <= 3; step++) {
       const pos = top + (bottom - top) * step / 3;
       ctx.strokeStyle = '#e3e9e6'; ctx.beginPath(); ctx.moveTo(left, pos); ctx.lineTo(right, pos); ctx.stroke();
       ctx.fillStyle = '#62716e'; ctx.textAlign = 'right'; ctx.fillText((maximum - (maximum - minimum) * step / 3).toFixed(1), left - 8, pos + 4);
     }
-    ctx.strokeStyle = '#146857'; ctx.lineWidth = 2.5; ctx.beginPath();
-    data.forEach((item, index) => index ? ctx.lineTo(x(item), y(item)) : ctx.moveTo(x(item), y(item))); ctx.stroke();
-    data.forEach(item => { ctx.beginPath(); ctx.arc(x(item), y(item), 4, 0, Math.PI * 2); ctx.fillStyle = '#146857'; ctx.fill(); });
-    ctx.fillStyle = '#62716e'; ctx.textAlign = 'left'; ctx.fillText(I.shiftDate(I.dateKey(), -27).slice(5).replace('-', '/'), left, height - 8);
-    ctx.textAlign = 'right'; ctx.fillText(I.dateKey().slice(5).replace('-', '/'), right, height - 8);
+    series.forEach((line, index) => line.data.forEach(item => { ctx.beginPath(); ctx.fillStyle = line.color; if (index) ctx.fillRect(x(item) - 3, y(item) - 3, 6, 6); else { ctx.arc(x(item), y(item), 4, 0, Math.PI * 2); ctx.fill(); } }));
+    ctx.fillStyle = '#62716e'; ctx.textAlign = 'left'; ctx.fillText(summary.from.slice(5).replace('-', '/'), left, height - 8);
+    ctx.textAlign = 'right'; ctx.fillText(summary.to.slice(5).replace('-', '/'), right, height - 8);
   }
   function renderData() {
     const legacy = state.legacy;
@@ -217,7 +257,7 @@
     $('dataContent').querySelector('section.section > p.muted').textContent = '이 브라우저에 저장하며, PC 기록을 연결하면 개인 기록 폴더에도 함께 보관돼요. 다른 기기로 옮기거나 브라우저 데이터를 지우기 전에는 전체 백업을 내려받아 주세요.';
   }
   function render() {
-    renderToday(); renderTrends(); renderData();
+    renderToday(); renderMealTools(day()); renderTrends(); renderData();
     if (blocked) {
       let banner = $('storageWarning');
       if (!banner) { banner = document.createElement('div'); banner.id = 'storageWarning'; banner.className = 'notice notice-danger'; banner.setAttribute('role', 'alert'); $('pageTitle').parentElement.after(banner); }
@@ -229,6 +269,8 @@
     const form = $('profileForm');
     form.reset();
     if (state.profile) Object.entries(state.profile).forEach(([key, value]) => { if (form.elements.namedItem(key)) form.elements.namedItem(key).value = value ?? ''; });
+    profileActivityDraft = state.profile?.dailyActivity ? clone(state.profile.dailyActivity) : null;
+    profileWeekdayDraft = clone(state.profile?.weekdayActivity || {});
     if (form.elements.bodyFatDate) form.elements.bodyFatDate.max = I.dateKey();
     profileInitialized = true;
     profileDirty = false;
@@ -263,8 +305,74 @@
     const profile = Object.fromEntries(form);
     for (const key of ['age', 'heightCm', 'weightKg', 'trainingYears', 'bodyFatPct', 'bodyFatWeightKg']) profile[key] = form.get(key) === '' ? null : Number(form.get(key));
     profile.bodyFatDate = form.get('bodyFatDate') || null;
+    profile.dailyActivity = profileActivityDraft;
+    profile.weekdayActivity = profileWeekdayDraft;
+    $('profileActivityDetails').hidden = profile.activityMode !== 'detailed';
+    $('profileDailyActivitySummary').textContent = `${activitySummary(profileActivityDraft)} · 요일 예외 ${Object.values(profileWeekdayDraft).filter(Boolean).length}개`;
     const plan = N.calculatePlan(profile, { date: I.dateKey(), sessions: [] }, []);
     $('profileSummary').innerHTML = `<span class="eyebrow">MY STARTING POINT</span><h2>${goal || '내 몸에 맞는 출발점'}</h2><dl><div><dt>현재 체중</dt><dd>${profile.weightKg == null ? '아직 모름' : `${fmt(profile.weightKg, 1)}kg`}</dd></div><div><dt>주로 하는 운동</dt><dd>${sport || '아직 모름'}</dd></div><div><dt>운동 경력</dt><dd>${profile.trainingYears == null ? '아직 모름' : `${fmt(profile.trainingYears, 1)}년`}</dd></div></dl>${plan.status === 'ready' ? `<div class="profile-estimate"><span>휴식일 섭취 시작 목표</span><strong>${fmt(plan.energy.targetKcal)}<small> kcal</small></strong><p>운동한 날은 실제 세션을 따로 반영해요.</p></div>` : '<div class="profile-estimate"><span>먼저 알아야 할 것</span><p>체중뿐 아니라 일상 활동과 운동, 목표를 함께 봐요. 정보가 모이면 시작 목표를 살펴볼 수 있어요.</p></div>'}<p class="form-help">모르는 값은 추측해 넣지 않아도 돼요. 숫자는 시작점이고, 이후 몸의 변화와 컨디션으로 함께 확인해요.</p>`;
+  }
+  function activitySummary(value) {
+    if (!value) return '생활 시간 미입력';
+    return `수면 ${fmt(value.sleepHours, 1)}h · 업무 ${fmt(value.workHours, 1)}h · 생활 ${fmt(value.lifestyleHours, 1)}h`;
+  }
+  function activityFields(value) {
+    const work = [['', '선택'], ['seated', '주로 앉아서 하는 업무'], ['standing', '서서 가볍게 이동·물건 옮김'], ['physical', '실제로 계속 몸을 쓰는 작업']];
+    const lifestyle = [['', '선택'], ['light', '요리·가벼운 집안 활동'], ['active', '걷기 등 활동적인 생활']];
+    const select = (name, label, options) => `<label class="field"><span>${label}</span><select name="${name}">${options.map(([key, text]) => `<option value="${key}" ${value?.[name] === key ? 'selected' : ''}>${text}</option>`).join('')}</select></label>`;
+    return `<div class="form-grid">${field('수면 시간', 'sleepHours', value?.sleepHours ?? '', { max: 24, required: true })}${field('업무 시간', 'workHours', value?.workHours ?? '', { max: 24, required: true })}${select('workType', '업무 중 활동', work)}${field('업무 외 생활활동 시간', 'lifestyleHours', value?.lifestyleHours ?? '', { max: 24, required: true })}${select('lifestyleType', '생활활동 종류', lifestyle)}</div>`;
+  }
+  function readActivity(form, required = true) {
+    const value = Object.fromEntries(['sleepHours', 'workHours', 'lifestyleHours'].map(key => [key, readNumber(form, key, !required)]));
+    value.workType = form.get('workType') || null; value.lifestyleType = form.get('lifestyleType') || null;
+    if (required && ((value.workHours > 0 && !value.workType) || (value.lifestyleHours > 0 && !value.lifestyleType))) throw new Error('시간을 입력한 활동의 종류도 선택해 주세요. 하지 않은 활동만 0시간입니다.');
+    if (Object.values(value).some(item => typeof item === 'number' && (item < 0 || item > 24))) throw new Error('활동 시간은 0~24시간으로 입력해 주세요.');
+    const sum = value.sleepHours + value.workHours + value.lifestyleHours;
+    if (required && sum > 24) throw new Error('수면·업무·생활 시간 합계가 24시간을 넘어요. 겹친 시간을 확인해 주세요.');
+    return value;
+  }
+  function profileActivityDialog() {
+    let scope = 'default';
+    const working = { default: clone(profileActivityDraft), ...clone(profileWeekdayDraft) };
+    openDialog('생활 시간과 요일', `<label class="field"><span>적용할 날</span><select id="activityScope" name="scope"><option value="default">기본값</option>${['일', '월', '화', '수', '목', '금', '토'].map((name, index) => `<option value="${index}">${name}요일${working[index] ? ' · 예외 있음' : ''}</option>`).join('')}</select></label><div id="activityEditor">${activityFields(working.default)}</div><p class="form-help">업무·생활·운동은 서로 겹치지 않는 시간으로 적어요. 실제 운동은 날짜별로 따로 반영하며, 남은 시간은 가벼운 휴식으로 계산합니다. 개인의 측정 소모량은 아닙니다.</p><label class="checkbox-field" id="activityReset" hidden><input name="resetWeekday" type="checkbox">이 요일은 기본값 사용</label>${actions('입력한 생활 시간 유지')}`, form => {
+      if (scope !== 'default' && form.get('resetWeekday') === 'on') delete working[scope]; else working[scope] = readActivity(form);
+      profileActivityDraft = working.default;
+      profileWeekdayDraft = Object.fromEntries(Object.entries(working).filter(([key]) => key !== 'default'));
+      profileDirty = true; renderProfileSummary(); $('profileSaveNote').textContent = '생활 시간 변경도 내 기준 저장 후 반영됩니다.'; closeDialog();
+    });
+    const form = $('entryForm');
+    $('activityScope').addEventListener('change', event => {
+      try {
+        const current = new FormData(form);
+        if (current.get('resetWeekday') === 'on') delete working[scope]; else working[scope] = readActivity(current, false);
+        scope = event.target.value;
+        $('activityEditor').innerHTML = activityFields(working[scope] || working.default);
+        $('activityReset').hidden = scope === 'default'; form.elements.resetWeekday.checked = false;
+      } catch (error) { event.target.value = scope; toast(error.message, true); }
+    });
+    form.elements.resetWeekday.addEventListener('change', event => {
+      $('activityEditor').querySelectorAll('input,select').forEach(input => { input.disabled = event.target.checked; });
+    });
+  }
+  function dayActivityDialog() {
+    const weekday = new Date(selectedDate + 'T00:00:00Z').getUTCDay();
+    const inherited = state.profile?.weekdayActivity?.[weekday] || state.profile?.dailyActivity;
+    openDialog('이 날의 생활 시간', `<p class="form-help">${selectedDate} · ${day().dailyActivity ? '이 날짜의 별도 입력' : '기본·요일 설정'}</p>${activityFields(day().dailyActivity || inherited)}<p class="form-help">실제 운동 ${fmt(day().sessions.reduce((sum, row) => sum + row.durationMin, 0) / 60, 1)}시간과 합쳐 24시간을 넘지 않아야 합니다.</p>${day().dailyActivity ? command('day-activity-reset', '기본·요일 설정으로', 'rotate-ccw') : ''}${actions('이 날짜에 저장')}`, form => {
+      const dailyActivity = readActivity(form);
+      if (dailyActivity.sleepHours + dailyActivity.workHours + dailyActivity.lifestyleHours + day().sessions.reduce((sum, row) => sum + row.durationMin / 60, 0) > 24) throw new Error('생활 시간과 실제 운동을 합쳐 24시간을 넘어요. 겹친 시간을 확인해 주세요.');
+      if (mutateDay(current => { current.dailyActivity = dailyActivity; }, '이 날짜의 생활 시간을 반영했어요.')) closeDialog();
+    });
+  }
+  function allocationSuggestionDialog() {
+    const basePlan = N.calculatePlan(effectiveProfile(), day(), []), current = planFor();
+    const suggestion = I.suggestAllocation(state.days, selectedDate, basePlan, state.profile?.goal);
+    const proposed = suggestion.status === 'ready' ? N.adjustAllocation(basePlan, suggestion.deltaG) : null;
+    openDialog('기록에서 본 탄수·지방 배분', `<p>${escape(suggestion.reason)}</p>${proposed ? `<div class="conflict-comparison"><section><h3>현재 배분</h3><p>탄수 ${fmt(current.macros.carbs.target)}g · 지방 ${fmt(current.macros.fat.target)}g</p></section><section><h3>기록 선호를 참고한 배분</h3><p>탄수 ${fmt(proposed.macros.carbs.target)}g · 지방 ${fmt(proposed.macros.fat.target)}g</p></section></div><p class="form-help">총열량 ${fmt(proposed.energy.targetKcal)}kcal와 단백질 ${fmt(proposed.macros.protein.target)}g은 그대로입니다. 관찰한 식사 비율이지 최적 영양 처방은 아닙니다.</p><details class="source-details"><summary>참고한 완료 날짜 ${suggestion.count}일</summary><p>${suggestion.dates.join(' · ')}</p></details>${actions('이 배분 선택')}` : `<div class="form-actions">${command('dialog-close', '닫기', 'x')}</div>`}`, () => {
+      if (!proposed) return;
+      const latestBase = N.calculatePlan(effectiveProfile(), day(), []);
+      if (day().complete || JSON.stringify(latestBase) !== JSON.stringify(basePlan)) throw new Error('미리보기 이후 계산 기준이 달라졌어요. 제안을 다시 확인해 주세요.');
+      if (mutateDay(current => { current.carbAdjustmentG = suggestion.deltaG; }, '열량과 단백질을 유지한 배분을 선택했어요.')) closeDialog();
+    });
   }
   function checkinDialog() {
     const value = day().coachCheckin || {};
@@ -318,19 +426,108 @@
     const meal = existing || { name: '', protein: 0, carbs: 0, fat: 0, otherKcal: 0, alcoholG: 0 };
     openDialog(copy ? '최근 식사 가져오기' : existing ? '식사 수정' : '식사 추가', `<div class="form-grid">${field('식사 이름', 'name', meal.name, { type: 'text', required: true })}${field('단백질 (g)', 'protein', meal.protein, { required: true })}${field('탄수화물 (g)', 'carbs', meal.carbs, { required: true })}${field('지방 (g)', 'fat', meal.fat, { required: true })}</div><details class="source-details"><summary>기타 열량·술</summary><div class="form-grid">${field('탄단지·알코올 외 열량 (kcal)', 'otherKcal', meal.otherKcal, { max: 10000, required: true })}${field('순알코올 (g)', 'alcoholG', meal.alcoholG, { max: 500, required: true })}</div><p class="form-help">알코올은 1g당 7kcal로 별도 합산해요. 술의 탄수화물과 안주는 각 영양소에 기록해 주세요.</p></details><p id="mealPreview" class="notice notice-info"></p>${actions()}`, form => {
       const entry = { id: existing && !copy ? existing.id : id(), name: String(form.get('name')).trim(), protein: readNumber(form, 'protein'), carbs: readNumber(form, 'carbs'), fat: readNumber(form, 'fat'), otherKcal: readNumber(form, 'otherKcal'), alcoholG: readNumber(form, 'alcoholG') };
+      if (form.get('type')) entry.type = String(form.get('type'));
+      if (String(form.get('note') || '').trim()) entry.note = String(form.get('note')).trim();
       if (meal.source) entry.source = clone(meal.source);
       if (!entry.name || I.mealTotals([entry]).kcal <= 0) throw new Error('식사 이름과 먹은 양을 입력해 주세요.');
       if (mutateDay(current => { const index = current.meals.findIndex(item => item.id === entry.id); if (index < 0) current.meals.push(entry); else current.meals[index] = entry; }, '식사를 저장했어요.', { date: selectedDate, type: existing && !copy ? 'meal-updated' : 'meal-added', mealId: entry.id })) closeDialog();
     });
-    const update = () => { const form = new FormData($('entryForm')); const numbers = {}; ['protein', 'carbs', 'fat', 'otherKcal', 'alcoholG'].forEach(key => { numbers[key] = Math.max(0, Number(form.get(key)) || 0); }); $('mealPreview').textContent = `총 ${fmt(I.mealTotals([numbers]).kcal)}kcal`; };
-    $('entryForm').addEventListener('input', update); update();
+    $('entryForm').querySelector('.form-grid').insertAdjacentHTML('beforeend', `<label class="field"><span>식사 구분</span><select name="type"><option value="">선택하지 않음</option>${Object.entries(mealTypes).map(([key, label]) => `<option value="${key}" ${meal.type === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label><label class="field full-width"><span>식사 메모</span><textarea name="note" rows="2" maxlength="4000">${escape(meal.note || '')}</textarea></label>`);
+    $('entryForm').querySelector('details').insertAdjacentHTML('beforeend', `<div class="form-grid">${field('술 한 개의 양 (ml)', 'alcoholVolume', '', { max: 10000 })}${field('도수 (%)', 'alcoholAbv', '', { max: 100 })}${field('마신 개수', 'alcoholCount', '', { max: 100, step: 0.1 })}</div><div class="form-actions">${command('alcohol-calculate', '순알코올 g 계산', 'calculator')}</div><p id="alcoholCalculation" class="form-help" role="status"></p>`);
+    $('entryForm').elements.alcoholG.step = 'any';
+    $('entryForm').querySelector('[data-action="alcohol-calculate"]').addEventListener('click', () => {
+      try {
+        const form = new FormData($('entryForm'));
+        const grams = I.alcoholGrams(readNumber(form, 'alcoholVolume'), readNumber(form, 'alcoholAbv'), readNumber(form, 'alcoholCount'));
+        if (grams === null || grams > 500) throw new Error('술의 양·도수·개수를 확인해 주세요. 계산한 순알코올은 500g 이하여야 해요.');
+        $('entryForm').elements.alcoholG.value = (Math.round(grams * 100) / 100).toString();
+        $('alcoholCalculation').textContent = `${fmt(grams, 2)}g을 입력했어요. 실제 마신 양과 도수를 확인한 뒤 저장해 주세요.`;
+        update();
+      } catch (error) { toast(error.message, true); }
+    });
+    const update = () => {
+      const form = new FormData($('entryForm')), numbers = {};
+      for (const key of ['protein', 'carbs', 'fat', 'otherKcal', 'alcoholG']) {
+        const raw = String(form.get(key) ?? '').trim(), value = Number(raw);
+        if (!raw || !Number.isFinite(value) || value < 0) { $('mealPreview').textContent = '빈 영양소가 있어 총열량을 아직 계산하지 않았어요. 실제로 없는 항목만 0으로 입력해 주세요.'; return; }
+        numbers[key] = value;
+      }
+      $('mealPreview').textContent = `총 ${fmt(I.mealTotals([numbers]).kcal)}kcal`;
+    };
+    $('entryForm').addEventListener('input', update); update(); icons();
   }
-  function sessionDialog(existing = null) {
-    const session = existing || { sport: state.profile?.sport === 'none' || !state.profile ? 'walking' : state.profile.sport, durationMin: 30, intensity: 'moderate' };
-    openDialog(existing ? '운동 수정' : '운동 추가', `<div class="form-grid"><label class="field"><span>운동 종목</span><select name="sport">${Object.entries(sportNames).filter(([key]) => key !== 'none').map(([key, label]) => `<option value="${key}" ${session.sport === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label>${field('운동 시간 (분)', 'durationMin', session.durationMin, { min: 1, max: 720, step: 1, required: true })}<label class="field"><span>강도</span><select name="intensity">${Object.entries(intensityNames).map(([key, label]) => `<option value="${key}" ${session.intensity === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div><p class="form-help">실제 운동한 시간만 기록해요. 쉬는 시간을 포함한 근력운동은 전체 세션 시간으로 적어 주세요. 일상 걷기를 생활 활동량에 반영했다면 중복 추가하지 마세요.</p>${actions()}`, form => {
-      const entry = { id: existing?.id || id(), sport: String(form.get('sport')), durationMin: readNumber(form, 'durationMin'), intensity: String(form.get('intensity')) };
+  function saveMealTemplate(meal) {
+    if (!meal) return;
+    openDialog('자주 먹는 식사 저장', `${field('저장 이름', 'title', meal.name, { type: 'text', required: true })}<p class="form-help">${escape(meal.name)} · ${fmt(I.mealTotals([meal]).kcal)}kcal · 단 ${fmt(meal.protein, 1)} / 탄 ${fmt(meal.carbs, 1)} / 지 ${fmt(meal.fat, 1)}g</p>${actions('저장')}`, form => {
+      const next = clone(state);
+      next.mealTemplates ||= [];
+      next.mealTemplates.push({ id: id(), title: String(form.get('title')).trim(), meal: clone(meal) });
+      if (save(next, '자주 먹는 식사에 저장했어요.')) closeDialog();
+    });
+  }
+  function mealTemplatesDialog() {
+    const templates = state.mealTemplates || [];
+    openDialog('자주 먹는 식사', `${templates.length ? `<ul class="item-list">${templates.map(template => `<li class="item-row"><div class="item-main"><strong>${escape(template.title)}</strong><p>${escape(template.meal.name)} · ${fmt(I.mealTotals([template.meal]).kcal)}kcal</p><small>단 ${fmt(template.meal.protein, 1)} / 탄 ${fmt(template.meal.carbs, 1)} / 지 ${fmt(template.meal.fat, 1)}g</small></div><div class="item-actions">${iconButton('meal-template-use', `${escape(template.title)} 가져오기`, 'plus', `data-id="${escape(template.id)}"`)}${iconButton('meal-template-delete', `${escape(template.title)} 저장 목록에서 삭제`, 'trash-2', `data-id="${escape(template.id)}"`)}</div></li>`).join('')}</ul>` : '<p class="empty-state">식사 기록 옆 북마크 버튼으로 자주 먹는 식사를 저장해 보세요.</p>'}<div class="form-actions">${command('dialog-close', '닫기', 'x')}</div>`, () => {});
+  }
+  function previousDayDialog() {
+    const previousDate = I.shiftDate(selectedDate, -1);
+    const rows = I.copyMealPreview(state.days[previousDate]?.meals || [], day().meals);
+    if (!rows.length) return;
+    openDialog('전날 식사 가져오기', `<p class="form-help">${previousDate}에서 ${selectedDate}로 선택한 식사만 추가해요. 같은 내용이 있는 항목은 직접 선택해 주세요.</p><ul class="item-list">${rows.map((row, index) => `<li class="item-row"><label class="item-main"><input type="checkbox" name="copyMeal" value="${index}" ${row.possibleDuplicate ? '' : 'checked'}> <strong>${escape(row.meal.name)}</strong><p>${fmt(I.mealTotals([row.meal]).kcal)}kcal · 단 ${fmt(row.meal.protein, 1)} / 탄 ${fmt(row.meal.carbs, 1)} / 지 ${fmt(row.meal.fat, 1)}g${row.possibleDuplicate ? ' · 오늘 같은 내용 있음' : ''}</p>${row.meal.note ? `<small>${escape(row.meal.note)}</small>` : ''}</label></li>`).join('')}</ul>${actions('선택한 식사 추가')}`, form => {
+      const selected = form.getAll('copyMeal').map(value => rows[Number(value)]?.meal).filter(Boolean);
+      if (!selected.length) throw new Error('추가할 식사를 하나 이상 선택해 주세요.');
+      if (day().complete) throw new Error('완료한 날짜는 먼저 다시 열어 주세요.');
+      if (mutateDay(current => current.meals.push(...selected.map(meal => ({ ...clone(meal), id: id() }))), `${selected.length}개 식사를 추가했어요.`)) closeDialog();
+    });
+  }
+  function dayNoteDialog() {
+    const current = day();
+    openDialog('하루 메모', `<label class="field"><span>${selectedDate}</span><textarea name="note" rows="6" maxlength="8000" ${current.complete ? 'readonly' : ''}>${escape(current.note || '')}</textarea></label>${current.complete ? `<div class="form-actions">${command('dialog-close', '닫기', 'x')}</div>` : actions()}`, form => {
+      if (day().complete) return;
+      if (mutateDay(item => { item.note = String(form.get('note') || '').trim(); }, '하루 메모를 저장했어요.')) closeDialog();
+    });
+  }
+  function sessionDialog(existing = null, preset = null) {
+    const session = existing || preset || { sport: state.profile?.sport === 'none' || !state.profile ? 'walking' : state.profile.sport, durationMin: 30, intensity: 'moderate' };
+    const cardioFields = `<details id="cardioOptions" class="source-details" ${session.cardio ? 'open' : ''}>
+      <summary>걷기·달리기 속도와 경사</summary><label class="checkbox-field"><input type="checkbox" name="useCardio" ${session.cardio ? 'checked' : ''}>속도·경사로 추정하기</label>
+      <div class="form-grid"><label class="field"><span>환경</span><select name="environment"><option value="treadmill">트레드밀</option><option value="outdoor">야외 평지</option></select></label>
+      ${field('속도 (km/h)', 'speedKmh', session.cardio?.speedKmh ?? '', { min: 0, max: 30 })}${field('경사 (%)', 'gradePct', session.cardio?.gradePct ?? '', { min: 0, max: 20 })}</div>
+      <p class="form-help">걷기 3~6km/h, 달리기 8.1~20km/h, 트레드밀 경사 0~15% 안에서 식을 적용해요. 그 밖은 상세 추정을 끄고 강도로 기록해 주세요. 평지는 경사 0%를 입력합니다. 야외는 평지만 지원해요. 손잡이 지지·바람은 반영하지 못합니다.</p></details>`;
+    openDialog(existing ? '운동 수정' : '운동 추가', `<div class="form-grid"><label class="field"><span>운동 종목</span><select name="sport">${Object.entries(sportNames).filter(([key]) => key !== 'none').map(([key, label]) => `<option value="${key}" ${session.sport === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label>${field('운동 시간 (분)', 'durationMin', session.durationMin, { min: 1, max: 720, step: 1, required: true })}<label class="field"><span>강도</span><select name="intensity">${Object.entries(intensityNames).map(([key, label]) => `<option value="${key}" ${session.intensity === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div>${cardioFields}<p class="form-help">실제 운동한 시간만 기록해요. 쉬는 시간을 포함한 근력운동은 전체 세션 시간으로 적어 주세요. 일상 걷기를 생활 활동량에 반영했다면 중복 추가하지 마세요.</p>${actions()}`, form => {
+      const entry = { ...existing, id: existing?.id || id(), sport: String(form.get('sport')), durationMin: readNumber(form, 'durationMin'), intensity: String(form.get('intensity')) };
+      if (['walking', 'running'].includes(entry.sport) && form.get('useCardio') === 'on') entry.cardio = { environment: String(form.get('environment')), speedKmh: readNumber(form, 'speedKmh'), gradePct: readNumber(form, 'gradePct') };
+      else delete entry.cardio;
+      if (entry.cardio) {
+        const range = N.CARDIO_LIMITS[entry.sport];
+        if (entry.cardio.speedKmh < range.minSpeedKmh || entry.cardio.speedKmh > range.maxSpeedKmh || entry.cardio.gradePct > 15 || (entry.cardio.environment === 'outdoor' && entry.cardio.gradePct !== 0)) throw new Error('지원 범위 밖의 속도·경사입니다. 값이 맞다면 상세 추정을 끄고 강도 기반으로 기록해 주세요.');
+      }
+      if (state.profile?.activityMode === 'detailed') {
+        const candidate = { ...day(), sessions: [...day().sessions.filter(row => row.id !== entry.id), entry] };
+        const check = N.calculatePlan(effectiveProfile(), candidate, []);
+        if (check.status === 'incomplete' && check.reasons.some(reason => /24시간/.test(reason))) throw new Error(check.reasons.join(' '));
+      }
       if (mutateDay(current => { const index = current.sessions.findIndex(item => item.id === entry.id); if (index < 0) current.sessions.push(entry); else current.sessions[index] = entry; }, '운동을 저장하고 오늘 목표에 반영했어요.')) closeDialog();
     });
+    const form = $('entryForm'); form.elements.environment.value = session.cardio?.environment || 'treadmill';
+    const update = () => {
+      const supported = ['walking', 'running'].includes(form.elements.sport.value);
+      $('cardioOptions').hidden = !supported;
+      for (const key of ['speedKmh', 'gradePct']) { form.elements[key].disabled = !supported || !form.elements.useCardio.checked; form.elements[key].required = supported && form.elements.useCardio.checked; }
+    };
+    form.elements.sport.addEventListener('change', update); form.elements.useCardio.addEventListener('change', update); update();
+  }
+  function saveSessionPreset(session) {
+    if (!session) return;
+    openDialog('자주 하는 운동 저장', `${field('이름', 'title', `${sportNames[session.sport]} ${session.durationMin}분`, { type: 'text', required: true })}${actions()}`, form => {
+      const next = clone(state), value = { sport: session.sport, durationMin: session.durationMin, intensity: session.intensity };
+      if (session.cardio) value.cardio = clone(session.cardio);
+      next.sessionPresets ||= []; next.sessionPresets.push({ id: id(), title: String(form.get('title')).trim(), session: value });
+      if (save(next, '자주 하는 운동으로 저장했어요. 사용 시 실제 시간은 다시 확인해 주세요.')) closeDialog();
+    });
+  }
+  function sessionPresetsDialog() {
+    openDialog('자주 하는 운동', `<ul class="item-list">${(state.sessionPresets || []).map(preset => `<li class="item-row"><div class="item-main"><strong>${escape(preset.title)}</strong><p class="form-help">${sportNames[preset.session.sport]} · ${fmt(preset.session.durationMin)}분</p></div><div class="item-actions">${iconButton('session-preset-use', '입력값 확인 후 사용', 'plus', `data-id="${escape(preset.id)}"`)}${iconButton('session-preset-delete', '목록에서 삭제', 'trash-2', `data-id="${escape(preset.id)}"`)}</div></li>`).join('')}</ul><div class="form-actions">${command('dialog-close', '닫기', 'x')}</div>`, () => {});
   }
   function measurementDialog() {
     const current = day();
@@ -365,6 +562,18 @@
     const current = pendingImport.kind === 'current';
     const imported = pendingImport.state;
     $('importPreview').innerHTML = `<div class="notice notice-warning"><h3>${current ? '전체 백업 복원 확인' : '이전 기록 보관 확인'}</h3><p>${current ? `프로필 ${imported.profile ? '있음' : '없음'} · 날짜별 기록 ${Object.keys(imported.days).length}일. 현재 이 버전의 데이터 전체를 바꿉니다.` : `이전 기록 ${imported.legacy?.records.length || 0}건과 원본을 보관함에 복사합니다. 현재 프로필과 새 기록은 유지합니다.${state.legacy ? ' 기존 이전 기록 보관함은 교체됩니다.' : ''}`}</p><p>계속하기 전에 현재 데이터의 백업을 내려받을 수 있어요.</p><div class="form-actions">${command('export', '현재 전체 백업', 'download', blocked ? 'disabled' : '')}${command('import-confirm', current ? '확인한 백업으로 교체' : '보관함에 가져오기', 'check', '', true)}${command('import-cancel', '취소', 'x')}</div></div>`;
+    if (current && !blocked) {
+      const preview = S.previewMerge(state, imported);
+      const labels = { added: '새 날짜 추가', identical: '같은 기록 · 유지', conflict: '내용 다름 · 현재 유지', protected: '완료한 날짜 · 현재 보호', 'id-conflict': '다른 날짜와 식별자 중복 · 제외' };
+      const describe = value => value ? `${value.complete ? '완료' : '기록 중'} · 식사 ${value.meals.length}개 / ${fmt(I.mealTotals(value.meals).kcal)}kcal · 운동 ${value.sessions.length}개 · 체중 ${fmt(value.weightKg, 1)}kg · 체지방 ${fmt(value.bodyFatPct, 1)}% · 골격근 ${fmt(value.skeletalMuscleKg, 1)}kg${value.note ? ` · 메모: ${value.note}` : ''}` : '현재 기록 없음';
+      $('importPreview').insertAdjacentHTML('afterbegin', `<section class="section"><h3>날짜별 기록 합치기</h3><p>새 날짜 ${preview.counts.added}일 · 같은 기록 ${preview.counts.identical}일 · 선택할 충돌 ${preview.counts.conflict}일 · 완료 보호 ${preview.counts.protected}일${preview.counts['id-conflict'] ? ` · 식별자 충돌 제외 ${preview.counts['id-conflict']}일` : ''}</p><p class="form-help">현재 프로필·운동 일지·대화·이전 보관함은 유지해요. 교체 선택은 식사뿐 아니라 해당 날짜의 운동·몸 상태·메모 전체를 바꿔요. 완료한 날짜는 교체하지 않아요.</p><div class="item-list">${preview.rows.map(row => `<details class="source-details"><summary>${row.date} · ${labels[row.status]}</summary><p><strong>현재</strong> ${escape(describe(row.current))}</p><p><strong>백업</strong> ${escape(describe(row.incoming))}</p><p class="form-help">백업 식사: ${row.incoming.meals.map(meal => `${escape(meal.name)} ${fmt(I.mealTotals([meal]).kcal)}kcal`).join(' · ') || '없음'}</p>${row.status === 'conflict' ? `<label><input type="checkbox" name="mergeReplace" value="${row.date}"> 이 날짜 전체를 백업으로 교체</label>` : ''}</details>`).join('')}</div>${preview.templates.length ? `<p class="form-help">자주 먹는 식사: 새 항목 ${preview.templates.filter(item => item.status === 'added').length}개 추가, 같은 식별자의 기존 항목은 유지해요.</p>` : ''}<div class="form-actions">${command('import-merge', '선택한 기록 합치기', 'combine', '', true)}${command('import-cancel', '취소', 'x')}</div></section>`);
+      const replace = $('importPreview').querySelector('.notice-warning');
+      const disclosure = document.createElement('details');
+      disclosure.className = 'source-details';
+      const title = document.createElement('summary'); title.textContent = '전체 데이터를 백업으로 교체';
+      disclosure.append(title); replace.replaceWith(disclosure); disclosure.append(replace);
+      if (preview.presets?.length) $('importPreview').querySelector('.section').insertAdjacentHTML('beforeend', `<p class="form-help">자주 하는 운동: 새 항목 ${preview.presets.filter(item => item.status === 'added').length}개 추가, 같은 식별자의 기존 항목은 유지해요.</p>`);
+    }
     icons();
   }
   async function importFile(file) {
@@ -380,8 +589,10 @@
     if (!event.target.checkValidity()) { event.target.reportValidity(); return; }
     const form = new FormData(event.target);
     try {
-      const profile = {};
-      for (const key of ['sex', 'bodyFatMethod', 'sport', 'goal', 'activity', 'healthContext', 'proteinPreference']) profile[key] = String(form.get(key) || '');
+      const profile = { ...state.profile };
+      for (const key of ['sex', 'bodyFatMethod', 'sport', 'goal', 'activity', 'healthContext', 'proteinPreference', 'activityMode', 'goalPreference']) profile[key] = String(form.get(key) || '');
+      profile.dailyActivity = clone(profileActivityDraft);
+      profile.weekdayActivity = clone(profileWeekdayDraft);
       for (const key of ['age', 'heightCm', 'weightKg']) profile[key] = readNumber(form, key);
       profile.trainingYears = readNumber(form, 'trainingYears', true);
       profile.bodyFatPct = readNumber(form, 'bodyFatPct', true);
@@ -392,13 +603,6 @@
       const plan = N.calculatePlan(profile, { date: I.dateKey(), sessions: [] }, []);
       if (plan.status === 'incomplete') throw new Error((plan.reasons || []).join(' '));
       const next = clone(state); next.profile = profile;
-      const todayDraft = next.days[I.dateKey()];
-      if (todayDraft && !todayDraft.complete) {
-        todayDraft.weightKg = profile.weightKg;
-        todayDraft.bodyFatPct = profile.bodyFatDate === I.dateKey() && profile.bodyFatWeightKg === profile.weightKg ? profile.bodyFatPct : null;
-        todayDraft.bodyFatMethod = todayDraft.bodyFatPct === null ? 'unknown' : profile.bodyFatMethod;
-        if (todayDraft.skeletalMuscleKg !== null && todayDraft.skeletalMuscleKg > profile.weightKg * (1 - (todayDraft.bodyFatPct || 0) / 100)) todayDraft.skeletalMuscleKg = null;
-      }
       if (save(next, '내 기준을 저장했어요. 완료한 과거 기록은 그대로예요.')) { $('profileErrors').hidden = true; profileInitialized = false; profileDirty = false; selectedDate = I.dateKey(); render(); selectView('today'); }
     } catch (error) { $('profileErrors').hidden = false; $('profileErrors').textContent = error.message; $('profileErrors').tabIndex = -1; $('profileErrors').focus(); }
   });
@@ -409,7 +613,7 @@
     if (!button || button.disabled) return;
     const action = button.dataset.action;
     const current = day();
-    const edits = ['meal-add', 'meal-edit', 'meal-copy', 'meal-delete', 'meal-reuse', 'session-add', 'session-edit', 'session-delete', 'measurement', 'allocation-reset', 'coach-checkin'];
+    const edits = ['meal-add', 'meal-edit', 'meal-copy', 'meal-delete', 'meal-reuse', 'meal-copy-previous', 'meal-template-use', 'session-add', 'session-edit', 'session-delete', 'session-preset-use', 'measurement', 'allocation-reset', 'allocation-suggest', 'day-activity', 'day-activity-reset', 'coach-checkin'];
     if (current.complete && edits.includes(action)) { toast('완료한 기록은 먼저 기록 수정을 눌러 주세요.'); return; }
     try {
       if (await trainingUI.handleAction(button)) return;
@@ -421,6 +625,9 @@
       else if (action === 'profile-next') moveProfileStep(onboardingStep + 1);
       else if (action === 'profile-back') moveProfileStep(onboardingStep - 1);
       else if (action === 'profile-step') moveProfileStep(Number(button.dataset.step));
+      else if (action === 'profile-activity') profileActivityDialog();
+      else if (action === 'day-activity') dayActivityDialog();
+      else if (action === 'day-activity-reset') { if (mutateDay(item => { item.dailyActivity = null; }, '기본·요일 생활 시간으로 돌아왔어요.')) closeDialog(); }
       else if (action === 'go-today') { selectedDate = I.dateKey(); render(); selectView('today'); }
       else if (action === 'dialog-close') closeDialog();
       else if (action === 'previous-day' || action === 'next-day') { selectedDate = I.shiftDate(selectedDate, action === 'previous-day' ? -1 : 1); if (selectedDate > I.dateKey()) selectedDate = I.dateKey(); if (selectedDate < '1900-01-01') selectedDate = '1900-01-01'; render(); }
@@ -428,17 +635,34 @@
       else if (action === 'meal-add') mealDialog();
       else if (action === 'meal-edit') mealDialog(current.meals.find(item => item.id === button.dataset.id));
       else if (action === 'meal-reuse') mealDialog(previousMeals().find(item => item.id === button.dataset.id), true);
+      else if (action === 'meal-template-save') saveMealTemplate(current.meals.find(item => item.id === button.dataset.id));
+      else if (action === 'meal-templates') mealTemplatesDialog();
+      else if (action === 'meal-template-use') { const template = state.mealTemplates?.find(item => item.id === button.dataset.id); if (template) { closeDialog(); mealDialog(template.meal, true); } }
+      else if (action === 'meal-template-delete') { const next = clone(state); next.mealTemplates = (next.mealTemplates || []).filter(item => item.id !== button.dataset.id); if (save(next, '저장 목록에서 삭제했어요. 기존 식사 기록은 그대로예요.')) mealTemplatesDialog(); }
+      else if (action === 'meal-copy-previous') previousDayDialog();
+      else if (action === 'day-note') dayNoteDialog();
       else if (action === 'meal-copy') mutateDay(item => item.meals.push({ ...item.meals.find(meal => meal.id === button.dataset.id), id: id() }), '같은 식사를 추가했어요.');
       else if (action === 'meal-delete' || action === 'session-delete') confirmDialog('기록 삭제', '선택한 기록을 삭제하고 오늘 합계를 다시 계산할까요?', '삭제', () => mutateDay(item => { const key = action === 'meal-delete' ? 'meals' : 'sessions'; item[key] = item[key].filter(entry => entry.id !== button.dataset.id); }, '기록을 삭제했어요.'));
       else if (action === 'session-add') sessionDialog();
       else if (action === 'session-edit') sessionDialog(current.sessions.find(item => item.id === button.dataset.id));
+      else if (action === 'session-presets') sessionPresetsDialog();
+      else if (action === 'session-preset-save') saveSessionPreset(current.sessions.find(item => item.id === button.dataset.id));
+      else if (action === 'session-preset-use') { const preset = state.sessionPresets?.find(item => item.id === button.dataset.id); if (preset) { closeDialog(); sessionDialog(null, preset.session); } }
+      else if (action === 'session-preset-delete') { const next = clone(state); next.sessionPresets = next.sessionPresets.filter(item => item.id !== button.dataset.id); if (save(next, '자주 하는 운동 목록에서 삭제했어요. 기존 기록은 유지합니다.')) sessionPresetsDialog(); }
       else if (action === 'measurement') measurementDialog();
       else if (action === 'allocation-reset') mutateDay(item => { item.carbAdjustmentG = 0; }, '기본 배분으로 돌아왔어요.');
+      else if (action === 'allocation-suggest') allocationSuggestionDialog();
       else if (action === 'complete') confirmDialog('하루 기록 완료', '빠진 식사가 없는지 확인해 주세요. 지금의 목표와 식사 기록을 함께 보관하고, 이후 프로필을 바꿔도 이 날의 목표는 유지해요.', '완료', () => mutateDay(item => { const snapshot = planFor(item); if (snapshot.context) snapshot.context.goal = state.profile?.goal || null; item.planSnapshot = clone(snapshot); item.complete = true; }, '하루 기록을 완료했어요.'));
       else if (action === 'reopen') confirmDialog('완료한 기록 수정', '이 날을 다시 열면 현재 프로필과 이 날짜의 몸 상태·운동으로 목표를 다시 계산해요. 이전 기준을 보관하려면 먼저 전체 백업을 내려받아 주세요.', '다시 열기', () => mutateDay(item => { item.complete = false; item.planSnapshot = null; }, '기록을 다시 열었어요.'));
       else if (action === 'export') { download(S.exportBackup(state), `macro-engine-${I.dateKey()}.json`); toast('백업 다운로드를 요청했어요. 저장된 파일을 확인해 주세요.'); }
       else if (action === 'import-select') $('backupFile').click();
       else if (action === 'import-cancel') { pendingImport = null; renderData(); icons(); }
+      else if (action === 'import-merge') {
+        if (blocked || pendingImport?.kind !== 'current') throw new Error('합칠 수 있는 백업을 먼저 확인해 주세요.');
+        const replaceDates = [...$('importPreview').querySelectorAll('[name="mergeReplace"]:checked')].map(input => input.value);
+        const next = S.mergeBackup(state, pendingImport.state, replaceDates);
+        if (save(next, '선택한 날짜별 기록을 합쳤어요. 현재 프로필과 완료 기록은 유지했어요.')) { pendingImport = null; render(); }
+      }
       else if (action === 'import-confirm') {
         const incoming = pendingImport;
         if (!incoming) return;
@@ -465,6 +689,15 @@
     try { if (await trainingUI.handleChange(event)) return; } catch (error) { toast(error.message, true); return; }
     if (event.target.id === 'dayDate') {
       if (S.isValidDate(event.target.value) && event.target.value <= I.dateKey()) { selectedDate = event.target.value; render(); }
+      else { toast('오늘까지의 올바른 날짜를 선택해 주세요.', true); event.target.value = selectedDate; }
+    } else if (event.target.id === 'trendPeriod') {
+      trendPeriod = Number(event.target.value); renderTrends(); drawChart(); icons(); $('trendPeriod').focus();
+    } else if (event.target.id === 'bodyMetric' || event.target.id === 'intakeMetric') {
+      const control = event.target.id;
+      if (control === 'bodyMetric') bodyMetric = event.target.value; else intakeMetric = event.target.value;
+      renderTrends(); drawChart(); icons(); $(control).focus();
+    } else if (event.target.id === 'trendsDate') {
+      if (S.isValidDate(event.target.value) && event.target.value <= I.dateKey() && event.target.value >= '1900-02-12') { selectedDate = event.target.value; render(); $('trendsDate').focus(); }
       else { toast('오늘까지의 올바른 날짜를 선택해 주세요.', true); event.target.value = selectedDate; }
     } else if (event.target.id === 'allocation' && !day().complete) {
       mutateDay(item => { item.carbAdjustmentG = Number(event.target.value); }, '총열량을 유지하며 배분을 바꿨어요.');

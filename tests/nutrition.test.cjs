@@ -1,11 +1,14 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { calculatePlan, adjustAllocation, validateProfile, summarizeWeightTrend } = require("../src/nutrition.js");
+const { calculatePlan, adjustAllocation, validateProfile, summarizeWeightTrend, ACTIVITY_PARS, CARDIO_LIMITS } = require("../src/nutrition.js");
 
 const profile = Object.freeze({ sex: "male", age: 35, heightCm: 175, weightKg: 75, bodyFatPct: null, bodyFatWeightKg: null, bodyFatMethod: "unknown", bodyFatDate: null, trainingYears: null, sport: "strength", goal: "maintain", activity: "light", healthContext: "general", proteinPreference: "standard" });
 const day = Object.freeze({ date: "2026-10-05", meals: [], sessions: [], complete: false });
 const plan = (overrides = {}, dayOverrides = {}) => calculatePlan({ ...profile, ...overrides }, { ...day, ...dayOverrides });
 const near = (actual, expected, tolerance = 1e-8) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} != ${expected}`);
+const activity = Object.freeze({ sleepHours: 8, workHours: 8, workType: "seated", lifestyleHours: 2, lifestyleType: "light" });
+const detailed = (overrides = {}, dayOverrides = {}) => plan({ activityMode: "detailed", dailyActivity: activity, ...overrides }, dayOverrides);
+const cardio = (sport = "walking", overrides = {}) => ({ sport, intensity: "moderate", durationMin: 30, cardio: { environment: "treadmill", speedKmh: sport === "walking" ? 4.8 : 10, gradePct: 0, ...overrides } });
 
 test("missing body composition never becomes full body weight or a calorie floor", () => {
   const result = plan({ sex: "female", age: 45, heightCm: 165, weightKg: 100, sport: "none", goal: "lose", activity: "sedentary" });
@@ -236,4 +239,218 @@ test("body composition remains paired to measured weight and fades continuously 
   const justBefore = plan(composition, { weightKg: 72.00001 });
   const justAfter = plan(composition, { weightKg: 71.99999 });
   assert.ok(Math.abs(justBefore.energy.targetKcal - justAfter.energy.targetKcal) < 0.01);
+});
+
+test("simple activity and omitted preferences preserve the established numeric path", () => {
+  const base = plan();
+  near(base.energy.restingKcal, 1673.75);
+  near(base.energy.tdeeKcal, 2259.5625);
+  near(base.macros.protein.target, 127.5);
+  near(base.macros.carbs.target, 267.9234375);
+  near(base.macros.fat.target, 75.31875);
+  const explicit = plan({ activityMode: "simple", goalPreference: "standard", dailyActivity: { sleepHours: null, workHours: null, workType: null, lifestyleHours: null, lifestyleType: null }, weekdayActivity: { "1": activity } }, { dailyActivity: activity });
+  assert.deepEqual(explicit.energy, base.energy);
+  assert.deepEqual(explicit.macros, base.macros);
+  assert.deepEqual(explicit.context.dailyActivity, { mode: "simple" });
+  for (const goal of ["lose", "gain", "recomp", "maintain", "performance"]) {
+    const ordinary = plan({ goal }, { sessions: [{ sport: "strength", intensity: "hard", durationMin: 31.25 }] });
+    const optionalOff = plan({ goal, activityMode: "simple", goalPreference: "standard" }, { sessions: [{ sport: "strength", intensity: "hard", durationMin: 31.25, cardio: null }] });
+    assert.deepEqual(ordinary.energy, optionalOff.energy);
+    assert.deepEqual(ordinary.macros, optionalOff.macros);
+  }
+});
+
+test("detailed time owns all 24 hours and adds gross exercise only over unoccupied time", () => {
+  const session = { sport: "running", intensity: "moderate", durationMin: 60 };
+  const rest = detailed({ goal: "lose" });
+  const trained = detailed({ goal: "lose" }, { sessions: [session] });
+  const time = trained.context.dailyActivity;
+  assert.equal(time.source, "profile");
+  assert.equal(time.restHours, 5);
+  near(time.sleepHours + time.workHours + time.lifestyleHours + time.exerciseHours + time.restHours, 24);
+  near(time.nonExerciseKcal, trained.energy.restingKcal / 24 * (8 + 8 * 1.5 + 2 * 2.1 + 5 * 1.4));
+  near(trained.energy.tdeeKcal, time.nonExerciseKcal + 8.5 * 75);
+  near(trained.energy.exerciseKcal, 7.5 * 75);
+  near(time.replacedRestKcal, trained.energy.restingKcal / 24 * 1.4);
+  near(trained.energy.tdeeKcal - rest.energy.tdeeKcal, 8.5 * 75 - time.replacedRestKcal);
+  near(trained.context.goalDeltaKcal, rest.context.goalDeltaKcal);
+  near(time.baselineWithoutTrainingKcal, rest.energy.tdeeKcal);
+  const repeatedPal = detailed({ activity: "physical" }, { sessions: [session] });
+  near(repeatedPal.energy.tdeeKcal, trained.energy.tdeeKcal);
+  assert.match(trained.reasons.join(" "), /정확하다고 보장하지/);
+});
+
+test("detailed activity distinguishes explicit zero, missing, malformed, and overbooked time", () => {
+  for (const dailyActivity of [undefined, null, {}, { ...activity, sleepHours: null }, { ...activity, workHours: "8" }, { ...activity, lifestyleHours: NaN }, { ...activity, workType: null }, { ...activity, lifestyleType: null }, { ...activity, sleepHours: 25 }]) {
+    const result = detailed({ dailyActivity });
+    assert.equal(result.status, "incomplete", JSON.stringify(dailyActivity));
+    assert.equal(result.energy.targetKcal, null);
+  }
+  const zero = detailed({ dailyActivity: { sleepHours: 8, workHours: 0, workType: null, lifestyleHours: 0, lifestyleType: null } });
+  assert.equal(zero.status, "ready");
+  assert.equal(zero.context.dailyActivity.restHours, 16);
+  assert.equal(zero.context.dailyActivity.coefficients.work, null);
+  const full = { ...activity, lifestyleHours: 8 };
+  assert.equal(detailed({ dailyActivity: full }).context.dailyActivity.restHours, 0);
+  const tooMuch = detailed({ dailyActivity: full }, { sessions: [{ sport: "walking", intensity: "easy", durationMin: 0.001 }] });
+  assert.equal(tooMuch.status, "incomplete");
+  assert.match(tooMuch.reasons.join(" "), /24시간을 넘/);
+  assert.equal(detailed({}, { dailyActivity: [] }).status, "incomplete");
+  for (const override of [{ activityMode: "auto" }, { goalPreference: "aggressive" }, { weekdayActivity: [] }, { weekdayActivity: { "7": activity } }, { dailyActivity: { ...activity, workType: "__proto__" } }]) assert.equal(plan(override).status, "incomplete");
+});
+
+test("today overrides weekday overrides defaults without merging missing fields or assuming a date", () => {
+  const monday = { ...activity, workHours: 4, workType: "standing" };
+  const sunday = { ...activity, workHours: 0, workType: null };
+  const override = { ...activity, sleepHours: 9, workHours: 0, workType: null };
+  const p = { weekdayActivity: { "0": sunday, "1": monday, "2": null } };
+  const week = detailed(p);
+  assert.equal(week.context.dailyActivity.source, "weekday");
+  assert.equal(week.context.dailyActivity.weekday, 1);
+  assert.equal(week.context.dailyActivity.workHours, 4);
+  assert.equal(detailed(p, { date: "2026-10-04" }).context.dailyActivity.workHours, 0);
+  const today = detailed(p, { dailyActivity: override });
+  assert.equal(today.context.dailyActivity.source, "day");
+  assert.equal(today.context.dailyActivity.sleepHours, 9);
+  assert.equal(today.context.dailyActivity.workHours, 0);
+  assert.equal(detailed(p, { dailyActivity: { sleepHours: 9 } }).status, "incomplete");
+  assert.equal(detailed(p, { dailyActivity: null }).context.dailyActivity.source, "weekday");
+  assert.equal(detailed(p, { date: "2026-10-06" }).context.dailyActivity.source, "profile");
+  assert.equal(detailed(p, { date: undefined }).status, "incomplete");
+  assert.equal(detailed(p, { date: undefined, dailyActivity: override }).status, "ready");
+  assert.equal(detailed({}, { date: undefined }).context.dailyActivity.source, "profile");
+});
+
+test("time boundaries and activity intensity change continuously without inflating a second session", () => {
+  let previous = detailed();
+  for (let i = 1; i <= 360; i++) {
+    const result = detailed({}, { sessions: [{ sport: "walking", intensity: "easy", durationMin: i }] });
+    assert.equal(result.status, "ready");
+    assert.ok(result.energy.tdeeKcal > previous.energy.tdeeKcal);
+    assert.ok(result.energy.tdeeKcal - previous.energy.tdeeKcal < 3);
+    previous = result;
+  }
+  assert.equal(previous.context.dailyActivity.restHours, 0);
+  const mixedSessions = [cardio("walking", { gradePct: 5 }), { sport: "strength", intensity: "hard", durationMin: 45 }, cardio("running")];
+  const mixed = detailed({}, { sessions: mixedSessions });
+  const split = detailed({}, { sessions: mixedSessions.flatMap(session => [{ ...session, durationMin: session.durationMin / 3 }, { ...session, durationMin: session.durationMin * 2 / 3 }]) });
+  near(mixed.energy.tdeeKcal, split.energy.tdeeKcal);
+  near(mixed.energy.exerciseKcal, split.energy.exerciseKcal);
+  near(mixed.macros.carbs.target, split.macros.carbs.target);
+  const base = detailed();
+  const shifted = detailed({ dailyActivity: { ...activity, workHours: activity.workHours + 0.0001 } });
+  near(shifted.energy.tdeeKcal - base.energy.tdeeKcal, base.energy.restingKcal / 24 * 0.0001 * (1.5 - 1.4));
+  const standing = detailed({ dailyActivity: { ...activity, workType: "standing" } });
+  const physical = detailed({ dailyActivity: { ...activity, workType: "physical" } });
+  assert.ok(base.energy.tdeeKcal < standing.energy.tdeeKcal && standing.energy.tdeeKcal < physical.energy.tdeeKcal);
+});
+
+test("ACSM speed and grade are unit-correct, net of their own resting term, and not VO2max", () => {
+  const walk = plan({}, { sessions: [cardio("walking", { gradePct: 5 })] });
+  const run = plan({}, { sessions: [cardio("running", { gradePct: 3 })] });
+  const walkingOxygen = 3.5 + 0.1 * 80 + 1.8 * 80 * 0.05;
+  near(walk.context.sessionBreakdown[0].met, walkingOxygen / 3.5);
+  near(walk.energy.exerciseKcal, (walkingOxygen - 3.5) * 75 / 1000 * 5 * 30);
+  near(walk.context.sessionBreakdown[0].grossKcal, walkingOxygen * 75 / 1000 * 5 * 30);
+  near(run.energy.exerciseKcal, (0.2 * (10000 / 60) + 0.9 * (10000 / 60) * 0.03) * 75 / 1000 * 5 * 30);
+  const identicalButHard = { ...cardio("walking", { gradePct: 5 }), intensity: "hard" };
+  near(plan({}, { sessions: [identicalButHard] }).energy.exerciseKcal, walk.energy.exerciseKcal);
+  const outdoor = plan({}, { sessions: [cardio("running", { environment: "outdoor" })] });
+  const indoor = plan({}, { sessions: [cardio("running")] });
+  near(outdoor.energy.targetKcal, indoor.energy.targetKcal);
+  assert.equal(outdoor.context.sessionBreakdown[0].method, "acsm_level_outdoor_approximation");
+  assert.ok(outdoor.energy.range[1] - outdoor.energy.range[0] > indoor.energy.range[1] - indoor.energy.range[0]);
+  assert.match(outdoor.guidance.find(item => item.id === "cardio-details").body, /바람·지면/);
+});
+
+test("detailed cardio rejects missing and unsupported conditions instead of inventing zero or changing gait", () => {
+  for (const invalid of [
+    cardio("walking", { speedKmh: null }), cardio("walking", { gradePct: null }), cardio("walking", { gradePct: "0" }),
+    cardio("walking", { speedKmh: 2.99 }), cardio("walking", { speedKmh: 6.01 }), cardio("running", { speedKmh: 8 }), cardio("running", { speedKmh: 20.01 }),
+    cardio("walking", { gradePct: -1 }), cardio("walking", { gradePct: 15.01 }), cardio("running", { environment: "outdoor", gradePct: 2 }),
+    cardio("walking", { environment: "pool" }), { ...cardio(), sport: "cycling" }, { ...cardio(), cardio: [] }
+  ]) {
+    const result = plan({}, { sessions: [invalid] });
+    assert.equal(result.status, "incomplete", JSON.stringify(invalid));
+    assert.equal(result.energy.exerciseKcal, null);
+  }
+  for (const sport of ["walking", "running"]) for (const speedKmh of [CARDIO_LIMITS[sport].minSpeedKmh, CARDIO_LIMITS[sport].maxSpeedKmh]) for (const gradePct of [0, 15]) {
+    assert.equal(plan({}, { sessions: [cardio(sport, { speedKmh, gradePct })] }).status, "ready");
+  }
+  assert.equal(plan({}, { sessions: [{ ...cardio(), cardio: null }] }).context.sessionBreakdown[0].method, "representative_met");
+});
+
+test("cardio speed, grade, duration and body weight are continuous and monotonic in the supported model", () => {
+  for (const sport of ["walking", "running"]) {
+    const limits = CARDIO_LIMITS[sport];
+    let previous = null;
+    for (let i = 0; i <= 100; i++) {
+      const speedKmh = limits.minSpeedKmh + (limits.maxSpeedKmh - limits.minSpeedKmh) * i / 100;
+      const result = detailed({}, { sessions: [cardio(sport, { speedKmh, gradePct: 3 })] });
+      if (previous) assert.ok(result.energy.targetKcal >= previous.energy.targetKcal);
+      const plus = detailed({}, { sessions: [cardio(sport, { speedKmh, gradePct: 3.00001 })] });
+      assert.ok(plus.energy.targetKcal >= result.energy.targetKcal);
+      assert.ok(plus.energy.targetKcal - result.energy.targetKcal < 0.01);
+      previous = result;
+    }
+    const empty = detailed();
+    const tiny = detailed({}, { sessions: [{ ...cardio(sport), durationMin: 0.00001 }] });
+    assert.ok(tiny.energy.targetKcal - empty.energy.targetKcal < 0.001);
+    for (const sex of ["male", "female", "unspecified"]) for (const goal of ["lose", "maintain", "gain", "recomp", "performance"]) {
+      let previousWeight = null;
+      for (let weightKg = 58; weightKg <= 140; weightKg += 0.5) {
+        const current = detailed({ sex, goal, weightKg }, { sessions: [cardio(sport)] });
+        assert.equal(current.status, "ready");
+        if (previousWeight) assert.ok(current.energy.targetKcal > previousWeight.energy.targetKcal);
+        near(current.macros.protein.target * 4 + current.macros.carbs.target * 4 + current.macros.fat.target * 9, current.energy.targetKcal, 1e-6);
+        previousWeight = current;
+      }
+    }
+  }
+});
+
+test("protein preference stays inside the existing range and conservative goals only reduce the chosen offset", () => {
+  for (const age of [18, 35, 60, 80]) for (const sport of ["none", "strength", "running"]) for (const goal of ["lose", "maintain", "gain", "recomp", "performance"]) {
+    const standard = detailed({ age, sport, goal });
+    const lower = detailed({ age, sport, goal, proteinPreference: "lower" });
+    const higher = detailed({ age, sport, goal, proteinPreference: "higher" });
+    near(lower.macros.protein.target, standard.macros.protein.min);
+    assert.ok(lower.macros.protein.target <= standard.macros.protein.target);
+    assert.ok(standard.macros.protein.target <= higher.macros.protein.target);
+    assert.ok(higher.macros.protein.target <= standard.macros.protein.max);
+    near(lower.energy.targetKcal, standard.energy.targetKcal);
+    near(lower.macros.carbs.target - standard.macros.carbs.target, standard.macros.protein.target - lower.macros.protein.target);
+    const conservative = detailed({ age, sport, goal, goalPreference: "conservative" });
+    near(conservative.context.goalDeltaKcal, standard.context.goalDeltaKcal * (["lose", "gain"].includes(goal) ? 0.5 : 1));
+    near(conservative.energy.tdeeKcal, standard.energy.tdeeKcal);
+    for (const result of [lower, standard, higher, conservative]) near(result.macros.protein.target * 4 + result.macros.carbs.target * 4 + result.macros.fat.target * 9, result.energy.targetKcal, 1e-6);
+  }
+});
+
+test("digestive and appetite constraints change guidance, never make an unsupported numeric prescription", () => {
+  const base = detailed();
+  for (const mealConstraint of ["digestive", "low-appetite"]) {
+    const result = detailed({}, { coachCheckin: { energy: null, hunger: null, sleep: null, mealConstraint } });
+    assert.deepEqual(result.energy, base.energy);
+    assert.deepEqual(result.macros, base.macros);
+    assert.ok(result.guidance.some(item => item.id === "meal-constraint"));
+    const unsupported = detailed({ healthContext: "clinical" }, { coachCheckin: { mealConstraint } });
+    assert.equal(unsupported.status, "review");
+    assert.equal(unsupported.energy.targetKcal, null);
+  }
+});
+
+test("new nested activity, weekday and cardio inputs remain immutable and result objects are detached", () => {
+  const p = { ...profile, activityMode: "detailed", dailyActivity: { ...activity }, weekdayActivity: { "1": { ...activity } } };
+  const d = { ...day, sessions: [cardio("walking", { gradePct: 4 })], dailyActivity: { ...activity } };
+  const before = JSON.stringify({ p, d });
+  const result = calculatePlan(p, d);
+  result.context.dailyActivity.sleepHours = 999;
+  result.context.dailyActivity.coefficients.sleep = 999;
+  result.context.sessionBreakdown[0].cardio.gradePct = 999;
+  assert.equal(JSON.stringify({ p, d }), before);
+  assert.equal(ACTIVITY_PARS.sleep, 1);
+  const another = calculatePlan(p, d);
+  assert.equal(another.context.dailyActivity.sleepHours, 8);
+  assert.equal(another.context.sessionBreakdown[0].cardio.gradePct, 4);
 });
