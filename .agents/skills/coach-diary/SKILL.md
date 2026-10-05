@@ -1,9 +1,9 @@
 ---
 name: coach-diary
-description: Analyze or coach from this project's personal workout diary folder, reusing extracted records and reading only new or relevant unresolved images. Not for ordinary app code changes.
+description: Coach from this project's private app state and workout diary, reusing extracted records and reading only new or relevant unresolved images. Use for personal workout/nutrition coaching or image intake, not ordinary app code changes.
 ---
 
-The external folder holds original diary images. `user-data/coach/` holds private configuration, image hashes, raw extractions and separate user corrections. It is Gitignored, not encrypted or automatically backed up. Do not copy personal records into tracked files or test fixtures.
+The external folder holds original diary images. `user-data/coach/` holds private app state, configuration, image hashes, raw extractions, corrections, uploads and AI drafts. It is Gitignored, not encrypted or automatically backed up. Do not copy personal records into tracked files or test fixtures.
 
 ## On-Demand Intake
 
@@ -51,4 +51,8 @@ Corrections are separate from immutable raw extraction. Use `correct --file <jso
 
 ## Coaching Boundary
 
-Explain confirmed observations, reasonable interpretations, and remaining questions separately. Recorded kg totals and reported Cal are not muscle growth or measured expenditure. Brand/machine changes, rep range, technique and effort matter; raw-name similarities alone do not establish comparable loads or muscle-set allocation. Unrecorded dates are unknown. Deload/program/nutrition decisions need relevant history, recovery/effort and goal context, not one day's tonnage. The browser app does not yet import these set-level journals; this skill supports Codex-assisted intake and coaching, not a standalone personal-AI release.
+Explain confirmed observations, reasonable interpretations, and remaining questions separately. Recorded kg totals and reported Cal are not muscle growth or measured expenditure. Brand/machine changes, rep range, technique and effort matter; raw-name similarities alone do not establish comparable loads or muscle-set allocation. Unrecorded dates are unknown. Deload/program/nutrition decisions need relevant history, recovery/effort and goal context, not one day's tonnage.
+
+For personal coaching, use `npm run coach -- context --date YYYY-MM-DD` to read the connected app's bounded context and CAS digest. Missing PC state means the browser has not been connected; do not invent a profile or import an old backup as current. The browser imports cached journals through a visible preview and calls the installed Codex CLI for chat/image drafts. Do not reparse cached images merely because the app or AI answer changed.
+
+When the user asks to reflect confirmed food/workout/advice in the app, prepare a UTF-8 proposal under `user-data/coach/` with `{schemaVersion:1, expectedDigest, state}`. Use `npm run coach -- propose --file <proposal>` to inspect changes before `--apply`. Completed days are immutable until explicitly reopened in the app; existing record deletions and stale proposals are rejected. Keep unknown food amounts as questions/drafts until confirmed rather than saving zero. Preserve Codex answers with their limits and source. Do not silently replace active browser data: the app's PC-record preview/restore resolves that boundary. No scheduled watcher or automatic future AI calls are implied.

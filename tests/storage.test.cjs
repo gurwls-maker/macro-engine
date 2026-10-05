@@ -379,3 +379,109 @@ test("completed diary can preserve review or incomplete plan without inventing c
     assert.equal(restored.days[day.date].planSnapshot.macros.protein.target, null);
   }
 });
+
+function trainingFixture() {
+  const Training = require("../src/training-store.js");
+  const training = Training.createEmpty();
+  training.records.push({
+    id: "manual-training", date: "2026-01-05", time: null, label: "테스트 운동",
+    durationMinutes: 30, reportedSetCount: null, reportedVolumeKg: null, reportedEnergyKcal: null,
+    source: { kind: "manual", hash: null, paths: [], uncertainties: [], revision: null },
+    exercises: [{ id: "manual-exercise", rawName: "테스트 종목", exerciseId: null, equipmentKey: null,
+      loadConvention: "as-recorded", durationMinutes: null, repsTotal: null, reportedVolumeKg: null,
+      sets: [{ id: "manual-set", loadKg: null, reps: 8, marker: null, rir: 2 }], notes: "부하 확인 필요" }],
+    notes: "사용자 메모", effort: 7, pain: "none"
+  });
+  training.mappings.push({ rawName: "테스트 종목", exerciseId: "sample", equipmentKey: null, loadConvention: "as-recorded", confirmed: true });
+  training.messages.push({ id: "question-1", role: "user", text: "이 기록을 확인해 주세요.", createdAt: "2026-01-05T10:00:00.000Z", source: "local", replyTo: null, contextDigest: null, status: "pending" });
+  return training;
+}
+
+test("optional training preserves old v9 shape and full backup restores set diary, mapping and conversation", () => {
+  const old = fixture();
+  assert.equal(Object.hasOwn(Storage.validateState(old), "training"), false);
+  const state = fixture(); state.training = trainingFixture();
+  const before = structuredClone(state.days["2026-10-05"].planSnapshot);
+  const restored = Storage.parseBackup(Storage.exportBackup(state));
+  assert.deepEqual(restored.state, state);
+  assert.equal(restored.summary.trainingRecords, 1);
+  assert.equal(restored.summary.trainingMappings, 1);
+  assert.equal(restored.summary.coachMessages, 1);
+  const store = memoryStorage();
+  const saved = Storage.save(state, store);
+  assert.deepEqual(Storage.load(store).state, saved);
+  assert.deepEqual(saved.days["2026-10-05"].planSnapshot, before);
+  assert.equal(saved.days["2026-10-05"].sessions.length, 1);
+  assert.equal(saved.training.records[0].exercises[0].sets[0].loadKg, null);
+  saved.training.records[0].notes = "다른 값";
+  assert.equal(state.training.records[0].notes, "사용자 메모");
+  assert.equal(Storage.VERSION, 9);
+  assert.equal(Storage.STORAGE_KEY, "macro-engine.v9");
+});
+
+test("invalid training cannot overwrite stored state or completed day snapshot", () => {
+  const good = fixture(); good.training = trainingFixture();
+  const original = Storage.exportBackup(good);
+  const store = memoryStorage({ [Storage.STORAGE_KEY]: original });
+  let writes = 0; store.setItem = () => { writes += 1; };
+  const mutations = [
+    state => { state.training = null; }, state => { state.training.version = 2; },
+    state => { state.training.records[0].effort = "7"; },
+    state => { state.training.records[0].exercises[0].sets[0].rir = 11; },
+    state => { state.training.messages[0].replyTo = "missing"; },
+    state => { state.training.inbox = []; }
+  ];
+  for (const mutate of mutations) {
+    const state = structuredClone(good); mutate(state);
+    assert.throws(() => Storage.save(state, store));
+    assert.equal(store.getItem(Storage.STORAGE_KEY), original);
+  }
+  assert.equal(writes, 0);
+  const broken = structuredClone(good); broken.training.version = 2;
+  const corrupted = JSON.stringify(broken);
+  const result = Storage.load(memoryStorage({ [Storage.STORAGE_KEY]: corrupted }));
+  assert.equal(result.storageBlocked, true);
+  assert.equal(result.corruptedRaw, corrupted);
+});
+
+test("optional meal provenance round trips while older meals remain unchanged", () => {
+  const original = fixture();
+  assert.equal(Object.hasOwn(Storage.validateState(original).days["2026-10-05"].meals[0], "source"), false);
+  for (const kind of ["manual", "label", "image", "estimate"]) {
+    for (const confidence of kind === "estimate" ? ["estimated"] : ["known", "estimated"]) {
+      const state = fixture();
+      const source = { kind, confidence, note: "사용자가 확인한 입력 출처", hash: kind === "image" ? "a".repeat(64) : null };
+      state.days["2026-10-05"].meals[0].source = source;
+      const before = structuredClone(state.days["2026-10-05"].planSnapshot);
+      const restored = Storage.parseBackup(Storage.exportBackup(state)).state;
+      assert.deepEqual(restored, state);
+      assert.deepEqual(restored.days["2026-10-05"].planSnapshot, before);
+      restored.days["2026-10-05"].meals[0].source.note = "changed";
+      assert.equal(source.note, "사용자가 확인한 입력 출처");
+    }
+  }
+});
+
+test("unconfirmed image drafts and invalid provenance cannot enter permanent meals", () => {
+  const original = Storage.exportBackup(fixture());
+  const store = memoryStorage({ [Storage.STORAGE_KEY]: original });
+  let writes = 0; store.setItem = () => { writes += 1; };
+  const source = { kind: "image", confidence: "estimated", note: "사진 추정", hash: "a".repeat(64) };
+  const changes = [
+    meal => { meal.protein = null; }, meal => { meal.carbs = "80"; },
+    meal => { meal.source = null; }, meal => { meal.source = { ...source, kind: "ocr" }; },
+    meal => { meal.source = { ...source, confidence: "certain" }; },
+    meal => { meal.source = { ...source, kind: "estimate", confidence: "known" }; },
+    meal => { meal.source = { ...source, hash: "not-a-hash" }; },
+    meal => { meal.source = { ...source, note: {} }; },
+    meal => { meal.source = { ...source, approved: false }; }
+  ];
+  for (const change of changes) {
+    const state = fixture(); const meal = state.days["2026-10-05"].meals[0];
+    meal.source = structuredClone(source); change(meal);
+    assert.throws(() => Storage.save(state, store));
+    assert.throws(() => Storage.parseBackup(JSON.stringify(state)));
+    assert.equal(store.getItem(Storage.STORAGE_KEY), original);
+  }
+  assert.equal(writes, 0);
+});

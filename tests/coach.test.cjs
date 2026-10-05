@@ -319,3 +319,80 @@ test("overflowing macro totals are rejected rather than rendered as infinite int
   assert.equal(result.status, "incomplete");
   assert.equal(result.priorities[0].id, "meal-data");
 });
+
+function syntheticTraining(overrides = {}) {
+  const previous = { date: "2026-09-24", loadKg: 50, reps: 10, rir: null, equipmentKey: "fixture-machine-a", loadConvention: "as-recorded", rawName: "합성 프레스" };
+  const current = { ...previous, date: "2026-10-02", reps: 12 };
+  return {
+    windowStart: "2026-09-08", windowEnd: day.date,
+    coverage: { recordCount: 2, daysWithRecords: 2, unknownDays: 26, workingSets: 6, warmupSets: 2, markedSets: 0, unknownEffortSets: 6, unresolvedExercises: 0 },
+    sessions: [], lastSession: { date: "2026-10-02", time: "12:00", label: "Synthetic A", totalSets: 4, workingSets: 3, durationMinutes: 30 },
+    muscles: [{ id: "chest", label: "가슴", directSets: 6, indirectSets: 0, unknownEffortSets: 6 }, { id: "triceps", label: "삼두", directSets: 0, indirectSets: 6, unknownEffortSets: 6 }],
+    progression: [{ exerciseId: "fixture-press", label: "합성 프레스", equipmentKey: "fixture-machine-a", current, previous, status: "incomparable", reason: "노력 수준이 미확인이라 수행 향상으로 단정하지 않아요.", observed: { current, previous, description: "동일 원문 운동의 기록값" } }],
+    recovery: { status: "insufficient", reasons: [], questions: ["마지막 세트에 몇 회 정도 여유가 있었나요?"], repeatedDeclines: 0, selfReportSignals: [] },
+    limitations: ["테스트 합성 기록"], ...overrides
+  };
+}
+
+test("set-level training observes incomparable raw progression without changing nutrition", () => {
+  const trainingAnalysis = syntheticTraining();
+  const d = { ...day, meals: [meal(1)], coachCheckin: { energy: "okay", hunger: "okay", sleep: "good" } };
+  const before = JSON.stringify({ profile, d, trainingAnalysis });
+  const result = buildCoach(profile, d, [], { trainingAnalysis, training: { settings: { daysPerWeek: 3, sessionMinutes: 45 } } });
+  assert.equal(result.priorities[0].id, "training-progression");
+  assert.match(result.priorities[0].body, /50kg × 10회.*50kg × 12회/);
+  assert.match(result.priorities[0].body, /노력 수준이 미확인/);
+  assert.match(result.priorities[0].body, /근육 증가량을 뜻하지/);
+  assert.equal(result.context.targetKcal, N.calculatePlan(profile, d).energy.targetKcal);
+  assert.equal(result.context.training.coverage.unknownDays, 26);
+  assert.equal(JSON.stringify({ profile, d, trainingAnalysis }), before);
+});
+
+test("direct and indirect exposure remain separate with unknown effort and missing days", () => {
+  const result = buildCoach(profile, day, [], { trainingAnalysis: syntheticTraining() });
+  const muscles = result.questions.find(row => row.id === "training-muscles");
+  assert.match(muscles.answer, /가슴 직접 6·간접 0세트/);
+  assert.match(muscles.answer, /삼두 직접 0·간접 6세트/);
+  assert.match(muscles.answer, /같은 효과의 세트로 합치지/);
+  assert.match(muscles.answer, /노력 수준 미확인 6세트/);
+  assert.ok(result.context.limitations.some(text => /기록하지 않은 날은 휴식일로 판단하지/.test(text)));
+});
+
+test("training safety outranks progression and blocks new program suggestions", () => {
+  for (const status of ["stop", "review", "watch"]) {
+    const trainingAnalysis = syntheticTraining({ recovery: { status, reasons: ["입력한 통증 또는 반복된 수행 변화 확인"], questions: ["현재 상태를 알려 주세요."], repeatedDeclines: 2, selfReportSignals: [] } });
+    const result = buildCoach(profile, { ...day, meals: [meal(1)] }, [], { trainingAnalysis, program: { status: "ready", name: "합성 계획", reason: "주 3회" } });
+    assert.equal(result.priorities[0].kind, "safety");
+    if (status !== "watch") assert.ok(!result.questions.some(row => row.id === "training-program"));
+    assert.match(result.questions.find(row => row.id === "training-deload").answer, /단일 일지.*디로드를 단정하지/);
+  }
+});
+
+test("completed nutrition snapshot survives training integration and current clinical profile blocks program", () => {
+  const plan = N.calculatePlan(profile, day);
+  const d = completed(matchingMeals(plan));
+  const before = JSON.stringify(d);
+  const result = buildCoach({ ...profile, healthContext: "clinical", weightKg: 100 }, d, [], { trainingAnalysis: syntheticTraining(), program: { status: "ready", name: "합성 계획", reason: "조건 확인" } });
+  assert.equal(result.status, "complete");
+  assert.equal(result.context.targetKcal, plan.energy.targetKcal);
+  assert.ok(!result.questions.some(row => row.id === "training-program"));
+  assert.equal(JSON.stringify(d), before);
+});
+
+test("future training windows cannot reinterpret a selected historical date", () => {
+  const result = buildCoach(profile, day, [], { trainingAnalysis: syntheticTraining({ windowEnd: "2026-10-06" }) });
+  assert.equal(result.context.training.available, false);
+  assert.equal(result.context.training.lastSession, null);
+  assert.deepEqual(result.context.training.progression, []);
+  assert.ok(!result.questions.some(row => row.id === "training-progression"));
+});
+
+test("partial training payload remains unknown rather than zero or malformed numeric output", () => {
+  const analysis = syntheticTraining({ coverage: { recordCount: "2", unknownDays: Infinity }, muscles: [null, { id: "x", label: "부위", directSets: null, indirectSets: 1 }], progression: [null, {}], recovery: { status: "unexpected", reasons: "not an array" } });
+  const result = buildCoach(profile, day, [], { trainingAnalysis: analysis });
+  assert.equal(result.context.training.coverage.recordCount, null);
+  assert.equal(result.context.training.coverage.unknownDays, null);
+  assert.equal(result.context.training.muscles[0].directSets, null);
+  assert.equal(result.context.training.recovery.status, "insufficient");
+  assert.ok(!/NaN|Infinity|undefined/.test(JSON.stringify(result)));
+});

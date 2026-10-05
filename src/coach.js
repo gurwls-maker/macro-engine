@@ -6,13 +6,13 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function (Nutrition, Insights) {
   "use strict";
 
-  const VERSION = "9.1-context-coach-v1";
+  const VERSION = "9.2-training-context-coach-v1";
   const DAY = 86400000;
   const finite = value => typeof value === "number" && Number.isFinite(value);
   const fmt = (value, digits = 0) => finite(value) ? value.toLocaleString("ko-KR", { maximumFractionDigits: digits }) : "미확인";
   const goalNames = { lose: "체지방 감량", maintain: "체중 유지", gain: "근육 증가", recomp: "체성분 개선", performance: "운동 수행" };
   const sportNames = { none: "일상 활동", strength: "근력 운동", running: "달리기", cycling: "자전거", swimming: "수영", team: "구기 운동", mixed: "복합 운동", walking: "걷기" };
-  const actionLabels = { "nav-profile": "내 기준 확인", "meal-add": "식사 기록", "session-add": "운동 기록", measurement: "몸 상태 기록", complete: "하루 기록 완료", "nav-trends": "기록과 추세 보기", reopen: "이 날 기록 확인", "coach-checkin": "오늘 상태 알려주기" };
+  const actionLabels = { "nav-profile": "내 기준 확인", "meal-add": "식사 기록", "session-add": "운동 기록", measurement: "몸 상태 기록", complete: "하루 기록 완료", "nav-trends": "기록과 추세 보기", reopen: "이 날 기록 확인", "coach-checkin": "오늘 상태 알려주기", "nav-training": "훈련 기록 살펴보기", "nav-program": "훈련 계획 살펴보기" };
   const checkinOptions = { energy: ["low", "okay", "good"], hunger: ["low", "okay", "high"], sleep: ["poor", "okay", "good"], trainingPlan: ["rest", "planned"], mealConstraint: ["none", "busy", "low-appetite", "digestive"], performance: ["down", "steady", "up"] };
   const finiteRange = value => value && [value.min, value.target, value.max].every(finite) && value.min >= 0 && value.min <= value.target && value.target <= value.max;
   const readyPlan = plan => plan?.status === "ready" && finite(plan.energy?.targetKcal) && plan.energy.targetKcal > 0 && ["protein", "carbs", "fat"].every(key => finiteRange(plan.macros?.[key]));
@@ -87,6 +87,97 @@
     return { plan, source: "live-target" };
   }
 
+  const text = value => typeof value === "string" ? value.slice(0, 2000) : "";
+  const texts = value => Array.isArray(value) ? value.filter(value => typeof value === "string").slice(0, 30).map(text) : [];
+  const knownCount = value => finite(value) && value >= 0 ? value : null;
+
+  function summarizeTraining(analysis, workspace, program, date) {
+    const end = dateNumber(analysis?.windowEnd), selected = dateNumber(date);
+    const available = !!analysis && typeof analysis === "object" && end !== null && (selected === null || end <= selected);
+    const source = available ? analysis : {};
+    const last = source.lastSession && dateNumber(source.lastSession.date) !== null && (selected === null || dateNumber(source.lastSession.date) <= selected) ? source.lastSession : null;
+    const point = value => value && typeof value === "object" && !(selected !== null && dateNumber(value.date) !== null && dateNumber(value.date) > selected) ? {
+      date: dateNumber(value.date) !== null ? value.date : null,
+      loadKg: knownCount(value.loadKg), reps: knownCount(value.reps), rir: knownCount(value.rir),
+      equipmentKey: text(value.equipmentKey), loadConvention: text(value.loadConvention), rawName: text(value.rawName)
+    } : null;
+    const progression = (Array.isArray(source.progression) ? source.progression : []).slice(0, 100).filter(row => row && typeof row === "object").map(row => ({
+      exerciseId: text(row.exerciseId), label: text(row.label), equipmentKey: text(row.equipmentKey),
+      status: ["improved", "declined", "stable", "mixed", "incomparable", "insufficient"].includes(row.status) ? row.status : "insufficient",
+      reason: text(row.reason), current: point(row.current), previous: point(row.previous),
+      observed: { current: point(row.observed?.current), previous: point(row.observed?.previous), description: text(row.observed?.description) }
+    }));
+    const recovery = {
+      status: ["stop", "review", "watch", "insufficient", "okay"].includes(source.recovery?.status) ? source.recovery.status : "insufficient",
+      pain: ["none", "mild", "stop"].includes(source.recovery?.pain) ? source.recovery.pain : null,
+      reasons: texts(source.recovery?.reasons), questions: texts(source.recovery?.questions),
+      repeatedDeclines: knownCount(source.recovery?.repeatedDeclines), selfReportSignals: texts(source.recovery?.selfReportSignals)
+    };
+    const coverage = Object.fromEntries(["recordCount", "daysWithRecords", "unknownDays", "workingSets", "warmupSets", "markedSets", "unknownEffortSets", "unresolvedExercises", "excludedRecords", "duplicateRecords", "invalidSets", "legacyOnlySessions"].map(key => [key, knownCount(source.coverage?.[key])]));
+    coverage.trainingDates = Array.isArray(source.coverage?.trainingDates) ? source.coverage.trainingDates.filter(date => dateNumber(date) !== null).slice(0, 28) : [];
+    const muscles = (Array.isArray(source.muscles) ? source.muscles : []).slice(0, 50).filter(row => row && typeof row === "object").map(row => ({ id: text(row.id), label: text(row.label), directSets: knownCount(row.directSets), indirectSets: knownCount(row.indirectSets), unknownEffortSets: knownCount(row.unknownEffortSets) }));
+    const limitations = texts(source.limitations);
+    if (analysis && !available) limitations.push("선택한 날짜까지의 훈련 분석이 확인되지 않아 이후 기록으로 과거를 평가하지 않았어요.");
+    return {
+      available, windowStart: available && dateNumber(source.windowStart) !== null ? source.windowStart : null, windowEnd: available ? source.windowEnd : null,
+      lastSession: last ? { date: last.date, time: text(last.time) || null, label: text(last.label), sourceKind: text(last.sourceKind) || "unknown", totalSets: last.sourceKind === "legacy-ocr" && last.totalSets === 0 ? null : knownCount(last.totalSets), workingSets: last.sourceKind === "legacy-ocr" && last.totalSets === 0 ? null : knownCount(last.workingSets), durationMinutes: knownCount(last.durationMinutes) } : null,
+      coverage, muscles, progression, recovery, limitations,
+      settings: { daysPerWeek: knownCount(workspace?.settings?.daysPerWeek), sessionMinutes: knownCount(workspace?.settings?.sessionMinutes) },
+      programStatus: ["ready", "review", "incomplete"].includes(program?.status) ? program.status : null,
+      programName: text(program?.name), programReason: text(program?.reason)
+    };
+  }
+
+  function progressionObservation(row) {
+    const current = row?.observed?.current || row?.current, previous = row?.observed?.previous || row?.previous;
+    const describe = point => point && (finite(point.loadKg) || finite(point.reps)) ? `${point.date || "날짜 미확인"} ${finite(point.loadKg) ? `${fmt(point.loadKg, 1)}kg` : "부하 미확인"} × ${finite(point.reps) ? `${fmt(point.reps)}회` : "반복 미확인"}` : null;
+    const now = describe(current), before = describe(previous);
+    if (!now && !before) return row?.observed?.description || "비교할 중량·반복 수가 아직 확인되지 않았어요.";
+    return `${before || "이전 대표 세트 미확인"} → ${now || "최근 대표 세트 미확인"}`;
+  }
+
+  function connectTraining(result, profile, options, date) {
+    if (!options?.trainingAnalysis && !options?.training && !options?.program) return result;
+    const training = summarizeTraining(options.trainingAnalysis, options.training, options.program, date);
+    result.context.training = training;
+    result.context.limitations.push("세트 일지의 kg 합계·표시 Cal은 근성장이나 측정된 소모량이 아니며 식사 목표에 다시 더하지 않아요.", "기록하지 않은 날은 휴식일로 판단하지 않아요.", ...training.limitations);
+    if (!training.available) return result;
+    const last = training.lastSession;
+    const logSummary = last ? `최근 확인된 일지는 ${last.date}${last.time ? ` ${last.time}` : ""} ${last.label || "훈련"}${last.totalSets !== null ? `, 기록된 ${fmt(last.totalSets)}세트` : ""}예요.${last.sourceKind === "legacy-ocr" ? " 이전 OCR 요약이며 원본을 새로 검증한 기록은 아니에요." : ""} 헤더 시각은 시작·종료 여부가 확인된 시각은 아니에요.` : "선택한 기간에 확인된 훈련 일지는 아직 없어요. 기록이 없다는 뜻이지 쉬었다는 뜻은 아니에요.";
+    result.context.observations.push({ id: "training-diary", label: "세트 일지", value: logSummary, source: "training-records", confidence: "high" });
+    result.questions.push({ id: "training-log", label: "최근 훈련에서 무엇이 확인됐나요?", answer: `${logSummary} 미기록 날짜는 휴식일로 채우지 않았어요.`, action: "nav-training", actionLabel: actionLabels["nav-training"] });
+    if (["onboarding", "incomplete", "review"].includes(result.status)) return result;
+
+    const trainingItems = [];
+    const currentClinical = profile?.healthContext && profile.healthContext !== "general" || finite(profile?.age) && (profile.age < 18 || profile.age > 80);
+    const recovery = training.recovery;
+    if (["stop", "review"].includes(recovery.status)) {
+      trainingItems.push(item("training-safety", "훈련 진행보다 몸 상태 확인이 먼저예요", `${recovery.reasons.join(" ")} 통증이 생기는 동작은 중단하고, 지속되거나 심한 증상은 의료진에게 확인해 주세요. 일지로 원인이나 운동 재개 시점을 진단하지 않아요.`, "nav-training", { kind: "safety", tone: "attention", confidence: "high", source: "training-self-report" }));
+    } else if (recovery.status === "watch") {
+      trainingItems.push(item("training-recovery", "최근 수행과 회복을 함께 확인해요", `${recovery.reasons.join(" ")} ${recovery.questions[0] || "수면·피로·통증과 실제 세트의 남은 반복 여유를 알려 주세요."} 한 번의 기록만으로 디로드를 확정하거나 칼로리를 더 줄이지 않아요.`, "coach-checkin", { kind: "safety", tone: "attention", confidence: "medium", source: "training-pattern" }));
+    }
+    const movement = training.progression.find(row => row.current || row.observed.current);
+    if (movement) {
+      const explanation = `${movement.label || "운동"}: ${progressionObservation(movement)}. ${movement.reason || "같은 장비·중량 규약·노력 수준인지 확인해야 해요."} 기록상 차이이며 근육 증가량을 뜻하지 않아요.`;
+      trainingItems.push(item("training-progression", "최근 대표 세트를 같이 비교해요", explanation, "nav-training", { kind: "training", confidence: movement.status === "incomparable" || movement.status === "insufficient" ? "low" : "medium", source: "training-records" }));
+      result.questions.push({ id: "training-progression", label: "중량과 반복 수가 어떻게 달라졌나요?", answer: explanation, action: "nav-training", actionLabel: actionLabels["nav-training"] });
+    } else if (last) trainingItems.push(item("training-log", "최근 훈련에서 다음 기록을 이어가요", `${logSummary} 같은 운동도 장비와 실제 세트, 반복 여유가 맞아야 수행 변화를 비교할 수 있어요.`, "nav-training", { kind: "training", confidence: "medium", source: "training-records" }));
+    const muscles = training.muscles.filter(row => (row.directSets || 0) + (row.indirectSets || 0) > 0).slice(0, 4);
+    result.questions.push({ id: "training-muscles", label: "부위별로 어떤 훈련이 쌓였나요?", answer: muscles.length ? `${training.windowStart || "기간 시작 미확인"}~${training.windowEnd}: ${muscles.map(row => `${row.label || row.id} 직접 ${fmt(row.directSets)}·간접 ${fmt(row.indirectSets)}세트`).join(", ")}. 운동 분류에 따른 노출 집계이며 둘을 같은 효과의 세트로 합치지 않아요. ${training.coverage.unknownEffortSets !== null ? `노력 수준 미확인 ${fmt(training.coverage.unknownEffortSets)}세트가 있어요.` : "실제 노력 수준도 함께 확인해야 해요."}` : "분류된 부위 기록이 아직 충분하지 않아요. 원문 운동명·기구와 실제 세트를 확인하면 직접·간접 노출을 나누어 볼 수 있어요.", action: "nav-training", actionLabel: actionLabels["nav-training"] });
+    result.questions.push({ id: "training-deload", label: "쉬거나 디로드할 때인가요?", answer: `${recovery.reasons.join(" ") || "현재 기록만으로 회복 상태를 확정하지 않았어요."} ${recovery.questions.join(" ")} 단일 일지의 총볼륨으로 디로드를 단정하지 않아요. 반복되는 수행 변화와 수면·피로·통증, 같은 운동의 노력 수준을 함께 확인해요.`, action: "nav-training", actionLabel: actionLabels["nav-training"] });
+    if (!currentClinical && !["stop", "review"].includes(recovery.status) && training.programStatus) {
+      result.questions.push({ id: "training-program", label: "내 일정에 맞는 훈련 계획은 무엇인가요?", answer: `${training.programName || "훈련 계획"}: ${training.programReason || "확인된 일정·장비·목표를 기준으로 계획을 살펴볼 수 있어요."} ${training.programStatus === "ready" ? "설정 기반 초안이며 실제 통증·피로와 수행 기록에 맞춰 확인해야 해요." : "빠진 일정과 장비 조건을 확인한 뒤 계획을 정해요."}`, action: "nav-program", actionLabel: actionLabels["nav-program"] });
+    }
+    const existingSafety = result.priorities.filter(row => row.kind === "safety");
+    const ordinary = result.priorities.filter(row => row.kind !== "safety");
+    const newSafety = trainingItems.filter(row => row.kind === "safety");
+    const newOrdinary = trainingItems.filter(row => row.kind !== "safety");
+    result.priorities = [...newSafety, ...existingSafety, ...newOrdinary, ...ordinary].slice(0, 3);
+    result.headline = result.priorities[0]?.title || result.headline;
+    result.summary += last ? ` · 세트 일지 ${last.date}` : " · 세트 일지 미확인";
+    return result;
+  }
+
   function buildCoach(profile, day = {}, history = [], options = {}) {
     const d = day && typeof day === "object" && !Array.isArray(day) ? day : {};
     const meals = d.meals === undefined ? [] : d.meals;
@@ -110,7 +201,7 @@
     missing("clinical-context", "개별 평가 범위", "질환·치료 식이나 지속적인 통증·회복 저하가 있나요? 해당되면 내 기준의 건강 상태를 확인하고 전문가 계획을 우선해 주세요.", "nav-profile");
     const questions = [];
     const question = (id, label, answer, action) => questions.push({ id, label, answer, action: action || null, actionLabel: actionLabels[action] || null });
-    const finish = (status, priorities, summary) => ({ status, headline: priorities[0]?.title || "기록을 함께 살펴볼게요", summary, priorities: priorities.slice(0, 3), questions, context });
+    const finish = (status, priorities, summary) => connectTraining({ status, headline: priorities[0]?.title || "기록을 함께 살펴볼게요", summary, priorities: priorities.slice(0, 3), questions, context }, profile, options, d.date);
 
     if (!profile && !saved && source !== "missing-snapshot") {
       question("start", "무엇부터 알려주면 될까요?", "성별, 나이, 키·체중, 평소 활동과 목표부터 알려 주세요. 체성분과 운동 경력은 모르면 비워 둘 수 있어요.", "nav-profile");
@@ -249,5 +340,5 @@
     return finish(complete ? "complete" : "recording", priorities, summary);
   }
 
-  return Object.freeze({ VERSION, buildCoach });
+  return Object.freeze({ VERSION, buildCoach, summarizeTraining, progressionObservation });
 });

@@ -1,9 +1,10 @@
 (function(root, factory) {
   "use strict";
-  const api = factory();
+  const trainingStore = typeof module === "object" && module.exports ? require("./training-store.js") : root.MacroTrainingStore;
+  const api = factory(trainingStore);
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.MacroStorage = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function() {
+})(typeof globalThis !== "undefined" ? globalThis : this, function(TrainingStore) {
   "use strict";
 
   const VERSION = 9;
@@ -226,12 +227,22 @@
       allIds.add(id);
     };
     day.meals.forEach(meal => {
-      fields(meal, ["id", "name", "protein", "carbs", "fat", "otherKcal", "alcoholG"], "식사");
+      const mealFields = ["id", "name", "protein", "carbs", "fat", "otherKcal", "alcoholG"];
+      if (plain(meal) && own(meal, "source")) mealFields.push("source");
+      fields(meal, mealFields, "식사");
       checkId(meal.id);
       string(meal.name, 200, "식사 이름");
       ["protein", "carbs", "fat"].forEach(key => number(meal[key], 0, 10000, "식사 영양소"));
       number(meal.otherKcal, 0, 100000, "기타 칼로리");
       number(meal.alcoholG, 0, 2000, "알코올");
+      if (own(meal, "source")) {
+        fields(meal.source, ["kind", "confidence", "note", "hash"], "식사 출처");
+        if (!["manual", "label", "image", "estimate"].includes(meal.source.kind)
+          || !["known", "estimated"].includes(meal.source.confidence)
+          || (meal.source.kind === "estimate" && meal.source.confidence !== "estimated")) fail("식사 출처와 추정 여부를 확인해 주세요.");
+        string(meal.source.note, 4000, "식사 출처 메모", true);
+        if (meal.source.hash !== null && (typeof meal.source.hash !== "string" || !/^[a-f0-9]{64}$/.test(meal.source.hash))) fail("식사 출처 해시를 확인해 주세요.");
+      }
     });
     day.sessions.forEach(session => {
       fields(session, ["id", "sport", "durationMin", "intensity"], "운동");
@@ -249,7 +260,9 @@
 
   function validateState(raw) {
     const state = safeClone(raw);
-    fields(state, ["version", "profile", "days", "legacy", "updatedAt"], "저장 파일");
+    const stateFields = ["version", "profile", "days", "legacy", "updatedAt"];
+    if (own(state, "training")) stateFields.push("training");
+    fields(state, stateFields, "저장 파일");
     if (state.version !== VERSION) fail("지원하지 않는 저장 파일 버전입니다.");
     validateProfile(state.profile);
     if (!plain(state.days) || Object.keys(state.days).length > MAX_DAYS) fail("날짜별 기록의 형식 또는 개수를 확인해 주세요.");
@@ -279,6 +292,10 @@
       });
     }
     if (!timestamp(state.updatedAt)) fail("저장 시각의 형식이 올바르지 않습니다.");
+    if (own(state, "training")) {
+      if (!TrainingStore || typeof TrainingStore.validate !== "function") fail("훈련 저장 모듈을 불러오지 못했습니다. 기존 데이터는 변경하지 않았어요.");
+      state.training = TrainingStore.validate(state.training);
+    }
     assertSize(JSON.stringify(state));
     return state;
   }
@@ -420,7 +437,7 @@
 
   function summary(state) {
     const days = Object.values(state.days);
-    return {
+    const result = {
       days: days.length,
       meals: days.reduce((sum, day) => sum + day.meals.length, 0),
       sessions: days.reduce((sum, day) => sum + day.sessions.length, 0),
@@ -428,6 +445,12 @@
       legacyDays: state.legacy?.records.length || 0,
       hasProfile: state.profile !== null
     };
+    if (own(state, "training")) {
+      result.trainingRecords = state.training.records.length;
+      result.trainingMappings = state.training.mappings.length;
+      result.coachMessages = state.training.messages.length;
+    }
+    return result;
   }
 
   function parseBackup(text) {
