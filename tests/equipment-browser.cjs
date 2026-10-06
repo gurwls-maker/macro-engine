@@ -49,6 +49,17 @@ async function storedText(page) { return page.evaluate(key => localStorage.getIt
 async function stored(page) { return JSON.parse(await storedText(page)); }
 async function navigate(page) { await page.locator('[data-view="training"]').click(); await page.locator('#view-training').waitFor({ state: 'visible' }); }
 function block(page, id) { return page.locator('.exercise-block').filter({ has: page.locator(`[data-action="training-map"][data-exercise="${id}"]`) }); }
+async function assertDetails(page, id, expected) {
+  const rows = await block(page, id).locator('dl.exercise-details > div').evaluateAll(elements => elements.map(element => ({
+    label: element.querySelector('dt')?.textContent.trim(), value: element.querySelector('dd')?.textContent.trim()
+  })));
+  assert.deepEqual(rows.map(row => row.label), ['운동 분류', '장비', '중량 표기', '자극 부위'], `${id}: metadata labels and order`);
+  for (const [label, value] of Object.entries(expected)) {
+    const actual = rows.find(row => row.label === label)?.value;
+    if (value instanceof RegExp) assert.match(actual, value, `${id}: ${label}`);
+    else assert.equal(actual, value, `${id}: ${label}`);
+  }
+}
 async function mapping(page, id) { await block(page, id).locator('[data-action="training-map"]').click(); await page.locator('#entryDialog').waitFor({ state: 'visible' }); }
 async function submit(page) { await page.locator('#entryForm button[type="submit"]').click(); await page.locator('#entryDialog').waitFor({ state: 'hidden' }); }
 async function metadata(page, recordId, exerciseId) {
@@ -78,21 +89,18 @@ async function noOverflow(page, context) {
         await page.goto(url); await navigate(page);
         const untouched = JSON.stringify(initial), originalExercises = initial.training.records[0].exercises;
         assert.equal(await storedText(page), untouched, 'reading equipment names must not migrate or rewrite old records');
-        assert.match(await block(page, 'prefix-one-arm').innerText(), /STA7000.*이름 표기/s);
-        assert.match(await block(page, 'prefix-one-arm').innerText(), /한쪽 중량.*이름 기준/s);
-        assert.match(await block(page, 'prefix-known').innerText(), /가슴.*디랙스.*이름 표기/s);
-        assert.match(await block(page, 'prefix-unknown').innerText(), /부위 미확인.*인피니티.*이름 표기/s);
-        assert.match(await block(page, 'delimiter-dumbbell').innerText(), /합성 장비 B.*이름 표기.*한쪽 중량/s);
-        assert.match(await block(page, 'delimiter-barbell').innerText(), /합성 랙 C.*이름 표기.*전체 중량/s);
-        assert.match(await block(page, 'explicit-device').innerText(), /사용자가 확인한 장비 A.*전체 중량/s);
-        assert.doesNotMatch(await block(page, 'explicit-device').innerText(), /이름 표기|이름 기준/);
-        assert.match(await block(page, 'mapped-device').innerText(), /사용자가 확인한 장비 B.*전체 중량/s);
-        assert.doesNotMatch(await block(page, 'mapped-device').innerText(), /이름 표기|이름 기준/);
-        assert.match(await block(page, 'conflicting-load').innerText(), /중량 기준 미확인/);
-        assert.match(await block(page, 'bare-movement').innerText(), /장비 미확인.*중량 기준 미확인/s);
-        assert.match(await block(page, 'typed-dumbbell-bench').innerText(), /가슴.*덤벨.*이름 표기.*한쪽 중량/s);
-        assert.match(await block(page, 'typed-dumbbell-rdl').innerText(), /덤벨.*이름 표기.*한쪽 중량/s);
-        assert.match(await block(page, 'typed-incompatible').innerText(), /부위 미확인.*바벨.*이름 표기/s);
+        await assertDetails(page, 'prefix-one-arm', { '장비': 'STA7000 · 운동명에서 읽음', '중량 표기': '한쪽 중량 · 운동명 기준' });
+        await assertDetails(page, 'prefix-known', { '장비': '디랙스 · 운동명에서 읽음', '자극 부위': /가슴/ });
+        await assertDetails(page, 'prefix-unknown', { '운동 분류': '미확인', '장비': '인피니티 · 운동명에서 읽음', '자극 부위': '미확인' });
+        await assertDetails(page, 'delimiter-dumbbell', { '장비': '합성 장비 B · 운동명에서 읽음', '중량 표기': '한쪽 중량 · 운동명 기준' });
+        await assertDetails(page, 'delimiter-barbell', { '장비': '합성 랙 C · 운동명에서 읽음', '중량 표기': '전체 중량 · 운동명 기준' });
+        await assertDetails(page, 'explicit-device', { '장비': '사용자가 확인한 장비 A', '중량 표기': '전체 중량' });
+        await assertDetails(page, 'mapped-device', { '장비': '사용자가 확인한 장비 B', '중량 표기': '전체 중량' });
+        await assertDetails(page, 'conflicting-load', { '중량 표기': '중량 기준 미확인 · 운동명 기준과 충돌' });
+        await assertDetails(page, 'bare-movement', { '장비': '미확인', '중량 표기': '중량 기준 미확인' });
+        await assertDetails(page, 'typed-dumbbell-bench', { '장비': '덤벨 · 운동명에서 읽음', '중량 표기': '한쪽 중량 · 운동명 기준', '자극 부위': /가슴/ });
+        await assertDetails(page, 'typed-dumbbell-rdl', { '장비': '덤벨 · 운동명에서 읽음', '중량 표기': '한쪽 중량 · 운동명 기준' });
+        await assertDetails(page, 'typed-incompatible', { '운동 분류': '미확인', '장비': '바벨 · 운동명에서 읽음', '자극 부위': '미확인' });
         assert.equal(await block(page, 'escaped-device').locator('img').count(), 0, 'equipment text must not become executable markup');
         assert.match(await block(page, 'escaped-device').innerText(), /<img src=x onerror=alert\(1\)>/);
         await noOverflow(page, `record ${width}`);
@@ -128,7 +136,7 @@ async function noOverflow(page, context) {
         assert.equal(await storedText(page), untouched, 'opening and cancelling confirmation dialogs must not save derived metadata');
         await page.reload(); await navigate(page);
         assert.equal(await storedText(page), untouched, 'reload keeps the exact existing record JSON');
-        assert.match(await block(page, 'prefix-one-arm').innerText(), /한쪽 중량.*이름 기준/s);
+        await assertDetails(page, 'prefix-one-arm', { '중량 표기': '한쪽 중량 · 운동명 기준' });
 
         const recordId = initial.training.records[0].id;
         let description = await metadata(page, recordId, 'prefix-one-arm');
@@ -163,8 +171,7 @@ async function noOverflow(page, context) {
         await page.reload(); await navigate(page); await mapping(page, 'prefix-one-arm');
         assert.equal(await page.locator('#entryForm [name="loadConvention"]').inputValue(), 'as-recorded', 'confirmed unknown overrides name rules after reload');
         await page.keyboard.press('Escape');
-        assert.match(await block(page, 'prefix-one-arm').innerText(), /중량 기준 미확인/);
-        assert.doesNotMatch(await block(page, 'prefix-one-arm').innerText(), /한쪽 중량/);
+        await assertDetails(page, 'prefix-one-arm', { '장비': 'STA7000', '중량 표기': '중량 기준 미확인' });
 
         await page.locator('#trainingContent [data-action="training-add"]').click();
         const newName = 'STA7000 케이블 원 암 레터럴 레이즈';
@@ -190,7 +197,7 @@ async function noOverflow(page, context) {
         description = await metadata(page, added.id, added.exercises[1].id);
         assert.equal(description.resolved.id, 'one_arm_cable_row'); assert.equal(description.equipmentSource, 'mapping');
         assert.equal(description.loadConvention, 'as-recorded'); assert.equal(description.loadConventionSource, 'mapping', 'confirmed unknown also applies to later records with the same name');
-        assert.match(await page.locator('.workout-detail').innerText(), /STA7000.*이름 표기.*한쪽 중량.*이름 기준/s);
+        await assertDetails(page, added.exercises[0].id, { '장비': 'STA7000 · 운동명에서 읽음', '중량 표기': '한쪽 중량 · 운동명 기준' });
         await noOverflow(page, `new record ${width}`);
         await page.screenshot({ path: path.join(artifacts, `equipment-${width}.png`), fullPage: true });
         const afterSave = await storedText(page); await page.reload(); await navigate(page);

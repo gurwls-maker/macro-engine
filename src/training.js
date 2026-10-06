@@ -125,6 +125,24 @@
     return { loadConvention: perSide === total ? "as-recorded" : perSide ? "per-side" : "total", ruleConflict: perSide && total };
   }
 
+  function scopedMappings(record, parsed, mappings) {
+    const explicitId = text(record.exerciseId), explicitEquipment = text(record.equipmentKey);
+    const explicitConvention = ["total", "per-side", "bodyweight"].includes(record.loadConvention) ? record.loadConvention : null;
+    const sameEquipment = (a, b) => equipmentName(a).toLowerCase() === equipmentName(b).toLowerCase();
+    const eligible = (parsed.rawName && Array.isArray(mappings) ? mappings : []).filter(row => row?.confirmed === true
+      && (!explicitId || row.exerciseId === explicitId)
+      && (!explicitEquipment || sameEquipment(row.equipmentKey, explicitEquipment))
+      && (!explicitConvention || row.loadConvention === explicitConvention));
+    let mappingName = parsed.rawName;
+    let rows = eligible.filter(row => normalize(row.rawName) === normalize(mappingName));
+    if (!rows.length && parsed.equipmentKey) {
+      mappingName = parsed.movementName;
+      rows = eligible.filter(row => normalize(row.rawName) === normalize(mappingName)
+        && sameEquipment(row.equipmentKey, explicitEquipment || parsed.equipmentKey));
+    }
+    return { mappingName, rows };
+  }
+
   const equipmentKinds = [
     { names: ["바벨", "barbell"], categories: ["barbell"] },
     { names: ["덤벨", "dumbbell", "dumbbells"], categories: ["dumbbell"] },
@@ -140,18 +158,7 @@
     const parsed = parseExerciseName(record.rawName), explicitId = text(record.exerciseId), explicitEquipment = text(record.equipmentKey);
     const explicitConvention = ["total", "per-side", "bodyweight"].includes(record.loadConvention) ? record.loadConvention : null;
     const explicitRole = ["external", "assistance"].includes(record.loadRole) ? record.loadRole : null;
-    const sameEquipment = (a, b) => equipmentName(a).toLowerCase() === equipmentName(b).toLowerCase();
-    const eligible = (parsed.rawName && Array.isArray(mappings) ? mappings : []).filter(row => row?.confirmed === true
-      && (!explicitId || row.exerciseId === explicitId)
-      && (!explicitEquipment || sameEquipment(row.equipmentKey, explicitEquipment))
-      && (!explicitConvention || row.loadConvention === explicitConvention));
-    let mappingName = parsed.rawName;
-    let scoped = eligible.filter(row => normalize(row.rawName) === normalize(mappingName));
-    if (!scoped.length && parsed.equipmentKey) {
-      mappingName = parsed.movementName;
-      scoped = eligible.filter(row => normalize(row.rawName) === normalize(mappingName)
-        && sameEquipment(row.equipmentKey, explicitEquipment || parsed.equipmentKey));
-    }
+    const { mappingName, rows: scoped } = scopedMappings(record, parsed, mappings);
     const mapping = confirmedMapping(mappingName, scoped);
     const declaredKind = equipmentKinds.find(kind => kind.names.some(name => normalize(name) === normalize(parsed.equipmentKey)));
     const joinedIds = parsed.equipmentKey ? [parsed.equipmentKey, ...(declaredKind?.names || [])]
@@ -175,6 +182,88 @@
     // A name-derived brand must not collapse distinct aliases such as curl 1 and curl 2.
     const variantKey = equipmentSource?.startsWith("name-") ? normalize(parsed.movementName) : null;
     return { ...parsed, resolved, equipmentKey, loadConvention, equipmentSource, variantKey, loadConventionSource, ruleConflict, loadRole, loadRoleSource };
+  }
+
+  function previewMapping(records, mappings, proposed, selection = {}) {
+    const rows = Array.isArray(records) ? records : [], existing = Array.isArray(mappings) ? mappings : [];
+    const result = { valid: false, error: null, mapping: null, nextMappings: existing.map(row => ({ ...row })), selected: null, rows: [], futureConflict: false,
+      counts: { matchingExerciseCount: 0, affectedRecordCount: 0, affectedExerciseCount: 0, alreadyAppliedExerciseCount: 0,
+        unchangedExerciseCount: 0, protectedExerciseCount: 0, conflictCount: 0, additionalAffectedExerciseCount: 0 },
+      reasons: ["선택한 운동을 제외한 자동 해석 변경을 셉니다. 직접 확인한 다른 기록의 값과 원문·세트 숫자는 바꾸지 않습니다.", "같은 원문 이름을 기준으로 보며, 장비 접두어를 통해 추가로 해석이 달라지는 이름은 별도로 표시합니다."] };
+    selection = selection && typeof selection === "object" ? selection : {};
+    const selectedRecord = rows.find(row => row?.id === selection.recordId);
+    const selectedExercise = (Array.isArray(selectedRecord?.exercises) ? selectedRecord.exercises : []).find(row => row?.id === selection.exerciseId);
+    if (!selectedExercise || !proposed || typeof proposed !== "object") { result.error = "선택한 운동과 저장할 기준을 확인해 주세요."; return result; }
+    const mapping = { rawName: typeof proposed.rawName === "string" ? proposed.rawName : selectedExercise.rawName, exerciseId: text(proposed.exerciseId),
+      equipmentKey: text(proposed.equipmentKey) || null, loadConvention: proposed.loadConvention,
+      loadRole: proposed.loadRole || "unknown", confirmed: proposed.confirmed === true };
+    if (!normalize(mapping.rawName) || normalize(mapping.rawName) !== normalize(selectedExercise.rawName)
+      || !byId.has(mapping.exerciseId) || !["as-recorded", "total", "per-side", "bodyweight"].includes(mapping.loadConvention)
+      || !["unknown", "external", "assistance"].includes(mapping.loadRole)
+      || (proposed.equipmentKey != null && typeof proposed.equipmentKey !== "string") || !mapping.confirmed) {
+      result.error = "실제 종목·장비·중량 기준을 확인한 뒤 미리볼 수 있어요."; return result;
+    }
+    result.valid = true; result.mapping = mapping;
+    result.nextMappings = existing.filter(row => !(row.rawName === mapping.rawName && row.equipmentKey === mapping.equipmentKey)).map(row => ({ ...row }));
+    result.nextMappings.push({ ...mapping });
+    const indexRules = rules => {
+      const index = new Map();
+      for (const row of rules) if (row?.confirmed === true) {
+        const key = normalize(row.rawName);
+        if (!index.has(key)) index.set(key, []);
+        index.get(key).push(row);
+      }
+      return index;
+    };
+    const beforeIndex = indexRules(existing), afterIndex = indexRules(result.nextMappings), parsedNames = new Map();
+    const parsedFor = name => { const key = text(name); if (!parsedNames.has(key)) parsedNames.set(key, parseExerciseName(name)); return parsedNames.get(key); };
+    const relevantRules = (index, parsed) => {
+      const key = normalize(parsed.rawName), direct = index.get(key) || [], movementKey = normalize(parsed.movementName);
+      return parsed.equipmentKey && movementKey !== key ? [...direct, ...(index.get(movementKey) || [])] : direct;
+    };
+    const ambiguous = (raw, rules) => {
+      const scoped = scopedMappings(raw, parsedFor(raw.rawName), rules).rows.filter(row => byId.has(row.exerciseId));
+      return new Set(scoped.map(row => JSON.stringify([row.exerciseId, text(row.equipmentKey), row.loadConvention, row.loadRole || "unknown"]))).size > 1;
+    };
+    const metadata = value => ({ exerciseId: value.resolved?.id || null, equipmentKey: value.equipmentKey,
+      loadConvention: value.loadConvention, loadRole: value.loadRole, equipmentSource: value.equipmentSource,
+      loadConventionSource: value.loadConventionSource, loadRoleSource: value.loadRoleSource,
+      confidence: value.resolved?.confidence || null, variantKey: value.variantKey, ruleConflict: value.ruleConflict });
+    const changes = (before, after) => { const left = metadata(before), right = metadata(after); return Object.keys(left).filter(key => left[key] !== right[key]); };
+    const selectedParsed = parsedFor(selectedExercise.rawName), targetName = normalize(mapping.rawName);
+    const selectedBefore = describeExercise(selectedExercise, relevantRules(beforeIndex, selectedParsed));
+    const selectedAfter = describeExercise({ ...selectedExercise, exerciseId: mapping.exerciseId, equipmentKey: mapping.equipmentKey,
+      loadConvention: mapping.loadConvention, loadRole: mapping.loadRole }, relevantRules(afterIndex, selectedParsed));
+    result.selected = { recordId: selectedRecord.id, exerciseId: selectedExercise.id, before: selectedBefore, after: selectedAfter, changedFields: changes(selectedBefore, selectedAfter) };
+    const affectedRecords = new Set();
+    for (const record of rows) for (const raw of Array.isArray(record?.exercises) ? record.exercises : []) {
+      if (!raw || record.id === selectedRecord.id && raw.id === selectedExercise.id) continue;
+      const parsed = parsedFor(raw.rawName), exactName = normalize(parsed.rawName) === targetName;
+      // A changed rule can reach only the full raw name or a parsed equipment-prefix fallback.
+      if (!exactName && (!parsed.equipmentKey || normalize(parsed.movementName) !== targetName)) continue;
+      const beforeRules = relevantRules(beforeIndex, parsed), afterRules = relevantRules(afterIndex, parsed);
+      const before = describeExercise(raw, beforeRules), after = describeExercise(raw, afterRules);
+      const changedFields = changes(before, after), conflictBefore = ambiguous(raw, beforeRules), conflict = ambiguous(raw, afterRules);
+      if (!exactName && !changedFields.length && conflictBefore === conflict) continue;
+      const protectedFields = [text(raw.exerciseId) ? "exerciseId" : null, text(raw.equipmentKey) ? "equipmentKey" : null,
+        ["total", "per-side", "bodyweight"].includes(raw.loadConvention) ? "loadConvention" : null,
+        ["external", "assistance"].includes(raw.loadRole) ? "loadRole" : null].filter(Boolean);
+      const alreadyApplied = !changedFields.length && after.resolved?.id === mapping.exerciseId && after.equipmentKey === mapping.equipmentKey
+        && after.loadConvention === mapping.loadConvention && after.loadRole === mapping.loadRole && !conflict;
+      const status = conflict ? "conflict" : changedFields.length ? "affected" : alreadyApplied ? "already-applied" : protectedFields.length ? "protected" : "unchanged";
+      result.rows.push({ recordId: record.id, exerciseId: raw.id, date: record.date, rawName: raw.rawName,
+        scope: exactName ? "exact-name" : "other-auto-change", before, after, changedFields, protectedFields, conflictBefore, conflict, status });
+      if (exactName) result.counts.matchingExerciseCount++;
+      if (changedFields.length) { result.counts.affectedExerciseCount++; affectedRecords.add(record.id); if (!exactName) result.counts.additionalAffectedExerciseCount++; }
+      else result.counts.unchangedExerciseCount++;
+      if (alreadyApplied) result.counts.alreadyAppliedExerciseCount++;
+      if (protectedFields.length) result.counts.protectedExerciseCount++;
+      if (conflict) result.counts.conflictCount++;
+    }
+    result.counts.affectedRecordCount = affectedRecords.size;
+    result.futureConflict = ambiguous({ rawName: mapping.rawName }, relevantRules(afterIndex, parsedFor(mapping.rawName)));
+    if (result.counts.conflictCount || result.futureConflict) result.reasons.push("같은 이름에 서로 다른 확인 기준이 있어 미입력 기록은 하나로 선택할 수 없어요. 실제 장비를 각 기록에서 확인해 주세요.");
+    return result;
   }
 
   function resolveExercise(rawName, mappings = []) {
@@ -390,6 +479,20 @@
     return Object.entries(input).map(([key, value]) => ({ ...value?.coachCheckin, ...value, date: value?.date || key }));
   }
 
+  function historyCoverageFor(rows, equipmentKey, conditionKey) {
+    const count = entries => ({ records: new Set(entries.map(row => row.sessionId)).size, days: new Set(entries.map(row => row.date)).size });
+    const exercise = count(rows), equipmentRows = rows.filter(row => row.equipmentKey === equipmentKey), conditionRows = rows.filter(row => row.conditionKey === conditionKey);
+    const equipment = count(equipmentRows), condition = count(conditionRows), observations = count(conditionRows.filter(row => row.hasRecordedSets));
+    const otherEquipment = count(rows.filter(row => row.equipmentKey !== equipmentKey)), otherCondition = count(rows.filter(row => row.conditionKey !== conditionKey));
+    return { exerciseRecordCount: exercise.records, exerciseDayCount: exercise.days,
+      equipmentRecordCount: equipment.records, equipmentDayCount: equipment.days,
+      conditionRecordCount: condition.records, conditionDayCount: condition.days,
+      conditionObservationRecordCount: observations.records, conditionObservationDayCount: observations.days,
+      otherEquipmentRecordCount: otherEquipment.records, otherEquipmentDayCount: otherEquipment.days,
+      otherConditionRecordCount: otherCondition.records, otherConditionDayCount: otherCondition.days,
+      otherConditionGroupCount: new Set(rows.filter(row => row.conditionKey !== conditionKey).map(row => row.conditionKey)).size };
+  }
+
   function analyze(records = [], options = {}) {
     options = options && typeof options === "object" && !Array.isArray(options) ? options : {};
     const requested = dateNumber(options.date);
@@ -401,7 +504,7 @@
     const coverage = { recordCount: 0, trainingDates: [], daysWithRecords: 0, unknownDays: 28, workingSets: 0, warmupSets: 0, markedSets: 0, unknownEffortSets: 0, unresolvedExercises: 0, excludedRecords: 0, duplicateRecords: 0, invalidSets: 0, legacyOnlySessions: 0 };
     const muscles = Object.entries(muscleLabels).map(([id, label]) => ({ id, label, directSets: 0, indirectSets: 0, unknownEffortSets: 0, markedSets: 0 }));
     const muscleMap = new Map(muscles.map(row => [row.id, row]));
-    const groups = new Map(), sessions = [], seen = new Map(), conflicted = new Set();
+    const groups = new Map(), historyByExercise = new Map(), sessions = [], seen = new Map(), conflicted = new Set();
     const limitations = ["28일 기록의 세트 수이며 최적 볼륨·유효 세트·근성장률이 아니에요. 직접·간접 세트는 더해서 하나의 점수로 만들지 않아요.", "W는 준비 세트로 제외하고 D·A·기타 표시는 의미를 추정하지 않아 일반 세트와 별도로 남겨요.", "미기록 날짜는 휴식일이 아니며, 기록 RIR도 자기보고 추정이에요.", "부위 분류는 대표 동작의 제품 분류예요. 자세·가동범위·개인차와 실제 근육별 기여율을 측정하지 않아요."];
     if (end === null) limitations.push("기준 날짜가 없거나 잘못되어 기간 분석을 만들지 않았어요.");
     for (const row of Array.isArray(records) ? records : []) {
@@ -454,9 +557,13 @@
           }
         }
         summary.exercises.push(ex);
+        const identity = resolved?.id || `unresolved:${normalize(raw.rawName)}`;
+        const equipmentGroupKey = JSON.stringify([identity, ex.equipmentKey || "unconfirmed:" + normalize(raw.rawName), ex.loadConvention, ex.variantKey, ex.loadRole]);
+        const key = JSON.stringify([identity, ex.equipmentKey || "unconfirmed:" + normalize(raw.rawName), ex.loadConvention, ex.variantKey, ex.loadRole, block?.contextKey || `unknown-position:${block?.displayPosition || 0}`]);
+        if (!historyByExercise.has(identity)) historyByExercise.set(identity, []);
+        // Presence counts include empty exercise blocks; only blocks with sets enter the existing comparison group.
+        historyByExercise.get(identity).push({ sessionId: summary.id, date: row.date, equipmentKey: equipmentGroupKey, conditionKey: key, hasRecordedSets: ex.sets.length > 0 });
         if (ex.sets.length) {
-          const identity = resolved?.id || `unresolved:${normalize(raw.rawName)}`;
-          const key = JSON.stringify([identity, ex.equipmentKey || "unconfirmed:" + normalize(raw.rawName), ex.loadConvention, ex.variantKey, ex.loadRole, block?.contextKey || `unknown-position:${block?.displayPosition || 0}`]);
           if (!groups.has(key)) groups.set(key, []);
           groups.get(key).push({ ...ex, sets: [...ex.sets], sessionId: summary.id, date: row.date, time: row.time || null, sourceKind: summary.sourceKind });
         }
@@ -474,10 +581,16 @@
       const recent = occurrences.slice(-3).map(point);
       const current = recent.at(-1), previous = recent.at(-2) || null;
       const judgment = occurrences.at(-1).exerciseId === null ? { status: "incomparable", reason: "운동 이름 대응이 확인되지 않았어요. 원문 기록을 남기고 확인 후 비교해요." } : compare(current, previous);
+      const parts = JSON.parse(key), historyCoverage = historyCoverageFor(historyByExercise.get(parts[0]) || [], JSON.stringify(parts.slice(0, -1)), key);
+      if (judgment.status === "insufficient" && historyCoverage.otherConditionGroupCount && historyCoverage.exerciseRecordCount > 1) {
+        judgment.reason = `같은 종목은 ${historyCoverage.exerciseDayCount}일·${historyCoverage.exerciseRecordCount}개 일지에 있지만, 이 장비·중량 표기·수행 순서 조건에서 세트가 있는 기록은 ${historyCoverage.conditionObservationRecordCount}회라 앞뒤 비교를 보류했어요. 다른 조건의 기록도 따로 보존했어요.`;
+      } else if (judgment.status === "insufficient" && historyCoverage.conditionRecordCount > historyCoverage.conditionObservationRecordCount) {
+        judgment.reason = `같은 조건의 일지는 ${historyCoverage.conditionRecordCount}회지만 원문 세트가 남아 있는 기록은 ${historyCoverage.conditionObservationRecordCount}회예요. 앞선 세트가 없어 비교를 보류했으며, 빈 운동 기록도 삭제하지 않았어요.`;
+      }
       let repeated = false;
       if (recent.length === 3 && new Set(recent.map(row => row.date)).size === 3 && dateNumber(current.date) >= end - 13 * DAY) repeated = compare(recent[1], recent[0]).status === "declined" && compare(recent[2], recent[1]).status === "declined";
       if (repeated) repeatedDeclines++;
-      progression.push({ exerciseId: occurrences.at(-1).exerciseId, label: occurrences.at(-1).label, equipmentKey: current.equipmentKey, current, previous, ...judgment, repeatedDecline: repeated, observed: { current, previous, description: `${previous ? formatPoint(previous) + " → " : "현재 기록 "}${formatPoint(current)}. 표시된 세트의 관찰값이며 근성장률이 아니에요.` } });
+      progression.push({ exerciseId: occurrences.at(-1).exerciseId, label: occurrences.at(-1).label, equipmentKey: current.equipmentKey, current, previous, ...judgment, historyCoverage, repeatedDecline: repeated, observed: { current, previous, description: `${previous ? formatPoint(previous) + " → " : "현재 기록 "}${formatPoint(current)}. 표시된 세트의 관찰값이며 근성장률이 아니에요.` } });
     }
     const checkins = checkinRows(options.checkins, windowEnd).filter(row => { const n = dateNumber(row.date); return n !== null && end !== null && n <= end && n >= end - 6 * DAY; });
     const painReports = [...seen.values(), ...checkins].filter(row => ["none", "mild", "stop"].includes(row.pain)).sort((a, b) => a.date.localeCompare(b.date) || ({ none: 0, mild: 1, stop: 2 }[a.pain] - { none: 0, mild: 1, stop: 2 }[b.pain]));
@@ -651,5 +764,5 @@
     return next;
   }
 
-  return Object.freeze({ VERSION, catalog, muscleLabels, movementFamilies, relatedExerciseIds, parseExerciseName, describeExercise, resolveExercise, sessionContext, startingReference, analyze, recommendProgram, createProgram, createAssignment, evaluateAssignment, adjustAssignment });
+  return Object.freeze({ VERSION, catalog, muscleLabels, movementFamilies, relatedExerciseIds, parseExerciseName, describeExercise, resolveExercise, previewMapping, sessionContext, startingReference, analyze, recommendProgram, createProgram, createAssignment, evaluateAssignment, adjustAssignment });
 });

@@ -1,7 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const N = require("../src/nutrition.js");
-const { buildCoach, buildFacts } = require("../src/coach.js");
+const T = require("../src/training.js");
+const { buildCoach, buildFacts, summarizeTraining } = require("../src/coach.js");
 
 const profile = { sex: "male", age: 35, heightCm: 175, weightKg: 75, bodyFatPct: null, bodyFatWeightKg: null, bodyFatMethod: "unknown", bodyFatDate: null, trainingYears: 3, sport: "strength", goal: "maintain", activity: "light", healthContext: "general", proteinPreference: "standard" };
 const day = { date: "2026-10-05", weightKg: null, meals: [], sessions: [], complete: false, carbAdjustmentG: 0 };
@@ -335,6 +336,28 @@ function syntheticTraining(overrides = {}) {
   };
 }
 
+function trainingPoint(sessionId, date, extra = {}) {
+  return { sessionId, blockId: `${sessionId}-block`, date, time: null, rawName: "합성 프레스", loadKg: 50, reps: 10, rir: 2,
+    equipmentKey: "합성 장비 A", loadConvention: "total", basis: "highest-recorded-load-then-reps", ...extra };
+}
+function progressionRow(label, current, previous = null, extra = {}) {
+  return { exerciseId: "bench_press", label, equipmentKey: current?.equipmentKey || "합성 장비 A", current, previous,
+    observed: { current, previous, description: "합성 관찰" }, status: previous ? "incomparable" : "insufficient",
+    reason: previous ? "RIR과 수행 조건을 확인해야 해요." : "이 조건의 앞선 숫자 기록이 더 필요해요.", ...extra };
+}
+function latestTraining(progression, last = {}) {
+  return syntheticTraining({ lastSession: { id: "latest", date: "2026-10-04", time: "20:00", label: "최신 실제 일지", sourceKind: "manual", totalSets: 2, workingSets: 2, durationMinutes: null, ...last }, progression });
+}
+function trainingCoach(trainingAnalysis) {
+  return buildCoach(profile, { ...day, meals: [meal(1)], coachCheckin: { energy: "okay", hunger: "okay", sleep: "good" } }, [], { trainingAnalysis });
+}
+function workout(id, date, label, exerciseId, loadKg, extra = {}) {
+  return { id, date, time: null, label, sequence: { order: "listed", structure: "straight" }, durationMinutes: null,
+    source: { kind: "manual", hash: null, paths: [], uncertainties: [], revision: null }, pain: "none",
+    exercises: [{ id: `${id}-exercise`, rawName: label, exerciseId, equipmentKey: "합성 실제 기구", loadConvention: "total", loadRole: "external",
+      sets: [{ id: `${id}-set`, loadKg, reps: 10, rir: 2, marker: null }] }], ...extra };
+}
+
 test("set-level training observes incomparable raw progression without changing nutrition", () => {
   const trainingAnalysis = syntheticTraining();
   const d = { ...day, meals: [meal(1)], coachCheckin: { energy: "okay", hunger: "okay", sleep: "good" } };
@@ -490,4 +513,136 @@ test("direct coach calls use the selected day's paired measurements without rewr
   assert.equal(JSON.stringify({ p, d }), original);
   const saved = { ...d, complete: true, planSnapshot: N.calculatePlan(profile, day) };
   assert.equal(buildCoach(p, saved).context.targetKcal, saved.planSnapshot.energy.targetKcal);
+});
+
+test("latest-session coaching follows actual analyzed session IDs, not the first historical exercise group", () => {
+  const records = [workout("old-pullup", "2026-09-09", "이전 풀업", "pullup", 15),
+    workout("prior-press", "2026-09-24", "벤치 프레스", "bench_press", 50),
+    workout("latest-press", "2026-10-04", "벤치 프레스", "bench_press", 55)];
+  records.at(-1).exercises[0].sets[0].rir = null;
+  const input = JSON.stringify(records), analysis = T.analyze(records, { date: day.date });
+  assert.equal(analysis.progression[0].current.sessionId, "old-pullup", "fixture reproduces chronological group insertion");
+  const result = trainingCoach(analysis), selected = result.priorities.find(row => row.id === "training-progression");
+  assert.equal(result.context.training.lastSession.id, "latest-press");
+  assert.equal(selected.evidence.current.sessionId, "latest-press"); assert.equal(selected.evidence.previous.sessionId, "prior-press");
+  assert.equal(selected.action, "training-open"); assert.equal(selected.actionRecordId, "latest-press");
+  assert.equal(selected.actionLabel, "2026-10-04 일지 보기"); assert.match(selected.title, /2026-10-04.*벤치/);
+  assert.doesNotMatch(selected.title + selected.body, /이전 풀업|2026-09-09|최근 대표 세트/);
+  assert.match(selected.body, /2026-09-24.*50kg × 10회.*2026-10-04.*55kg × 10회/);
+  assert.match(selected.body, /RIR이 비어 있거나 달라/); assert.match(selected.body, /표시 중량이 가장 큰 세트/);
+  const question = result.questions.find(row => row.id === "training-log");
+  assert.equal(question.actionRecordId, "latest-press"); assert.match(question.answer, /2026-10-04/);
+  assert.equal(JSON.stringify(records), input);
+});
+
+test("latest-session candidates with prior numeric observations precede unpaired latest movements", () => {
+  const current = trainingPoint("latest", "2026-10-04"), previous = trainingPoint("prior", "2026-09-24");
+  const analysis = latestTraining([progressionRow("처음 기록한 운동", current), progressionRow("비교할 숫자가 있는 프레스", current, previous)]);
+  const input = JSON.stringify(analysis), result = trainingCoach(analysis), selected = result.priorities.find(row => row.id === "training-progression");
+  assert.match(selected.title, /비교할 숫자가 있는 프레스.*비교/); assert.equal(selected.evidence.previous.sessionId, "prior");
+  assert.equal(selected.evidence.selection, "latest-session-id"); assert.equal(selected.evidence.current.blockId, "latest-block");
+  assert.equal(JSON.stringify(analysis), input);
+});
+
+test("a latest unpaired observation does not borrow a stronger comparison from an old exercise", () => {
+  const older = progressionRow("오래된 풀업", trainingPoint("old", "2026-09-09", { loadKg: 99 }), trainingPoint("older", "2026-09-08"));
+  const latest = progressionRow("새 운동", trainingPoint("latest", "2026-10-04", { loadKg: 25, reps: 12 }));
+  const result = trainingCoach(latestTraining([older, latest])), selected = result.priorities.find(row => row.id === "training-progression");
+  assert.equal(selected.evidence.current.sessionId, "latest"); assert.equal(selected.evidence.previous, null);
+  assert.match(selected.title, /2026-10-04.*새 운동.*확인/); assert.match(selected.body, /25kg × 12회/);
+  assert.match(selected.body, /관찰값만 확인.*수행 변화는 비교하지/); assert.match(selected.body, /앞선 숫자 기록이 더 필요/);
+  assert.doesNotMatch(selected.body, /→/);
+  assert.doesNotMatch(selected.body, /오래된 풀업|99kg|2026-09-09/);
+});
+
+test("same-day sessions require the latest exact ID and never substitute another session or missing source ID", () => {
+  const morning = trainingPoint("morning", "2026-10-04", { time: "08:00", loadKg: 30 });
+  const evening = trainingPoint("latest", "2026-10-04", { time: "20:00", loadKg: 42.5, reps: 13, rir: null });
+  const prior = trainingPoint("prior", "2026-09-24");
+  const result = trainingCoach(latestTraining([progressionRow("오전 프레스", morning, prior), progressionRow("저녁 프레스", evening, morning,
+    { reason: "같은 날의 두 세션은 장기 수행 변화로 판정하지 않아요." })]));
+  const selected = result.priorities.find(row => row.id === "training-progression");
+  assert.equal(selected.actionRecordId, "latest"); assert.equal(selected.evidence.current.time, "20:00");
+  assert.equal(selected.evidence.current.rir, null); assert.equal(selected.evidence.previous.sessionId, "morning");
+  assert.match(selected.body, /42.5kg × 13회/); assert.match(selected.body, /같은 날의 두 세션/);
+  for (const point of [morning, { ...evening, sessionId: null }]) {
+    const rejected = trainingCoach(latestTraining([progressionRow("다른 세션", point, prior)]));
+    assert.ok(!rejected.questions.some(row => row.id === "training-progression"));
+    assert.equal(rejected.priorities.find(row => row.id === "training-log").actionRecordId, "latest");
+  }
+});
+
+test("latest sessions without known load or reps summarize that session instead of reviving older comparisons", () => {
+  const older = progressionRow("오래된 프레스", trainingPoint("old", "2026-09-24"), trainingPoint("older", "2026-09-20"));
+  const unknown = progressionRow("숫자 미확인", trainingPoint("latest", "2026-10-04", { loadKg: null, reps: null, rir: null }));
+  for (const progression of [[older], [older, unknown]]) {
+    const result = trainingCoach(latestTraining(progression)), summary = result.priorities.find(row => row.id === "training-log");
+    assert.ok(!result.questions.some(row => row.id === "training-progression"));
+    assert.match(summary.title, /2026-10-04.*최신 실제 일지/); assert.match(summary.body, /숫자를 대신 보여주지 않았/);
+    assert.equal(summary.actionRecordId, "latest"); assert.equal(summary.actionLabel, "2026-10-04 일지 보기");
+    assert.equal(summary.evidence.current, null); assert.doesNotMatch(summary.body, /50kg|2026-09-24/);
+  }
+});
+
+test("normalization rejects invalid and future points and retains exact IDs for valid observations", () => {
+  const badDates = ["2026-02-30", "invalid", null, "2026-10-06"];
+  for (const date of badDates) {
+    const point = trainingPoint("latest", date), analysis = latestTraining([progressionRow("확인 불가", point, point)]);
+    const normalized = summarizeTraining(analysis, null, null, day.date);
+    assert.equal(normalized.progression[0].current, null); assert.equal(normalized.progression[0].observed.previous, null);
+    assert.ok(!trainingCoach(analysis).questions.some(row => row.id === "training-progression"));
+    assert.ok(!buildFacts(trainingCoach(analysis), day).some(row => row.id.startsWith("progression.")));
+    assert.equal(summarizeTraining(latestTraining([], { date }), null, null, day.date).lastSession, null);
+  }
+  const valid = trainingPoint("latest", "2026-10-04"), normalized = summarizeTraining(latestTraining([progressionRow("정상", valid)]), null, null, day.date);
+  assert.equal(normalized.lastSession.id, "latest"); assert.equal(normalized.progression[0].observed.current.sessionId, "latest");
+});
+
+test("latest current fallback keeps its own prior instead of pairing it with an unrelated observed point", () => {
+  const current = trainingPoint("latest", "2026-10-04", { loadKg: 55 }), previous = trainingPoint("prior", "2026-09-24");
+  const unrelated = trainingPoint("old", "2026-09-09", { loadKg: 999 });
+  const result = trainingCoach(latestTraining([progressionRow("최신 프레스", current, previous,
+    { observed: { current: unrelated, previous: unrelated, description: "다른 세션 원문" } })]));
+  const selected = result.priorities.find(row => row.id === "training-progression");
+  assert.equal(selected.evidence.pointSource, "current"); assert.equal(selected.evidence.previous.sessionId, "prior");
+  assert.match(selected.body, /50kg.*55kg/); assert.doesNotMatch(selected.body, /999kg/);
+});
+
+test("rejected prior provenance cannot leave an improvement claim attached to a lone current observation", () => {
+  const current = trainingPoint("latest", "2026-10-04"), future = trainingPoint("future", "2026-10-06");
+  const result = trainingCoach(latestTraining([progressionRow("최신 프레스", current, future,
+    { status: "improved", reason: "반복 수가 늘었어요." })]));
+  const selected = result.priorities.find(row => row.id === "training-progression");
+  assert.equal(selected.evidence.previous, null); assert.match(selected.body, /수행 변화 판정은 보류/);
+  assert.doesNotMatch(selected.body, /반복 수가 늘었어요/);
+  assert.equal(result.context.training.progression[0].status, "improved", "source judgment remains intact; display must not use it after rejecting its prior evidence");
+});
+
+test("date-only external fixtures may match latest date but cannot replace a real latest ID", () => {
+  const analysis = syntheticTraining(), result = trainingCoach(analysis), selected = result.priorities.find(row => row.id === "training-progression");
+  assert.equal(selected.evidence.selection, "latest-date-fallback"); assert.equal(selected.actionRecordId, null);
+  assert.equal(selected.actionRecordDate, "2026-10-02"); assert.equal(selected.actionLabel, "2026-10-02 일지 보기");
+  const exact = trainingCoach(syntheticTraining({ ...analysis, lastSession: { ...analysis.lastSession, id: "real-latest" } }));
+  assert.ok(!exact.questions.some(row => row.id === "training-progression"));
+  assert.equal(exact.priorities.find(row => row.id === "training-log").actionRecordId, "real-latest");
+});
+
+test("the bounded coach summary does not truncate a latest session behind many older exercise groups", () => {
+  const older = Array.from({ length: 101 }, (_, index) => progressionRow(`이전 운동 ${index}`, trainingPoint(`old-${index}`, "2026-09-24")));
+  const latest = progressionRow("최신 마지막 운동", trainingPoint("latest", "2026-10-04"));
+  const result = trainingCoach(latestTraining([...older, latest]));
+  assert.equal(result.context.training.progression.length, 100);
+  assert.match(result.priorities.find(row => row.id === "training-progression").title, /최신 마지막 운동/);
+});
+
+test("latest session selection remains retrospective at historical dates and names nutrition input actions precisely", () => {
+  const records = [workout("historical", "2026-09-24", "벤치 프레스", "bench_press", 50), workout("future", "2026-10-04", "벤치 프레스", "bench_press", 55)];
+  const selectedDay = { ...day, date: "2026-09-25", meals: [meal(1)] };
+  const result = buildCoach(profile, selectedDay, [], { trainingAnalysis: T.analyze(records, { date: selectedDay.date }) });
+  const question = result.questions.find(row => row.id === "training-log");
+  assert.equal(question.actionRecordId, "historical"); assert.equal(question.actionLabel, "2026-09-24 일지 보기");
+  assert.doesNotMatch(question.answer, /2026-10-04/);
+  const planned = buildCoach(profile, { ...day, coachCheckin: { trainingPlan: "planned" } });
+  assert.equal(planned.questions.find(row => row.id === "training").actionLabel, "운동 시간 기록");
+  assert.equal(planned.questions.find(row => row.id === "composition").actionLabel, "체중·체성분 기록");
 });

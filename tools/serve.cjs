@@ -8,6 +8,10 @@ const runtimeHash = crypto.createHash('sha256');
 for (const file of ['serve.cjs', 'bridge.cjs', 'coach-runtime.cjs', 'codex-binary.cjs', 'diary.cjs', 'diary-settings.cjs', 'locks.cjs']) {
   runtimeHash.update(file); runtimeHash.update(fs.readFileSync(path.join(__dirname, file)));
 }
+// Include cached server-side domain modules, not the browser UI served from disk.
+for (const file of ['storage.js', 'training-store.js', 'nutrition.js', 'insights.js', 'coach.js', 'training.js', 'coach-query.js', 'coach-context.js']) {
+  runtimeHash.update(`src/${file}`); runtimeHash.update(fs.readFileSync(path.join(root, 'src', file)));
+}
 const buildId = runtimeHash.digest('hex');
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.json': 'application/json' };
 function createServer(options = {}) {
