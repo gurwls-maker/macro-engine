@@ -533,6 +533,12 @@ test("another runtime distinguishes a live owner from an interrupted persisted j
   assert.equal(restarted.get(job.id).status, "running");
   const lockFile = path.join(fixture.data, ".ai-lock"), lock = D.readJson(lockFile);
   fs.writeFileSync(lockFile, JSON.stringify({ ...lock, ownerPid: 2147483647 }), "utf8");
+  const unresolved = restarted.get(job.id);
+  assert.equal(unresolved.status, "interrupted", "unknown lifetime must stop indefinite UI polling without removing the lock");
+  assert.match(unresolved.error, /확인/);
+  assert.deepEqual(D.readJson(lockFile), { ...lock, ownerPid: 2147483647 });
+  assert.equal(D.readJson(path.join(fixture.data, 'jobs', job.id, 'job.json')).status, 'running');
+  fs.writeFileSync(lockFile, JSON.stringify({ ...lock, ownerPid: 2147483647, childPid: 2147483646 }), "utf8");
   assert.equal(restarted.get(job.id).status, "interrupted");
   assert.equal(restarted.status().running, null);
   assert.equal(restarted.get("a".repeat(32)), null);

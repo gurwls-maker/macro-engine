@@ -27,6 +27,25 @@ function session(overrides = {}) {
   };
 }
 
+test("an exited legacy write lock recovers without changing stored originals", t => {
+  const f = fixture(t), file = path.join(f.data, ".write-lock");
+  const original = fs.readFileSync(path.join(f.data, "config.json"), "utf8");
+  fs.writeFileSync(file, "2147483647\n");
+  const result = Diary.locked(f.data, () => "recovered");
+  assert.equal(result, "recovered");
+  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.readFileSync(path.join(f.data, "config.json"), "utf8"), original);
+});
+
+test("a live legacy write lock blocks without entering the mutation", t => {
+  const f = fixture(t), file = path.join(f.data, ".write-lock");
+  fs.writeFileSync(file, `${process.pid}\n`);
+  let entered = false;
+  assert.throws(() => Diary.locked(f.data, () => { entered = true; }), { code: "EEXIST" });
+  assert.equal(entered, false);
+  assert.equal(fs.readFileSync(file, "utf8"), `${process.pid}\n`);
+});
+
 test("new, cached, renamed and copied images use content identity, not dates or paths", t => {
   const f = fixture(t);
   const first = Diary.scan(f.data);

@@ -297,10 +297,56 @@ test("another runtime preserves a live owner and reports a crashed owner as inte
   const lockPath = path.join(h.directory, ".ai-lock");
   const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
   assert.equal(lock.ownerPid, process.pid);
-  fs.writeFileSync(lockPath, JSON.stringify({ ...lock, ownerPid: 2147483647 }), "utf8");
+  fs.writeFileSync(lockPath, JSON.stringify({ ...lock, ownerPid: 2147483647, childPid: 2147483646 }), "utf8");
   assert.equal(reopened.get(job.id).status, "interrupted");
   assert.throws(() => reopened.get("../../config.json"));
   assert.equal(reopened.get("f".repeat(32)), null);
+});
+
+test('a definitively exited AI owner and child allow the next request after a restart', t => {
+  const h = harness(t), lockPath = path.join(h.directory, '.ai-lock');
+  const stale = { ownerPid: 2147483647, childPid: 2147483646, nonce: 'stale-ai-lock-nonce', jobId: 'a'.repeat(32) };
+  fs.writeFileSync(lockPath, JSON.stringify(stale), 'utf8');
+  const job = h.runtime.start({ kind: 'chat', question: 'synthetic restart recovery' });
+  const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+  assert.equal(h.calls.length, 1); assert.equal(lock.ownerPid, process.pid); assert.equal(lock.jobId, job.id);
+  assert.notEqual(lock.nonce, stale.nonce);
+  assert.equal(fs.existsSync(`${lockPath}.recovery`), false);
+  h.finish(answer());
+  assert.equal(h.runtime.get(job.id).status, 'completed'); assert.equal(fs.existsSync(lockPath), false);
+});
+
+test('live children keep running while uncertain AI locks stop public waiting without deleting the job', t => {
+  const h = harness(t), job = h.runtime.start({ kind: 'chat', question: 'synthetic protected owner' });
+  const lockPath = path.join(h.directory, '.ai-lock'), original = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+  const reopened = new Runtime.CoachRuntime(h.directory, { bin: 'synthetic-codex', spawn() { throw new Error('must not spawn'); } });
+  t.after(() => reopened.close());
+  for (const value of [{ ...original, ownerPid: 2147483647, childPid: process.pid }, { ...original, ownerPid: 2147483647, childPid: null }]) {
+    fs.writeFileSync(lockPath, JSON.stringify(value), 'utf8');
+    const restored = reopened.get(job.id);
+    assert.equal(restored.status, value.childPid === process.pid ? 'running' : 'interrupted');
+    if (value.childPid === null) assert.match(restored.error, /실행 상태를 확인할 수 없어.*종료됐다는 뜻은 아니며 잠금/);
+    assert.throws(() => reopened.start({ kind: 'chat', question: 'synthetic overlap' }), /다른 로컬 코치 작업/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(lockPath, 'utf8')), value);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(h.directory, 'jobs', job.id, 'job.json'), 'utf8')).status, 'running');
+  }
+  const kill = process.kill;
+  try {
+    process.kill = pid => { const error = new Error('synthetic permission unknown'); error.code = 'EPERM'; throw error; };
+    const uncertain = { ...original, ownerPid: 2147483647, childPid: 2147483646 };
+    fs.writeFileSync(lockPath, JSON.stringify(uncertain), 'utf8');
+    const restored = reopened.get(job.id);
+    assert.equal(restored.status, 'interrupted'); assert.match(restored.error, /실행 상태를 확인할 수 없어/);
+    assert.throws(() => reopened.start({ kind: 'chat', question: 'synthetic unknown owner' }), /다른 로컬 코치 작업/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(lockPath, 'utf8')), uncertain);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(h.directory, 'jobs', job.id, 'job.json'), 'utf8')).status, 'running');
+  } finally { process.kill = kill; }
+  fs.writeFileSync(lockPath, 'synthetic damaged lock', 'utf8');
+  const damaged = reopened.get(job.id);
+  assert.equal(damaged.status, 'interrupted'); assert.match(damaged.error, /잠금과 원본 작업은 보호/);
+  assert.throws(() => reopened.start({ kind: 'chat', question: 'synthetic damaged owner' }), /다른 로컬 코치 작업/);
+  assert.equal(fs.readFileSync(lockPath, 'utf8'), 'synthetic damaged lock');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(h.directory, 'jobs', job.id, 'job.json'), 'utf8')).status, 'running');
 });
 
 test("the 256 KiB prompt limit uses UTF-8 bytes and rejects before spawning or creating a job", t => {
@@ -345,11 +391,16 @@ test("unavailable runtime and explicit close never spawn, and digest follows con
   assert.notEqual(Runtime.digest({ question: "q", context: null }), Runtime.digest({ question: "q", context: { changed: true } }));
 });
 
-test("Codex binary override resolves a configured path without probing installed accounts", () => {
+test("Codex binary override resolves a configured native path without probing installed accounts", t => {
+  const h = harness(t), file = path.join(h.directory, 'synthetic codex.exe');
+  const header = process.platform === 'win32' ? [0x4d, 0x5a, 0, 0] : process.platform === 'darwin' ? [0xfe, 0xed, 0xfa, 0xcf] : [0x7f, 0x45, 0x4c, 0x46];
+  fs.writeFileSync(file, Buffer.from(header), { mode: 0o755 });
   const previous = process.env.MACRO_CODEX_BIN;
   try {
-    process.env.MACRO_CODEX_BIN = path.join(os.tmpdir(), "synthetic codex.exe");
-    assert.equal(Runtime.findCodex(), path.resolve(process.env.MACRO_CODEX_BIN));
+    process.env.MACRO_CODEX_BIN = file;
+    assert.equal(Runtime.findCodex(), fs.realpathSync(file));
+    process.env.MACRO_CODEX_BIN = path.join(h.directory, 'missing.exe');
+    assert.equal(Runtime.findCodex(), null);
   } finally {
     if (previous === undefined) delete process.env.MACRO_CODEX_BIN;
     else process.env.MACRO_CODEX_BIN = previous;
@@ -358,6 +409,7 @@ test("Codex binary override resolves a configured path without probing installed
 
 test("fact packets distinguish unknown intake, estimates and measured composition", () => {
   const state = fixture(), date = "2026-10-05";
+  state.trackingScope = 'both';
   let context = Runtime.summarizeState(state, date);
   assert.equal(context.contractVersion, 2);
   assert.ok(!context.facts.some(fact => fact.id.startsWith("today.intake.")));
@@ -419,6 +471,7 @@ test("older relevant messages are recalled within a budget, never future memorie
 
 test('selected-day measurements use the same pure profile helper as the browser without modifying either input', () => {
   const state = fixture(), day = state.days['2026-10-05'];
+  state.trackingScope = 'nutrition';
   Object.assign(state.profile, { sex: 'male', age: 35, heightCm: 180, weightKg: 80, bodyFatPct: 30, bodyFatWeightKg: 80, bodyFatDate: '2026-09-30', bodyFatMethod: 'dxa', trainingYears: 5, goal: 'lose' });
   Object.assign(day, { weightKg: 80, bodyFatPct: 12, bodyFatMethod: 'dxa' });
   const before = structuredClone(state);
@@ -687,6 +740,36 @@ test('runtime keeps unknown order and assistance meaning while sharing explicit 
   assert.match(prompt, /보조 중량 증가를 수행 향상으로/);
   assert.match(prompt, /운동 전용 사용자의 식사 미기록을 부족한 섭취로/);
   assert.match(prompt, /과거 최고 중량/); assert.match(prompt, /preceding의 값은 null/);
+});
+
+test('runtime derived unknowns and facts use the same scoped decision as the app coach', () => {
+  const Context = require('../src/coach-context.js'), Coach = require('../src/coach.js');
+  const date = '2026-10-05', question = '오늘 기록에서 다음에 무엇을 확인하면 될까?';
+  for (const scope of ['auto', 'nutrition', 'training', 'both']) {
+    const state = fixture(); state.trackingScope = scope;
+    const context = Runtime.summarizeState(state, date, question);
+    const decisionContext = Context.build(state, date, { question });
+    const expected = Coach.buildCoach(Nutrition.profileForDay(state.profile, state.days[date]), state.days[date], state.days, { decisionContext });
+    assert.deepEqual(context.unknowns, expected.context.missingSignals, scope);
+    assert.deepEqual(context.reviewSignals, expected.priorities.filter(row => row.kind === 'safety'), scope);
+    assert.ok(!context.unknowns.some(row => ['composition', 'clinical-context', 'checkin', 'training-plan', 'meal-constraint'].includes(row.id)), scope);
+    if (!decisionContext.scope.nutritionEnabled) assert.ok(!context.facts.some(fact => fact.id.startsWith('today.target.')), scope);
+  }
+});
+
+test('runtime scope adaptation does not remove pain safety from profileless recording', () => {
+  const TS = require('../src/training-store.js');
+  for (const scope of ['nutrition', 'training', 'both']) {
+    const state = fixture(); state.profile = null; state.trackingScope = scope; state.training = TS.createEmpty();
+    const row = denseWorkout('2026-10-05', 202); row.exercises = [row.exercises[0]]; row.pain = 'stop';
+    state.training.records = [row];
+    const context = Runtime.summarizeState(state, row.date, '통증이 있어 운동을 계속해도 될까?');
+    assert.equal(context.decisionContext.training.recovery.status, 'stop', scope);
+    assert.ok(context.reviewSignals.some(signal => signal.kind === 'safety' && /통증|멈춰|중단/.test(`${signal.title} ${signal.body}`)), scope);
+    assert.ok(!context.unknowns.some(row => ['composition', 'clinical-context', 'meal-constraint'].includes(row.id)), scope);
+    assert.equal(context.decisionContext.body.requiredForRecordUse, false, scope);
+    assert.equal(context.decisionContext.constraints.recordingAvailable, true, scope);
+  }
 });
 
 test('shared nutrition-only and both contexts distinguish partial intake, optional muscle measurements and estimated targets', () => {

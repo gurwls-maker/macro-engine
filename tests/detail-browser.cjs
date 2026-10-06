@@ -89,7 +89,7 @@ async function activity(page, sleep, work, lifestyle) {
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `no overflow ${width}`);
       await page.screenshot({ path: path.join(artifacts, `details-coach-${width}.png`), fullPage: true }); assert.deepEqual(errors, []);
       await page.locator('[data-view="today"]').click();
-      await page.locator('.meal-section [data-action="meal-add"]').click(); await page.locator('#entryForm [name="name"]').fill('완료 확인용 식사'); await page.locator('#entryForm [name="protein"]').fill('20'); await submit(page);
+      await page.locator('.meal-section [data-action="meal-add"]').click(); await page.locator('#entryForm [name="name"]').fill('완료 확인용 식사'); await page.locator('#entryForm [name="protein"]').fill('20'); await page.locator('#entryForm [name="carbs"]').fill('0'); await page.locator('#entryForm [name="fat"]').fill('0'); await submit(page);
       await page.locator('.meal-section [data-action="complete"]').click(); await submit(page);
       const frozen = (await stored(page)).days[today];
       await page.locator('[data-view="profile"]').click(); await page.locator('[data-action="profile-activity"]').click(); await activity(page, 6, 10, 3); await submit(page);

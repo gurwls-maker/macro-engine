@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn, execFileSync } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const S = require('../src/storage.js');
 const I = require('../src/insights.js');
 const Coach = require('../src/coach.js');
@@ -10,6 +10,8 @@ const Training = require('../src/training.js');
 const Query = require('../src/coach-query.js');
 const Context = require('../src/coach-context.js');
 const Diary = require('./diary.cjs');
+const Locks = require('./locks.cjs');
+const CodexBinary = require('./codex-binary.cjs');
 
 const nullableNumber = { type: ['number', 'null'] };
 const nullableString = { type: ['string', 'null'] };
@@ -262,11 +264,7 @@ function compactContextKeys(value, seen = new WeakSet()) {
   }
 }
 function findCodex() {
-  if (process.env.MACRO_CODEX_BIN) return path.resolve(process.env.MACRO_CODEX_BIN);
-  try {
-    const found = execFileSync(process.platform === 'win32' ? 'where.exe' : 'which', ['codex'], { encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim().split(/\r?\n/).find(file => /(?:codex|codex\.exe)$/.test(file));
-    return found || null;
-  } catch { return null; }
+  return CodexBinary.findCodex();
 }
 function recallContext(state, date, question) {
   const normalize = value => typeof value === 'string' ? value.normalize('NFKC').toLowerCase() : '';
@@ -314,7 +312,8 @@ function summarizeState(raw, date, question = '') {
       detailScope: 'coverage와muscles는전체28일집계. sessions는최근12개요약, progression은최대12개비교. 원문세트표본으로총량을다시합산하지않습니다.' };
   }
   const calculationProfile = Nutrition.profileForDay(state.profile, current);
-  const coach = Coach.buildCoach(calculationProfile, current, state.days, { trainingAnalysis: fullTrainingAnalysis, training: state.training, program });
+  const decisionContext = Context.build(state, date, { question });
+  const coach = Coach.buildCoach(calculationProfile, current, state.days, { decisionContext, trainingAnalysis: fullTrainingAnalysis, training: state.training, program });
   const recall = recallContext(state, date, question), facts = Coach.buildFacts(coach, current);
   const addFact = (id, label, value, unit, source, when, estimated = false) => { if (typeof value === 'number' && Number.isFinite(value)) facts.push({ id, label, value, unit, source, date: when, estimated }); };
   for (const [key, unit] of [['age', '세'], ['heightCm', 'cm'], ['weightKg', 'kg']]) addFact(`profile.${key}`, `현재 프로필 ${key}`, state.profile?.[key], unit, 'current-profile', date);
@@ -333,7 +332,7 @@ function summarizeState(raw, date, question = '') {
   const detailed = recent.map((row, index) => ({ row, index, score: relevance(`${row.label} ${row.notes} ${row.exercises.map(exercise => `${exercise.rawName} ${exercise.notes}`).join(' ')}`) }))
     .sort((a, b) => (a.index === 0 ? -1 : b.index === 0 ? 1 : b.score - a.score || a.index - b.index)).slice(0, 4);
   const packet = { contractVersion: 2, date, profile: state.profile, calculationProfile, retrieval: Query.retrieve(state, date, question),
-    decisionContext: Context.build(state, date, { question }),
+    decisionContext,
     today: { ...current, meals: current.meals.slice(0, 12), mealCount: current.meals.length, intake: current.meals.length ? I.mealTotals(current.meals) : null, mealsSampled: current.meals.length > 12 },
     recentDays: days.slice(0, 21).map(day => ({ date: day.date, complete: day.complete,
       weightKg: day.weightKg, bodyFatPct: day.bodyFatPct, skeletalMuscleKg: day.skeletalMuscleKg,
@@ -451,7 +450,7 @@ class CoachRuntime {
   status() { return { available: Boolean(this.bin), running: this.active?.id || null, busy: fs.existsSync(this.lockFile), provider: 'codex-local', ephemeral: true }; }
   acquireLock(jobId) {
     const nonce = crypto.randomUUID(); let fd;
-    try { fd = fs.openSync(this.lockFile, 'wx'); }
+    try { fd = Locks.acquire(this.lockFile, { kind: 'ai' }); }
     catch { throw new Error('다른 로컬 코치 작업이 실행 중이거나 이전 종료를 확인해야 해요. 실행 중인 앱을 확인한 뒤 다시 요청해 주세요.'); }
     this.lock = { fd, nonce, jobId };
     try { fs.writeFileSync(fd, JSON.stringify({ ownerPid: process.pid, childPid: null, nonce, jobId })); fs.fsyncSync(fd); }
@@ -476,9 +475,11 @@ class CoachRuntime {
       if (!fs.existsSync(file)) return null;
       job = Diary.readJson(file);
       if (['pending', 'running'].includes(job.status)) {
-        let runningElsewhere = false;
-        try { const lock = Diary.readJson(this.lockFile); if (lock.jobId === id && Number.isInteger(lock.ownerPid)) { process.kill(lock.ownerPid, 0); runningElsewhere = true; } } catch {}
-        if (!runningElsewhere) job = { ...job, status: 'interrupted', error: '앱 서버가 재시작되어 작업이 중단됐어요. 다시 요청해 주세요.' };
+        const lock = Locks.inspect(this.lockFile, { kind: 'ai' });
+        if (lock.state === 'unknown')
+          job = { ...job, status: 'interrupted', error: '이전 실행 상태를 확인할 수 없어 답변 대기를 멈췄어요. 종료됐다는 뜻은 아니며 잠금과 원본 작업은 보호하고 있어요. 관련 앱·Codex 프로세스의 종료를 확인한 뒤 다시 요청해 주세요.' };
+        else if (lock.state === 'absent' || lock.state === 'exited' && lock.jobId === id)
+          job = { ...job, status: 'interrupted', error: '앱 서버가 재시작되어 작업이 중단됐어요. 다시 요청해 주세요.' };
       }
     }
     const { process: ignored, timer: ignoredTimer, lockNonce: ignoredNonce, ...result } = job;

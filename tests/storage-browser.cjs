@@ -69,6 +69,8 @@ const cases = [
       await page.locator('#view-today .meal-section [data-action="meal-add"]').click();
       await page.locator('#entryForm [name="name"]').fill('저녁 술과 식사');
       await page.locator('#entryForm [name="protein"]').fill('25');
+      await page.locator('#entryForm [name="carbs"]').fill('0');
+      await page.locator('#entryForm [name="fat"]').fill('0');
       await page.locator('#entryForm [name="type"]').selectOption('dinner');
       await page.locator('#entryForm [name="note"]').fill('양과 도수 확인');
       await page.locator('#entryForm details summary').click();

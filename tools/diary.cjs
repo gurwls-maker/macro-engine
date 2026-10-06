@@ -2,6 +2,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const Locks = require("./locks.cjs");
 
 const VERSION = 1;
 const PARSER = "diary-vision-v1";
@@ -33,11 +34,11 @@ function atomicJson(file, value) {
 function locked(data, action) {
   fs.mkdirSync(data, { recursive: true });
   const file = path.join(data, ".write-lock");
-  const fd = fs.openSync(file, "wx");
+  const fd = Locks.acquire(file, { kind: "write" });
   try {
     fs.writeFileSync(fd, `${process.pid}\n`, "utf8");
     return action();
-  } finally { fs.closeSync(fd); fs.unlinkSync(file); }
+  } finally { Locks.release(file, fd); }
 }
 
 function inside(root, file) {

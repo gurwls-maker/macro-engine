@@ -495,7 +495,7 @@
     const value = Number(raw); if (!Number.isFinite(value)) throw new Error('유효한 숫자를 입력해 주세요.'); return value;
   }
   function mealDialog(existing = null, copy = false) {
-    const meal = existing || { name: '', protein: 0, carbs: 0, fat: 0, otherKcal: 0, alcoholG: 0 };
+    const meal = existing || { name: '', protein: '', carbs: '', fat: '', otherKcal: 0, alcoholG: 0 };
     openDialog(copy ? '최근 식사 가져오기' : existing ? '식사 수정' : '식사 추가', `<div class="form-grid">${field('식사 이름', 'name', meal.name, { type: 'text', required: true })}${field('단백질 (g)', 'protein', meal.protein, { required: true })}${field('탄수화물 (g)', 'carbs', meal.carbs, { required: true })}${field('지방 (g)', 'fat', meal.fat, { required: true })}</div><details class="source-details"><summary>기타 열량·술</summary><div class="form-grid">${field('탄단지·알코올 외 열량 (kcal)', 'otherKcal', meal.otherKcal, { max: 10000, required: true })}${field('순알코올 (g)', 'alcoholG', meal.alcoholG, { max: 500, required: true })}</div><p class="form-help">알코올은 1g당 7kcal로 별도 합산해요. 술의 탄수화물과 안주는 각 영양소에 기록해 주세요.</p></details><p id="mealPreview" class="notice notice-info"></p>${actions()}`, form => {
       const entry = { id: existing && !copy ? existing.id : id(), name: String(form.get('name')).trim(), protein: readNumber(form, 'protein'), carbs: readNumber(form, 'carbs'), fat: readNumber(form, 'fat'), otherKcal: readNumber(form, 'otherKcal'), alcoholG: readNumber(form, 'alcoholG') };
       if (form.get('type')) entry.type = String(form.get('type'));
