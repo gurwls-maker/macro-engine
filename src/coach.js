@@ -1,9 +1,10 @@
 (function (root, factory) {
   const node = typeof module === "object" && module.exports;
-  const api = factory(node ? require("./nutrition.js") : root.MacroNutrition, node ? require("./insights.js") : root.MacroInsights);
+  const api = factory(node ? require("./nutrition.js") : root.MacroNutrition, node ? require("./insights.js") : root.MacroInsights,
+    node ? require("./coach-context.js") : root.MacroCoachContext);
   if (node) module.exports = api;
   root.MacroCoach = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function (Nutrition, Insights) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (Nutrition, Insights, DecisionContext) {
   "use strict";
 
   const VERSION = "9.3-evidence-coach-v2";
@@ -12,7 +13,7 @@
   const fmt = (value, digits = 0) => finite(value) ? value.toLocaleString("ko-KR", { maximumFractionDigits: digits }) : "미확인";
   const goalNames = { lose: "체지방 감량", maintain: "체중 유지", gain: "근육 증가", recomp: "체성분 개선", performance: "운동 수행" };
   const sportNames = { none: "일상 활동", strength: "근력 운동", running: "달리기", cycling: "자전거", swimming: "수영", team: "구기 운동", mixed: "복합 운동", walking: "걷기" };
-  const actionLabels = { "nav-profile": "내 기준 확인", "meal-add": "식사 기록", "session-add": "운동 기록", measurement: "몸 상태 기록", complete: "하루 기록 완료", "nav-trends": "기록과 추세 보기", reopen: "이 날 기록 확인", "coach-checkin": "오늘 상태 알려주기", "nav-training": "훈련 기록 살펴보기", "nav-program": "훈련 계획 살펴보기" };
+  const actionLabels = { "nav-profile": "내 기준 확인", "meal-add": "식사 기록", "session-add": "운동 기록", measurement: "몸 상태 기록", complete: "하루 기록 완료", "nav-trends": "기록과 추세 보기", reopen: "이 날 기록 확인", "coach-checkin": "오늘 상태 알려주기", "nav-training": "훈련 기록 살펴보기", "nav-program": "훈련 계획 살펴보기", "coach-memory": "목표와 제약 남기기", "tracking-scope": "기록 범위 선택" };
   const checkinOptions = { energy: ["low", "okay", "good"], hunger: ["low", "okay", "high"], sleep: ["poor", "okay", "good"], trainingPlan: ["rest", "planned"], mealConstraint: ["none", "busy", "low-appetite", "digestive"], performance: ["down", "steady", "up"] };
   const finiteRange = value => value && [value.min, value.target, value.max].every(finite) && value.min >= 0 && value.min <= value.target && value.target <= value.max;
   const readyPlan = plan => plan?.status === "ready" && finite(plan.energy?.targetKcal) && plan.energy.targetKcal > 0 && ["protein", "carbs", "fat"].every(key => finiteRange(plan.macros?.[key]));
@@ -153,8 +154,6 @@
     if (last?.time) result.context.limitations.push("일지 헤더의 시각은 시작·종료 중 어느 시각인지 확인되지 않았어요.");
     result.context.observations.push({ id: "training-diary", label: "세트 일지", value: logSummary, source: "training-records", confidence: "high" });
     result.questions.push({ id: "training-log", label: "최근 훈련에서 무엇이 확인됐나요?", answer: logSummary, action: "nav-training", actionLabel: actionLabels["nav-training"] });
-    if (["onboarding", "incomplete", "review"].includes(result.status)) return result;
-
     const trainingItems = [];
     const currentClinical = profile?.healthContext && profile.healthContext !== "general" || finite(profile?.age) && (profile.age < 18 || profile.age > 80);
     const recovery = training.recovery;
@@ -163,6 +162,11 @@
       trainingItems.push(item("training-safety", pain ? "통증이 있는 동작은 멈춰 주세요" : "훈련을 늘리기 전에 회복부터 확인해요", `${recovery.reasons.join(" ")} ${pain ? "통증이 생기는 동작은 중단하고, 심하거나 계속되는 증상은 의료진에게 확인해 주세요." : "수면·피로·최근 식사를 함께 확인한 뒤 다음 훈련을 정하죠. 이 기록만으로 통증이나 원인을 단정하지 않아요."}`, "nav-training", { kind: "safety", tone: "attention", confidence: "high", source: "training-self-report" }));
     } else if (recovery.status === "watch") {
       trainingItems.push(item("training-recovery", "최근 수행과 회복을 함께 확인해요", `${recovery.reasons.join(" ")} ${recovery.questions[0] || "수면·피로·통증과 실제 세트의 남은 반복 여유를 알려 주세요."} 한 번의 기록만으로 디로드를 확정하거나 칼로리를 더 줄이지 않아요.`, "coach-checkin", { kind: "safety", tone: "attention", confidence: "medium", source: "training-pattern" }));
+    }
+    if (["onboarding", "incomplete", "review"].includes(result.status)) {
+      result.priorities = [...trainingItems, ...result.priorities].slice(0, 3);
+      result.headline = result.priorities[0]?.title || result.headline;
+      return result;
     }
     const movement = training.progression.find(row => row.current || row.observed.current);
     if (movement) {
@@ -187,6 +191,37 @@
     return result;
   }
 
+  function adaptDecisionScope(result, decision) {
+    if (!decision?.scope) return result;
+    const scope = decision.scope;
+    result.context.decisionContext = decision;
+    result.context.limitations.push(...decision.limits);
+    result.context.missingSignals = result.context.missingSignals.filter(row => !["composition", "clinical-context", "checkin", "experience", "performance", "training-plan", "meal-constraint"].includes(row.id));
+    result.priorities = result.priorities.filter(row => row.id !== "composition-confidence"
+      && (scope.trainingEnabled || row.kind !== "training" && !/^training-|^rest-plan$/.test(row.id) || row.kind === "safety"));
+    result.questions = result.questions.filter(row => (scope.trainingEnabled || !/^training/.test(row.id))
+      && (scope.nutritionEnabled || !["next-meal", "target", "composition", "trend", "allocation", "finish"].includes(row.id)));
+    const safety = result.priorities.filter(row => row.kind === "safety");
+    const ordinary = result.priorities.filter(row => row.kind !== "safety");
+    if (!safety.length) {
+      const concern = decision.nextObservations.find(row => row.priority === "safety");
+      if (concern) safety.push(item(concern.id, concern.id === "current-pain" ? "통증이 있는 동작은 멈춰 주세요" : concern.id === "care-context" ? "기록은 계속 쓰고 계획은 개별적으로 정해요" : "현재 회복 상태부터 확인해요",
+        concern.question, concern.action, { kind: "safety", tone: "attention", source: "decision-context", confidence: "high" }));
+    }
+    const pending = decision.nextObservations.filter(row => !(row.priority === "safety" && safety.length));
+    const direction = pending.find(row => ["current-goal", "record-scope"].includes(row.id));
+    if (direction && !ordinary.some(row => row.id === direction.id)) ordinary.unshift(item(direction.id,
+      direction.id === "record-scope" ? "먼저 관리할 기록부터 정해요" : "앞으로 적용할 목표를 확인해요",
+      direction.question, direction.action, { kind: "data", source: "decision-context", confidence: "high" }));
+    pending.slice(0, 2).forEach(row => {
+      if (!result.context.missingSignals.some(value => value.id === row.id)) result.context.missingSignals.push({
+        id: row.id, label: row.reason, question: row.question, action: row.action, actionLabel: actionLabels[row.action] || "기록 범위 선택" });
+    });
+    result.priorities = [...safety, ...ordinary].slice(0, 3);
+    result.headline = result.priorities[0]?.title || result.headline;
+    return result;
+  }
+
   function buildCoach(profile, day = {}, history = [], options = {}) {
     const d = day && typeof day === "object" && !Array.isArray(day) ? day : {};
     const meals = d.meals === undefined ? [] : d.meals;
@@ -196,6 +231,7 @@
     const goal = saved ? plan.context?.goal || null : profile?.goal || null;
     const recent = historyContext(history, d.date, goal);
     const checkin = readCheckin(d.coachCheckin);
+    const decision = options.decisionContext || (options.state && DecisionContext ? DecisionContext.build(options.state, d.date, { question: options.question }) : null);
     const missingCore = ["energy", "hunger", "sleep"].filter(key => checkin[key] === null);
     const context = {
       date: d.date || null, complete, planSource: source, goal, recent, targetsChanged: false, modelVersion: VERSION,
@@ -223,8 +259,43 @@
         };
         selectedQuestions = questions.map(row => Object.hasOwn(retrospective, row.id) ? { ...row, answer: retrospective[row.id], action: "nav-trends", actionLabel: actionLabels["nav-trends"] } : row);
       }
-      return connectTraining({ status, headline: selected[0]?.title || "기록을 함께 살펴볼게요", summary, priorities: selected, questions: selectedQuestions, context }, profile, options, d.date);
+      return adaptDecisionScope(connectTraining({ status, headline: selected[0]?.title || "기록을 함께 살펴볼게요", summary, priorities: selected, questions: selectedQuestions, context }, profile, options, d.date), decision);
     };
+
+    if (decision && (!decision.scope.nutritionEnabled || !profile && !saved)) {
+      const usesTraining = decision.scope.trainingEnabled, usesNutrition = decision.scope.nutritionEnabled;
+      const priorities = [];
+      context.goal = profile?.goal || null;
+      context.mealCount = Array.isArray(meals) ? meals.length : null;
+      context.totals = usesNutrition && validMeals(meals) && meals.length ? Insights.mealTotals(meals) : null;
+      context.dayAssessmentAvailable = usesNutrition && decision.nutrition.canAssessSelectedWholeDay;
+      if (usesTraining) {
+        const coverage = decision.training.coverage, last = decision.training.lastSession;
+        const body = last ? `최근 기록은 ${last.date} ${last.label || "훈련"}이에요. 장비·순서·세트 조건을 구분해서 다음 수행을 이어가요.`
+          : "실제로 한 운동은 직접 입력하거나 지난 일지를 재사용할 수 있어요. 기록 공백을 휴식이나 실패로 판단하지 않아요.";
+        priorities.push(item("training-record-scope", last ? "지난 수행에서 다음 운동을 이어가요" : "실제 운동 기록부터 이어가요", body, "nav-training", { kind: "training", confidence: "high", source: "training-records" }));
+        question("training-record-scope", "식사나 체성분 없이도 운동을 볼 수 있나요?", "실제 운동·장비·세트 기록은 그대로 볼 수 있어요. 식사 자료가 없으면 수행 변화의 영양 원인을 판정하지 않고, 체성분 없이 적정 중량이나 성장률을 만들어 내지 않아요.", "nav-training");
+        observe("training-week", "최근 운동 기록", `최근 7일 세트 일지 ${fmt(coverage.recordCount)}건 · 일반 세트 ${fmt(coverage.workingSets)}개`, "training-records");
+      }
+      if (usesNutrition) {
+        priorities.push(item("nutrition-record-scope", meals.length ? "기록한 식사부터 확인해요" : "먹은 식사부터 남겨요",
+          meals.length ? "기록한 식사는 확인할 수 있어요. 개인 섭취 목표가 없거나 식사가 일부만 기록됐으면 부족·과잉으로 평가하지 않아요."
+            : "자주 먹는 식사나 실제 먹은 한 끼부터 남길 수 있어요. 운동 일지와 체성분은 반드시 입력할 항목이 아니에요.", "meal-add", { kind: "data", confidence: "high", source: "meal-record" }));
+        question("nutrition-record-scope", "숫자 목표 없이도 식사를 기록할 수 있나요?", "실제 식사는 먼저 남길 수 있어요. 개인 열량·단백질 목표를 계산하려는 때에 필요한 내 기준을 확인하면 됩니다. 체성분은 선택 사항이에요.", "meal-add");
+      }
+      if (profile?.healthContext && profile.healthContext !== "general" || finite(profile?.age) && (profile.age < 18 || profile.age > 80)) {
+        priorities.unshift(item("recording-care", "기록은 계속 쓰고 계획은 개별적으로 정해요", "현재 건강·연령 조건에서는 일반 숫자 처방을 만들지 않아요. 기록과 기존 전문가 계획을 보존하면서 필요한 조정을 확인해 주세요.", "nav-profile", { kind: "safety", tone: "attention", confidence: "high", source: "current-profile" }));
+      }
+      if (!priorities.length) {
+        priorities.push(item("record-scope", "먼저 관리할 기록부터 정해요", "식사·운동 또는 둘 다 중 먼저 관리할 범위를 정하고 평소 방식의 기록부터 시작할 수 있어요.", "tracking-scope", { kind: "data", confidence: "high" }));
+      }
+      if (decision.scope.effective === "none") question("record-scope", "어떻게 시작할까요?", "먹은 식사나 실제로 한 운동 중 먼저 관리할 기록부터 정하면 돼요. 내 기준이 있어도 아직 기록하지 않은 식사·운동을 부족이나 휴식으로 판단하지 않아요. 직접 기록하거나 지난 기록을 재사용할 수 있고, 사진의 숫자는 AI 판독 뒤 확인한 내용만 일지로 사용해요. AI 연결이 없어도 기록을 이어갈 수 있어요.", "tracking-scope");
+      if (!usesNutrition) context.limitations.push("식사 기록 범위를 사용하지 않아 수행 변화의 영양 원인이나 섭취 부족을 판정하지 않아요.");
+      const summary = decision.scope.effective === "training" ? "운동 기록 중심 · 식사·체성분은 선택 사항"
+        : decision.scope.effective === "nutrition" ? "식사 기록 중심 · 운동 일지는 선택 사항"
+          : decision.scope.effective === "both" ? "식사와 운동 기록 · 숫자 목표 없이도 기록 가능" : "활용할 기록 범위를 선택해 주세요";
+      return finish("tracking", priorities, summary);
+    }
 
     if (!profile && !saved && source !== "missing-snapshot") {
       question("start", "무엇부터 알려주면 될까요?", "성별, 나이, 키·체중, 평소 활동과 목표부터 알려 주세요. 체성분과 운동 경력은 모르면 비워 둘 수 있어요.", "nav-profile");

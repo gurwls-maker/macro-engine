@@ -8,7 +8,7 @@
   let state = loaded.state;
   let blocked = loaded.storageBlocked === true;
   let selectedDate = I.dateKey();
-  let view = state.profile ? 'today' : 'profile';
+  let view = 'today';
   let pendingImport = null;
   let toastTimer;
   let dialogReturnFocus;
@@ -23,6 +23,7 @@
   let profileActivityDraft = null;
   let profileWeekdayDraft = {};
   let retrievalCache = null;
+  let contextCache = null;
   const $ = id => document.getElementById(id);
   const clone = value => JSON.parse(JSON.stringify(value));
   const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -121,7 +122,15 @@
     return metric(label, totals[key], 'g', detail, className, target ? totals[key] / target * 100 : null);
   }
   function coachFor(current = day()) {
-    return C.buildCoach(effectiveProfile(current.date), current, state.days, { lastMutation, training: state.training, trainingAnalysis: trainingUI.analysis(), program: trainingUI.coachingProgram() });
+    return C.buildCoach(effectiveProfile(current.date), current, state.days, { lastMutation, decisionContext: decisionContext(current.date), training: state.training, trainingAnalysis: trainingUI.analysis(), program: trainingUI.coachingProgram() });
+  }
+  function decisionContext(date = selectedDate) {
+    if (!contextCache || contextCache.state !== state || contextCache.date !== date) contextCache = { state, date, value: window.MacroCoachContext.build(state, date) };
+    return contextCache.value;
+  }
+  function scopeControlHTML() {
+    const scope = state.trackingScope || 'auto';
+    return `<label class="tracking-scope"><span>기록 범위</span><select id="trackingScope" aria-label="기록 범위">${[['auto', '기록에 맞춰'], ['nutrition', '식단 중심'], ['training', '운동 중심'], ['both', '식단과 운동']].map(([value, label]) => `<option value="${value}" ${scope === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>`;
   }
   function coachAction(item, primary = false) {
     if (day().complete && ['meal-add', 'session-add', 'measurement', 'coach-checkin', 'complete'].includes(item?.action)) return command('reopen', '기록을 다시 열어 확인', 'pencil', '', primary);
@@ -148,13 +157,21 @@
   }
   function quickRecordsHTML(current) {
     const frozen = current.complete;
-    const entries = frozen ? `${command('nav-training', '운동 일지', 'dumbbell')}${command('reopen', '기록 다시 열기', 'pencil')}` : `${command('training-add', '운동 직접 기록', 'dumbbell')}${command('meal-add', '식사 추가', 'utensils')}${command('meal-templates', '자주 먹는 식사', 'bookmark')}`;
+    const scope = state.trackingScope || 'auto';
+    const entries = frozen ? `${scope !== 'nutrition' ? command('nav-training', '운동 일지', 'dumbbell') : ''}${command('reopen', '기록 다시 열기', 'pencil')}` : `${scope !== 'nutrition' ? command('training-add', '운동 직접 기록', 'dumbbell') : ''}${scope !== 'training' ? command('meal-add', '식사 추가', 'utensils') + command('meal-templates', '자주 먹는 식사', 'bookmark') : ''}`;
     return `<section class="daily-quick-records" aria-labelledby="dailyQuickRecordsTitle"><div class="section-header"><h2 id="dailyQuickRecordsTitle">빠르게 기록</h2>${frozen ? '<span class="muted">완료한 기록은 다시 열어 수정</span>' : ''}</div><div class="daily-quick-actions">${command('training-image', '사진 추가', 'image-plus', '', true)}${entries}</div></section>`;
   }
   function dailyConditionHTML(current) {
     const checkin = current.coachCheckin;
     const labels = { energy: { low: '많이 지침', okay: '보통', good: '좋음' }, hunger: { low: '별로 없음', okay: '보통', high: '많이 배고픔' }, sleep: { poor: '잘 못 잠', okay: '보통', good: '잘 잠' } };
     return `<section class="daily-condition" aria-labelledby="dailyConditionTitle"><div class="section-header"><h2 id="dailyConditionTitle">컨디션</h2>${current.complete ? '' : iconButton('coach-checkin', checkin ? '컨디션 수정' : '컨디션 기록', 'heart-pulse')}</div><div class="checkin-summary">${['energy', 'hunger', 'sleep'].map((key, index) => `<div><span>${['에너지', '허기', '수면'][index]}</span><strong>${labels[key][checkin?.[key]] || '미기록'}</strong></div>`).join('')}</div>${checkin?.note ? `<p class="form-help">${escape(checkin.note)}</p>` : ''}</section>`;
+  }
+  function coverageHTML() {
+    const value = decisionContext(), food = value.nutrition.coverage, training = value.training.coverage, body = value.body;
+    const foodRow = value.scope.nutritionEnabled ? `<div><dt>식사</dt><dd>완료 ${food.completeMealDays}일 · 일부 ${food.partialMealDays}일<br>미기록 ${food.daysWithoutMeals}일 · 먹지 않았다는 뜻은 아님</dd></div>` : '';
+    const trainingRow = value.scope.trainingEnabled ? `<div><dt>운동</dt><dd>기록 ${training.daysWithAnyTrainingRecord}일 · 일반 ${training.workingSets}세트<br>미기록 ${training.unknownDays}일 · 휴식 여부 미확인</dd></div>` : '';
+    const bodyRow = `<div><dt>체성분 · 선택</dt><dd>${body.pairedMeasurementAvailable ? `${escape(body.paired.date)} · 체중과 체지방률 기록${body.pairedMethodKnown ? '' : '<br>측정 방법 미확인'}` : body.latest ? `${escape(body.latest.date)} · 일부 측정 기록<br>짝지은 체중·체지방률은 미확인` : '측정 없어도 기록·코칭 가능'}${body.hasConflicts ? '<br>같은 날짜의 측정 출처가 충돌 · 하나의 확정값으로 판단 안 함' : ''}</dd></div>`;
+    return `<section class="record-coverage" aria-labelledby="recordCoverageTitle"><div class="section-header"><h2 id="recordCoverageTitle">이번 주의 출발점</h2><span class="muted">${value.window.from} ~ ${value.window.to}</span></div><dl>${foodRow}${trainingRow}${bodyRow}</dl>${value.goal.changeObserved ? '<p class="form-help">현재 목표가 완료한 과거 기록의 목표와 다릅니다. 과거 목표는 그대로 두고 앞으로의 선택을 점검해요.</p>' : ''}</section>`;
   }
   function renderCoach() {
     trainingUI.captureChatScroll();
@@ -167,6 +184,10 @@
     $('coachContent').querySelector('.personal-conversation')?.insertAdjacentHTML('beforeend', trainingUI.memoryHTML());
     $('coachContent').querySelector('.coach-context')?.insertAdjacentHTML('beforeend', trainingUI.coachContextHTML());
     $('coachContent').querySelector('.coaching-main')?.insertAdjacentHTML('beforeend', coachActionsUI?.renderHTML() || '');
+    if (!current.meals.length) {
+      const food = [...$('coachContent').querySelectorAll('.coach-context dt')].find(element => element.textContent === '식사');
+      if (food) food.nextElementSibling.textContent = '미기록 · 섭취량 미확인';
+    }
     if (coachActionsUI) $('coachContent').querySelector('.conversation-actions')?.insertAdjacentHTML('beforeend', command('nav-coach-actions', '선택과 점검', 'clipboard-list'));
     trainingUI.enhanceChat();
   }
@@ -211,10 +232,25 @@
       if (!frozen) row.querySelector('.item-actions').insertAdjacentHTML('beforeend', iconButton('session-preset-save', '자주 하는 운동으로 저장', 'bookmark-plus', `data-id="${escape(session.id)}"`));
     });
     const main = $('todayContent').querySelector('.today-main');
+    $('todayContent').querySelector('.daily-toolbar').insertAdjacentHTML('beforeend', scopeControlHTML());
     main.insertAdjacentHTML('afterbegin', `${trainingUI.todayHTML?.() || ''}${coachActionsUI?.renderHTML({ compact: true }) || ''}${quickRecordsHTML(current)}`);
     main.querySelector('.nutrition-overview').insertAdjacentHTML('afterend', dailyConditionHTML(current));
+    if (!current.meals.length) {
+      main.querySelector('.energy-dial strong').textContent = '미기록';
+      main.querySelector('.energy-dial div > span').textContent = '섭취량 미확인';
+      main.querySelector('.energy-caption > strong').textContent = '하루 섭취 평가는 기록 후';
+      main.querySelectorAll('.macro-row-top > strong').forEach(element => { element.innerHTML = '미기록'; });
+    }
+    if (state.trackingScope === 'training' && !current.meals.length) {
+      main.querySelectorAll('.nutrition-overview, .meal-section, .target-section, .notice-warning').forEach(element => { element.hidden = true; });
+      main.querySelector('.movement-empty')?.remove();
+      movement.querySelector('.section-header h2').textContent = '몸 상태 · 선택';
+      movement.querySelector('.section-header [data-action="session-add"]')?.remove();
+    }
+    if (state.trackingScope === 'nutrition' && !state.training?.records.some(row => row.date === selectedDate) && !state.training?.planning?.schedule.some(row => row.date === selectedDate) && !state.training?.followUps.some(row => row.status === 'open' && row.reviewDate <= selectedDate)) main.querySelector('.today-training-lanes')?.remove();
     const unresolved = trainingUI.intakeSummaryHTML?.() || '';
     if (unresolved) main.insertAdjacentHTML('beforeend', unresolved);
+    main.insertAdjacentHTML('beforeend', coverageHTML());
   }
   function previousMeals() {
     const result = [];
@@ -655,6 +691,7 @@
       if (coachActionsUI && await coachActionsUI.handleAction(action, button)) return;
       if (await trainingUI.handleAction(button)) return;
       if (action === 'go-profile' || action === 'nav-profile') selectView('profile');
+      else if (action === 'tracking-scope') { selectView('today'); $('trackingScope')?.focus(); }
       else if (action === 'nav-coach') selectView('coach');
       else if (action === 'nav-coach-actions') {
         selectView('coach', false);
@@ -717,7 +754,7 @@
       else if (action === 'corrupt-export') download(loaded.corruptedRaw, `macro-engine-recovery-${I.dateKey()}.txt`, 'text/plain;charset=utf-8');
       else if (action === 'csv-export') {
         const rows = [['날짜', '기록상태', '체중kg', '체지방률', '골격근kg', '섭취kcal', '단백질g', '탄수g', '지방g', '알코올g', '목표kcal']];
-        Object.values(state.days).sort((a, b) => a.date.localeCompare(b.date)).forEach(item => { const totals = I.mealTotals(item.meals); rows.push([item.date, item.complete ? '완료' : '기록 중', item.weightKg ?? '', item.bodyFatPct ?? '', item.skeletalMuscleKg ?? '', totals.kcal, totals.protein, totals.carbs, totals.fat, totals.alcoholG, item.planSnapshot?.energy?.targetKcal ?? '']); });
+        Object.values(state.days).sort((a, b) => a.date.localeCompare(b.date)).forEach(item => { const totals = I.mealTotals(item.meals); rows.push([item.date, item.complete ? '완료' : '기록 중', item.weightKg ?? '', item.bodyFatPct ?? '', item.skeletalMuscleKg ?? '', ...['kcal', 'protein', 'carbs', 'fat', 'alcoholG'].map(key => item.meals.length ? totals[key] : ''), item.planSnapshot?.energy?.targetKcal ?? '']); });
         download('\uFEFF' + rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n'), `macro-engine-records-${I.dateKey()}.csv`, 'text/csv;charset=utf-8');
       }
       else if (action === 'reset') confirmDialog('이 버전의 기록 초기화', '프로필과 식사·운동·몸 상태·이전 기록 보관함을 삭제합니다. 먼저 전체 백업을 보관했는지 확인해 주세요.', '초기화', () => {
@@ -729,7 +766,11 @@
   $('profileForm').addEventListener('input', () => { profileDirty = true; renderProfileSummary(); $('profileSaveNote').textContent = '아직 저장하지 않은 변경이 있어요.'; });
   document.addEventListener('change', async event => {
     try { if (await trainingUI.handleChange(event)) return; } catch (error) { toast(error.message, true); return; }
-    if (event.target.id === 'dayDate') {
+    if (event.target.id === 'trackingScope') {
+      const next = clone(state); next.trackingScope = event.target.value;
+      if (save(next, '기록 범위를 바꿨어요. 기존 기록과 완료 당시 목표는 그대로입니다.')) $('trackingScope')?.focus();
+      else { event.target.value = state.trackingScope || 'auto'; }
+    } else if (event.target.id === 'dayDate') {
       if (S.isValidDate(event.target.value) && event.target.value <= I.dateKey()) { selectedDate = event.target.value; render(); }
       else { toast('오늘까지의 올바른 날짜를 선택해 주세요.', true); event.target.value = selectedDate; }
     } else if (event.target.id === 'trendPeriod') {

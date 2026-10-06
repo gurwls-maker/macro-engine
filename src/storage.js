@@ -305,8 +305,10 @@
     if (own(state, "training")) stateFields.push("training");
     if (own(state, "mealTemplates")) stateFields.push("mealTemplates");
     if (own(state, "sessionPresets")) stateFields.push("sessionPresets");
+    if (own(state, "trackingScope")) stateFields.push("trackingScope");
     fields(state, stateFields, "저장 파일");
     if (state.version !== VERSION) fail("지원하지 않는 저장 파일 버전입니다.");
+    if (own(state, "trackingScope") && !["auto", "nutrition", "training", "both"].includes(state.trackingScope)) fail("기록 활용 범위를 확인해 주세요.");
     validateProfile(state.profile);
     if (!plain(state.days) || Object.keys(state.days).length > MAX_DAYS) fail("날짜별 기록의 형식 또는 개수를 확인해 주세요.");
     const ids = new Set();
@@ -368,7 +370,7 @@
   }
 
   function createEmpty() {
-    return { version: VERSION, profile: null, days: {}, legacy: null, updatedAt: new Date().toISOString() };
+    return { version: VERSION, profile: null, days: {}, legacy: null, trackingScope: "auto", updatedAt: new Date().toISOString() };
   }
 
   function resolveStorage(storage) {

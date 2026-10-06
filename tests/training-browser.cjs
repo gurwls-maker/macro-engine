@@ -128,7 +128,9 @@ async function verifyProgramWorkflow(browser, temporary, artifacts) {
     assert.equal(saved.training.records[0].exercises[0].sets[1].rir, null); assert.equal(Object.keys(saved.days).length, 0);
     await page.locator('.scheduled-session summary').click(); assert.match(await page.locator('.scheduled-session').innerText(), /비교할 숫자·기준 미확인/);
     await page.locator('.scheduled-session [data-action="training-open"]').click(); await page.locator('[data-action="training-edit"]').click();
-    await page.locator('[name="0-1-rir"]').fill('2'); await submit(page);
+    await page.locator('[name="0-1-rir"]').fill('2');
+    await page.locator('.editor-exercise').first().locator('summary').click();
+    await page.locator('[name="role-0"]').selectOption('external'); await submit(page);
     await page.locator('[data-action="training-tab"][data-tab="program"]').click();
     assert.match(await page.locator('.scheduled-session summary').innerText(), /기록 조건 확인/);
     await page.locator('[data-action="schedule-review"]').click();

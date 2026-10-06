@@ -605,3 +605,118 @@ test('coaching name rules do not invalidate completed raw image transcription ca
   assert.equal(h.calls.length, 0);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(folder, 'job.json'), 'utf8')), cached);
 });
+
+test('relevance-sorted raw samples retain confirmed whole-session order and citeable preceding counts', () => {
+  const state = fixture(); state.training = require('../src/training-store.js').createEmpty();
+  const row = denseWorkout('2026-10-05', 100);
+  row.sequence = { order: 'listed', structure: 'straight' };
+  row.exercises.forEach((exercise, index) => {
+    exercise.rawName = index === 6 ? '바벨 벤치 프레스' : '레그 익스텐션';
+    exercise.notes = ''; exercise.equipmentKey = index === 6 ? 'confirmed-bench-1' : 'confirmed-leg-1';
+    exercise.loadConvention = 'total'; exercise.loadRole = 'external';
+  });
+  state.training.records = [row];
+  const before = structuredClone(state), context = Runtime.summarizeState(state, row.date, '오늘 바벨 벤치 프레스 기록');
+  const sampled = context.recentWorkouts[0], target = sampled.exercises[0];
+  assert.equal(target.rawName, '바벨 벤치 프레스'); assert.equal(target.sourceExercisePosition, 7);
+  const block = sampled.sessionContext.blocks.find(block => block.blockId === target.id);
+  assert.equal(block.executionPosition, 7); assert.equal(block.preceding.workingSets, 48);
+  assert.match(block.contextKey, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(sampled.sessionContext.wholeSession.workingSets, 56);
+  const blockIndex = sampled.sessionContext.blocks.findIndex(block => block.blockId === target.id);
+  const fact = context.facts.find(fact => fact.id === `packet.recentWorkouts.0.sessionContext.blocks.${blockIndex}.preceding.workingSets`);
+  assert.equal(fact.value, 48); assert.equal(fact.unit, '세트');
+  assert.doesNotThrow(() => Runtime.validateResult({ ...answer(), answer: '이 블록 전에 기록된 일반 세트는 48세트입니다.', coaching: {
+    claims: [{ factId: fact.id, value: fact.value }], followUp: null } }, 'chat', context));
+  assert.deepEqual(state, before);
+});
+
+test('large confirmed sessions bound comparison identifiers without losing whole-session context', () => {
+  const state = fixture(); state.training = require('../src/training-store.js').createEmpty();
+  const prototype = denseWorkout('2026-10-05', 102), question = '오늘 바벨 벤치 프레스 기록';
+  prototype.sequence = { order: 'listed', structure: 'straight' };
+  prototype.exercises = Array.from({ length: 200 }, (_, index) => ({ ...structuredClone(prototype.exercises[0]), id: `large-block-${index}`,
+    rawName: index === 199 ? '바벨 벤치 프레스' : '레그 익스텐션', equipmentKey: `physical-machine-${index}`,
+    loadConvention: 'total', loadRole: 'external', notes: '', sets: [{ id: `large-set-${index}`, loadKg: 30, reps: 10, marker: null, rir: 2 }] }));
+  state.training.records = [prototype];
+  const before = structuredClone(state), context = Runtime.summarizeState(state, prototype.date, question);
+  const target = context.retrieval.periods[0].details.workouts[0].sessionContext.blocks[0];
+  assert.equal(target.displayPosition, 200); assert.equal(target.preceding.workingSets, 199);
+  assert.equal(context.retrieval.periods[0].details.workouts[0].sessionContext.wholeSession.workingSets, 200);
+  assert.match(target.contextKey, /^sha256:[a-f0-9]{64}$/);
+  assert.ok(Buffer.byteLength(Runtime.promptFor({ kind: 'chat', question, context }), 'utf8') <= 245 * 1024);
+  assert.deepEqual(state, before);
+});
+
+test('shared context objects keep the same comparison fingerprint across raw, progression and overlapping periods', () => {
+  const state = fixture(); state.trackingScope = 'training'; state.training = require('../src/training-store.js').createEmpty();
+  const dates = ['2026-10-03', '2026-10-05'];
+  state.training.records = dates.map((date, index) => {
+    const row = denseWorkout(date, 110 + index); row.sequence = { order: 'listed', structure: 'straight' }; row.exercises = [row.exercises[6]];
+    Object.assign(row.exercises[0], { rawName: '바벨 벤치 프레스', equipmentKey: 'same-physical-bench', loadConvention: 'total', loadRole: 'external', notes: '' });
+    return row;
+  });
+  const context = Runtime.summarizeState(state, '2026-10-05', '최근 3일 바벨 벤치 프레스 비교');
+  const fingerprints = [
+    ...context.recentWorkouts.flatMap(row => row.sessionContext.blocks.map(block => block.contextKey)),
+    context.trainingAnalysis.progression[0].current.context.contextKey,
+    context.trainingAnalysis.progression[0].previous.context.contextKey,
+    ...context.retrieval.periods.flatMap(period => [
+      ...period.details.workouts.flatMap(row => row.sessionContext.blocks.map(block => block.contextKey)),
+      ...period.training.progression.flatMap(row => [row.current?.context.contextKey, row.previous?.context.contextKey].filter(Boolean))
+    ])
+  ];
+  assert.ok(fingerprints.length > 6); assert.equal(new Set(fingerprints).size, 1);
+  assert.equal(fingerprints[0], `sha256:${Runtime.digest('[]')}`, 'an aliased context must be hashed exactly once');
+});
+
+test('runtime keeps unknown order and assistance meaning while sharing explicit recording scope', () => {
+  const state = fixture(); state.trackingScope = 'training'; state.training = require('../src/training-store.js').createEmpty();
+  const row = denseWorkout('2026-10-05', 101); row.exercises = [row.exercises[0]];
+  Object.assign(row.exercises[0], { rawName: '풀 업', exerciseId: 'pull_up', equipmentKey: 'gym-a-assisted-pull-up', loadConvention: 'total', loadRole: 'assistance' });
+  state.training.records = [row];
+  const context = Runtime.summarizeState(state, row.date, '오늘 수행이 줄었는데 식단 문제일까?');
+  assert.equal(context.decisionContext.scope.preference, 'training');
+  assert.equal(context.decisionContext.scope.nutritionEnabled, false);
+  assert.equal(context.decisionContext.scope.trainingEnabled, true);
+  assert.equal(context.today.intake, null);
+  assert.equal(context.recentWorkouts[0].exercises[0].loadRole, 'assistance');
+  const block = context.recentWorkouts[0].sessionContext.blocks[0];
+  assert.equal(block.executionPosition, null); assert.ok(Object.values(block.preceding).every(value => value === null));
+  const prompt = Runtime.promptFor({ kind: 'chat', context });
+  assert.match(prompt, /보조 중량 증가를 수행 향상으로/);
+  assert.match(prompt, /운동 전용 사용자의 식사 미기록을 부족한 섭취로/);
+  assert.match(prompt, /과거 최고 중량/); assert.match(prompt, /preceding의 값은 null/);
+});
+
+test('shared nutrition-only and both contexts distinguish partial intake, optional muscle measurements and estimated targets', () => {
+  const state = fixture(); state.trackingScope = 'nutrition';
+  const day = state.days['2026-10-05']; day.weightKg = 65; day.skeletalMuscleKg = 27;
+  day.meals = [{ id: 'partial-meal', name: '합성 식사', protein: 20, carbs: 30, fat: 10, otherKcal: 0, alcoholG: 0 }];
+  const context = Runtime.summarizeState(state, day.date);
+  assert.equal(context.decisionContext.scope.nutritionEnabled, true); assert.equal(context.decisionContext.scope.trainingEnabled, false);
+  assert.equal(context.decisionContext.nutrition.selectedDayStatus, 'partial');
+  assert.equal(context.decisionContext.nutrition.canAssessSelectedWholeDay, false);
+  assert.equal(context.decisionContext.body.latest.skeletalMuscleKg, 27);
+  assert.equal(context.decisionContext.body.pairedMeasurementAvailable, false);
+  assert.equal(context.decisionContext.body.paired, null);
+  const target = context.facts.find(fact => fact.id === 'packet.decisionContext.nutrition.target.kcal');
+  assert.equal(target.estimated, true); assert.equal(target.source, 'provided-plan-estimate');
+  state.trackingScope = 'both';
+  const combined = Runtime.summarizeState(state, day.date);
+  assert.equal(combined.decisionContext.scope.effective, 'both');
+  assert.equal(combined.decisionContext.scope.trainingEnabled, true);
+  assert.equal(combined.decisionContext.scope.observed.training, false);
+  assert.equal(combined.decisionContext.training.missingIsRest, false);
+  assert.equal(combined.decisionContext.body.paired, null);
+});
+
+test('new session-context contract keeps old coaching history but does not reuse its completed cache', t => {
+  const h = harness(t), input = { kind: 'chat', question: 'session-context-cache-boundary' };
+  const oldId = Runtime.digest({ pipelineVersion: 6, input }).slice(0, 32);
+  const folder = path.join(h.directory, 'jobs', oldId); fs.mkdirSync(folder);
+  const old = { id: oldId, kind: 'chat', status: 'completed', result: answer(), createdAt: '2026-10-05T00:00:00.000Z' };
+  fs.writeFileSync(path.join(folder, 'job.json'), JSON.stringify(old));
+  assert.notEqual(h.runtime.start(input).id, oldId);
+  assert.deepEqual(h.runtime.get(oldId), old); h.finish(answer());
+});

@@ -8,6 +8,7 @@ const Coach = require('../src/coach.js');
 const Nutrition = require('../src/nutrition.js');
 const Training = require('../src/training.js');
 const Query = require('../src/coach-query.js');
+const Context = require('../src/coach-context.js');
 const Diary = require('./diary.cjs');
 
 const nullableNumber = { type: ['number', 'null'] };
@@ -164,18 +165,24 @@ function maskKnownDates(value, context, followUp) {
 }
 
 function compactWorkout(row, score = () => 0, mappings = []) {
+  const fullContext = Training.sessionContext(row, mappings);
   const exercises = row.exercises.map((exercise, index) => ({ exercise, index, score: score(`${exercise.rawName} ${exercise.notes}`) }))
     .sort((a, b) => b.score - a.score || a.index - b.index).slice(0, 6);
+  const selectedIds = new Set(exercises.map(({ exercise }) => exercise.id));
   return { id: row.id, date: row.date, time: row.time, label: row.label, durationMinutes: row.durationMinutes,
     reportedSetCount: row.reportedSetCount, reportedEnergyKcal: row.reportedEnergyKcal, reportedVolumeKg: row.reportedVolumeKg,
     effort: row.effort, pain: row.pain, notes: row.notes.slice(0, 1200), sourceKind: row.source.kind,
     uncertainties: row.source.uncertainties.slice(0, 8).map(value => value.slice(0, 400)),
     originalExerciseCount: row.exercises.length, originalSetCount: row.exercises.reduce((sum, item) => sum + item.sets.length, 0),
     sampled: row.exercises.length > 6 || row.exercises.some(item => item.sets.length > 6),
+    sessionContext: { ...fullContext, blocks: fullContext.blocks.filter(block => selectedIds.has(block.blockId)), originalBlockCount: fullContext.blocks.length,
+      sampled: fullContext.blocks.length > exercises.length,
+      detailScope: '세션 전체에서 계산한 맥락이며 블록 목록은 원문 표본 일부입니다. 원문은 질문 관련도 순으로 재배열될 수 있고 sourceExercisePosition도 실제 수행 순서 확인이 아닙니다.' },
     exercises: exercises.map(({ exercise, index }) => {
       const description = Training.describeExercise(exercise, mappings);
       return { id: exercise.id, sourceExercisePosition: index + 1, rawName: exercise.rawName, movementName: description.movementName,
         exerciseId: description.resolved?.id || null, equipmentKey: description.equipmentKey, equipmentSource: description.equipmentSource,
+        loadRole: description.loadRole,
         loadConvention: description.loadConvention, loadConventionSource: description.loadConventionSource, loadRuleConflict: description.ruleConflict,
         reportedVolumeKg: exercise.reportedVolumeKg, durationMinutes: exercise.durationMinutes, repsTotal: exercise.repsTotal,
         originalSetCount: exercise.sets.length, sampled: exercise.sets.length > 6, sets: exercise.sets.slice(0, 6), notes: exercise.notes.slice(0, 400) };
@@ -236,7 +243,7 @@ function packetFacts(packet) {
     for (const [key, child] of Object.entries(value)) {
       if (key === 'facts') continue;
       const position = `${prefix}.${key}`;
-      const model = estimated || ['planSnapshot', 'savedPlan', 'program', 'savedProgram'].includes(key)
+      const model = estimated || value.estimated === true || key === 'plannedSets' || ['planSnapshot', 'savedPlan', 'program', 'savedProgram'].includes(key)
         || (prefix.startsWith('packet.recall.actions') && ['before', 'after'].includes(key));
       if (typeof child === 'number' && Number.isFinite(child)) facts.push({ id: position.length <= 200 ? position : `packet.long.${digest(position)}`, label: `${name || prefix} ${key}`.slice(0, 180), value: child,
         unit: unitFor(key, position), source: model ? 'provided-plan-estimate' : position.startsWith('packet.retrieval.') ? 'selected-confirmed-records' : 'provided-context', date: when, estimated: model });
@@ -245,6 +252,14 @@ function packetFacts(packet) {
   };
   visit(packet, 'packet', packet.date, '', false);
   return facts;
+}
+function compactContextKeys(value, seen = new WeakSet()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return;
+  seen.add(value);
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'contextKey' && typeof child === 'string') value[key] = `sha256:${digest(child)}`;
+    else if (child && typeof child === 'object') compactContextKeys(child, seen);
+  }
 }
 function findCodex() {
   if (process.env.MACRO_CODEX_BIN) return path.resolve(process.env.MACRO_CODEX_BIN);
@@ -318,6 +333,7 @@ function summarizeState(raw, date, question = '') {
   const detailed = recent.map((row, index) => ({ row, index, score: relevance(`${row.label} ${row.notes} ${row.exercises.map(exercise => `${exercise.rawName} ${exercise.notes}`).join(' ')}`) }))
     .sort((a, b) => (a.index === 0 ? -1 : b.index === 0 ? 1 : b.score - a.score || a.index - b.index)).slice(0, 4);
   const packet = { contractVersion: 2, date, profile: state.profile, calculationProfile, retrieval: Query.retrieve(state, date, question),
+    decisionContext: Context.build(state, date, { question }),
     today: { ...current, meals: current.meals.slice(0, 12), mealCount: current.meals.length, intake: current.meals.length ? I.mealTotals(current.meals) : null, mealsSampled: current.meals.length > 12 },
     recentDays: days.slice(0, 21).map(day => ({ date: day.date, complete: day.complete,
       weightKg: day.weightKg, bodyFatPct: day.bodyFatPct, skeletalMuscleKg: day.skeletalMuscleKg,
@@ -329,15 +345,19 @@ function summarizeState(raw, date, question = '') {
     workoutIndex: recent.map(record => ({ id: record.id, date: record.date, time: record.time, label: record.label, originalExerciseCount: record.exercises.length, originalSetCount: record.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) })),
     recentWorkouts: detailed.map(({ row }) => compactWorkout(row, relevance, state.training?.mappings)),
     conversation: (state.training?.messages || []).filter(row => I.dateKey(new Date(row.createdAt)) <= date).slice(-12),
-    contextScope: '질문별 retrieval에 명시한 기간 전체의 선택 기록 집계와 제한된 원문을 추가합니다. 일반 배경은 최근 21개 날짜 영양 요약, 선택일 식사 최대 12개와 전체 합계, 전체 28일 훈련 집계, 최근 12개 일지 목록과 4개 상세, 단어가 맞는 과거 일부입니다. 질문의 지정 기간을 배경 28일이나 원문 표본으로 대신하지 않습니다.',
+    contextScope: '질문별 retrieval에 명시한 기간 전체의 선택 기록 집계와 제한된 원문을 추가합니다. 선택 종목 맥락은 필터 전 세션 전체로 계산하며 유사 동작 참고는 relatedContext에 따로 둡니다. decisionContext는 기록 범위와 선택일의 다음 판단 조건이고 질문별 장기 집계의 대체가 아닙니다. 일반 배경은 최근 21개 날짜 영양 요약, 선택일 식사 최대 12개와 전체 합계, 전체 28일 훈련 집계, 최근 12개 일지 목록과 4개 상세, 단어가 맞는 과거 일부입니다. 질문의 지정 기간을 배경 28일이나 원문 표본으로 대신하지 않습니다.',
     factValidationScope: '수치의 출처·단위 일치 확인이지 문장의 의미·인과·조언의 정확성 보증이 아닙니다. 계획 숫자는 실제 수행이나 처방 승인이 아닙니다. 이번 질문에서 새로 말한 수면 시간 등 숫자는 원문 자기보고이며 자동으로 저장·계산 facts에 승격하지 않습니다. 해당 사실 항목이 없으면 그 숫자의 직접 인용도 보류될 수 있습니다.' };
+  // A comparison signature is opaque; retain equality without repeating unbounded predecessor lists.
+  compactContextKeys(packet);
   const build = () => ({ ...packet, facts: [...facts, ...packetFacts(packet)] });
+  const workoutSamples = () => [...packet.recentWorkouts, ...packet.recall.workouts,
+    ...packet.retrieval.periods.flatMap(period => [...period.details.workouts, ...period.relatedContext.records])];
   let result = build();
   const fits = () => Buffer.byteLength(promptFor({ kind: 'chat', question, imageHash: null, context: result }), 'utf8') <= 245 * 1024;
   // Source counts and full-window aggregates remain intact when detail samples shrink.
   for (const limit of [3, 1]) {
     if (fits()) break;
-    for (const record of [...packet.recentWorkouts, ...packet.recall.workouts, ...packet.retrieval.periods.flatMap(period => period.details.workouts)]) {
+    for (const record of workoutSamples()) {
       for (const exercise of record.exercises) if (exercise.sets.length > limit) { exercise.sets = exercise.sets.slice(0, limit); exercise.sampled = true; record.sampled = true; }
     }
     packet.samplingReducedForBudget = true;
@@ -350,7 +370,7 @@ function summarizeState(raw, date, question = '') {
     };
     if (packet.trainingAnalysis) packet.trainingAnalysis.progression = packet.trainingAnalysis.progression.slice(0, limit === 400 ? 6 : 3);
     for (const period of packet.retrieval.periods) period.training.progression = period.training.progression.slice(0, limit === 400 ? 4 : 1);
-    for (const record of [...packet.recentWorkouts, ...packet.recall.workouts, ...packet.retrieval.periods.flatMap(period => period.details.workouts)]) {
+    for (const record of workoutSamples()) {
       trim(record, 'notes', limit); record.exercises.forEach(exercise => trim(exercise, 'notes', limit));
     }
     for (const day of [packet.today, ...packet.recentDays, ...packet.recall.days, ...packet.retrieval.periods.flatMap(period => period.details.days)]) {
@@ -367,7 +387,11 @@ function summarizeState(raw, date, question = '') {
   }
   for (const limit of [3, 1]) {
     if (fits()) break;
-    for (const record of [...packet.recentWorkouts, ...packet.recall.workouts, ...packet.retrieval.periods.flatMap(period => period.details.workouts)]) if (record.exercises.length > limit) { record.exercises = record.exercises.slice(0, limit); record.sampled = true; }
+    for (const record of workoutSamples()) if (record.exercises.length > limit) {
+      record.exercises = record.exercises.slice(0, limit); record.sampled = true;
+      const kept = new Set(record.exercises.map(exercise => exercise.id));
+      record.sessionContext.blocks = record.sessionContext.blocks.filter(block => kept.has(block.blockId)); record.sessionContext.sampled = true;
+    }
     packet.samplingReducedForBudget = true;
     result = build();
   }
@@ -385,14 +409,24 @@ function promptFor(input) {
     '장비·부하 표기·RIR가 불명확하면 동일 중량 비교나 유효 세트로 단정하지 마세요. 한두 번의 부진으로 디로딩을 확정하지 마세요.',
     'equipmentSource가 name-prefix 또는 name-delimiter인 장비명은 운동 이름에 적힌 표기를 읽은 것입니다. 같은 브랜드·모델이라고 같은 물리적 머신·저항·중량 표기 기준이 확인된 것은 아닙니다. rawName의 변형·그립·번호를 지우거나 부하를 환산하지 마세요.',
     'loadConventionSource가 name-rule이면 원암·덤벨을 한쪽, 바벨을 전체로 읽는 사용자 이름 규칙을 적용한 것입니다. 실제 kg는 원문 그대로이며 덤벨/원암의 kg를 두 배로 환산해 비교하거나 총운동량을 새로 만들지 마세요. 서로 충돌하는 이름 단서는 미확인입니다.',
+    '운동의 loadRole은 external(외부 부하), assistance(보조 중량), unknown(미확인)입니다. 보조 중량 증가를 수행 향상으로, 감소를 퇴보로 해석하지 마세요. 미확인 부하 역할을 임의로 정하거나 체중에서 빼서 실제 저항을 계산하지 마세요.',
+    '각 일지의 sessionContext는 종목 필터·질문 관련도 정렬 전 세션 전체로 계산한 맥락입니다. wholeSession은 전체 기록의 세트 수이고 blocks는 원문 표본에 해당하는 일부입니다. displayPosition/sourceExercisePosition은 화면·원문 위치이며 executionPosition은 순서와 순차 수행을 확인한 경우에만 있습니다. orderConfirmed가 false이거나 그룹·구조가 미확인이면 preceding의 값은 null이며 선행 세트가 없다는 뜻으로 바꾸지 마세요. preceding.relatedSets는 주동·보조 부위가 겹치는 기록 세트 수이지 실제 피로·자극 또는 같은 운동 계열의 수행량이 아닙니다.',
+    '같은 종목을 한 세션에서 장비만 바꿔 반복한 블록과 A→B→A의 복귀 블록은 별도 수행입니다. 선행 관련 세트·그룹 수행·미확인 블록·세트 표기 차이를 확인하고 나중 블록의 수행 저하를 근력 저하나 회복 문제로 곧바로 단정하지 마세요. 표시된 순서와 계획의 restSeconds는 실제 운동 순서·휴식 시간 측정이 아닙니다. 피로율이나 중량 보정률을 만들지 마세요.',
+    'contextKey는 기록된 선행 구성의 SHA-256 비교 식별자이며 의미를 읽을 수 있는 수치가 아닙니다. 같아도 실제 피로·휴식·기술·가동범위가 같다는 뜻이 아니고 다르면 이전 순서·구성이 같았다고 가정하지 마세요.',
+    '한 종목에 여러 장비를 번갈아 쓰면 각각의 물리적 장비·부하 규약·역할별 기록을 병렬로 이어가세요. 자주 쓴 하나를 주 장비로 강제하지 마세요. retrieval.periods.relatedContext는 명시적으로 연결한 유사 동작의 별도 참고이며 질문 대상의 training 집계에 더하지 않습니다. 유사한 동작이나 같은 부위만으로 중량이 환산되거나 같은 자극이라고 단정하지 마세요.',
+    '새 장비의 다음 시작 중량은 해당 장비의 최근 확인된 일반 작업 세트와 현재 맥락부터 보세요. 과거 최고 중량·보조/드롭 표기 세트·오래전 좋은 수행을 곧바로 다음 목표로 제시하지 마세요. 제공된 개인 시작 참고가 있다면 근거 날짜와 조건부 범위를 밝혀 사용하고 확정 환산식으로 설명하지 마세요. 순서나 노력 정도가 불명확해도 가능한 안전한 행동까지 모두 보류할 필요는 없습니다.',
     '가장 중요한 다음 행동 1~3개, 이유, 필요한 확인 질문을 제시하세요. 템플릿 같은 장문보다 사용자의 실제 질문에 답하세요.',
     '모든 경우를 미리 정해 둔 문구로 분류하지 마세요. 서로 다른 가능성을 비교하고, 근거가 모자라면 결론을 미룬 뒤 실제로 판단을 바꿀 질문 한두 개를 하세요. 부족한 기록을 병명·회복 원인·근성장으로 채우지 마세요.',
     'context.facts는 앱이 계산한 출처 있는 수치 목록입니다. chat의 answer에서 kg/g/kcal/분/회/세트/일/년/% 수치를 말할 때는 해당 facts의 id와 반올림 전 value를 coaching.claims에 넣으세요. 없는 수치·다른 날짜의 수치를 오늘 값으로 쓰지 마세요. 제공된 목표·수행 수치 밖의 새 처방 수치는 답변에 만들지 말고 확인할 행동으로 설명하세요.',
+    '이번 질문에서 처음 말한 숫자가 facts에 없으면 그 숫자를 반복 인용하지 말고 사용자가 방금 말한 수면 부족·수행 변화처럼 정성적으로 맥락을 이어가세요. 새 진술을 무시하거나 저장된 좋은 체크인으로 덮지 마세요. 가정·질문·목표 숫자를 실제 수행이나 섭취로 승격하지 않습니다.',
     '출처·단위가 맞는 숫자도 다른 종목·사람·날짜·의미로 바꾸어 말하면 틀립니다. 수치 검사 통과는 자유문장의 사실성이나 조언의 타당성 보증이 아닙니다. profile은 현재 프로필이며 calculationProfile은 선택 날짜의 측정을 반영한 계산 입력이지 당시 모든 개인정보의 이력이 아닙니다.',
     'recentWorkouts와 recall.workouts의 sampled가 true이면 일부 종목·세트만 전달됐습니다. originalSetCount와 표본을 구분하고 총량은 전체 기록으로 계산한 trainingAnalysis.coverage/muscles만 사용하세요. savedProgram은 저장된 과거 계획이며 program.status가 ready가 아니면 새로 수행 가능한 계획으로 제안하지 마세요.',
     'coaching.followUp은 사용자와 확인할 다음 점검의 초안입니다. topic, 구체적인 note, 기준일부터 90일 이내 reviewDate를 제안하거나 필요 없으면 null로 두세요. 점검 날짜는 reviewDate의 날짜 그대로 표현하고 저장·실행·자동 알림이 이미 된 것처럼 말하지 마세요.',
     'context.recall.memory는 사용자가 저장한 맥락입니다. 이전 대화의 주장이나 AI 답변은 확인된 사실이 아닙니다. 관련 과거 기록은 원래 날짜를 밝혀 사용하고, 현재 상태로 추측하지 마세요.',
     'context.retrieval은 질문별 결정적 기록 조회입니다. periods의 from/to와 available을 구분하고 실제 조회 기간·운동/부위·누락을 답변에 밝혀 주세요. 전체 기간 집계는 periods.training.coverage/muscles와 nutrition만 사용하고 details 표본·일반 trainingAnalysis의 28일 집계로 긴 기간을 대신하지 마세요. 구간끼리 더하면 같은 기록이 중복될 수 있습니다.',
+    'context.decisionContext는 앱 기록 코치와 공유하는 현재 판단 조건입니다. scope.preference는 사용자가 선택한 기록 범위이고 observed는 실제 저장 유무입니다. 식단 전용 사용자의 운동 미기록을 비활동으로, 운동 전용 사용자의 식사 미기록을 부족한 섭취로 해석하지 마세요. both라도 빈 식사·운동 값을 추정해 연결하지 마세요. 식단을 입력하지 않는 사용자에게 식사·인바디를 전부 요구해야만 운동 조언을 할 수 있는 것처럼 답하지 마세요.',
+    'decisionContext.body.hasConflicts이면 같은 날짜의 측정 출처가 충돌합니다. latest/paired의 표시 우선순위는 진실 판정이 아닙니다. conflicts와 calculationReference를 구분하고 서로 다른 방법·숫자를 평균 내거나 하나의 확정 체성분으로 설명하지 마세요. selectedReferencePaired가 아니면 프로필의 과거 체중으로 새 체지방률을 짝짓지 마세요.',
+    'decisionContext의 nutrition은 완료 식사일과 일부 식사일을 구분하고 body는 측정 관찰과 영양 계산 적용 여부를 구분합니다. 골격근량만으로 제지방량·근성장률을 계산하지 마세요. 체성분을 모르면 지원되는 체중 기반 추정과 운동 수행 조언은 가능하되 측정 기반 보정을 했다고 말하지 마세요. 현재 질문의 불편·통증·목표 변경은 과거 완료 목표나 좋은 컨디션 기록과 별개로 우선 확인하고 운동 부담과 식단을 동시에 강화하는 모순된 권고를 하지 마세요.',
     'retrieval의 comparisonRequested는 비교 요청이고 앞쪽/뒤쪽 split-period는 제품이 선택한 날짜 분할입니다. 명시한 비교 대상이 없거나 needsClarification이면 필요한 확인 질문을 먼저 하세요. 원문 이름 대응은 결정적 이름/부위 검색일 뿐 자유 질문의 의미를 모두 알아냈다고 말하지 마세요. 일/부위 세트 수 변화는 성장률이 아니며 progressionScope 밖의 수행 증가율은 만들지 마세요.',
     'retrieval.currentReport는 이번 질문에서 말한 상태이며 저장된 checkin·memory와 분리됩니다. 새로 말한 수면 저하·허기·목표 변경·합의 취소를 오래된 좋은 컨디션이나 과거 약속으로 덮지 마세요. 새 진술은 자기보고이며 숫자 기록·프로필·목표·기억이 이미 수정된 것이 아닙니다. 충돌과 철회 요청을 명확히 확인하고 자동 적용했다고 말하지 마세요.',
     '질문 원문에 새로 나온 수면 시간·몸무게 등의 숫자를 확인된 수치 사실로 승격하지 않습니다. facts에 같은 뜻·출처의 수치 항목이 없으면 그 숫자를 직접 인용하는 답변도 수치 검사에서 보류됩니다. 이 제한 때문에 새 진술 자체를 무시하지 말고, 숫자를 반복하지 않고 사용자가 말한 변화·상황을 존중해서 필요한 확인과 다음 행동을 설명하세요.',
@@ -462,7 +496,7 @@ class CoachRuntime {
     if (this.active) throw new Error('이미 코치가 답변 중이에요. 완료하거나 취소한 뒤 요청해 주세요.');
     const prompt = promptFor(input);
     if (Buffer.byteLength(prompt, 'utf8') > 256 * 1024) throw new Error('코칭 맥락이 너무 커요. 최근 기록 범위를 줄이거나 질문을 나눠 주세요.');
-    const pipelineVersion = input.kind === 'chat' ? 6 : 4;
+    const pipelineVersion = input.kind === 'chat' ? 7 : 4;
     const key = digest({ pipelineVersion, input }); const jobId = key.slice(0, 32);
     const previous = this.get(jobId);
     if (previous?.status === 'completed' && !retry) return previous;

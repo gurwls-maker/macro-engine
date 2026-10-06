@@ -87,7 +87,44 @@
       if (bridge.status?.connected) $('trainingContent').insertAdjacentHTML('beforeend', inboxHTML());
       if (pendingImport) renderImportPreview();
       if (imageDraft) renderImagePreview();
+      if (tab === 'log' && record) enhanceRecord(record);
       app.icons();
+    }
+    function enhanceRecord(record) {
+      const context = T.sessionContext(record, workspace().mappings);
+      const detail = $('trainingContent').querySelector('.workout-detail');
+      detail.querySelector('.workout-facts').insertAdjacentHTML('afterend', `<p class="session-block-context">${context.orderConfirmed ? '표시 순서대로 수행 확인' : '표시 순서 · 실제 수행 순서 미확인'} · ${{ straight: '종목별 순차 수행', grouped: '교차·순환 수행', unknown: '수행 방식 미확인' }[context.structure]}${record.sequence?.structure !== 'straight' ? ' · 세트 사이 실제 휴식은 미확인' : ''}</p>`);
+      detail.querySelectorAll('.exercise-block').forEach((element, index) => {
+        const block = context.blocks[index], exercise = record.exercises[index];
+        const role = { external: '외부 중량', assistance: '보조 중량 · 감소가 부하 감소라는 뜻은 아님', unknown: 'kg 의미 미확인' }[block.loadRole];
+        const preceding = block.preceding.relatedSets === null ? '선행 세트 수는 순서·순차 수행을 확인해야 해석' : `앞선 일반 ${fmt(block.preceding.workingSets)}세트 · 관련 부위 ${fmt(block.preceding.relatedSets)}세트${block.preceding.sameExerciseSets ? ` · 같은 종목 ${fmt(block.preceding.sameExerciseSets)}세트` : ''}`;
+        element.querySelector('.section-header').insertAdjacentHTML('afterend', `<p class="session-block-context">블록 ${block.displayPosition} · ${e(role)} · ${e(preceding)}${block.groupKey ? ` · 묶음 ${e(block.groupKey)}` : ''}</p>`);
+        if (block.exerciseId) element.insertAdjacentHTML('beforeend', `<div class="form-actions">${command('training-reference', '다음 장비·중량 참고', 'history', `data-record="${e(record.id)}" data-exercise="${e(exercise.id)}"`)}</div>`);
+      });
+    }
+    function referenceResultHTML(result) {
+      const title = { recorded: '선택한 장비의 최근 실제 기록', 'personal-transfer': '개인 기록으로 본 잠정 시작 범위', 'first-session': '첫 실제 기록부터 기준 잡기', unsupported: '숫자 참고보다 조건 확인이 먼저' }[result.status];
+      return `<div class="starting-reference-result" aria-live="polite"><h3>${e(title)}</h3>${result.range ? `<p class="starting-reference-range">${fmt(result.range.minKg, 1)}${result.range.maxKg === result.range.minKg ? '' : ` ~ ${fmt(result.range.maxKg, 1)}`} <small>kg · 표시 기준</small></p><p class="form-help">${result.status === 'personal-transfer' ? '서로 다른 장비에서 관찰한 개인 기록의 잠정 관계입니다. 당일 수행이나 적정 중량을 보장하지 않아요.' : '실제로 기록했던 작업 세트 범위입니다. 오늘 해야 할 중량이나 최고 기록 목표가 아닙니다.'}</p>` : ''}${result.reasons.map(line => `<p>${e(line)}</p>`).join('')}${result.transfer ? `<p class="form-help">서로 다른 날의 관찰 짝 ${fmt(result.transfer.pairCount)}개 · 덤벨/바벨 두 배 공식과 무관한 개인 표시 중량 관계</p>` : ''}${result.references.length ? `<details class="source-details"><summary>참고한 실제 세트 ${result.references.length}개</summary>${result.references.slice(0, 12).map(row => `<div class="reference-row"><strong>${e(row.date)}</strong> · ${fmt(row.loadKg, 1)}kg × ${fmt(row.reps)}회 · RIR ${row.rir === null ? '미확인' : fmt(row.rir)}${row.contextKey ? ' · 순서 맥락 확인' : ' · 순서 맥락 미확인'}</div>`).join('')}</details>` : ''}<details class="source-details"><summary>이 참고의 한계</summary>${result.limits.map(line => `<p class="form-help">${e(line)}</p>`).join('')}</details></div>`;
+    }
+    function referenceDialog(record, exercise) {
+      const description = T.describeExercise(exercise, workspace().mappings), context = T.sessionContext(record, workspace().mappings), block = context.blocks.find(row => row.blockId === exercise.id);
+      const devices = [...new Set(workspace().records.flatMap(row => row.exercises.map(item => T.describeExercise(item, workspace().mappings).equipmentKey)).filter(Boolean))];
+      const general = exercise.sets.filter(row => !row.marker), knownReps = general.map(row => row.reps).filter(value => value !== null), knownRir = general.map(row => row.rir).filter(value => value !== null);
+      openDialog('다음 운동의 기록 참고', `<div class="form-grid"><label class="field full-width"><span>다음에 할 운동</span><select name="referenceExercise">${options(T.catalog.map(row => [row.id, row.label]), description.resolved.id)}</select></label><label class="field full-width"><span>다음에 쓸 실제 장비</span><input name="referenceEquipment" maxlength="128" list="referenceDevices" value="${e(description.equipmentKey || '')}" placeholder="헬스장 / 실제 장비"></label><datalist id="referenceDevices">${devices.map(device => `<option value="${e(device)}"></option>`).join('')}</datalist><label class="field"><span>표시 중량 기준</span><select name="referenceConvention">${options([['as-recorded', '미확인'], ['total', '전체 중량'], ['per-side', '한쪽 중량'], ['bodyweight', '맨몸·추가 부하']], description.loadConvention)}</select></label><label class="field"><span>kg의 의미</span><select name="referenceRole">${options([['unknown', '미확인'], ['external', '외부 중량'], ['assistance', '보조 중량']], description.loadRole)}</select></label>${field('참고할 최소 반복 · 선택', 'referenceRepsMin', knownReps.length ? Math.min(...knownReps) : '', { min: 1, max: 100000 })}${field('참고할 최대 반복 · 선택', 'referenceRepsMax', knownReps.length ? Math.max(...knownReps) : '', { min: 1, max: 100000 })}${field('RIR · 선택', 'referenceRir', knownRir.length && new Set(knownRir).size === 1 ? knownRir[0] : '', { min: 0, max: 10, step: 0.5 })}</div>${block?.contextKey ? '<label class="checkbox-field"><input type="checkbox" name="sameContext">이 블록과 비슷한 순서·선행 운동 구성으로 할 예정이에요.</label>' : '<p class="form-help">이 기록의 순서·수행 방식이 미확인이라 같은 맥락의 환산 근거로는 사용하지 않습니다.</p>'}<div id="startingReferenceResult"></div>${actions('참고 기록 조회')}`, form => {
+        const request = { exerciseId: String(form.get('referenceExercise')), equipmentKey: String(form.get('referenceEquipment') || '').trim() || null, loadConvention: String(form.get('referenceConvention')), loadRole: String(form.get('referenceRole')), repsMin: numeric(form, 'referenceRepsMin'), repsMax: numeric(form, 'referenceRepsMax'), rir: numeric(form, 'referenceRir'), contextKey: form.get('sameContext') === 'on' ? block.contextKey : null,
+          source: { exerciseId: description.resolved.id, equipmentKey: description.equipmentKey, loadConvention: description.loadConvention, loadRole: description.loadRole } };
+        if (request.repsMin !== null && request.repsMax !== null && request.repsMin > request.repsMax) throw new Error('최소 반복이 최대 반복보다 큽니다.');
+        const result = T.startingReference(workspace().records, request, { date: I.dateKey(), mappings: workspace().mappings, recovery: currentAnalysis().recovery });
+        $('startingReferenceResult').innerHTML = referenceResultHTML(result);
+        $('startingReferenceResult').scrollIntoView({ block: 'nearest' });
+      });
+      $('entryForm').insertAdjacentHTML('afterbegin', `<p class="form-help">다음 운동의 참고 기준일 ${I.dateKey()} · 선택한 과거 일지의 숫자를 오늘 목표로 승계하지 않아요.</p>`);
+      const invalidate = () => {
+        if ($('startingReferenceResult').children.length) $('startingReferenceResult').innerHTML = '<p class="form-help" role="status">선택한 조건이 바뀌었어요. 참고 기록을 다시 조회해 주세요.</p>';
+      };
+      $('entryForm').addEventListener('input', invalidate);
+      $('entryForm').addEventListener('change', invalidate);
+      $('entryDialog').classList.add('dialog-wide');
     }
     function renderRecord(record) {
       const linked = app.getState().days[record.date]?.sessions.some(session => session.id === linkedId(record.id));
@@ -168,6 +205,7 @@
           const result = { ...row, exerciseId: chosenId, label: exercise?.label || row.label };
           for (const key of ['sets', 'repsMin', 'repsMax', 'rir', 'restSeconds', 'loadKg']) result[key] = numeric(form, `${index}-${key}`);
           result.equipmentKey = String(form.get(`${index}-equipmentKey`) || '').trim() || null; result.loadConvention = String(form.get(`${index}-loadConvention`));
+          if ((result.equipmentKey !== row.equipmentKey || result.loadConvention !== row.loadConvention) && row.loadKg !== null && result.loadKg === row.loadKg) result.loadKg = null;
           if (changed) { result.loadKg = null; result.equipmentKey = null; result.loadConvention = 'as-recorded'; }
           return result;
         });
@@ -216,18 +254,21 @@
       }
     }
     function blankSet() { return { id: id(), loadKg: null, reps: null, marker: null, rir: null }; }
-    function blankExercise() { return { id: id(), rawName: '', exerciseId: null, equipmentKey: null, loadConvention: 'as-recorded', durationMinutes: null, repsTotal: null, reportedVolumeKg: null, sets: [blankSet()], notes: '' }; }
+    function blankExercise() { return { id: id(), rawName: '', exerciseId: null, equipmentKey: null, loadConvention: 'as-recorded', loadRole: 'unknown', groupKey: null, durationMinutes: null, repsTotal: null, reportedVolumeKg: null, sets: [blankSet()], notes: '' }; }
     function blankRecord() { return { id: id(), date: app.getDate(), time: null, label: '오늘 운동', durationMinutes: null, reportedSetCount: null, reportedVolumeKg: null, reportedEnergyKcal: null, source: { kind: 'manual', hash: null, paths: [], uncertainties: [], revision: null }, exercises: [], notes: '', effort: null, pain: null }; }
     function numeric(form, name) { const raw = String(form.get(name) ?? '').trim(); if (!raw) return null; const value = Number(raw); if (!Number.isFinite(value)) throw new Error('유효한 숫자를 입력해 주세요.'); return value; }
     function captureEditor(form = new FormData($('entryForm'))) {
       editor.date = String(form.get('date')); editor.label = String(form.get('label') || '').trim(); editor.time = String(form.get('time') || '') || null;
       editor.durationMinutes = numeric(form, 'durationMinutes'); editor.effort = numeric(form, 'effort'); editor.pain = form.get('pain') || null; editor.notes = String(form.get('notes') || '');
+      editor.sequence = { order: form.get('orderConfirmed') === 'on' ? 'listed' : 'unknown', structure: String(form.get('sessionStructure') || 'unknown') };
       editor.exercises.forEach((exercise, x) => {
         const name = String(form.get(`exercise-${x}`) || '').trim();
-        if (name !== exercise.rawName) { exercise.exerciseId = T.resolveExercise(name, workspace().mappings)?.id || null; exercise.equipmentKey = null; exercise.loadConvention = 'as-recorded'; }
+        if (name !== exercise.rawName) { exercise.exerciseId = T.resolveExercise(name, workspace().mappings)?.id || null; exercise.equipmentKey = null; exercise.loadConvention = 'as-recorded'; exercise.loadRole = 'unknown'; }
         exercise.rawName = name;
         if (form.has(`equipment-${x}`)) exercise.equipmentKey = String(form.get(`equipment-${x}`) || '').trim() || null;
         if (form.has(`convention-${x}`)) exercise.loadConvention = String(form.get(`convention-${x}`));
+        if (form.has(`role-${x}`)) exercise.loadRole = String(form.get(`role-${x}`));
+        if (form.has(`group-${x}`)) exercise.groupKey = String(form.get(`group-${x}`) || '').trim() || null;
         exercise.sets.forEach((set, y) => { for (const key of ['loadKg', 'reps', 'rir']) set[key] = numeric(form, `${x}-${y}-${key}`); set.marker = String(form.get(`${x}-${y}-marker`) || '').trim() || null; });
       });
     }
@@ -251,9 +292,12 @@
         }
         if (saveWorkspace(next, '운동 일지와 코칭에 반영했어요.')) { chosen = editor.id; closeDialog(); render(); }
       });
+      $('entryForm').querySelector('.workout-editor').insertAdjacentHTML('beforebegin', `<div class="session-context-input"><label class="checkbox-field"><input type="checkbox" name="orderConfirmed" ${editor.sequence?.order === 'listed' ? 'checked' : ''}>아래 종목 순서대로 수행했어요.</label><label class="field"><span>수행 방식 · 선택</span><select name="sessionStructure">${options([['unknown', '미확인'], ['straight', '종목별로 마친 후 다음 종목'], ['grouped', '슈퍼세트·순환·종목 교차']], editor.sequence?.structure || 'unknown')}</select></label></div>`);
       $('entryForm').querySelectorAll('.editor-exercise').forEach((element, index) => {
         const exercise = editor.exercises[index], description = T.describeExercise(exercise, workspace().mappings);
+        element.querySelector('.editor-exercise-heading').insertAdjacentHTML('beforeend', `<div class="editor-order-actions">${iconButton('editor-move-up', '종목을 앞 순서로', 'arrow-up', `data-index="${index}" ${index === 0 ? 'disabled' : ''}`)}${iconButton('editor-move-down', '종목을 뒤 순서로', 'arrow-down', `data-index="${index}" ${index === editor.exercises.length - 1 ? 'disabled' : ''}`)}</div>`);
         element.querySelector('.editor-exercise-heading').insertAdjacentHTML('afterend', `<details class="source-details"><summary>장비·중량 기준${description.equipmentKey ? ` · ${e(description.equipmentKey)}` : ''}</summary><div class="form-grid"><label class="field"><span>실제 장비 · 확인할 때만</span><input name="equipment-${index}" type="text" maxlength="128" value="${e(exercise.equipmentKey || '')}" placeholder="이름의 브랜드만으로 같은 머신을 확정하지 않아요"></label><label class="field"><span>직접 지정한 kg 기준</span><select name="convention-${index}">${options([['as-recorded', '직접 지정 없음 · 확인한 연결/이름 규칙'], ['total', '전체 중량'], ['per-side', '한쪽 중량'], ['bodyweight', '맨몸·추가 부하']], exercise.loadConvention)}</select></label></div></details>`);
+        element.querySelector('.source-details .form-grid').insertAdjacentHTML('beforeend', `<label class="field"><span>kg의 의미</span><select name="role-${index}">${options([['unknown', '미확인 · 확인한 연결 사용'], ['external', '들어 올린 외부 중량'], ['assistance', '몸을 도와주는 보조 중량']], exercise.loadRole || 'unknown')}</select></label><label class="field"><span>교차 수행 묶음 · 해당할 때만</span><input name="group-${index}" maxlength="128" value="${e(exercise.groupKey || '')}" placeholder="같은 묶음은 같은 이름"></label><p class="form-help full-width">장비는 헬스장과 실제 머신을 구분해 주세요. 같은 모델도 다른 기계라면 별도 기록선입니다. 계획의 휴식은 실제 휴식으로 간주하지 않아요.</p>`);
       });
       if (editorIsDraft && editor.source.hash) $('entryForm').insertAdjacentHTML('afterbegin', sourceReviewHTML(editor.source.hash));
       const assignment = editorNewAssignment || planning().schedule.find(row => row.id === editorAssignmentId || row.recordId === editor.id);
@@ -265,6 +309,7 @@
       editor = record ? copy(record) : blankRecord();
       if (reuse) {
         editor.id = id(); editor.date = app.getDate(); editor.time = null; editor.durationMinutes = null; editor.effort = null; editor.pain = null;
+        editor.sequence = { order: 'unknown', structure: 'unknown' };
         editor.source = blankRecord().source; editor.reportedSetCount = null; editor.reportedEnergyKcal = null; editor.reportedVolumeKg = null; editor.notes = '';
         editor.exercises.forEach(exercise => { exercise.id = id(); exercise.reportedVolumeKg = null; exercise.sets.forEach(set => { set.id = id(); set.rir = null; }); });
       }
@@ -285,12 +330,13 @@
       exercise = { ...exercise, equipmentKey: description.equipmentKey, loadConvention: description.loadConvention };
       openDialog('종목과 중량 기준 확인', `<p><strong>${e(exercise.rawName)}</strong></p><div class="form-grid"><label class="field full-width"><span>실제 수행한 운동</span><select name="exerciseId" required><option value="">선택해 주세요</option>${options(T.catalog.map(row => [row.id, row.label]), resolved?.id || '')}</select></label>${field('장비 이름 · 브랜드/위치 · 선택', 'equipmentKey', exercise.equipmentKey || '', { type: 'text' })}<label class="field"><span>기록한 kg 기준</span><select name="loadConvention">${options([['as-recorded', '아직 모름 · 원문 그대로'], ['total', '양쪽/전체 중량'], ['per-side', '한쪽 중량'], ['bodyweight', '맨몸/추가 부하']], exercise.loadConvention)}</select></label></div><p class="form-help">중량 숫자는 환산하지 않아요. 같은 원문명·장비에 이 연결을 기억하지만, 다른 머신의 표시 kg를 동등하게 보지 않습니다.</p><label class="checkbox-field"><input type="checkbox" name="confirmed" required>실제 동작과 기록 기준을 확인했어요.</label>${actions('연결 기억하기')}`, form => {
         const next = copy(workspace()), target = next.records.find(row => row.id === record.id).exercises.find(row => row.id === exercise.id);
-        const mapping = { rawName: exercise.rawName, exerciseId: String(form.get('exerciseId')), equipmentKey: String(form.get('equipmentKey') || '').trim() || null, loadConvention: String(form.get('loadConvention')), confirmed: form.get('confirmed') === 'on' };
+        const mapping = { rawName: exercise.rawName, exerciseId: String(form.get('exerciseId')), equipmentKey: String(form.get('equipmentKey') || '').trim() || null, loadConvention: String(form.get('loadConvention')), loadRole: String(form.get('loadRole') || 'unknown'), confirmed: form.get('confirmed') === 'on' };
         if (!T.catalog.some(row => row.id === mapping.exerciseId)) throw new Error('실제 종목을 선택해 주세요.');
-        Object.assign(target, { exerciseId: mapping.exerciseId, equipmentKey: mapping.equipmentKey, loadConvention: mapping.loadConvention });
+        Object.assign(target, { exerciseId: mapping.exerciseId, equipmentKey: mapping.equipmentKey, loadConvention: mapping.loadConvention, loadRole: mapping.loadRole });
         next.mappings = next.mappings.filter(row => !(row.rawName === mapping.rawName && row.equipmentKey === mapping.equipmentKey)); next.mappings.push(mapping);
         if (saveWorkspace(next, '이 종목과 장비 기준을 기억했어요.')) closeDialog();
       });
+      $('entryForm').querySelector('.form-grid').insertAdjacentHTML('beforeend', `<label class="field"><span>기록한 kg의 의미</span><select name="loadRole">${options([['unknown', '미확인'], ['external', '들어 올린 외부 중량'], ['assistance', '몸을 도와주는 보조 중량']], description.loadRole || 'unknown')}</select></label><p class="form-help full-width">예: A헬스장 / 체스트프레스 1번. 같은 브랜드라도 실제 기계가 다르면 장비 이름을 나눠 주세요.</p>`);
     }
     function settingsDialog() {
       const settings = workspace().settings;
@@ -692,6 +738,7 @@
       else if (action === 'training-reuse') recordDialog(record, true);
       else if (action === 'training-delete') app.confirmDialog('운동 일지 삭제', '이 앱의 일지만 삭제해요. 연결된 계획은 수행 미확인으로 돌아가고 처방은 남습니다. 원본 이미지와 판독 캐시는 유지됩니다. 식사 목표에 연결한 운동 시간은 해당 날짜에서 별도로 확인해 주세요.', '삭제', () => { const next = copy(data); next.records = next.records.filter(row => row.id !== record.id); planning(next).schedule.filter(row => row.recordId === record.id).forEach(row => { row.recordId = null; row.status = 'planned'; }); return saveWorkspace(next, '앱 일지를 삭제했어요. 원본과 계획은 유지됩니다.'); });
       else if (action === 'training-map') mappingDialog(record, record.exercises.find(row => row.id === button.dataset.exercise));
+      else if (action === 'training-reference') referenceDialog(record, record.exercises.find(row => row.id === button.dataset.exercise));
       else if (action === 'training-link') linkDialog(record);
       else if (action === 'program-settings') settingsDialog();
       else if (action === 'program-save') saveProgramDialog();
@@ -715,6 +762,10 @@
         startAssignment(editorNewAssignment);
       } else if (action.startsWith('editor-')) {
         captureEditor();
+        if (action === 'editor-move-up' || action === 'editor-move-down') {
+          const from = Number(button.dataset.index), to = from + (action === 'editor-move-up' ? -1 : 1);
+          if (to >= 0 && to < editor.exercises.length) { const [exercise] = editor.exercises.splice(from, 1); editor.exercises.splice(to, 0, exercise); }
+        }
         if (action === 'editor-add-exercise') editor.exercises.push(blankExercise());
         if (action === 'editor-remove-exercise') editor.exercises.splice(Number(button.dataset.index), 1);
         if (action === 'editor-add-set') editor.exercises[Number(button.dataset.index)].sets.push(blankSet());

@@ -53,8 +53,8 @@
     return result;
   }
 
-  function fields(value, names, label) {
-    if (!plain(value) || Object.keys(value).length !== names.length || names.some(key => !own(value, key))) fail(`${label}의 필수 항목 또는 형식이 올바르지 않습니다.`);
+  function fields(value, names, label, optional = []) {
+    if (!plain(value) || names.some(key => !own(value, key)) || Object.keys(value).some(key => !names.includes(key) && !optional.includes(key))) fail(`${label}의 필수 항목 또는 형식이 올바르지 않습니다.`);
   }
   function text(value, max, label, nullable = false, empty = false) {
     if (nullable && value === null) return;
@@ -94,7 +94,7 @@
     list(records, LIMITS.records, "운동 기록");
     const recordIds = new Set();
     for (const record of records) {
-      fields(record, ["id", "date", "time", "label", "durationMinutes", "reportedSetCount", "reportedVolumeKg", "reportedEnergyKcal", "source", "exercises", "notes", "effort", "pain"], "운동 기록");
+      fields(record, ["id", "date", "time", "label", "durationMinutes", "reportedSetCount", "reportedVolumeKg", "reportedEnergyKcal", "source", "exercises", "notes", "effort", "pain"], "운동 기록", ["sequence"]);
       uniqueId(record.id, recordIds, "운동 기록 식별자");
       if (!date(record.date) || !time(record.time)) fail("운동 날짜 또는 헤더 시각을 확인해 주세요.");
       text(record.label, 200, "운동 분류");
@@ -105,6 +105,10 @@
       text(record.notes, 10000, "운동 메모", false, true);
       number(record.effort, 0, 10, "체감 강도", true);
       if (record.pain !== null && !["none", "mild", "stop"].includes(record.pain)) fail("통증 선택값을 확인해 주세요.");
+      if (own(record, "sequence")) {
+        fields(record.sequence, ["order", "structure"], "실제 수행 순서");
+        if (!["unknown", "listed"].includes(record.sequence.order) || !["unknown", "straight", "grouped"].includes(record.sequence.structure)) fail("실제 수행 순서와 세트 구성을 확인해 주세요.");
+      }
       fields(record.source, ["kind", "hash", "paths", "uncertainties", "revision"], "운동 출처");
       if (!["visual", "legacy-ocr", "manual"].includes(record.source.kind)) fail("운동 출처 종류를 확인해 주세요.");
       if (record.source.hash !== null && (typeof record.source.hash !== "string" || !/^[a-f0-9]{64}$/.test(record.source.hash))) fail("운동 출처 해시를 확인해 주세요.");
@@ -116,12 +120,17 @@
       const exerciseIds = new Set();
       const setIds = new Set();
       for (const exercise of record.exercises) {
-        fields(exercise, ["id", "rawName", "exerciseId", "equipmentKey", "loadConvention", "durationMinutes", "repsTotal", "reportedVolumeKg", "sets", "notes"], "종목");
+        fields(exercise, ["id", "rawName", "exerciseId", "equipmentKey", "loadConvention", "durationMinutes", "repsTotal", "reportedVolumeKg", "sets", "notes"], "종목", ["loadRole", "groupKey"]);
         uniqueId(exercise.id, exerciseIds, "종목 식별자");
         text(exercise.rawName, 300, "원문 종목명");
         text(exercise.exerciseId, 128, "연결 종목", true);
         text(exercise.equipmentKey, 128, "장비 식별자", true);
         if (!LOAD_CONVENTIONS.includes(exercise.loadConvention)) fail("부하 표기 기준을 확인해 주세요.");
+        if (own(exercise, "loadRole") && !["unknown", "external", "assistance"].includes(exercise.loadRole)) fail("중량이 저항인지 보조인지 확인해 주세요.");
+        if (own(exercise, "groupKey")) {
+          text(exercise.groupKey, 128, "묶어서 수행한 블록", true);
+          if (exercise.groupKey !== null && !exercise.groupKey.trim()) fail("묶어서 수행한 블록 이름을 확인해 주세요.");
+        }
         number(exercise.durationMinutes, 0, 1440, "종목 시간", true);
         number(exercise.repsTotal, 0, 100000, "원문 반복 수", true, true);
         number(exercise.reportedVolumeKg, 0, 1e9, "종목 원문 볼륨", true);
@@ -148,11 +157,10 @@
     text(day.id, 512, "계획 세션 ID"); text(day.label, 200, "계획 세션 이름");
     list(day.exercises, 30, "계획 운동");
     if (!day.exercises.length) fail("계획에는 운동이 하나 이상 필요합니다.");
-    const ids = new Set(), exercises = new Set();
+    const ids = new Set();
     for (const exercise of day.exercises) {
       fields(exercise, ["id", "exerciseId", "label", "sets", "repsMin", "repsMax", "rir", "restSeconds", "loadKg", "equipmentKey", "loadConvention"], "계획 운동");
       uniqueId(exercise.id, ids, "계획 운동 ID"); text(exercise.exerciseId, 128, "계획 종목"); text(exercise.label, 300, "계획 종목 이름");
-      if (exercises.has(exercise.exerciseId)) fail("한 계획 세션의 같은 운동을 중복 배치할 수 없습니다."); exercises.add(exercise.exerciseId);
       number(exercise.sets, 1, 20, "계획 세트", false, true);
       number(exercise.repsMin, 1, 100, "계획 최소 반복", false, true); number(exercise.repsMax, exercise.repsMin, 100, "계획 최대 반복", false, true);
       number(exercise.rir, 0, 10, "계획 RIR"); number(exercise.restSeconds, 0, 1800, "계획 휴식", false, true);
@@ -290,10 +298,11 @@
     list(workspace.mappings, LIMITS.mappings, "종목 연결");
     const mappingKeys = new Set();
     for (const mapping of workspace.mappings) {
-      fields(mapping, ["rawName", "exerciseId", "equipmentKey", "loadConvention", "confirmed"], "종목 연결");
+      fields(mapping, ["rawName", "exerciseId", "equipmentKey", "loadConvention", "confirmed"], "종목 연결", ["loadRole"]);
       text(mapping.rawName, 300, "연결 원문 종목명");
       text(mapping.exerciseId, 128, "연결 종목");
       text(mapping.equipmentKey, 128, "연결 장비", true);
+      if (own(mapping, "loadRole") && !["unknown", "external", "assistance"].includes(mapping.loadRole)) fail("연결 중량의 역할을 확인해 주세요.");
       if (!LOAD_CONVENTIONS.includes(mapping.loadConvention) || typeof mapping.confirmed !== "boolean") fail("종목 연결 기준 또는 확인 상태가 올바르지 않습니다.");
       const key = JSON.stringify([mapping.rawName, mapping.equipmentKey]);
       if (mappingKeys.has(key)) fail("같은 원문 종목과 장비의 연결이 중복되었습니다.");

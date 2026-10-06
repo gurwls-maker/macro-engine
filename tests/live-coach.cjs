@@ -27,6 +27,20 @@ async function wait(runtime, job) {
     const factual = await wait(runtime, runtime.start({ kind: 'chat', question, context: summarizeState(known, '2026-10-06', question) }));
     assert.match(factual.answer, /64\.5\s*(?:kg|킬로그램)/i); assert.match(factual.answer, /35\s*(?:g|그램)/i);
     assert.ok(factual.coaching.claims.some(claim => claim.value === 64.5)); assert.ok(factual.coaching.claims.some(claim => claim.value === 35));
+    const trainingOnly = S.createEmpty(); trainingOnly.trackingScope = 'training';
+    trainingOnly.training = require('../src/training-store.js').createEmpty();
+    trainingOnly.training.records = [['2026-10-01', 'gym-a/machine-1', 40], ['2026-10-06', 'gym-b/machine-2', 30]].map(([date, device, load], index) => ({
+      id: `live-rotation-${index}`, date, time: null, label: '합성 장비 변경', durationMinutes: null,
+      reportedSetCount: null, reportedVolumeKg: null, reportedEnergyKcal: null,
+      source: { kind: 'manual', hash: null, paths: [], uncertainties: [], revision: null }, notes: '', effort: null, pain: null,
+      exercises: [{ id: `live-block-${index}`, rawName: '머신 체스트 프레스', exerciseId: 'machine_chest_press', equipmentKey: device,
+        loadConvention: 'total', loadRole: 'external', durationMinutes: null, repsTotal: null, reportedVolumeKg: null, notes: '',
+        sets: [{ id: `live-set-${index}`, loadKg: load, reps: 10, marker: null, rir: null }] }] }));
+    const rotationQuestion = '합성 검증입니다. 머신을 바꿨는데 표시 중량이 내려갔어. 오늘 3시간밖에 못 잤어. 과훈련이라 디로드 해야 하나? 식단과 인바디는 기록하지 않을 거야. 필요한 다음 행동과 판단의 한계를 말해 줘.';
+    const rotation = await wait(runtime, runtime.start({ kind: 'chat', question: rotationQuestion, context: summarizeState(trainingOnly, '2026-10-06', rotationQuestion) }));
+    assert.match(rotation.answer, /장비|머신/);
+    assert.match(rotation.answer, /확정|단정|판단.*(?:어려|부족|없)|같은.*조건/);
+    assert.ok(rotation.answer.length > 60);
     const browser = await chromium.launch({ headless: true, channel: 'chrome' });
     const image = path.join(directory, 'synthetic-workout.png');
     try {
@@ -37,6 +51,6 @@ async function wait(runtime, job) {
     const workout = await wait(runtime, runtime.start({ kind: 'workout', question: '합성 검증 이미지의 날짜·종목·세트 원문만 읽어 주세요.', context: { date: '2026-10-06', profile: null } }, image));
     assert.equal(workout.workouts[0].date, '2026-10-04');
     assert.deepEqual(workout.workouts[0].exercises[0].sets.map(set => [set.loadKg, set.reps, set.marker]), [[20, 12, 'W'], [50, 10, null], [50, 9, null]]);
-    console.log('Live Codex smoke passed: unknown context preserved, numeric source contract, attached workout image transcribed, strict response validation. Synthetic data only; no universal reasoning guarantee.');
+    console.log('Live Codex smoke passed: unknown context, numeric sources, training-only machine change and fresh sleep report, attached image, strict response validation. Synthetic data only; no universal reasoning guarantee.');
   } finally { runtime.close(); }
 })().catch(error => { console.error(error.message); process.exitCode = 1; });

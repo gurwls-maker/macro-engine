@@ -160,7 +160,7 @@
     const byMuscle = described.resolved && selection.muscleIds.some(id => [...described.resolved.primaryMuscles, ...described.resolved.secondaryMuscles].includes(id));
     return (!selection.exerciseIds.length && !selection.rawNames.length || byName) && (!selection.muscleIds.length || byMuscle);
   }
-  function trainingPeriod(records, period, state) {
+  function trainingPeriod(records, period, state, sessionContexts = {}, sessionRecordCounts = {}) {
     const buckets = new Map();
     for (const record of records) {
       const bucket = Math.floor((numberDate(record.date) - numberDate(period.from)) / (28 * DAY));
@@ -175,7 +175,7 @@
     const dates = new Set();
     for (const [bucket, rows] of [...buckets.entries()].sort((a, b) => a[0] - b[0])) {
       const from = shift(period.from, bucket * 28), to = [shift(from, 27), period.to].sort()[0];
-      const analysis = T.analyze(rows, { date: to, profile: state.profile, mappings: state.training?.mappings, checkins: state.days });
+      const analysis = T.analyze(rows, { date: to, profile: state.profile, mappings: state.training?.mappings, checkins: state.days, sessionContexts, sessionRecordCounts });
       for (const [key, value] of Object.entries(analysis.coverage)) if (typeof value === "number" && key !== "unknownDays" && key !== "daysWithRecords") result.coverage[key] += value;
       analysis.coverage.trainingDates.forEach(date => dates.add(date));
       for (const muscle of analysis.muscles) for (const key of ["directSets", "indirectSets", "unknownEffortSets", "markedSets"]) result.muscles.find(row => row.id === muscle.id)[key] += muscle[key];
@@ -196,22 +196,33 @@
       snapshotDays: completed.filter(day => day.planSnapshot).length,
       interpretation: "기록된 식사 합계와 식사 있는 완료일 평균입니다. 미완료 식사는 하루 섭취량으로 판정하지 않고, 식사 없는 날을 0으로 평균에 넣지 않습니다." };
   }
-  function compactRecord(record, selection, mappings) {
-    const exercises = record.exercises.filter(exercise => matchingExercise(exercise, selection, mappings));
+  function compactRecord(record, selection, mappings, fullContext) {
+    const exercises = record.exercises.map((exercise, index) => ({ exercise, index })).filter(({ exercise }) => matchingExercise(exercise, selection, mappings));
+    const sample = exercises.slice(0, 4), sampledIds = new Set(sample.map(({ exercise }) => exercise.id));
+    const context = fullContext || T.sessionContext(record, mappings);
     return { id: record.id, date: record.date, label: record.label, time: record.time, pain: record.pain, effort: record.effort, sourceKind: record.source?.kind,
-      sourceRevision: record.source?.revision, notes: (record.notes || "").slice(0, 800), originalExerciseCount: exercises.length,
-      originalSetCount: exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0), sampled: exercises.length > 4 || exercises.some(exercise => exercise.sets.length > 4),
-      exercises: exercises.slice(0, 4).map(exercise => {
+      sourceRevision: record.source?.revision, notes: (record.notes || "").slice(0, 800), originalExerciseCount: record.exercises.length,
+      originalSetCount: record.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0), matchedExerciseCount: exercises.length,
+      matchedSetCount: exercises.reduce((sum, { exercise }) => sum + exercise.sets.length, 0), sampled: record.exercises.length > sample.length || exercises.some(({ exercise }) => exercise.sets.length > 4),
+      sessionContext: { ...context, originalBlockCount: context.blocks.length, blocks: context.blocks.filter(block => sampledIds.has(block.blockId)), sampled: context.blocks.length > sample.length,
+        detailScope: "세션 전체에서 계산한 선행 수행 맥락과 전체 세트 수입니다. 블록 목록은 아래 원문 표본에 해당하는 일부이며 표시 순서는 실제 수행 순서 확인이 아닙니다." },
+      exercises: sample.map(({ exercise, index }) => {
         const d = T.describeExercise(exercise, mappings);
-        return { id: exercise.id, rawName: exercise.rawName, exerciseId: d.resolved?.id || null, equipmentKey: d.equipmentKey, equipmentSource: d.equipmentSource,
+        return { id: exercise.id, sourceExercisePosition: index + 1, rawName: exercise.rawName, exerciseId: d.resolved?.id || null, equipmentKey: d.equipmentKey, equipmentSource: d.equipmentSource,
+          loadRole: d.loadRole,
           loadConvention: d.loadConvention, loadConventionSource: d.loadConventionSource, ruleConflict: d.ruleConflict,
           originalSetCount: exercise.sets.length, sampled: exercise.sets.length > 4, sets: exercise.sets.slice(0, 4), notes: (exercise.notes || "").slice(0, 400) };
       }) };
   }
   function retrieve(state, date, question = "") {
     const selection = plan(state, date, question), allRecords = state.training?.records || [], allDays = Object.values(state.days || {});
+    const fullRecords = new Map(allRecords.map(record => [record.id, record])), sessionContexts = Object.create(null);
+    const fullContext = record => sessionContexts[record.id] || (sessionContexts[record.id] = T.sessionContext(record, state.training?.mappings));
     const periods = selection.periods.map(period => {
       const rangedRecords = allRecords.filter(row => row.date >= period.from && row.date <= period.to);
+      const sessionRecordCounts = Object.create(null);
+      rangedRecords.forEach(record => { sessionRecordCounts[record.date] = (sessionRecordCounts[record.date] || 0) + 1; });
+      rangedRecords.forEach(fullContext);
       const named = selection.exerciseIds.length || selection.rawNames.length || selection.muscleIds.length;
       const records = named ? rangedRecords.map(record => ({ ...record, exercises: record.exercises.filter(exercise => matchingExercise(exercise, selection, state.training?.mappings)) })).filter(record => record.exercises.length) : rangedRecords;
       const days = allDays.filter(row => row.date >= period.from && row.date <= period.to).sort((a, b) => a.date.localeCompare(b.date));
@@ -220,19 +231,28 @@
       const observations = days.filter(day => [day.weightKg, day.bodyFatPct, day.skeletalMuscleKg].some(value => typeof value === "number" && Number.isFinite(value)));
       const checkins = days.filter(day => day.coachCheckin);
       const unresolved = rangedRecords.flatMap(record => record.exercises).filter(exercise => !T.describeExercise(exercise, state.training?.mappings).resolved).length;
+      const selectedIds = new Set([...selection.exerciseIds, ...rangedRecords.flatMap(record => record.exercises.filter(exercise => selection.rawNames.some(name => normal(name) === normal(exercise.rawName))))
+        .map(exercise => T.describeExercise(exercise, state.training?.mappings).resolved?.id).filter(Boolean)]);
+      const relatedIds = [...new Set([...selectedIds].flatMap(id => T.relatedExerciseIds(id)))].filter(id => !selectedIds.has(id));
+      const relatedSelection = { exerciseIds: relatedIds, rawNames: [], muscleIds: [] };
+      const relatedRecords = relatedIds.length ? rangedRecords.map(record => ({ ...record, exercises: record.exercises.filter(exercise => matchingExercise(exercise, relatedSelection, state.training?.mappings)) })).filter(record => record.exercises.length) : [];
+      const relatedSummary = relatedRecords.length ? trainingPeriod(relatedRecords, period, state, sessionContexts, sessionRecordCounts) : null;
       return { ...period, available: { training: bounds(sorted.map(row => row.date)), days: bounds(days.map(row => row.date)) },
-        training: trainingPeriod(records, period, state), nutrition: nutritionPeriod(days, period),
+        training: trainingPeriod(records, period, state, sessionContexts, sessionRecordCounts), nutrition: nutritionPeriod(days, period),
+        relatedContext: { exerciseIds: relatedIds, matchedWorkoutCount: relatedRecords.length, coverage: relatedSummary?.coverage || null,
+          records: relatedRecords.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)).slice(-2).map(record => compactRecord(fullRecords.get(record.id), relatedSelection, state.training?.mappings, fullContext(fullRecords.get(record.id)))),
+          interpretation: "명시적으로 연결한 유사 동작의 별도 참고 기록입니다. 질문 대상의 집계에 더하지 않으며 서로 다른 종목·장비의 kg가 환산되거나 동일한 성장 자극이라는 뜻이 아닙니다." },
         body: { measurementDays: observations.length, first: observations[0] ? { date: observations[0].date, weightKg: observations[0].weightKg ?? null, bodyFatPct: observations[0].bodyFatPct ?? null, skeletalMuscleKg: observations[0].skeletalMuscleKg ?? null, bodyFatMethod: observations[0].bodyFatMethod || "unknown" } : null,
           last: observations.at(-1) ? { date: observations.at(-1).date, weightKg: observations.at(-1).weightKg ?? null, bodyFatPct: observations.at(-1).bodyFatPct ?? null, skeletalMuscleKg: observations.at(-1).skeletalMuscleKg ?? null, bodyFatMethod: observations.at(-1).bodyFatMethod || "unknown" } : null,
           interpretation: "기록한 측정값의 처음·마지막 관찰입니다. 측정 방법·수분·조건 차이를 통제하거나 실제 근성장·체지방 변화율을 계산한 결과가 아닙니다." },
         source: { rangedWorkoutCount: rangedRecords.length, matchedWorkoutCount: sorted.length, savedDayCount: days.length, checkinDays: checkins.length,
           unresolvedExerciseCount: unresolved,
           workoutIds: sample.map(row => row.id), dayDates: [...new Set([...days.slice(0, 2), ...days.slice(-3)].map(day => day.date))], boundedReferences: sorted.length > sample.length || days.length > 5,
-          rawDetailScope: "기간 전체의 집계와 별개로 처음·마지막 일지 일부, 종목·세트 일부만 전달합니다." },
+          rawDetailScope: "기간 전체의 집계와 별개로 처음·마지막 일지 일부, 종목·세트 일부만 전달합니다. 선택 종목의 선행 맥락은 필터 전 세션 전체로 계산합니다." },
         missingSignals: [sorted.length ? null : "조건에 맞는 저장 운동 기록이 없습니다. 운동하지 않았다는 뜻은 아닙니다.",
           unresolved && named ? "종목을 확인하지 못한 운동은 부위 조회에 임의로 포함하지 않았습니다. 원문 이름 연결 확인이 필요합니다." : null,
           days.length ? null : "해당 기간의 식사·몸 상태 기록이 없습니다.", checkins.length ? null : "해당 기간의 컨디션 자기보고가 없습니다."].filter(Boolean),
-        details: { workouts: sample.map(record => compactRecord(record, selection, state.training?.mappings)),
+        details: { workouts: sample.map(record => compactRecord(fullRecords.get(record.id), selection, state.training?.mappings, fullContext(fullRecords.get(record.id)))),
           days: [...days.slice(0, 1), ...days.slice(-2)].filter((row, index, values) => values.findIndex(value => value.date === row.date) === index).map(day => ({ date: day.date, complete: day.complete,
             intake: day.meals.length ? I.mealTotals(day.meals) : null, checkin: day.coachCheckin || null, note: (day.note || "").slice(0, 800),
             savedPlan: day.planSnapshot ? { status: day.planSnapshot.status, energy: day.planSnapshot.energy, macros: day.planSnapshot.macros, context: { goal: day.planSnapshot.context?.goal || null } } : null })) } };

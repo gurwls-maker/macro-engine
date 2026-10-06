@@ -96,7 +96,7 @@
 
   function confirmedMapping(rawName, mappings) {
     const rows = (Array.isArray(mappings) ? mappings : []).filter(row => row?.confirmed === true && normalize(row.rawName) === normalize(rawName) && byId.has(row.exerciseId));
-    const keys = new Set(rows.map(row => `${row.exerciseId}|${text(row.equipmentKey)}|${row.loadConvention}`));
+    const keys = new Set(rows.map(row => `${row.exerciseId}|${text(row.equipmentKey)}|${row.loadConvention}|${row.loadRole || "unknown"}`));
     return keys.size === 1 ? rows[0] : null;
   }
 
@@ -139,6 +139,7 @@
     const record = typeof input === "string" ? { rawName: input } : input && typeof input === "object" ? input : {};
     const parsed = parseExerciseName(record.rawName), explicitId = text(record.exerciseId), explicitEquipment = text(record.equipmentKey);
     const explicitConvention = ["total", "per-side", "bodyweight"].includes(record.loadConvention) ? record.loadConvention : null;
+    const explicitRole = ["external", "assistance"].includes(record.loadRole) ? record.loadRole : null;
     const sameEquipment = (a, b) => equipmentName(a).toLowerCase() === equipmentName(b).toLowerCase();
     const eligible = (parsed.rawName && Array.isArray(mappings) ? mappings : []).filter(row => row?.confirmed === true
       && (!explicitId || row.exerciseId === explicitId)
@@ -166,16 +167,190 @@
     const loadConvention = explicitConvention || mappedConvention || nameRule.loadConvention;
     const loadConventionSource = explicitConvention ? "record" : mappedConvention ? "mapping" : nameRule.loadConvention !== "as-recorded" ? "name-rule" : null;
     const ruleConflict = !explicitConvention && !mappedConvention && nameRule.ruleConflict;
+    const loadRole = explicitRole || (["external", "assistance"].includes(mapping?.loadRole) ? mapping.loadRole : "unknown");
+    const loadRoleSource = explicitRole ? "record" : loadRole !== "unknown" ? "mapping" : null;
     const resolved = movement ? { id: movement.id, label: movement.label, primaryMuscles: [...movement.primaryMuscles], secondaryMuscles: [...movement.secondaryMuscles], pattern: movement.pattern, equipment: movement.equipment,
       confidence: explicitId ? "record-confirmed" : mapping ? "confirmed" : "exact-alias",
       comparableKey: ["record", "mapping"].includes(equipmentSource) && ["total", "per-side"].includes(loadConvention) ? `${movement.id}|${equipmentKey}|${loadConvention}` : null } : null;
     // A name-derived brand must not collapse distinct aliases such as curl 1 and curl 2.
     const variantKey = equipmentSource?.startsWith("name-") ? normalize(parsed.movementName) : null;
-    return { ...parsed, resolved, equipmentKey, loadConvention, equipmentSource, variantKey, loadConventionSource, ruleConflict };
+    return { ...parsed, resolved, equipmentKey, loadConvention, equipmentSource, variantKey, loadConventionSource, ruleConflict, loadRole, loadRoleSource };
   }
 
   function resolveExercise(rawName, mappings = []) {
     return describeExercise({ rawName }, mappings).resolved;
+  }
+
+  const movementFamilies = Object.freeze([
+    Object.freeze({ id: "horizontal-press", exerciseIds: Object.freeze(["bench_press", "dumbbell_bench_press", "machine_chest_press"]) })
+  ]);
+  function relatedExerciseIds(exerciseId) {
+    const family = movementFamilies.find(row => row.exerciseIds.includes(exerciseId));
+    return family ? [...family.exerciseIds] : byId.has(exerciseId) ? [exerciseId] : [];
+  }
+  function setCounts(sets) {
+    const result = { workingSets: 0, markedSets: 0, warmupSets: 0, unknownEffortSets: 0 };
+    const seen = new Set();
+    for (const set of Array.isArray(sets) ? sets : []) {
+      if (!set || !Number.isInteger(set.reps) || set.reps <= 0) continue;
+      if (text(set.id) && seen.has(set.id)) continue;
+      if (text(set.id)) seen.add(set.id);
+      if (text(set.marker).toUpperCase() === "W") result.warmupSets++;
+      else {
+        if (text(set.marker)) result.markedSets++;
+        else result.workingSets++;
+        if (!finite(set.rir) || set.rir < 0 || set.rir > 10) result.unknownEffortSets++;
+      }
+    }
+    return result;
+  }
+  function distinctSourceRecords(records) {
+    const groups = new Map(), independent = [];
+    for (const row of records) {
+      if (!text(row.source?.hash)) { independent.push(row); continue; }
+      const key = JSON.stringify([row.source.hash, row.date, row.time, row.label, row.exercises.map(raw => [raw?.rawName, (Array.isArray(raw?.sets) ? raw.sets : []).map(set => [set?.loadKg, set?.reps, set?.marker, set?.rir])])]);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
+    }
+    const result = { records: [...independent], duplicateRecords: 0, conflictedRecords: 0 };
+    for (const rows of groups.values()) {
+      const interpretations = new Set(rows.map(row => JSON.stringify([row.pain || null, row.effort ?? null, row.sequence || { order: "unknown", structure: "unknown" }, row.exercises.map(raw => [raw?.exerciseId || null, raw?.equipmentKey || null, raw?.loadConvention, raw?.loadRole || "unknown", raw?.groupKey || null])])));
+      if (interpretations.size > 1) result.conflictedRecords += rows.length;
+      else { result.records.push(rows[0]); result.duplicateRecords += rows.length - 1; }
+    }
+    return result;
+  }
+  function sessionContext(record, mappings = []) {
+    const orderConfirmed = record?.sequence?.order === "listed";
+    const structure = ["straight", "grouped"].includes(record?.sequence?.structure) ? record.sequence.structure : "unknown";
+    const exercises = Array.isArray(record?.exercises) ? record.exercises : [];
+    const described = exercises.map(raw => ({ raw, description: describeExercise(raw, mappings), counts: setCounts(raw?.sets) }));
+    const wholeSession = { workingSets: 0, markedSets: 0, warmupSets: 0, unresolvedBlocks: 0, unknownEffortSets: 0 };
+    for (const item of described) {
+      for (const key of ["workingSets", "markedSets", "warmupSets", "unknownEffortSets"]) wholeSession[key] += item.counts[key];
+      if (!item.description.resolved) wholeSession.unresolvedBlocks++;
+    }
+    const sequential = orderConfirmed && structure === "straight" && described.every(item => !text(item.raw?.groupKey));
+    const blocks = described.map((item, index) => {
+      const { raw, description: d } = item;
+      const prior = described.slice(0, index), muscles = new Set([...(d.resolved?.primaryMuscles || []), ...(d.resolved?.secondaryMuscles || [])]);
+      const preceding = { workingSets: null, relatedSets: null, sameExerciseSets: null, markedSets: null, warmupSets: null, unresolvedBlocks: null };
+      if (sequential) {
+        for (const key of Object.keys(preceding)) preceding[key] = 0;
+        for (const other of prior) {
+          preceding.workingSets += other.counts.workingSets;
+          preceding.markedSets += other.counts.markedSets;
+          preceding.warmupSets += other.counts.warmupSets;
+          if (!other.description.resolved) preceding.unresolvedBlocks++;
+          else {
+            if (other.description.resolved.id === d.resolved?.id) preceding.sameExerciseSets += other.counts.workingSets;
+            if ([...other.description.resolved.primaryMuscles, ...other.description.resolved.secondaryMuscles].some(id => muscles.has(id))) preceding.relatedSets += other.counts.workingSets;
+          }
+        }
+      }
+      // This key describes recorded preceding work, not equivalent fatigue or a measured readiness state.
+      const contextKey = sequential && d.resolved && !preceding.unresolvedBlocks ? JSON.stringify(prior.map(other => [other.description.resolved.id,
+        other.description.equipmentKey, other.description.loadConvention, other.description.loadRole, other.raw?.durationMinutes ?? null,
+        (Array.isArray(other.raw?.sets) ? other.raw.sets : []).map(set => [finite(set?.loadKg) && set.loadKg >= 0 ? set.loadKg : null,
+          Number.isInteger(set?.reps) && set.reps > 0 ? set.reps : null, finite(set?.rir) && set.rir >= 0 && set.rir <= 10 ? set.rir : null, text(set?.marker) || null])])) : null;
+      return { blockId: text(raw?.id), exerciseId: d.resolved?.id || null, equipmentKey: d.equipmentKey, equipmentSource: d.equipmentSource,
+        loadConvention: d.loadConvention, loadRole: d.loadRole, groupKey: text(raw?.groupKey) || null,
+        displayPosition: index + 1, executionPosition: sequential ? index + 1 : null, preceding, contextKey };
+    });
+    return { schemaVersion: 1, recordId: text(record?.id), date: record?.date || null, orderConfirmed, structure, blocks, wholeSession,
+      limits: ["표시 순서는 확인 전 실제 수행 순서가 아닙니다. 묶음 수행은 세트별 선후관계를 추측하지 않습니다.", "선행 세트 수는 기록 맥락이며 피로량·유효 자극량이 아닙니다. 실제 휴식·가동범위·기술은 확인되지 않았습니다."] };
+  }
+  function startingReference(records = [], request = {}, options = {}) {
+    const asOf = dateNumber(options.date), horizon = 90;
+    const from = asOf === null ? null : new Date(asOf - (horizon - 1) * DAY).toISOString().slice(0, 10);
+    const result = { schemaVersion: 1, status: "first-session", request: { ...request }, window: { from, to: asOf === null ? null : options.date, days: horizon }, range: null, references: [], transfer: null,
+      reasons: [], limits: ["범위는 실제 표시 중량의 참고 또는 개인 관찰 관계의 잠정 추정이며 처방·등가 저항·신뢰구간이 아닙니다.", "최근 직접 참고 28일, 관찰 범위 90일, 새 원본 14일, 관찰 짝 7일·3개는 제품 선택입니다. 보편적 치환계수·연쇄 환산·관찰 밖 외삽은 하지 않습니다.", "RIR은 자기보고이며 같은 순서와 선행 세트 수도 같은 휴식·기술·피로를 보장하지 않습니다."] };
+    if (asOf === null || !byId.has(request.exerciseId) || !text(request.equipmentKey) || !["total", "per-side"].includes(request.loadConvention) || request.loadRole !== "external") {
+      result.status = "unsupported"; result.reasons.push("실제 대상 장비·중량 규약·외부 저항 역할과 기준 날짜를 확인해야 중량 참고를 만들 수 있어요. 보조 중량·맨몸 부하는 환산하지 않아요."); return result;
+    }
+    const input = Array.isArray(records) ? records : [], dates = new Map(), seen = new Map(), conflicts = new Set();
+    for (const row of input) {
+      const day = dateNumber(row?.date);
+      if (day === null || day > asOf || day < asOf - (horizon - 1) * DAY || !text(row?.id) || !Array.isArray(row.exercises)) continue;
+      if (seen.has(row.id) && JSON.stringify(seen.get(row.id)) !== JSON.stringify(row)) conflicts.add(row.id);
+      else seen.set(row.id, row);
+    }
+    for (const id of conflicts) seen.delete(id);
+    const uniqueSources = distinctSourceRecords([...seen.values()]);
+    if (conflicts.size || uniqueSources.conflictedRecords) result.reasons.push("서로 다른 내용의 같은 기록 또는 같은 이미지 해석은 참고에서 제외했어요. 원문은 변경하지 않았어요.");
+    for (const row of uniqueSources.records) dates.set(row.date, (dates.get(row.date) || 0) + 1);
+    const latestPain = [...seen.values()].filter(row => ["none", "mild", "stop"].includes(row.pain))
+      .sort((a, b) => a.date.localeCompare(b.date) || ({ none: 0, mild: 1, stop: 2 }[a.pain] - { none: 0, mild: 1, stop: 2 }[b.pain])).at(-1)?.pain || null;
+    const observations = [];
+    for (const row of uniqueSources.records) {
+      const context = sessionContext(row, options.mappings);
+      for (const raw of row.exercises) {
+        const d = describeExercise(raw, options.mappings), block = context.blocks.find(item => item.blockId === raw.id);
+        if (!d.resolved || !["record", "mapping"].includes(d.equipmentSource) || !text(d.equipmentKey) || !["total", "per-side"].includes(d.loadConvention) || d.loadRole !== "external" || row.source?.kind === "legacy-ocr") continue;
+        // Keep the first actual general set; a heavier later set is not an automatic starting prescription.
+        const set = (Array.isArray(raw.sets) ? raw.sets : []).find(item => !text(item?.marker) && finite(item?.loadKg) && item.loadKg > 0 && item.loadKg <= 10000 && Number.isInteger(item.reps) && item.reps > 0 && item.reps <= 100000);
+        if (!set) continue;
+        const contextKey = dates.get(row.date) === 1 ? block?.contextKey ?? null : null;
+        observations.push({ recordId: row.id, blockId: raw.id, setId: set.id || null, date: row.date, exerciseId: d.resolved.id, equipmentKey: d.equipmentKey,
+          loadConvention: d.loadConvention, loadRole: d.loadRole, loadKg: set.loadKg, reps: set.reps, rir: finite(set.rir) && set.rir >= 0 && set.rir <= 10 ? set.rir : null,
+          contextKey, groupKey: block?.groupKey || null, displayPosition: block?.displayPosition || null, preceding: block?.preceding || null, sameDaySessions: dates.get(row.date) });
+      }
+    }
+    observations.sort((a, b) => b.date.localeCompare(a.date));
+    const contextMatches = row => !text(request.contextKey) || row.contextKey === request.contextKey;
+    const allDirect = observations.filter(row => row.exerciseId === request.exerciseId && row.equipmentKey === request.equipmentKey && row.loadConvention === request.loadConvention
+      && (!text(request.groupKey) || row.groupKey === request.groupKey));
+    const direct = allDirect.filter(contextMatches);
+    const effortMatches = row => (!finite(request.repsMin) || row.reps >= request.repsMin) && (!finite(request.repsMax) || row.reps <= request.repsMax) && (!finite(request.rir) || row.rir === request.rir);
+    const recentDirect = direct.filter(row => dateNumber(row.date) >= asOf - 27 * DAY);
+    const observedResult = (references, reason) => {
+      const bounded = references.slice(0, 6), loads = bounded.map(row => row.loadKg);
+      result.status = "recorded"; result.references = bounded; result.range = { minKg: Math.min(...loads), maxKg: Math.max(...loads), source: "observed-target" }; result.reasons.push(reason);
+      if (bounded.some(row => row.contextKey === null || row.rir === null)) result.reasons.push("원문 중량은 활용하지만 순서·노력 수준이 미확인인 기록을 같은 수행 조건으로 확정하지 않았어요.");
+      if (bounded.some(row => !contextMatches(row))) result.reasons.push("예정한 순서·선행 맥락과 같다고 확인된 기록은 아니에요. 해당 장비의 과거 관찰로만 표시했어요.");
+      if (bounded.some(row => !effortMatches(row))) result.reasons.push("예정 반복·RIR과 다른 실제 기록이 포함되어 있어요. 표시한 관찰 범위를 새 반복·노력 수준의 처방으로 바꾸지 않았어요.");
+      return result;
+    };
+    if (recentDirect.length) return observedResult(recentDirect.some(effortMatches) ? recentDirect.filter(effortMatches) : recentDirect, "최근 해당 장비에서 실제 기록한 일반 세트의 첫 중량을 우선 표시했어요. 최댓값으로 시작하거나 자동 증량하라는 뜻은 아니에요.");
+    const recentOtherContext = allDirect.filter(row => dateNumber(row.date) >= asOf - 27 * DAY);
+    if (recentOtherContext.length) return observedResult(recentOtherContext, "예정 맥락과 같은 기록이 없어 최근 해당 장비의 실제 원문을 대신 보여줘요. 조건 차이를 중량 치환으로 보정하지 않았어요.");
+    const family = new Set(relatedExerciseIds(request.exerciseId));
+    const sourceRequest = request.source;
+    const sources = observations.filter(row => family.has(row.exerciseId) && (row.exerciseId !== request.exerciseId || row.equipmentKey !== request.equipmentKey)
+      && row.contextKey !== null && contextMatches(row) && row.rir !== null && dateNumber(row.date) >= asOf - 13 * DAY
+      && effortMatches(row)
+      && (!sourceRequest || row.exerciseId === sourceRequest.exerciseId && row.equipmentKey === sourceRequest.equipmentKey && row.loadConvention === sourceRequest.loadConvention && (!sourceRequest.loadRole || sourceRequest.loadRole === "external")));
+    const knownPain = ["none", "mild", "stop"].includes(options.pain) ? options.pain : latestPain;
+    const transferAllowed = text(request.contextKey) && !["mild", "stop"].includes(knownPain) && !["mild", "stop"].includes(options.recovery?.pain) && !["stop", "review", "watch"].includes(options.recovery?.status);
+    for (const source of transferAllowed ? sources : []) {
+      const history = observations.filter(row => row.exerciseId === source.exerciseId && row.equipmentKey === source.equipmentKey && row.loadConvention === source.loadConvention && row.contextKey === source.contextKey && row.rir === source.rir && row.reps === source.reps);
+      const targets = direct.filter(row => effortMatches(row) && row.contextKey === source.contextKey && row.rir === source.rir && row.reps === source.reps);
+      const pairs = [], usedSources = new Set(), usedTargets = new Set(), allCandidates = [];
+      for (const left of history) for (const right of targets) {
+        const gap = Math.abs(dateNumber(left.date) - dateNumber(right.date)) / DAY;
+        if (left.date !== right.date && gap <= 7) allCandidates.push({ source: left, target: right, gap });
+      }
+      allCandidates.sort((a, b) => a.gap - b.gap || b.source.date.localeCompare(a.source.date));
+      for (const pair of allCandidates) if (!usedSources.has(pair.source.date) && !usedTargets.has(pair.target.date)) {
+        pairs.push(pair); usedSources.add(pair.source.date); usedTargets.add(pair.target.date);
+      }
+      if (pairs.length < 3) continue;
+      const sourceLoads = pairs.map(pair => pair.source.loadKg), targetLoads = pairs.map(pair => pair.target.loadKg), ratios = pairs.map(pair => pair.target.loadKg / pair.source.loadKg);
+      const sourceSupport = { minKg: Math.min(...sourceLoads), maxKg: Math.max(...sourceLoads) }, targetSupport = { minKg: Math.min(...targetLoads), maxKg: Math.max(...targetLoads) };
+      if (source.loadKg < sourceSupport.minKg || source.loadKg > sourceSupport.maxKg) continue;
+      const low = Math.max(targetSupport.minKg, source.loadKg * Math.min(...ratios)), high = Math.min(targetSupport.maxKg, source.loadKg * Math.max(...ratios));
+      if (!finite(low) || !finite(high) || low > high) continue;
+      result.status = "personal-transfer"; result.range = { minKg: low, maxKg: high, source: "personal-observation-estimate" }; result.references = [source];
+      result.transfer = { sourceExerciseId: source.exerciseId, sourceEquipmentKey: source.equipmentKey, pairCount: pairs.length, ratioRange: { min: Math.min(...ratios), max: Math.max(...ratios) }, sourceSupport, targetSupport,
+        pairs: pairs.slice(0, 8).map(pair => ({ source: pair.source, target: pair.target })) };
+      result.reasons.push("최근 대상 장비 기록이 없어, 같은 사람의 서로 다른 날·비슷한 시기·같은 기록 맥락과 반복/RIR에서 관찰한 관계를 잠정 시작 참고로 표시했어요. 새 실제 기록이 생기면 그 장비 기록이 우선이에요.");
+      return result;
+    }
+    if (allDirect.length) return observedResult(direct.length ? direct : allDirect, "개인 치환 조건이 충분하지 않아 이전의 해당 장비 실제 기록을 표시했어요. 오래된 기록이며 현재 수행이나 권장 시작 중량으로 확정하지 않았어요.");
+    if (!transferAllowed) result.reasons.push("예정 순서가 미확인이거나 통증·회복을 먼저 확인해야 하므로 개인 중량 치환은 만들지 않았어요.");
+    result.reasons.push("대상 장비의 조건 맞는 일반 세트나 개인 치환 근거가 부족해 kg를 만들지 않았어요. 같은 동작의 구성·부위 맥락은 이어가고 첫 실제 세션에서 여유 있는 부하를 확인하세요.");
+    result.references = observations.filter(row => family.has(row.exerciseId)).slice(0, 4);
+    return result;
   }
 
   function point(occurrence) {
@@ -185,7 +360,7 @@
     if (!candidates.length) candidates.push(...occurrence.sets.filter(set => set.marker?.toUpperCase() !== "W" && Number.isInteger(set.reps) && set.reps > 0));
     candidates.sort((a, b) => (b.loadKg ?? -1) - (a.loadKg ?? -1) || b.reps - a.reps);
     const set = candidates[0];
-    return { sessionId: occurrence.sessionId, date: occurrence.date, time: occurrence.time, rawName: occurrence.rawName, loadKg: set?.loadKg ?? null, reps: set?.reps ?? null, marker: set?.marker ?? null, rir: finite(set?.rir) ? set.rir : null, setCount: workingCount, equipmentKey: occurrence.equipmentKey, equipmentSource: occurrence.equipmentSource, loadConvention: occurrence.loadConvention, loadConventionSource: occurrence.loadConventionSource, ruleConflict: occurrence.ruleConflict, sourceKind: occurrence.sourceKind, basis: "highest-recorded-load-then-reps" };
+    return { sessionId: occurrence.sessionId, blockId: occurrence.id, date: occurrence.date, time: occurrence.time, rawName: occurrence.rawName, loadKg: set?.loadKg ?? null, reps: set?.reps ?? null, marker: set?.marker ?? null, rir: finite(set?.rir) ? set.rir : null, setCount: workingCount, equipmentKey: occurrence.equipmentKey, equipmentSource: occurrence.equipmentSource, loadConvention: occurrence.loadConvention, loadConventionSource: occurrence.loadConventionSource, ruleConflict: occurrence.ruleConflict, loadRole: occurrence.loadRole, context: occurrence.context || null, sourceKind: occurrence.sourceKind, basis: "highest-recorded-load-then-reps" };
   }
 
   function compare(current, previous) {
@@ -200,6 +375,8 @@
     if (!finite(current.rir) || !finite(previous.rir) || current.rir !== previous.rir) return { status: "incomparable", reason: "RIR이 비어 있거나 달라 같은 노력 수준인지 확인할 수 없어요. 기록 변화는 근력·근성장 판정이 아니에요." };
     if (!finite(current.loadKg) || !finite(previous.loadKg)) return { status: "incomparable", reason: "부하가 확인되지 않아 체중이나 0kg으로 대신 채우지 않았어요." };
     if (current.setCount !== previous.setCount) return { status: "incomparable", reason: "일반 세트 수가 달라 최고 기록 세트를 고르는 조건이 달라요. 세트 수와 대표세트 변화를 따로 확인해 주세요." };
+    if (current.loadRole !== "external" || previous.loadRole !== "external") return { status: "incomparable", reason: "중량이 외부 저항인지 보조 중량인지 확인되지 않았어요. 숫자 증가를 수행 향상으로 판단하지 않았어요." };
+    if (!current.context?.contextKey || !previous.context?.contextKey || current.context.contextKey !== previous.context.contextKey) return { status: "incomparable", reason: "실제 순서·일반 세트 구성·선행 운동 맥락이 확인되지 않았거나 달라요. 원문 변화는 표시하지만 당일 순서와 피로를 근력 저하·디로드 근거로 확정하지 않아요." };
     const load = current.loadKg - previous.loadKg, reps = current.reps - previous.reps;
     if (load !== 0 && reps !== 0) return { status: "mixed", reason: "중량과 반복 수가 함께 달라졌어요. 환산 최대중량이나 kg×반복으로 우열을 정하지 않았어요." };
     const change = load || reps;
@@ -224,7 +401,7 @@
     const coverage = { recordCount: 0, trainingDates: [], daysWithRecords: 0, unknownDays: 28, workingSets: 0, warmupSets: 0, markedSets: 0, unknownEffortSets: 0, unresolvedExercises: 0, excludedRecords: 0, duplicateRecords: 0, invalidSets: 0, legacyOnlySessions: 0 };
     const muscles = Object.entries(muscleLabels).map(([id, label]) => ({ id, label, directSets: 0, indirectSets: 0, unknownEffortSets: 0, markedSets: 0 }));
     const muscleMap = new Map(muscles.map(row => [row.id, row]));
-    const groups = new Map(), sessions = [], seen = new Map(), conflicted = new Set(), sourceSeen = new Set();
+    const groups = new Map(), sessions = [], seen = new Map(), conflicted = new Set();
     const limitations = ["28일 기록의 세트 수이며 최적 볼륨·유효 세트·근성장률이 아니에요. 직접·간접 세트는 더해서 하나의 점수로 만들지 않아요.", "W는 준비 세트로 제외하고 D·A·기타 표시는 의미를 추정하지 않아 일반 세트와 별도로 남겨요.", "미기록 날짜는 휴식일이 아니며, 기록 RIR도 자기보고 추정이에요.", "부위 분류는 대표 동작의 제품 분류예요. 자세·가동범위·개인차와 실제 근육별 기여율을 측정하지 않아요."];
     if (end === null) limitations.push("기준 날짜가 없거나 잘못되어 기간 분석을 만들지 않았어요.");
     for (const row of Array.isArray(records) ? records : []) {
@@ -236,16 +413,23 @@
       } else seen.set(row.id, row);
     }
     for (const id of conflicted) { seen.delete(id); coverage.excludedRecords += 2; }
-    for (const row of [...seen.values()].sort((a, b) => a.date.localeCompare(b.date) || text(a.time).localeCompare(text(b.time)) || a.id.localeCompare(b.id))) {
-      const identity = text(row.source?.hash) ? `${row.source.hash}|${row.date}|${row.time}|${row.label}|${JSON.stringify(row.exercises.map(e => e ? ({ rawName: e.rawName, equipmentKey: e.equipmentKey, loadConvention: e.loadConvention, sets: Array.isArray(e.sets) ? e.sets.map(s => s ? ({ loadKg: s.loadKg, reps: s.reps, marker: s.marker, rir: s.rir }) : null) : null }) : null))}` : null;
-      if (identity && sourceSeen.has(identity)) { coverage.duplicateRecords++; continue; }
-      if (identity) sourceSeen.add(identity);
+    const uniqueSources = distinctSourceRecords([...seen.values()]);
+    coverage.duplicateRecords += uniqueSources.duplicateRecords; coverage.excludedRecords += uniqueSources.conflictedRecords;
+    const dateCounts = new Map();
+    for (const row of uniqueSources.records) dateCounts.set(row.date, (dateCounts.get(row.date) || 0) + 1);
+    for (const row of uniqueSources.records.sort((a, b) => a.date.localeCompare(b.date) || text(a.time).localeCompare(text(b.time)) || a.id.localeCompare(b.id))) {
       const summary = { id: row.id, date: row.date, time: row.time || null, label: text(row.label), durationMinutes: finite(row.durationMinutes) ? row.durationMinutes : null, pain: row.pain || null, effort: finite(row.effort) ? row.effort : null, sourceKind: row.source?.kind || "unknown", totalSets: 0, workingSets: 0, warmupSets: 0, markedSets: 0, unknownEffortSets: 0, unresolvedExercises: 0, exercises: [] };
+      const suppliedContext = options.sessionContexts?.[row.id];
+      const context = suppliedContext?.recordId === row.id && Array.isArray(suppliedContext.blocks) && row.exercises.every(raw => suppliedContext.blocks.some(block => block.blockId === raw?.id)) ? suppliedContext : sessionContext(row, options.mappings);
+      const sameDaySessions = options.sessionRecordCounts?.[row.date] ?? dateCounts.get(row.date) ?? 1;
+      summary.context = { ...context, sameDaySessions };
       if (summary.sourceKind === "legacy-ocr" && !row.exercises.length) coverage.legacyOnlySessions++;
       for (const raw of row.exercises) {
         if (!raw || !Array.isArray(raw.sets)) { coverage.invalidSets++; continue; }
         const described = describeExercise(raw, options.mappings), resolved = described.resolved;
-        const ex = { id: text(raw.id), rawName: text(raw.rawName), exerciseId: resolved?.id || null, label: resolved?.label || text(raw.rawName) || "이름 미확인", equipmentKey: described.equipmentKey, equipmentSource: described.equipmentSource, variantKey: described.variantKey, loadConvention: described.loadConvention, loadConventionSource: described.loadConventionSource, ruleConflict: described.ruleConflict, sets: [], workingSets: 0, markedSets: 0 };
+        const block = context.blocks.find(item => item.blockId === raw.id);
+        const blockContext = block ? { ...block, contextKey: sameDaySessions === 1 ? block.contextKey : null, sameDaySessions, orderConfirmed: context.orderConfirmed, structure: context.structure } : null;
+        const ex = { id: text(raw.id), rawName: text(raw.rawName), exerciseId: resolved?.id || null, label: resolved?.label || text(raw.rawName) || "이름 미확인", equipmentKey: described.equipmentKey, equipmentSource: described.equipmentSource, variantKey: described.variantKey, loadConvention: described.loadConvention, loadConventionSource: described.loadConventionSource, ruleConflict: described.ruleConflict, loadRole: described.loadRole, context: blockContext, sets: [], workingSets: 0, markedSets: 0 };
         if (!resolved) { summary.unresolvedExercises++; coverage.unresolvedExercises++; }
         const setIds = new Set();
         for (const rawSet of raw.sets) {
@@ -272,11 +456,9 @@
         summary.exercises.push(ex);
         if (ex.sets.length) {
           const identity = resolved?.id || `unresolved:${normalize(raw.rawName)}`;
-          const key = JSON.stringify([identity, ex.equipmentKey || "unconfirmed:" + normalize(raw.rawName), ex.loadConvention, ex.variantKey]);
+          const key = JSON.stringify([identity, ex.equipmentKey || "unconfirmed:" + normalize(raw.rawName), ex.loadConvention, ex.variantKey, ex.loadRole, block?.contextKey || `unknown-position:${block?.displayPosition || 0}`]);
           if (!groups.has(key)) groups.set(key, []);
-          const last = groups.get(key).at(-1);
-          if (last?.sessionId === summary.id) last.sets.push(...ex.sets);
-          else groups.get(key).push({ ...ex, sets: [...ex.sets], sessionId: summary.id, date: row.date, time: row.time || null, sourceKind: summary.sourceKind });
+          groups.get(key).push({ ...ex, sets: [...ex.sets], sessionId: summary.id, date: row.date, time: row.time || null, sourceKind: summary.sourceKind });
         }
       }
       sessions.push(summary);
@@ -298,7 +480,7 @@
       progression.push({ exerciseId: occurrences.at(-1).exerciseId, label: occurrences.at(-1).label, equipmentKey: current.equipmentKey, current, previous, ...judgment, repeatedDecline: repeated, observed: { current, previous, description: `${previous ? formatPoint(previous) + " → " : "현재 기록 "}${formatPoint(current)}. 표시된 세트의 관찰값이며 근성장률이 아니에요.` } });
     }
     const checkins = checkinRows(options.checkins, windowEnd).filter(row => { const n = dateNumber(row.date); return n !== null && end !== null && n <= end && n >= end - 6 * DAY; });
-    const painReports = [...sessions, ...checkins].filter(row => ["none", "mild", "stop"].includes(row.pain)).sort((a, b) => a.date.localeCompare(b.date) || ({ none: 0, mild: 1, stop: 2 }[a.pain] - { none: 0, mild: 1, stop: 2 }[b.pain]));
+    const painReports = [...seen.values(), ...checkins].filter(row => ["none", "mild", "stop"].includes(row.pain)).sort((a, b) => a.date.localeCompare(b.date) || ({ none: 0, mild: 1, stop: 2 }[a.pain] - { none: 0, mild: 1, stop: 2 }[b.pain]));
     const pain = painReports.at(-1)?.pain || null;
     const selfReportSignals = [...new Set(checkins.flatMap(row => [row.energy === "low" ? "낮은 컨디션" : null, row.sleep === "poor" ? "좋지 않은 수면" : null, row.hunger === "high" ? "강한 허기" : null, row.performance === "down" ? "자기보고 수행 저하" : null].filter(Boolean)))];
     const clinical = options.profile?.healthContext && options.profile.healthContext !== "general";
@@ -316,6 +498,7 @@
     if (coverage.unresolvedExercises) limitations.push("이름을 확인하지 못한 운동은 원문과 세트를 보존했지만 부위별 수치에는 임의 배분하지 않았어요.");
     if (coverage.legacyOnlySessions) limitations.push("세부 운동이 없는 과거 OCR 요약의 전체 세트 수를 부위별 세트로 나누지 않았어요.");
     if (conflicted.size) limitations.push("같은 기록 ID에 서로 다른 내용이 있어 충돌한 기록은 집계에서 제외했어요.");
+    if (uniqueSources.conflictedRecords) limitations.push("같은 이미지 관찰의 장비·수행 순서 해석이 서로 달라 충돌한 기록은 집계에서 제외했어요.");
     return { version: VERSION, windowStart, windowEnd, coverage, muscles, sessions, lastSession: sessions.at(-1) || null, progression, recovery, limitations };
   }
 
@@ -416,20 +599,29 @@
     if (record.date !== assignment.date) return { status: "review", rows: [], restVerified: false, message: "계획과 연결한 일지의 날짜가 달라 수행을 비교하지 않았어요." };
     const described = record.exercises.map(row => ({ ...row, description: describeExercise(row, mappings) }));
     const confirmedEquipment = row => ["record", "mapping"].includes(row.description.equipmentSource);
+    const usedSets = new Set(), usedSetIds = new Set();
     const rows = assignment.prescription.exercises.map(target => {
       const exercises = described.filter(row => (row.description.resolved?.id || row.exerciseId) === target.exerciseId
         && (target.equipmentKey === null || !confirmedEquipment(row) || row.description.equipmentKey === target.equipmentKey));
       const identities = new Set(exercises.map(row => JSON.stringify([row.description.equipmentKey, row.description.loadConvention, row.description.variantKey])));
-      const uncertainMatch = identities.size > 1 || target.equipmentKey !== null && exercises.some(row => !confirmedEquipment(row));
-      const sets = exercises.flatMap(row => row.sets.filter(set => set.marker === null));
+      const repeatedTarget = assignment.prescription.exercises.filter(row => row.exerciseId === target.exerciseId && (row.equipmentKey === null || target.equipmentKey === null || row.equipmentKey === target.equipmentKey)).length > 1;
+      const uncertainMatch = identities.size > 1 || target.equipmentKey !== null && exercises.some(row => !confirmedEquipment(row))
+        || repeatedTarget && (record.sequence?.order !== "listed" || record.sequence?.structure !== "straight");
+      const availableSetIds = new Set();
+      const sets = exercises.flatMap(row => row.sets.filter(set => {
+        if (set.marker !== null || usedSets.has(set) || text(set.id) && (usedSetIds.has(set.id) || availableSetIds.has(set.id))) return false;
+        if (text(set.id)) availableSetIds.add(set.id);
+        return true;
+      }));
       const observed = sets.slice(0, target.sets), complete = observed.length === target.sets;
+      observed.forEach(set => { usedSets.add(set); if (text(set.id)) usedSetIds.add(set.id); });
       const knownReps = complete && !uncertainMatch && observed.every(set => finite(set.reps));
       const knownRir = complete && !uncertainMatch && observed.every(set => finite(set.rir));
       const repRangeMet = knownReps ? observed.every(set => set.reps >= target.repsMin && set.reps <= target.repsMax) : null;
       const rirMet = knownRir ? observed.every(set => set.rir >= target.rir) : null;
       const comparableLoad = !uncertainMatch && target.equipmentKey !== null && target.loadConvention !== "as-recorded" && exercises.length > 0
         && exercises.every(row => confirmedEquipment(row)
-          && row.description.equipmentKey === target.equipmentKey && row.description.loadConvention === target.loadConvention);
+          && row.description.equipmentKey === target.equipmentKey && row.description.loadConvention === target.loadConvention && row.description.loadRole === "external");
       const loadMet = target.loadKg !== null && comparableLoad && complete && observed.every(set => finite(set.loadKg)) ? observed.every(set => set.loadKg === target.loadKg) : null;
       const unknown = repRangeMet === null || rirMet === null || target.loadKg !== null && loadMet === null;
       return { id: target.id, exerciseId: target.exerciseId, label: target.label, plannedSets: target.sets, recordedSets: sets.length,
@@ -459,5 +651,5 @@
     return next;
   }
 
-  return Object.freeze({ VERSION, catalog, muscleLabels, parseExerciseName, describeExercise, resolveExercise, analyze, recommendProgram, createProgram, createAssignment, evaluateAssignment, adjustAssignment });
+  return Object.freeze({ VERSION, catalog, muscleLabels, movementFamilies, relatedExerciseIds, parseExerciseName, describeExercise, resolveExercise, sessionContext, startingReference, analyze, recommendProgram, createProgram, createAssignment, evaluateAssignment, adjustAssignment });
 });

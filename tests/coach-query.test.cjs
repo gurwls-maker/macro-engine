@@ -228,3 +228,52 @@ test("actual applied choices and last review are recalled as plans, while undo r
   const revoked = summarizeState(undone, "2026-10-06", "지난번 선택은 복구했지?");
   assert.equal(revoked.recall.actions.length, 0); assert.equal(revoked.recall.actionStatus[0].status, "undone");
 });
+
+test("exercise-only lookup derives preceding work from the original whole session, not its filtered subset", () => {
+  const value = state(), row = record("2026-10-06", "whole-session", "레그 익스텐션", 2);
+  row.sequence = { order: "listed", structure: "straight" };
+  row.exercises.push(record(row.date, "prior-chest", "머신 체스트 프레스", 3).exercises[0], record(row.date, "target-bench", "바벨 벤치 프레스", 1).exercises[0]);
+  value.training.records = [row];
+  const before = structuredClone(value), result = Q.retrieve(value, row.date, "오늘 바벨 벤치 프레스 기록");
+  const selected = result.periods[0], detail = selected.details.workouts[0], context = detail.sessionContext;
+  assert.equal(selected.training.coverage.workingSets, 1);
+  assert.equal(detail.originalExerciseCount, 3); assert.equal(detail.originalSetCount, 6);
+  assert.equal(detail.matchedExerciseCount, 1); assert.equal(detail.matchedSetCount, 1);
+  assert.equal(detail.exercises[0].sourceExercisePosition, 3);
+  assert.equal(context.wholeSession.workingSets, 6);
+  assert.equal(context.blocks.length, 1); assert.equal(context.orderConfirmed, true);
+  assert.equal(context.blocks[0].executionPosition, 3);
+  assert.equal(context.blocks[0].preceding.workingSets, 5);
+  assert.equal(context.blocks[0].preceding.relatedSets, 3);
+  assert.equal(context.blocks[0].preceding.sameExerciseSets, 0);
+  assert.deepEqual(value, before, "context must not persist into raw records");
+});
+
+test("A-B-A blocks remain distinct in query context and related movement references never enlarge exact aggregates", () => {
+  const value = state(), row = record("2026-10-06", "return-to-a", "바벨 벤치 프레스", 1);
+  row.sequence = { order: "listed", structure: "straight" };
+  row.exercises.push(record(row.date, "machine-b", "머신 체스트 프레스", 2).exercises[0], record(row.date, "bench-a-again", "바벨 벤치 프레스", 3).exercises[0]);
+  value.training.records = [row, record("2026-10-05", "incline-excluded", "덤벨 인클라인 벤치 프레스", 8)];
+  const selected = Q.retrieve(value, row.date, "최근 7일 바벨 벤치 프레스 기록").periods[0];
+  assert.equal(selected.training.coverage.workingSets, 4);
+  const blocks = selected.details.workouts[0].sessionContext.blocks;
+  assert.deepEqual(blocks.map(block => block.displayPosition), [1, 3]);
+  assert.equal(blocks[1].preceding.sameExerciseSets, 1);
+  assert.equal(blocks[1].preceding.workingSets, 3);
+  assert.deepEqual(new Set(selected.relatedContext.exerciseIds), new Set(["dumbbell_bench_press", "machine_chest_press"]));
+  assert.equal(selected.relatedContext.coverage.workingSets, 2);
+  assert.equal(selected.relatedContext.records[0].exercises[0].exerciseId, "machine_chest_press");
+  assert.match(selected.relatedContext.interpretation, /집계에 더하지/);
+});
+
+test("old diaries keep execution order and preceding work unknown, even after question filtering", () => {
+  const value = state(), row = record("2026-10-06", "old-unconfirmed", "머신 체스트 프레스", 3);
+  row.exercises.push(record(row.date, "old-target", "바벨 벤치 프레스", 1).exercises[0]); value.training.records = [row];
+  const context = Q.retrieve(value, row.date, "오늘 바벨 벤치 프레스 기록").periods[0].details.workouts[0].sessionContext;
+  assert.equal(context.orderConfirmed, false);
+  assert.equal(context.blocks[0].displayPosition, 2);
+  assert.equal(context.blocks[0].executionPosition, null);
+  assert.ok(Object.values(context.blocks[0].preceding).every(value => value === null));
+  assert.equal(context.blocks[0].contextKey, null);
+  assert.equal(context.wholeSession.workingSets, 4);
+});

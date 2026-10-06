@@ -53,8 +53,9 @@ async function noHorizontalOverflow(page, label) {
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     await page.goto(url);
-    assert.equal(await page.locator('#view-profile').isVisible(), true);
+    assert.equal(await page.locator('#view-today').isVisible(), true, 'recording can start without a nutrition profile');
     assert.equal(await appState(page), null, 'fresh page must not save an invented profile');
+    await page.locator('[data-view="profile"]').click();
     await page.screenshot({ path: path.join(artifacts, 'desktop-profile.png'), fullPage: true });
     await page.locator('#profileForm [name="age"]').fill('34');
     await page.locator('[data-view="coach"]').click();
