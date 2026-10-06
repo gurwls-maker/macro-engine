@@ -46,6 +46,8 @@
   const coachActionsUI = window.MacroCoachActionsUI?.create({ getState: () => state, getDate: () => selectedDate,
     getDay: day, save, render, selectView, escape, fmt, icon, command, iconButton, id, field, actions,
     openDialog, closeDialog, toast, emptyDay });
+  const diaryUI = window.MacroDiaryUI.create({ bridge: trainingUI.bridge, setupDialog: trainingUI.setupDialog,
+    onScan: result => trainingUI.onDiaryScan(result), escape, command, iconButton, openDialog, closeDialog, toast, icons });
   function emptyDay(date = selectedDate) { return { date, weightKg: null, bodyFatPct: null, skeletalMuscleKg: null, bodyFatMethod: 'unknown', carbAdjustmentG: 0, meals: [], sessions: [], complete: false, planSnapshot: null }; }
   function day() { return state.days[selectedDate] || emptyDay(); }
   function effectiveProfile(date = selectedDate) {
@@ -107,7 +109,7 @@
     if (view === 'coach') renderCoach();
     if (view === 'training') trainingUI.render();
     if (view === 'trends') drawChart();
-    $('headerActions').innerHTML = view !== 'profile' ? iconButton('nav-profile', '내 기준', 'sliders-horizontal') : '';
+    $('headerActions').innerHTML = iconButton('connection-setup', '실행·Codex 연결 설정', 'plug') + (view !== 'profile' ? iconButton('nav-profile', '내 기준', 'sliders-horizontal') : '');
     $('sidebarContext').innerHTML = state.profile ? `<span>나의 방향</span><strong>${goalNames[state.profile.goal]}</strong><small>${sportNames[state.profile.sport]} · ${state.profile.trainingYears == null ? '경력 미입력' : `${fmt(state.profile.trainingYears, 1)}년`}</small>` : '<span>나의 방향</span><strong>내 몸에서 시작하기</strong><small>목표와 일상을 함께 살펴봐요.</small>';
     if (focus) { $('pageTitle').tabIndex = -1; $('pageTitle').focus({ preventScroll: true }); window.scrollTo({ top: 0 }); }
     icons();
@@ -159,7 +161,7 @@
     const frozen = current.complete;
     const scope = state.trackingScope || 'auto';
     const entries = frozen ? `${scope !== 'nutrition' ? command('nav-training', '운동 일지', 'dumbbell') : ''}${command('reopen', '기록 다시 열기', 'pencil')}` : `${scope !== 'nutrition' ? command('training-add', '운동 직접 기록', 'dumbbell') : ''}${scope !== 'training' ? command('meal-add', '식사 추가', 'utensils') + command('meal-templates', '자주 먹는 식사', 'bookmark') : ''}`;
-    return `<section class="daily-quick-records" aria-labelledby="dailyQuickRecordsTitle"><div class="section-header"><h2 id="dailyQuickRecordsTitle">빠르게 기록</h2>${frozen ? '<span class="muted">완료한 기록은 다시 열어 수정</span>' : ''}</div><div class="daily-quick-actions">${command('training-image', '사진 추가', 'image-plus', '', true)}${entries}</div></section>`;
+    return `<section class="daily-quick-records" aria-labelledby="dailyQuickRecordsTitle"><div class="section-header"><h2 id="dailyQuickRecordsTitle">빠르게 기록</h2>${frozen ? '<span class="muted">완료한 기록은 다시 열어 수정</span>' : ''}</div><div class="daily-quick-actions">${entries}${command('training-image', '사진 추가', 'image-plus')}</div></section>`;
   }
   function dailyConditionHTML(current) {
     const checkin = current.coachCheckin;
@@ -182,6 +184,10 @@
     const first = coach.priorities[0];
     $('coachContent').innerHTML = `<div class="coaching-grid"><div class="coaching-main">${trainingUI.chatHTML()}<section class="coach-record-summary" aria-labelledby="coachRecordSummaryTitle"><div class="coach-session-meta"><span class="coach-label">${icon('notebook-pen')}<strong id="coachRecordSummaryTitle">기록 요약</strong></span><span>${selectedDate} · ${current.complete ? '저장 당시 기준' : '기록 중'}</span></div><section class="coach-brief"><span class="eyebrow">앱 계산 · 기록된 상태 기준</span><h2>${escape(coach.headline)}</h2><p>${escape(coach.summary)}</p></section>${first ? `<section class="coach-priority ${first.tone === 'attention' ? 'coach-attention' : ''}"><div class="coach-priority-heading"><span class="priority-number">01</span><h3>${escape(first.title)}</h3></div><p>${escape(first.body)}</p>${coachAction(first, true)}</section>` : ''}<section class="coach-checkin"><div class="section-header"><h2>오늘 몸은 어때요?</h2>${!current.complete ? command('coach-checkin', checkin ? '상태 수정' : '컨디션 체크', 'heart-pulse') : ''}</div><div class="checkin-summary">${['energy', 'hunger', 'sleep'].map((key, index) => `<div><span>${['에너지', '허기', '수면'][index]}</span><strong>${labels[key][checkin?.[key]] || '아직 모름'}</strong></div>`).join('')}</div>${!checkin ? '<p class="form-help">기록된 섭취량만으로 허기나 회복 상태를 알 수는 없어요.</p>' : ''}</section><section class="coach-conversation"><div class="section-header"><h2>기록에서 확인할 항목</h2></div><div class="coach-topics" aria-label="기록 요약 항목">${coach.questions.map(item => `<button type="button" data-action="coach-question" data-question="${escape(item.id)}" aria-pressed="${item.id === coachQuestion}">${escape(item.label)}${icon('arrow-up-right')}</button>`).join('')}</div>${selected ? `<div id="coachAnswer" class="coach-answer" role="region" tabindex="-1" aria-label="${escape(selected.label)}"><span class="eyebrow">현재 기록 · 앱 계산 기준</span><h3>${escape(selected.label)}</h3><p>${escape(selected.answer)}</p>${coachAction(selected)}</div>` : ''}</section>${coach.priorities.length > 1 ? `<section class="coach-supporting"><h2>그다음에 확인할 것</h2>${coach.priorities.slice(1).map(item => `<details><summary>${escape(item.title)}</summary><p>${escape(item.body)}</p>${coachAction(item)}</details>`).join('')}</section>` : ''}</section></div><aside class="coach-context"><span class="eyebrow">선택한 날짜의 기록</span><h2>내 기록에서 시작해요</h2><dl><div><dt>목표</dt><dd>${goalNames[plan.context?.goal || state.profile?.goal] || '아직 모름'}</dd></div><div><dt>목표에 반영한 운동 시간</dt><dd>${current.sessions.length ? current.sessions.map(item => `${sportNames[item.sport]} ${fmt(item.durationMin)}분`).join(' · ') : '연결한 시간 없음 · 세트 일지는 별도'}</dd></div><div><dt>식사</dt><dd>${current.meals.length}개 · ${fmt(I.mealTotals(current.meals).kcal)}kcal</dd></div><div><dt>하루 상태</dt><dd>${current.complete ? '완료 · 저장 당시 목표' : '진행 중 · 하루 평가 전'}</dd></div></dl><p class="form-help">입력한 정보와 앱 계산을 요약합니다. 통증·질환의 진단, 운동 자세 평가, 음식의 질과 미량영양소는 이 기록만으로 판단할 수 없어요.</p>${command('nav-trends', '최근 변화 보기', 'chart-line')}${command('nav-profile', '내 기준 살펴보기', 'sliders-horizontal')}</aside></div>`;
     $('coachContent').querySelector('.personal-conversation')?.insertAdjacentHTML('beforeend', trainingUI.memoryHTML());
+    if (!trainingUI.canAskAI()) {
+      const conversation = $('coachContent').querySelector('.personal-conversation');
+      if (conversation) $('coachContent').querySelector('.coach-record-summary .coach-brief')?.after(conversation);
+    }
     $('coachContent').querySelector('.coach-context')?.insertAdjacentHTML('beforeend', trainingUI.coachContextHTML());
     $('coachContent').querySelector('.coaching-main')?.insertAdjacentHTML('beforeend', coachActionsUI?.renderHTML() || '');
     if (!current.meals.length) {
@@ -689,6 +695,7 @@
     if (current.complete && edits.includes(action)) { toast('완료한 기록은 먼저 기록 수정을 눌러 주세요.'); return; }
     try {
       if (coachActionsUI && await coachActionsUI.handleAction(action, button)) return;
+      if (await diaryUI.handleAction(button)) return;
       if (await trainingUI.handleAction(button)) return;
       if (action === 'go-profile' || action === 'nav-profile') selectView('profile');
       else if (action === 'tracking-scope') { selectView('today'); $('trackingScope')?.focus(); }

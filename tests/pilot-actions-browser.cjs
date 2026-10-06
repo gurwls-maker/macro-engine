@@ -59,7 +59,7 @@ async function overflow(page, label) {
     assert.equal(await state(freshPage), null, 'fresh app must not save a fabricated profile or training workspace');
     await coach(freshPage);
     for (const kind of ['program', 'schedule', 'allocation', 'burden']) assert.equal(await freshPage.locator(`#coachActionLoop [data-action="coach-action-create-${kind}"]`).isDisabled(), true);
-    assert.equal(await freshPage.locator('#coachChatInput').isDisabled(), true);
+    assert.equal(await freshPage.locator('#coachChatInput').count(), 0);
     assert.equal(await state(freshPage), null); await overflow(freshPage, 'fresh empty actions');
     await fresh.close();
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });

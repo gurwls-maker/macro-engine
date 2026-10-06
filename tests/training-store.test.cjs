@@ -25,6 +25,14 @@ function context(overrides = {}) {
     archivedSessions: [], damaged: [], possibleDuplicates: [], ...overrides };
 }
 function record() { return Training.fromDiaryContext(context()).records[0]; }
+test("an unscanned source path is unknown, not an observed missing original", () => {
+  const value = context({ sourceAvailabilityAsOf: null }); value.sessions[0].sourceAvailable = false;
+  const result = Training.fromDiaryContext(value).records[0];
+  assert.ok(result.source.uncertainties.some(line => /원본 접근 여부는 미확인/.test(line)));
+  assert.equal(result.source.uncertainties.some(line => /찾지 못했/.test(line)), false);
+  value.sourceAvailabilityAsOf = "2026-01-06T00:00:00.000Z";
+  assert.ok(Training.fromDiaryContext(value).records[0].source.uncertainties.some(line => /찾지 못했/.test(line)));
+});
 function workspace() { const value = Training.createEmpty(); value.records = [record()]; return value; }
 function message(id = "question", overrides = {}) {
   return { id, role: "user", text: "어떤 기록이 필요한가요?", createdAt: "2026-01-05T12:00:00.000Z", source: "local", replyTo: null, contextDigest: null, status: "pending", ...overrides };

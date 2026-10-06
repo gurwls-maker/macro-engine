@@ -19,6 +19,15 @@
       catch { status = { connected: false, runtime: { available: false }, inbox: [] }; }
       notify(); return status;
     }
+    async function checkRuntime() {
+      const previous = status;
+      const current = await request('/api/bridge/status');
+      status = { ...current, ...(previous?.syncError ? { syncError: previous.syncError } : {}) };
+      notify();
+      const result = await request('/api/runtime/check', {});
+      status.runtime = result.runtime;
+      notify(); return result.runtime;
+    }
     async function attach(state, expectedDigest) {
       const result = await request('/api/state', { state, expectedDigest });
       digest = result.digest; enabled = true; remember(true); if (status) { status.storageError = null; status.syncError = null; } notify(); return result;
@@ -35,7 +44,7 @@
     }
     return {
       get status() { return status; }, get enabled() { return enabled; }, get digest() { return digest; },
-      refresh, request, attach,
+      refresh, checkRuntime, request, attach,
       async resume(state) {
         let remembered = false; try { remembered = localStorage.getItem(CONNECTION_KEY) === 'connected'; } catch {}
         if (!remembered || !status?.stored || status.storageError || !crypto.subtle) return false;

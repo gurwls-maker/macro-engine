@@ -14,9 +14,58 @@
     const intakeQueueKey = `${S.STORAGE_KEY}.image-queue`;
     let intakeQueue = [], intakeQueuePaused = true, intakeQueueError = null, queuePumping = false, imageUploads = [], imageUploadBusy = false;
     let chatScrollTop = 0, lastChatMessage = null, chatNearBottom = true, chatScrollToLatest = false;
+    let setupChecking = false, setupNotice = '';
+    const aiPreferenceKey = 'macro-engine.codex-use';
+    let aiEnabled = true;
+    try { aiEnabled = localStorage.getItem(aiPreferenceKey) !== 'disabled'; } catch {}
     let analyzedState = null, analyzedDate = null, cachedAnalysis = null, cachedProgram = null, cachedProgramDate = null;
     const bridge = root.MacroBridge.create(() => app.render());
-    function canAskAI() { return bridge.status?.connected === true && bridge.status.runtime?.available === true; }
+    function canAskAI() {
+      const runtime = bridge.status?.runtime;
+      return aiEnabled && bridge.status?.connected === true && runtime?.available === true
+        && !['missing-binary', 'login-required', 'check-failed'].includes(runtime.readiness) && runtime.auth?.status !== 'signed-out';
+    }
+    function aiUsageNote() {
+      return bridge.status?.runtime?.auth?.method === 'api-key' ? 'API 키 인증을 사용합니다.' : '사용량은 현재 Codex 인증과 계정 설정을 따릅니다.';
+    }
+    function connectionState() {
+      if (!aiEnabled) return { kind: 'disabled', title: 'Codex 사용을 꺼두었어요', detail: '직접 기록과 기록 요약을 사용합니다. 서버로 실행하면 사진도 보관할 수 있어요. 다시 켜기 전에는 새 상담이나 사진 판독을 요청하지 않으며, 진행 중인 요청과 기존 자료는 그대로 둡니다.' };
+      if (location.protocol === 'file:') return { kind: 'file', title: '파일로 열려 있어요', detail: '직접 기록과 계산은 지금 사용할 수 있어요. 사진 보관과 Codex 상담은 이 컴퓨터에서 앱 서버를 실행한 뒤 연결합니다.' };
+      if (location.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(location.hostname)) return { kind: 'remote', title: '로컬 앱 주소에서 연결해 주세요', detail: 'Codex와 사진 폴더는 이 컴퓨터의 로컬 서버에 연결합니다. 다른 컴퓨터의 localhost 주소는 이 컴퓨터에 연결되지 않아요.' };
+      if (!bridge.status?.connected) return { kind: 'server', title: '앱 서버를 확인해 주세요', detail: '이 주소에서 로컬 서버에 연결하지 못했어요. 프로젝트 폴더에서 앱을 실행하고 터미널에 표시된 주소를 열어 주세요. 브라우저 기록은 유지됩니다.' };
+      const runtime = bridge.status.runtime || {};
+      if (runtime.readiness === 'missing-binary' || runtime.available !== true) return { kind: 'missing-binary', title: 'Codex 설치가 필요해요', detail: '앱 서버와 사진 보관은 연결됐어요. 자유 상담과 사진 숫자 판독에는 이 컴퓨터에 Codex CLI를 설치해야 합니다.' };
+      if (runtime.readiness === 'login-required' || runtime.auth?.status === 'signed-out') return { kind: 'login-required', title: 'Codex 로그인이 필요해요', detail: 'Codex 실행 파일은 찾았지만 로그인되지 않았어요. 이 컴퓨터의 터미널에서 로그인한 뒤 설치·로그인을 다시 확인해 주세요.' };
+      if (runtime.readiness === 'check-failed') return { kind: 'check-failed', title: '로그인 상태를 확인하지 못했어요', detail: '설치 확인과 로그인 응답을 끝내지 못했어요. 터미널에서 Codex 로그인 상태를 확인해 주세요. 직접 기록과 사진 보관은 계속 사용할 수 있습니다.' };
+      if (runtime.readiness === 'ready') return { kind: 'ready', title: 'Codex 설치·로그인 확인됨', detail: '이 컴퓨터의 설치와 로그인 상태를 확인했어요. 계정 한도나 개별 요청 오류 때문에 실제 상담이 실패할 수 있으며, 질문과 사진은 사용자가 요청할 때만 전송합니다.' };
+      return { kind: 'unchecked', title: 'Codex 로그인 상태는 아직 미확인', detail: 'Codex 실행 파일은 찾았어요. 설치·로그인 확인은 AI 상담을 시작하지 않고, 기록이나 사진도 보내지 않습니다.' };
+    }
+    function connectionCommand(label, value) {
+      return `<div class="connection-command"><span>${e(label)}</span><code>${e(value)}</code>${iconButton('connection-copy-command', `${e(label)} 명령 복사`, 'copy', `data-command="${e(value)}"`)}</div>`;
+    }
+    function setupHTML() {
+      const state = connectionState(), runtime = bridge.status?.runtime;
+      const local = bridge.status?.connected === true && location.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(location.hostname);
+      const checked = runtime?.checkedAt && Number.isFinite(Date.parse(runtime.checkedAt)) ? new Date(runtime.checkedAt).toLocaleString('ko-KR') : null;
+      return `<section class="connection-setup-panel">
+        <label class="checkbox-field"><input id="codexUseEnabled" type="checkbox" ${aiEnabled ? 'checked' : ''}>Codex 상담·사진 판독 사용</label>
+        <p class="form-help">끄면 새 AI 요청만 중지해요. 진행 중인 요청·기록·사진·대화는 삭제하거나 취소하지 않습니다.</p>
+        <div class="connection-setup-status" role="status"><strong>${e(state.title)}</strong><p>${e(state.detail)}</p>${checked ? `<small>마지막 확인 ${e(checked)}</small>` : ''}${setupNotice ? `<p>${e(setupNotice)}</p>` : ''}</div>
+        <div class="form-actions">${local ? command('connection-check', setupChecking || runtime?.checking ? '설치·로그인 확인 중' : '설치·로그인 확인', 'refresh-cw', setupChecking || runtime?.checking ? 'disabled' : '', true) : command('connection-refresh', '앱 서버 다시 확인', 'refresh-cw', location.protocol !== 'http:' || !['localhost', '127.0.0.1'].includes(location.hostname) ? 'disabled' : '')}</div>
+        ${!local ? `<section><h3>앱 실행</h3><p>프로젝트 폴더의 <strong>Macro Engine.cmd</strong>를 더블클릭하면 서버와 브라우저가 열립니다. Node.js는 필요하며 Codex 연결은 선택 사항입니다.</p><details class="source-details"><summary>터미널 실행 대안</summary>${connectionCommand('처음 개발 설치', 'npm ci')}${connectionCommand('앱 시작', 'npm start')}</details><p>파일 주소와 서버 주소는 브라우저 기록이 서로 달라요. 기존 기록은 전체 백업 또는 PC 기록 미리보기로 확인한 뒤 복원합니다.</p></section>` : ''}
+        <section><h3>Codex 연결 · 선택</h3>${connectionCommand('Codex CLI 설치', 'npm install -g @openai/codex')}${connectionCommand('계정 로그인', 'codex login')}<p><a href="https://learn.chatgpt.com/docs/cli" target="_blank" rel="noopener noreferrer">공식 CLI 설치 안내</a> · <a href="https://learn.chatgpt.com/docs/auth" target="_blank" rel="noopener noreferrer">공식 로그인 안내</a></p></section>
+        <p class="form-help">설치·로그인 확인은 사진이나 기록을 보내지 않고 AI 상담을 시작하지 않아요. 설치나 로그인을 자동 실행하지 않습니다. PC 파일 저장에는 숫자 기록·프로필·계획·대화가 포함되며 원본 사진은 변경하지 않습니다.</p>
+        <div class="form-actions">${command('diary-folder', '사진 폴더 설정', 'folder-cog')}${command('training-add', '운동 직접 기록', 'dumbbell')}${command(app.getDay()?.complete ? 'reopen' : 'meal-add', app.getDay()?.complete ? '완료 기록 다시 열기' : '식사 직접 기록', app.getDay()?.complete ? 'pencil' : 'utensils')}${command('dialog-close', '닫기', 'x')}</div>
+      </section>`;
+    }
+    function setupDialog() {
+      setupNotice = '';
+      openDialog('앱·Codex 연결 설정', `<div id="connectionSetupContent">${setupHTML()}</div>`, () => closeDialog());
+    }
+    function refreshSetup() {
+      if (!$('entryDialog')?.open || !$('connectionSetupContent')) return;
+      $('connectionSetupContent').innerHTML = setupHTML(); app.icons();
+    }
     function workspace() { return app.getState().training || TS.createEmpty(); }
     function planning(value = workspace()) { return value.planning || TS.createEmpty().planning; }
     function actionLinkedFollowUp(row) { return (workspace().actions || []).some(action => action.status === 'applied' && row.id.startsWith(`${action.id}:followup:`)); }
@@ -72,17 +121,18 @@
     }
     function connectionPanel() {
       const status = bridge.status;
-      if (!status?.connected) return `<div class="connection-note">${icon('hard-drive')}<div><strong>기기 기록 모드</strong><span>개인 코치 연결 주소: http://127.0.0.1:4173</span></div>${location.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(location.hostname) ? command('bridge-refresh', '서버 다시 확인', 'refresh-cw') : ''}</div>`;
+      const settings = command('connection-setup', '앱·Codex 연결 설정', 'settings-2'), folder = command('diary-folder', '사진 폴더 설정', 'folder-cog');
+      if (!status?.connected) return `<div class="connection-note">${icon('hard-drive')}<div><strong>브라우저 기록 모드</strong><span>직접 기록은 이 브라우저에 저장돼요. 사진 보관·Codex 연결은 앱 서버가 필요합니다.</span></div>${settings}${folder}</div>`;
       const error = status.storageError || status.syncError;
-      if (status.syncError && !status.storageError && !bridge.enabled) return `<div class="connection-note connection-error">${icon('shield-alert')}<div><strong>PC 연결 확인 필요</strong><span>${e(status.syncError)} 브라우저 기록은 유지됩니다.</span></div>${command('bridge-connect', '기록 다시 확인', 'refresh-cw')}</div>`;
-      return `<div class="connection-note ${error ? 'connection-error' : ''}">${icon(error ? 'shield-alert' : bridge.enabled ? 'circle-check' : 'link')}<div><strong>${error ? 'PC 원본 보호 중' : bridge.enabled ? '이 브라우저와 PC 기록 연결됨' : 'PC 기록 연결 대기'}</strong><span>${e(error || (bridge.enabled ? '변경은 이 PC의 개인 기록 폴더에도 저장됩니다.' : status.stored ? `PC에 ${status.stored.days}일 · 운동 ${status.stored.workouts}개가 있어요. 먼저 확인해 주세요.` : '기존 브라우저 기록을 확인한 뒤 연결해 주세요.'))}</span></div>${!bridge.enabled && !error ? command('bridge-connect', status.stored ? '기록 확인' : '현재 기록 연결', 'link') : ''}</div>`;
+      if (status.syncError && !status.storageError && !bridge.enabled) return `<div class="connection-note connection-error">${icon('shield-alert')}<div><strong>PC 기록 저장 확인 필요</strong><span>${e(status.syncError)} 브라우저 기록과 원본 사진은 유지됩니다.</span></div>${command('bridge-connect', '기록 다시 확인', 'refresh-cw')}${settings}${folder}</div>`;
+      return `<div class="connection-note ${error ? 'connection-error' : ''}">${icon(error ? 'shield-alert' : bridge.enabled ? 'circle-check' : 'link')}<div><strong>${error ? 'PC 앱 기록 보호 중' : bridge.enabled ? '앱 기록을 PC 파일에도 저장 중' : 'PC 파일 저장은 선택 사항'}</strong><span>${e(error || (bridge.enabled ? '앱의 숫자 기록·대화·설정을 저장합니다. 원본 사진은 변경하지 않아요.' : status.stored ? `PC에 ${status.stored.days}일 · 운동 ${status.stored.workouts}개가 있어요. 두 기록을 미리보고 선택합니다. 원본 사진은 변경하지 않아요.` : '직접 기록은 지금도 가능합니다. PC 파일에도 저장하려면 현재 기록을 확인한 뒤 연결하세요. 원본 사진은 변경하지 않아요.'))}</span></div>${!bridge.enabled && !error ? command('bridge-connect', status.stored ? 'PC 기록 확인' : '현재 기록을 PC에도 저장', 'link') : ''}${settings}${folder}</div>`;
     }
     function render() {
       const data = workspace(), report = analysis();
       const rows = data.records.filter(record => !filter || `${record.label} ${record.date} ${record.exercises.map(exercise => exercise.rawName).join(' ')}`.toLowerCase().includes(filter.toLowerCase())).sort((a, b) => b.date.localeCompare(a.date) || (b.time || '').localeCompare(a.time || ''));
       if (!rows.some(record => record.id === chosen)) chosen = rows[0]?.id || null;
       const record = rows.find(item => item.id === chosen);
-      $('trainingContent').innerHTML = `<div class="training-toolbar"><div class="segmented" role="group" aria-label="운동 보기">${[['log', '일지'], ['analysis', '분석'], ['program', '프로그램']].map(([value, label]) => `<button type="button" data-action="training-tab" data-tab="${value}" aria-pressed="${tab === value}">${label}</button>`).join('')}</div><div class="toolbar-actions">${command('training-image', '이미지', 'image-plus')}${command('training-add', '운동 기록', 'plus', '', true)}</div></div>${tab === 'log' ? `<div class="training-log-grid"><aside class="workout-index"><div class="section-header"><h2>운동 일지 <small>${data.records.length}</small></h2>${iconButton('training-import', '일지 가져오기', 'folder-input')}</div><label class="search-field">${icon('search')}<span class="sr-only">운동 기록 검색</span><input type="search" id="trainingSearch" value="${e(filter)}" placeholder="날짜 · 종목 검색"></label><div class="workout-list">${rows.slice(0, 150).map(item => `<button type="button" class="workout-list-item ${item.id === chosen ? 'selected' : ''}" data-action="training-open" data-id="${e(item.id)}" aria-pressed="${item.id === chosen}"><span>${item.date}<small>${e(item.time || '')}</small></span><strong>${e(item.label)}</strong><small>${item.exercises.length}종목 · ${item.durationMinutes == null ? '시간 미확인' : `${fmt(item.durationMinutes)}분`}</small>${sourceBadge(item)}</button>`).join('') || '<p class="empty-state">아직 운동 일지가 없어요.</p>'}</div>${rows.length > 150 ? '<p class="form-help">검색으로 이전 기록을 찾을 수 있어요.</p>' : ''}${command('training-import', '폴더·JSON 가져오기', 'folder-input')}${data.records.length ? command('training-export', '일지 내보내기', 'download') : ''}</aside><section class="workout-detail">${record ? renderRecord(record) : `<div class="workout-empty">${icon('dumbbell')}<h2>다음 운동을 이어갈 기록</h2><div class="form-actions">${command('training-import', '기존 일지 가져오기', 'folder-input', '', true)}${command('training-add', '직접 기록', 'plus')}</div></div>`}</section></div>` : tab === 'analysis' ? renderAnalysis(report) : renderProgram(program())}${connectionPanel()}`;
+      $('trainingContent').innerHTML = `<div class="training-toolbar"><div class="segmented" role="group" aria-label="운동 보기">${[['log', '일지'], ['analysis', '분석'], ['program', '프로그램']].map(([value, label]) => `<button type="button" data-action="training-tab" data-tab="${value}" aria-pressed="${tab === value}">${label}</button>`).join('')}</div><div class="toolbar-actions">${command('training-image', '이미지', 'image-plus')}${command('training-add', '운동 기록', 'plus', '', true)}</div></div>${tab === 'log' ? `<div class="training-log-grid"><aside class="workout-index"><div class="section-header"><h2>운동 일지 <small>${data.records.length}</small></h2>${iconButton('training-import', '일지 가져오기', 'folder-input')}</div><label class="search-field">${icon('search')}<span class="sr-only">운동 기록 검색</span><input type="search" id="trainingSearch" value="${e(filter)}" placeholder="날짜 · 종목 검색"></label><div class="workout-list">${rows.slice(0, 150).map(item => `<button type="button" class="workout-list-item ${item.id === chosen ? 'selected' : ''}" data-action="training-open" data-id="${e(item.id)}" aria-pressed="${item.id === chosen}"><span>${item.date}<small>${e(item.time || '')}</small></span><strong>${e(item.label)}</strong><small>${item.exercises.length}종목 · ${item.durationMinutes == null ? '시간 미확인' : `${fmt(item.durationMinutes)}분`}</small>${sourceBadge(item)}</button>`).join('') || '<p class="empty-state">아직 운동 일지가 없어요.</p>'}</div>${rows.length > 150 ? '<p class="form-help">검색으로 이전 기록을 찾을 수 있어요.</p>' : ''}${command('training-import', '판독 캐시·JSON 가져오기', 'folder-input')}${data.records.length ? command('training-export', '일지 내보내기', 'download') : ''}</aside><section class="workout-detail">${record ? renderRecord(record) : `<div class="workout-empty">${icon('dumbbell')}<h2>다음 운동을 이어갈 기록</h2><div class="form-actions">${command('training-import', '판독 기록 가져오기', 'folder-input', '', true)}${command('training-add', '직접 기록', 'plus')}</div></div>`}</section></div>` : tab === 'analysis' ? renderAnalysis(report) : renderProgram(program())}${connectionPanel()}`;
       $('trainingContent').insertAdjacentHTML('beforeend', jobHTML());
       if (bridge.status?.connected) $('trainingContent').insertAdjacentHTML('beforeend', inboxHTML());
       if (pendingImport) renderImportPreview();
@@ -371,7 +421,7 @@
       app.icons();
     }
     function importDialog() {
-      openDialog('운동 일지 가져오기', `<div class="import-source-options">${bridge.status?.diaryConfigured ? `<h3>연결된 기존 폴더</h3><div class="form-grid"><label class="field"><span>시작일</span><input type="date" name="from" value="${I.shiftDate(I.dateKey(), -60)}" min="1900-01-01" max="${I.dateKey()}" required></label><label class="field"><span>종료일</span><input type="date" name="to" value="${I.dateKey()}" min="1900-01-01" max="${I.dateKey()}" required></label></div>${actions('폴더 기록 확인')}` : '<p>연결된 폴더가 없어요. JSON 일지 교환 파일을 선택해 주세요.</p>'}<div class="form-divider"></div><label class="field"><span>JSON 일지 교환 파일</span><input id="trainingImportFile" type="file" accept="application/json,.json"></label></div>`, async form => {
+      openDialog('판독 기록·JSON 가져오기', `<div class="import-source-options"><p>이미 판독해 보관한 숫자 기록이나 JSON 일지 파일을 미리보고 가져옵니다. 폴더 지정과 새 사진 판독은 별도이며 원본 사진을 수정하지 않아요.</p>${command('diary-folder', '사진 폴더 설정', 'folder-cog')}${bridge.status?.diaryConfigured ? `<h3>기존 폴더의 판독 캐시</h3><div class="form-grid"><label class="field"><span>시작일</span><input type="date" name="from" value="${I.shiftDate(I.dateKey(), -60)}" min="1900-01-01" max="${I.dateKey()}" required></label><label class="field"><span>종료일</span><input type="date" name="to" value="${I.dateKey()}" min="1900-01-01" max="${I.dateKey()}" required></label></div>${actions('판독 캐시 확인')}` : '<p>아직 지정한 사진 폴더가 없어요. 폴더를 설정하거나 JSON 일지 교환 파일을 선택할 수 있습니다.</p>'}<div class="form-divider"></div><label class="field"><span>JSON 일지 교환 파일</span><input id="trainingImportFile" type="file" accept="application/json,.json"></label></div>`, async form => {
         try { const entry = $('entryForm'); const result = await bridge.request('/api/diary/context', { from: String(form.get('from')), to: String(form.get('to')) }); if (!entry.isConnected || !$('entryDialog').open) return; unprocessedImages = result.scan.pending || []; const parsed = TS.fromDiaryContext(result.context); closeDialog(); previewRecords(parsed.records, [...parsed.warnings, ...(result.scan.warning ? [result.scan.warning] : [])]); }
         catch (error) { toast(error.message, true); }
       });
@@ -388,9 +438,9 @@
     }
     function imageDialog() {
       if (imageUploadBusy) { toast('사진 보관이 아직 진행 중이에요. 보관 결과는 확인함에 남습니다. 끝난 뒤 다음 사진을 추가해 주세요.', true); return; }
-      if (!bridge.status?.connected) { toast('사진 보관은 로컬 앱 서버가 필요해요. 지금도 직접 기록·지난 운동 재사용·JSON 가져오기는 가능합니다.', true); return; }
+      if (!bridge.status?.connected) { setupDialog(); return; }
       imageUploads.forEach(row => URL.revokeObjectURL(row.url)); imageUploads = [];
-      openDialog('사진 추가', `<div class="form-grid"><label class="field"><span>기록 종류</span><select id="imageKind" name="kind">${options([['workout', '운동 일지'], ['meal', '식사 · 영양 라벨'], ['body', '체성분 · 인바디']], 'workout')}</select></label><label class="field"><span>이미지 · 여러 장 선택</span><input id="coachImageFile" type="file" accept="image/png,image/jpeg,image/webp" multiple required></label><label class="field full-width"><span>분량·날짜 등 메모 · 선택</span><textarea id="imageNote" name="note" rows="2" maxlength="6000" placeholder="예: 라벨의 1회 분량 중 절반을 먹었어요"></textarea></label></div><div id="imageUploadList" class="image-upload-list" aria-live="polite"></div><label class="checkbox-field"><input id="imageAnalyze" name="analyze" type="checkbox" ${canAskAI() ? '' : 'disabled'}>보관 후 Codex 판독도 요청</label>${!canAskAI() ? '<p class="notice notice-warning">지금은 AI 판독에 연결할 수 없어요. 사진과 메모만 보관하거나 숫자를 직접 기록할 수 있습니다.</p>' : '<p class="form-help">선택한 사진과 메모를 하나씩 Codex에 전송하며 계정 사용량을 사용합니다. 같은 사진의 기존 판독은 다시 읽지 않아요.</p>'}<p class="form-help">사진 보관만으로 세트·섭취량·측정값이 추가되지는 않아요. 판독 초안도 확인한 뒤에만 기록에 반영합니다.</p>${actions('사진 보관')}`, async form => {
+      openDialog('사진 추가', `<div class="form-grid"><label class="field"><span>기록 종류</span><select id="imageKind" name="kind">${options([['workout', '운동 일지'], ['meal', '식사 · 영양 라벨'], ['body', '체성분 · 인바디']], 'workout')}</select></label><label class="field"><span>이미지 · 여러 장 선택</span><input id="coachImageFile" type="file" accept="image/png,image/jpeg,image/webp" multiple required></label><label class="field full-width"><span>분량·날짜 등 메모 · 선택</span><textarea id="imageNote" name="note" rows="2" maxlength="6000" placeholder="예: 라벨의 1회 분량 중 절반을 먹었어요"></textarea></label></div><div id="imageUploadList" class="image-upload-list" aria-live="polite"></div><label class="checkbox-field"><input id="imageAnalyze" name="analyze" type="checkbox" ${canAskAI() ? '' : 'disabled'}>보관 후 Codex 판독도 요청</label>${!canAskAI() ? '<p class="notice notice-warning">지금은 AI 판독에 연결할 수 없어요. 사진과 메모만 보관하거나 숫자를 직접 기록할 수 있습니다.</p>' : `<p class="form-help">선택한 사진과 메모를 하나씩 Codex에 전송합니다. ${aiUsageNote()} 같은 사진의 기존 판독은 다시 읽지 않아요.</p>`}<p class="form-help">사진 보관만으로 세트·섭취량·측정값이 추가되지는 않아요. 판독 초안도 확인한 뒤에만 기록에 반영합니다.</p>${actions('사진 보관')}`, async form => {
         const entry = $('entryForm'); if (!imageUploads.length || imageUploadBusy) return;
         const kind = String(form.get('kind')), note = String(form.get('note') || ''), analyze = form.get('analyze') === 'on';
         if (note.length > 6000) throw new Error('메모는 6,000자 이내로 줄여 주세요.');
@@ -526,9 +576,11 @@
         ${!inboxError && !images.length && !pending.length && !external.length ? '<p class="form-help">보관한 이미지가 없어요.</p>' : ''}${!canAskAI() ? '<p class="form-help">AI 판독은 현재 연결할 수 없어요. 사진 보관과 직접 기록은 가능합니다.</p>' : ''}<p class="form-help">보관한 사진과 AI 초안은 확인해 저장한 숫자 기록과 별개입니다.</p></details>`;
     }
     function enhanceChat() {
-      if (!$('coachChatInput')) return;
-      $('coachChatInput').value = chatDraft;
-      $('coachChatForm').querySelector('[type="submit"]').disabled = !canAskAI() || jobStarting || currentJob?.status === 'running' || currentJob?.status === 'pending';
+      const input = $('coachChatInput');
+      if (input) {
+        input.value = chatDraft;
+        $('coachChatForm').querySelector('[type="submit"]').disabled = !canAskAI() || jobStarting || currentJob?.status === 'running' || currentJob?.status === 'pending';
+      }
       if (canAskAI()) {
         const messages = workspace().messages.slice(-40);
         $('coachContent').querySelectorAll('.conversation-message').forEach((element, index) => {
@@ -536,14 +588,18 @@
           if (item.role === 'coach' && item.source === 'local' && item.replyTo && !/안전 안내|119|즉시|응급/.test(item.text)) element.insertAdjacentHTML('beforeend', command('coach-continue', '이 질문을 AI와 다시 살펴보기', 'messages-square', `data-user="${e(item.replyTo)}"`));
         });
       }
+      restoreChatScroll();
+    }
+    function restoreChatScroll() {
       const log = $('coachContent').querySelector('.conversation-log'), latest = workspace().messages.at(-1)?.id || null;
+      if (!log || !log.getClientRects().length) return;
       log.scrollTop = latest !== lastChatMessage && (chatNearBottom || chatScrollToLatest || lastChatMessage === null) ? log.scrollHeight : chatScrollTop;
       chatScrollToLatest = false;
       lastChatMessage = latest;
     }
     function captureChatScroll() {
       const log = $('coachContent').querySelector('.conversation-log');
-      if (log && app.getView?.() === 'coach') { chatScrollTop = log.scrollTop; chatNearBottom = log.scrollHeight - log.clientHeight - log.scrollTop < 32; }
+      if (log?.getClientRects().length && app.getView?.() === 'coach') { chatScrollTop = log.scrollTop; chatNearBottom = log.scrollHeight - log.clientHeight - log.scrollTop < 32; }
     }
     function renderImagePreview() {
       if (!$('imageDraftPreview')) { const section = document.createElement('section'); section.id = 'imageDraftPreview'; section.className = 'import-review'; $('trainingContent').prepend(section); }
@@ -619,7 +675,12 @@
       const available = canAskAI(), busy = jobStarting || currentJob?.status === 'running' || currentJob?.status === 'pending';
       const sourceLabel = row => row.role === 'user' ? '나' : row.text.startsWith('상담 요청을 완료하지 못했어요.') ? '연결 안내' : row.source === 'codex' ? '개인 코치 · Codex' : /안전 안내|119|즉시|응급/.test(row.text) ? '즉시 안전 안내' : '이전 기록 안내';
       const reconnect = location.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(location.hostname) ? command('bridge-refresh', '서버 다시 확인', 'refresh-cw') : '';
-      return `<section class="personal-conversation"><div class="section-header"><h2>코치 상담</h2><span class="source-badge">${available ? 'Codex 연결' : 'AI 연결 없음'}</span></div><span class="conversation-provider">${available ? '선택한 기록과 대화 일부를 전송 · 계정 사용량 사용' : '상담은 AI 연결이 필요해요 · 이전 대화는 유지됩니다'}</span>
+      if (!available) {
+        const status = connectionState();
+        return `<section class="personal-conversation conversation-offline"><div class="conversation-unavailable" role="status"><strong>기록은 지금 시작할 수 있어요</strong><p>식사·운동 직접 기록과 기록 요약은 Codex 없이 사용할 수 있어요. 자유 상담과 사진 숫자 판독만 별도 연결이 필요합니다.</p><div class="conversation-offline-actions">${command('training-add', '운동 직접 기록', 'dumbbell')}${command(app.getDay()?.complete ? 'reopen' : 'meal-add', app.getDay()?.complete ? '완료 기록 다시 열기' : '식사 직접 기록', app.getDay()?.complete ? 'pencil' : 'utensils')}${command('connection-setup', 'Codex 연결 설정', 'settings-2')}${reconnect}</div><p class="form-help">${e(status.title)}</p></div>${messages.length ? `<details class="conversation-saved"><summary>지난 대화 ${messages.length}개</summary><div class="conversation-log" role="log" aria-label="이전 코치 대화">${messages.map(row => `<div class="conversation-message conversation-${row.role}"><span>${sourceLabel(row)}${row.status === 'pending' ? ' · 답변 확인 필요' : ''}</span><p class="conversation-text">${e(row.text)}</p></div>`).join('')}</div></details>` : ''}${chatDraft ? `<details class="conversation-saved"><summary>작성 중인 질문</summary><p class="conversation-text">${e(chatDraft)}</p></details>` : ''}${jobHTML()}${connectionPanel()}</section>`;
+      }
+      const providerLabel = bridge.status.runtime?.readiness === 'ready' ? 'Codex 설치·로그인 확인됨' : 'Codex 사용 가능 · 로그인 미확인';
+      return `<section class="personal-conversation"><div class="section-header"><h2>코치 상담</h2><div class="toolbar-actions"><span class="source-badge">${providerLabel}</span>${iconButton('connection-setup', 'Codex 연결 설정', 'settings-2')}</div></div><span class="conversation-provider">${available ? `선택한 기록과 대화 일부를 전송 · ${aiUsageNote()}` : '상담은 AI 연결이 필요해요 · 이전 대화는 유지됩니다'}</span>
         <div class="conversation-log" role="log" aria-label="코치 대화">${messages.map(row => `<div class="conversation-message conversation-${row.role}"><span>${sourceLabel(row)}${row.status === 'pending' ? ' · 답변 대기' : ''}</span><p class="conversation-text">${e(row.text)}</p></div>`).join('') || (available ? '<div class="conversation-empty"><strong>지금 가장 걸리는 것은 무엇인가요?</strong><span>최근 운동과 식사, 오늘 몸 상태를 함께 살펴볼게요.</span></div>' : '')}</div>
         ${!available ? `<div class="conversation-unavailable" role="status"><strong>상담 연결이 없어요</strong><p>기록 요약·직접 기록·지난 운동 재사용·저장한 계획은 계속 사용할 수 있습니다. AI 대신 규칙 문장을 상담 답변으로 내보내지는 않아요.</p>${reconnect}</div>` : ''}
         ${app.retrievalHTML?.(messages.findLast(row => row.role === 'user')?.text || '') || ''}<form id="coachChatForm" class="conversation-compose"><label class="sr-only" for="coachChatInput">코치에게 질문</label><textarea id="coachChatInput" rows="2" maxlength="6000" placeholder="${available ? '운동 수행이 떨어지고 허기가 심해. 오늘은 어떻게 할까?' : 'AI 연결 후 질문할 수 있어요'}" required ${available ? '' : 'disabled'}></textarea><button class="icon-button send-button" type="submit" aria-label="코치에게 보내기" title="코치에게 보내기" ${!available || busy ? 'disabled' : ''}>${icon('arrow-up')}</button></form>${jobHTML()}<div class="conversation-actions">${command('training-image', '사진 추가', 'image-plus')}${command('nav-training', '직접 기록 · 운동 일지', 'dumbbell')}${command('nav-program', '다음 운동', 'calendar-days')}</div>${connectionPanel()}</section>`;
@@ -716,8 +777,8 @@
       if (!bridge.status?.connected) throw new Error('로컬 앱 서버에 연결하지 못했어요. 서버를 확인한 뒤 다시 연결해 주세요.');
       const stored = await bridge.request('/api/state');
       const current = app.getState();
-      if (!stored.state) { await bridge.attach(current, null); toast('현재 브라우저 기록을 PC 개인 폴더와 연결했어요.'); return; }
-      openDialog('PC 기록과 현재 브라우저 확인', `<div class="conflict-comparison"><section><h3>현재 브라우저</h3><p>${current.profile ? '프로필 있음' : '프로필 없음'} · ${Object.keys(current.days).length}일 · 운동 ${current.training?.records.length || 0}개</p></section><section><h3>PC 개인 기록</h3><p>${stored.state.profile ? '프로필 있음' : '프로필 없음'} · ${Object.keys(stored.state.days).length}일 · 운동 ${stored.state.training?.records.length || 0}개</p><p>${e(stored.state.updatedAt)}</p></section></div><p class="form-help">다른 주소의 브라우저 저장소는 서로 분리됩니다. 교체 전 현재 전체 백업을 내려받고 원본 PC 파일의 이전본도 보관합니다.</p><label class="field"><span>사용할 기록</span><select name="choice"><option value="restore">PC 기록을 이 브라우저로 복원</option><option value="upload">현재 브라우저 기록을 PC에 연결</option></select></label><label class="checkbox-field"><input name="confirmed" type="checkbox" required>두 기록을 확인했고 선택한 원본을 사용할게요.</label>${actions('확인한 기록으로 연결')}`, async form => {
+      if (!stored.state) { await bridge.attach(current, null); toast('현재 브라우저의 숫자 기록을 PC 파일에도 저장합니다. 원본 사진은 변경하지 않아요.'); return; }
+      openDialog('PC 기록과 현재 브라우저 확인', `<div class="conflict-comparison"><section><h3>현재 브라우저</h3><p>${current.profile ? '프로필 있음' : '프로필 없음'} · ${Object.keys(current.days).length}일 · 운동 ${current.training?.records.length || 0}개</p></section><section><h3>PC 앱 기록</h3><p>${stored.state.profile ? '프로필 있음' : '프로필 없음'} · ${Object.keys(stored.state.days).length}일 · 운동 ${stored.state.training?.records.length || 0}개</p><p>${e(stored.state.updatedAt)}</p></section></div><p class="form-help">숫자 기록·프로필·계획·대화를 연결하며 원본 사진과 판독 캐시는 바꾸지 않아요. 다른 주소의 브라우저 저장소는 서로 분리됩니다. 교체 전 현재 전체 백업을 내려받고 PC 앱 기록 파일의 이전본도 보관합니다.</p><label class="field"><span>사용할 기록</span><select name="choice"><option value="restore">PC 기록을 이 브라우저로 복원</option><option value="upload">현재 브라우저 기록을 PC에 연결</option></select></label><label class="checkbox-field"><input name="confirmed" type="checkbox" required>두 기록을 확인했고 선택한 원본을 사용할게요.</label>${actions('확인한 기록으로 연결')}`, async form => {
         try {
           app.download(S.exportBackup(app.getState()), `macro-engine-before-connect-${I.dateKey()}.json`);
           const choice = form.get('choice');
@@ -730,7 +791,23 @@
     async function handleAction(button) {
       const action = ({ 'today-workout-open': 'training-open', 'today-workout-reuse': 'training-reuse', 'today-workout-add': 'training-add', 'today-schedule-start': 'schedule-start' })[button.dataset.action] || button.dataset.action, data = workspace();
       const record = data.records.find(row => row.id === (button.dataset.id || button.dataset.record));
-      if (action === 'nav-training' || action === 'nav-program') { tab = action === 'nav-program' ? 'program' : 'log'; app.selectView('training'); }
+      if (action === 'connection-setup') setupDialog();
+      else if (action === 'connection-copy-command') {
+        try { await navigator.clipboard.writeText(button.dataset.command); toast('명령을 복사했어요. 실행은 터미널에서 직접 선택합니다.'); }
+        catch { toast('명령을 복사하지 못했어요. 화면의 명령은 그대로 확인할 수 있습니다.', true); }
+      }
+      else if (action === 'connection-refresh') { await bridge.refresh(); refreshSetup(); }
+      else if (action === 'connection-check') {
+        if (setupChecking) return true;
+        const previousCheck = bridge.status?.runtime?.checkedAt;
+        setupChecking = true; setupNotice = ''; refreshSetup();
+        try {
+          await bridge.checkRuntime();
+          if (bridge.status?.runtime?.busy && bridge.status.runtime.checkedAt === previousCheck) setupNotice = '다른 요청의 실행 상태를 보호하고 있어 이번에는 로그인 확인을 새로 하지 않았어요. 진행 중인 요청부터 확인해 주세요.';
+        } catch (error) { setupNotice = error.message; }
+        finally { setupChecking = false; refreshSetup(); $('connectionSetupContent')?.querySelector('[data-action="connection-check"]')?.focus(); }
+      }
+      else if (action === 'nav-training' || action === 'nav-program') { tab = action === 'nav-program' ? 'program' : 'log'; app.selectView('training'); }
       else if (action === 'training-tab') { tab = button.dataset.tab; render(); $(`trainingContent`).querySelector(`[data-action="training-tab"][data-tab="${tab}"]`)?.focus(); }
       else if (action === 'training-open') { chosen = button.dataset.id; tab = 'log'; app.selectView('training'); render(); }
       else if (action === 'training-add') recordDialog();
@@ -800,7 +877,7 @@
         if (intakeQueue.some(row => row.hash === button.dataset.hash && ['queued', 'requesting', 'running'].includes(row.status))) throw new Error('이미 선택한 판독 대기에 있어요. 대기 목록에서 계속하거나 제외한 뒤 요청해 주세요.');
         const source = uploadedImages.find(row => row.hash === button.dataset.hash);
         if (source?.damaged) throw new Error('이 사진의 보관 정보가 손상돼 먼저 확인해야 해요. 원본은 덮어쓰지 않습니다.');
-        openDialog('보관한 사진 판독', `<div class="image-draft-summary">${imageThumbnail(button.dataset.hash)}<label class="field"><span>기록 종류</span><select name="kind">${options([['workout', '운동 일지'], ['meal', '식사'], ['body', '체성분']], source?.kind || 'workout')}</select></label></div><label class="field"><span>날짜·분량 맥락 · 선택</span><textarea name="note" rows="2" maxlength="6000">${e(source?.note || '')}</textarea></label><p class="form-help">이 이미지와 메모를 Codex에 전송해 계정 사용량을 사용합니다. 초안을 확인한 뒤에만 숫자 기록에 반영해요.</p>${actions('이 이미지 판독 요청')}`, async form => {
+        openDialog('보관한 사진 판독', `<div class="image-draft-summary">${imageThumbnail(button.dataset.hash)}<label class="field"><span>기록 종류</span><select name="kind">${options([['workout', '운동 일지'], ['meal', '식사'], ['body', '체성분']], source?.kind || 'workout')}</select></label></div><label class="field"><span>날짜·분량 맥락 · 선택</span><textarea name="note" rows="2" maxlength="6000">${e(source?.note || '')}</textarea></label><p class="form-help">이 이미지와 메모를 Codex에 전송합니다. ${aiUsageNote()} 초안을 확인한 뒤에만 숫자 기록에 반영해요.</p>${actions('이 이미지 판독 요청')}`, async form => {
           const entry = $('entryForm');
           try {
             await startJob(String(form.get('kind')), String(form.get('note') || ''), button.dataset.hash);
@@ -832,6 +909,12 @@
       return true;
     }
     async function handleChange(event) {
+      if (event.target.id === 'codexUseEnabled') {
+        const next = event.target.checked;
+        try { localStorage.setItem(aiPreferenceKey, next ? 'enabled' : 'disabled'); aiEnabled = next; setupNotice = ''; app.render(); refreshSetup(); $('codexUseEnabled')?.focus(); }
+        catch { event.target.checked = aiEnabled; toast('Codex 사용 설정을 저장하지 못했어요. 이전 선택과 기록은 유지합니다.', true); }
+        return true;
+      }
       if (event.target.id === 'coachImageFile') { if (!imageUploadBusy) addImageUploads([...event.target.files]); return true; }
       if (event.target.id === 'imageWorkoutReviewed') { if (pendingImport?.imageJob) { pendingImport.reviewed = event.target.checked; const button = $('trainingImportPreview').querySelector('[data-action="training-import-confirm"]'); button.disabled = !pendingImport.reviewed; } return true; }
       if (event.target.id === 'savedProgramSelect') { const next = copy(workspace()); next.planning.activeProgramId = event.target.value; saveWorkspace(next); $('savedProgramSelect')?.focus(); return true; }
@@ -843,9 +926,10 @@
       }
       return false;
     }
-    document.addEventListener('submit', event => { if (event.target.id === 'coachChatForm') { event.preventDefault(); const text = $('coachChatInput').value; void sendChat(text).catch(error => toast(error.message, true)); } });
+    document.addEventListener('submit', event => { if (event.target.id === 'coachChatForm') { event.preventDefault(); const input = $('coachChatInput'); if (!input) { toast('Codex 연결 설정에서 설치·로그인 상태를 확인해 주세요.', true); return; } void sendChat(input.value).catch(error => toast(error.message, true)); } });
     document.addEventListener('input', event => { if (event.target.id === 'trainingSearch') { const cursor = event.target.selectionStart; filter = event.target.value; render(); $('trainingSearch').focus(); $('trainingSearch').setSelectionRange(cursor, cursor); } });
     document.addEventListener('input', event => { if (event.target.id === 'coachChatInput') chatDraft = event.target.value; });
+    document.addEventListener('toggle', event => { if (event.target.matches?.('.conversation-saved') && event.target.open) restoreChatScroll(); }, true);
     document.addEventListener('error', event => { if (event.target.matches?.('[data-image-fallback]')) { const fallback = document.createElement('span'); fallback.className = 'image-unavailable'; fallback.textContent = '원본 연결 없음'; event.target.replaceWith(fallback); } }, true);
     async function init() {
       loadImageQueue();
@@ -860,7 +944,8 @@
       }
       app.render();
     }
-    return { render, analysis, program, coachingProgram, handleAction, handleChange, chatHTML, memoryHTML, coachContextHTML, connectionPanel, todayHTML, intakeSummaryHTML, inboxHTML,
+    return { render, analysis, program, coachingProgram, handleAction, handleChange, chatHTML, memoryHTML, coachContextHTML, connectionPanel, setupDialog, canAskAI, bridge, todayHTML, intakeSummaryHTML, inboxHTML,
+      onDiaryScan(result) { unprocessedImages = Array.isArray(result?.pending) ? result.pending : []; app.render(); },
       onSave(state) { bridge.sync(state); }, init, jobHTML, enhanceChat, captureChatScroll };
   }
   root.MacroTrainingUI = { create };

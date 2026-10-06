@@ -245,9 +245,11 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     await page.goto(url);
     await navigate(page, 'coach');
     await page.locator('.conversation-unavailable [data-action="bridge-refresh"]').waitFor();
-    assert.equal(await page.locator('#coachChatInput').isDisabled(), true);
-    assert.equal(await page.locator('#coachChatForm button[type="submit"]').isDisabled(), true);
+    assert.equal(await page.locator('#coachChatInput').count(), 0);
+    assert.equal(await page.locator('#coachChatForm').count(), 0);
     assert.equal(await page.locator('[data-action="coach-provider"]').count(), 0);
+    await page.locator('.conversation-saved > summary').first().click();
+    await page.locator('.conversation-log').evaluate(element => { element.scrollTop = element.scrollHeight; });
     await assertLatestVisible('first conversation opening');
     const beforeRecovery = await state(page);
     await page.unroute('**/api/bridge/status', offline);

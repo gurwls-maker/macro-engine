@@ -60,8 +60,8 @@ async function noHorizontalOverflow(page, label) {
     await page.locator('#profileForm [name="age"]').fill('34');
     await page.locator('[data-view="coach"]').click();
     assert.equal(await page.locator('[data-action="coach-provider"]').count(), 0, 'offline file mode cannot present a local free-chat alternative');
-    assert.equal(await page.locator('#coachChatInput').isDisabled(), true);
-    assert.equal(await page.locator('#coachChatForm button[type="submit"]').isDisabled(), true);
+    assert.equal(await page.locator('#coachChatInput').count(), 0);
+    assert.equal(await page.locator('#coachChatForm').count(), 0);
     await page.locator('[data-view="profile"]').click();
     assert.equal(await page.locator('#profileForm [name="age"]').inputValue(), '34', 'onboarding draft must survive tab navigation');
     assert.equal(await appState(page), null, 'an unfinished profile must not be persisted');

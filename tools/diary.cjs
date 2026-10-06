@@ -350,7 +350,7 @@ function context(data, from, to, details = false) {
       const destination = superseded ? archivedSessions : sessions;
       destination.push({
         id: `${hash}:${index}`, hash, date: session.date, time: session.time, label: session.label,
-        method: cache.method, parserVersion: cache.parserVersion, corrected: revision !== null, correctionRevision: revision, sourceAvailable: entry.paths.length > 0,
+        method: cache.method, parserVersion: cache.parserVersion, corrected: revision !== null, correctionRevision: revision, sourceAvailable: Boolean(manifest.scannedAt) && entry.paths.length > 0,
         sourcePaths: entry.paths, baseDigest: digest(cache.sessions),
         replaces: entry.replaces || [], supersededBy: entry.supersededBy || [],
         durationMinutes: session.durationMinutes, reportedSetCount: session.reportedSetCount,

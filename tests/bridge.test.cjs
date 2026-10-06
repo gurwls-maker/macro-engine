@@ -18,6 +18,31 @@ const { createBridge, imageType } = require("../tools/bridge.cjs");
 const { createServer } = require("../tools/serve.cjs");
 const { CoachRuntime, validateResult, summarizeState, digest } = require("../tools/coach-runtime.cjs");
 
+test("runtime diagnosis is explicit, token-protected and does not alter PC state", async t => {
+  let checks = 0;
+  const runtime = { status: () => ({ available: true, readiness: "unchecked" }),
+    checkRuntime: async () => { checks += 1; return { available: true, readiness: "ready", auth: { status: "authenticated", method: "chatgpt" } }; }, close() {} };
+  const api = await server(t, runtime);
+  const initial = state(); await api.post("/api/state", { state: initial, expectedDigest: null });
+  const before = fs.readFileSync(path.join(api.data, "app-state.json"), "utf8");
+  await api.get("/api/bridge/status"); assert.equal(checks, 0);
+  const checked = await api.post("/api/runtime/check", {});
+  assert.equal(checked.status, 200); assert.equal(checked.json.runtime.readiness, "ready"); assert.equal(checks, 1);
+  assert.equal(fs.readFileSync(path.join(api.data, "app-state.json"), "utf8"), before);
+  assert.equal((await api.get("/api/state")).json.digest, digest(initial));
+  assert.equal((await api.post("/api/runtime/check", {}, { headers: { "x-macro-token": "wrong" } })).status, 403);
+  assert.equal((await api.post("/api/runtime/check", {}, { headers: { origin: "https://other.invalid" } })).status, 403);
+  assert.equal(checks, 1);
+});
+
+test("runtime diagnosis refuses questions, state, arrays and malformed JSON", async t => {
+  let checks = 0;
+  const api = await server(t, { status: () => ({ available: false }), checkRuntime: async () => { checks += 1; return {}; }, close() {} });
+  for (const input of [{ state: state() }, { question: "should not be sent" }, [], null]) assert.equal((await api.post("/api/runtime/check", input)).status, 400);
+  assert.equal((await api.post("/api/runtime/check", {}, { raw: "{" })).status, 400);
+  assert.equal(checks, 0);
+});
+
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=", "base64");
 const hash = buffer => crypto.createHash("sha256").update(buffer).digest("hex");
 const cleanupActions = new WeakMap();

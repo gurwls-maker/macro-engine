@@ -70,19 +70,26 @@ async function send(page, question) { await page.locator('#coachChatInput').fill
     const url = `http://127.0.0.1:${server.address().port}`;
     await page.goto(url); await navigate(page, 'coach');
     await page.locator('.conversation-unavailable').waitFor();
-    assert.match(await page.locator('.conversation-unavailable').innerText(), /상담 연결이 없어요/);
+    assert.match(await page.locator('.conversation-unavailable').innerText(), /Codex 없이 사용할 수/);
     assert.equal(await page.locator('[data-action="coach-provider"]').count(), 0);
-    assert.equal(await page.locator('#coachChatInput').isDisabled(), true);
-    assert.equal(await page.locator('#coachChatForm button[type="submit"]').isDisabled(), true);
+    assert.equal(await page.locator('#coachChatInput').count(), 0);
+    assert.equal(await page.locator('#coachChatForm').count(), 0);
     assert.match(await page.locator('.coach-record-summary').innerText(), /기록 요약/);
-    assert.match(await page.locator('.conversation-message').last().innerText(), /이전 기록 안내/);
+    assert.match(await page.locator('.conversation-message').last().textContent(), /이전 기록 안내/);
     assert.deepEqual((await state(page)).training.messages, initial.training.messages);
     assert.equal(await page.locator('.conversation-log script').count(), 0);
+    await page.locator('.conversation-saved > summary').first().click();
+    await page.evaluate(() => {
+      const form = document.createElement('form'); form.id = 'coachChatForm';
+      const input = document.createElement('textarea'); input.id = 'coachChatInput'; form.append(input);
+      document.body.append(form);
+    });
     await page.locator('#coachChatInput').evaluate(element => { element.value = 'AI가 없을 때 상세한 훈련 조언을 만들어 줘'; });
     await page.locator('#coachChatForm').dispatchEvent('submit');
     await page.locator('#toast.toast-error').waitFor();
     assert.deepEqual((await state(page)).training.messages, initial.training.messages, 'a guarded submit cannot masquerade as a local AI answer');
     assert.equal(jobPosts, 0);
+    await page.locator('#coachChatForm').evaluate(element => element.remove());
 
     await navigate(page, 'training');
     await page.locator('#trainingContent [data-action="training-add"]').first().focus(); await page.keyboard.press('Enter');
@@ -198,7 +205,7 @@ async function send(page, question) { await page.locator('#coachChatInput').fill
     runtime.available = true;
     await navigate(page, 'coach');
     await page.locator('.conversation-unavailable [data-action="bridge-refresh"]').click();
-    await page.waitForFunction(() => !document.querySelector('#coachChatInput').disabled);
+    await page.waitForFunction(() => document.querySelector('#coachChatInput')?.disabled === false);
     assert.equal(await page.locator('[data-action="coach-provider"]').count(), 0);
     assert.equal(await page.locator('#coachChatForm button[type="submit"]').isDisabled(), false);
     assert.deepEqual((await state(page)).training.messages, initial.training.messages);

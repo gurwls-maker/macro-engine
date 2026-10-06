@@ -441,13 +441,72 @@ function promptFor(input) {
 }
 class CoachRuntime {
   constructor(data, options = {}) {
-    this.data = data; this.bin = options.bin === undefined ? findCodex() : options.bin;
+    this.data = data; this.findBin = options.findBin || findCodex; this.fixedBin = options.bin !== undefined;
+    this.bin = this.fixedBin ? options.bin : this.findBin();
     this.spawn = options.spawn || spawn; this.timeoutMs = options.timeoutMs || 180000;
+    this.diagnosticTimeoutMs = options.diagnosticTimeoutMs || 10000;
+    this.diagnosticMaxBytes = options.diagnosticMaxBytes || 16384;
+    this.auth = { status: 'unchecked', method: 'unknown' }; this.checkedAt = null;
+    this.checkPromise = null; this.diagnosticChild = null; this.diagnosticCancel = null;
     this.active = null; this.jobs = new Map(); this.closed = false;
     this.jobRoot = path.join(data, 'jobs'); fs.mkdirSync(this.jobRoot, { recursive: true });
     this.lockFile = path.join(data, '.ai-lock'); this.lock = null;
   }
-  status() { return { available: Boolean(this.bin), running: this.active?.id || null, busy: fs.existsSync(this.lockFile), provider: 'codex-local', ephemeral: true }; }
+  status() {
+    const readiness = !this.bin ? 'missing-binary' : this.auth.status === 'authenticated' ? 'ready'
+      : this.auth.status === 'signed-out' ? 'login-required' : this.auth.status === 'unknown' ? 'check-failed' : 'unchecked';
+    return { available: Boolean(this.bin), installation: this.bin ? 'found' : 'missing', auth: { ...this.auth }, readiness,
+      checkedAt: this.checkedAt, checking: Boolean(this.checkPromise || this.diagnosticChild), running: this.active?.id || null,
+      busy: fs.existsSync(this.lockFile), provider: 'codex-local', ephemeral: true };
+  }
+  checkRuntime() {
+    if (this.checkPromise) return this.checkPromise;
+    const sharedLock = Locks.inspect(this.lockFile, { kind: 'ai' });
+    if (this.closed || this.active || this.diagnosticChild || ['held', 'unknown'].includes(sharedLock.state)) return Promise.resolve(this.status());
+    this.checkPromise = Promise.resolve().then(async () => {
+      try {
+        if (!this.fixedBin) this.bin = this.findBin();
+        this.auth = this.bin ? await this.checkAuthentication(this.bin) : { status: 'unchecked', method: 'unknown' };
+      } catch { this.auth = { status: 'unknown', method: 'unknown' }; }
+      this.checkedAt = new Date().toISOString();
+    }).finally(() => { this.checkPromise = null; }).then(() => this.status());
+    return this.checkPromise;
+  }
+  checkAuthentication(bin) {
+    return new Promise(resolve => {
+      let child, timer, settled = false, bytes = 0, text = '';
+      const unknown = { status: 'unknown', method: 'unknown' };
+      const finish = value => {
+        if (settled) return;
+        settled = true; clearTimeout(timer); resolve(value);
+      };
+      const cancel = () => { try { child?.kill(); } catch {} finish(unknown); };
+      try {
+        child = this.spawn(bin, ['login', 'status'], { cwd: this.data, windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+        this.diagnosticChild = child; this.diagnosticCancel = cancel;
+        const collect = chunk => {
+          if (settled) return;
+          bytes += Buffer.byteLength(chunk);
+          if (bytes > this.diagnosticMaxBytes) { cancel(); return; }
+          text += chunk.toString('utf8');
+        };
+        child.stdout.on('data', collect); child.stderr.on('data', collect);
+        child.once('error', () => {
+          if (!child.pid && this.diagnosticChild === child) { this.diagnosticChild = null; this.diagnosticCancel = null; }
+          cancel();
+        });
+        child.once('close', code => {
+          if (this.diagnosticChild === child) { this.diagnosticChild = null; this.diagnosticCancel = null; }
+          if (settled) return;
+          if (/\bnot logged in\b/i.test(text)) finish({ status: 'signed-out', method: 'unknown' });
+          else if (code === 0 && /\blogged in\b/i.test(text)) finish({ status: 'authenticated',
+            method: /\busing ChatGPT\b/i.test(text) ? 'chatgpt' : /\busing (?:an )?API key\b/i.test(text) ? 'api-key' : 'unknown' });
+          else finish(unknown);
+        });
+        timer = setTimeout(cancel, this.diagnosticTimeoutMs);
+      } catch { this.diagnosticChild = null; this.diagnosticCancel = null; finish(unknown); }
+    });
+  }
   acquireLock(jobId) {
     const nonce = crypto.randomUUID(); let fd;
     try { fd = Locks.acquire(this.lockFile, { kind: 'ai' }); }
@@ -494,6 +553,7 @@ class CoachRuntime {
   }
   start(input, imageFile = null, retry = false) {
     if (this.closed || !this.bin) throw new Error('이 PC에서 Codex 실행 파일을 찾지 못했어요. 기록 코치 또는 JSON 교환을 이용해 주세요.');
+    if (this.checkPromise || this.diagnosticChild) throw new Error('Codex 설치·로그인을 확인하고 있어요. 확인이 끝난 뒤 요청해 주세요.');
     if (this.active) throw new Error('이미 코치가 답변 중이에요. 완료하거나 취소한 뒤 요청해 주세요.');
     const prompt = promptFor(input);
     if (Buffer.byteLength(prompt, 'utf8') > 256 * 1024) throw new Error('코칭 맥락이 너무 커요. 최근 기록 범위를 줄이거나 질문을 나눠 주세요.');
@@ -547,7 +607,7 @@ class CoachRuntime {
         this.releaseLock(job.lockNonce);
         if (job.status !== 'running') return;
         try {
-          if (code !== 0) throw new Error(/(?:rate.limit|usage.limit|quota)/i.test(tail) ? 'Codex 사용 한도에 도달했어요. 기록 코치는 계속 사용할 수 있어요.' : /(?:auth|login|unauthorized|token expired)/i.test(tail) ? 'Codex 로그인이 필요해요. 데스크톱 앱의 계정을 확인해 주세요.' : 'Codex 응답을 완료하지 못했어요. 다시 요청해 주세요.');
+          if (code !== 0) throw new Error(/(?:rate.limit|usage.limit|quota)/i.test(tail) ? 'Codex 사용 한도에 도달했어요. 기록 코치는 계속 사용할 수 있어요.' : /(?:auth|login|unauthorized|token expired)/i.test(tail) ? 'Codex CLI 로그인이 필요해요. 이 PC의 터미널에서 codex login 후 설치·로그인을 다시 확인해 주세요.' : 'Codex 응답을 완료하지 못했어요. 다시 요청해 주세요.');
           const stat = fs.statSync(output); if (stat.size > 1024 * 1024) throw new Error('코치 응답이 너무 커서 가져오지 않았어요.');
           job.result = validateResult(Diary.readJson(output), input.kind, input.kind === 'chat' ? input.context : null); finish('completed');
         } catch (error) { finish('failed', error.message); }
@@ -579,6 +639,6 @@ class CoachRuntime {
     try { this.write(job); } catch { job.error += ' 취소 상태를 파일에 저장하지 못했어요.'; }
     return this.public(job);
   }
-  close() { this.closed = true; if (this.active) this.cancel(this.active.id); }
+  close() { this.closed = true; this.diagnosticCancel?.(); if (this.active) this.cancel(this.active.id); }
 }
 module.exports = { CoachRuntime, schema, validateResult, validateCoaching, summarizeState, recallContext, promptFor, digest, findCodex };

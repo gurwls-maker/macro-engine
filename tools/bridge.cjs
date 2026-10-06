@@ -3,6 +3,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const S = require('../src/storage.js');
 const D = require('./diary.cjs');
+const DiarySettings = require('./diary-settings.cjs');
 const { CoachRuntime, summarizeState, digest } = require('./coach-runtime.cjs');
 const MAX_BODY = 15 * 1024 * 1024;
 function json(res, status, value) {
@@ -99,7 +100,20 @@ function createBridge(options = {}) {
         let stored = null, storageError = null;
         try { const value = readState(); stored = value.state ? { digest: value.digest, profile: Boolean(value.state.profile), days: Object.keys(value.state.days).length, workouts: value.state.training?.records.length || 0 } : null; } catch { storageError = 'PC 저장 파일이 손상되어 덮어쓰기를 막았어요. 원본을 복구해 주세요.'; }
         json(res, 200, { connected: true, token, runtime: runtime.status(), stored, storageError, diaryConfigured: fs.existsSync(path.join(data, 'config.json')), inbox: listInbox() });
+      } else if (req.method === 'POST' && url.pathname === '/api/runtime/check') {
+        const input = await body(req);
+        if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length) throw new Error('연결 확인에는 기록이나 질문을 보내지 않습니다.');
+        if (typeof runtime.checkRuntime !== 'function') throw new Error('이 서버에서는 설치·로그인 확인을 지원하지 않아요. 앱 서버를 업데이트해 주세요.');
+        json(res, 200, { runtime: await runtime.checkRuntime() });
       } else if (req.method === 'GET' && url.pathname === '/api/state') json(res, 200, readState());
+      else if (req.method === 'GET' && url.pathname === '/api/diary/settings') json(res, 200, DiarySettings.readStatus(data));
+      else if (req.method === 'POST' && url.pathname === '/api/diary/settings/preview') json(res, 200, DiarySettings.preview(data, await body(req)));
+      else if (req.method === 'POST' && url.pathname === '/api/diary/settings') json(res, 200, DiarySettings.apply(data, await body(req)));
+      else if (req.method === 'POST' && url.pathname === '/api/diary/scan') {
+        const input = await body(req);
+        if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length) throw new Error('새 사진 확인에는 별도 입력이 필요하지 않습니다.');
+        json(res, 200, D.locked(data, () => D.scan(data, false)));
+      }
       else if (req.method === 'POST' && url.pathname === '/api/state') {
         const input = await body(req); const incoming = S.validateState(input.state);
         const result = D.locked(data, () => {

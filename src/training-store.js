@@ -378,7 +378,9 @@
         uncertainty.push("기존 OCR 자료이며 원문 날짜·세트·볼륨이 추정 또는 오독일 수 있어요. 시각 재확인 자료와 구분해 주세요.");
         warnings.push("기존 OCR 요약은 미검증 이력으로 가져왔어요. 직접 판독한 세트 기록과 같은 근거로 취급하지 않아요.");
       }
-      if (!entry.sourceAvailable) uncertainty.push("마지막 스캔에서 원본 경로를 찾지 못했어요. 캐시 기록이며 미운동을 뜻하지 않아요.");
+      if (!entry.sourceAvailable) uncertainty.push(context.sourceAvailabilityAsOf
+        ? "마지막 스캔에서 원본 경로를 찾지 못했어요. 캐시 기록이며 미운동을 뜻하지 않아요."
+        : "이 폴더의 스캔 정보가 없어 원본 접근 여부는 미확인입니다. 캐시 기록이며 미운동을 뜻하지 않아요.");
       if (duplicateIds.has(entry.id)) uncertainty.push("서로 다른 이미지의 동일 운동 후보예요. 운동 횟수로 확정하기 전에 중복 여부를 확인해 주세요.");
       const record = {
         id: entry.id, date: session.date, time: session.time, label: session.label,

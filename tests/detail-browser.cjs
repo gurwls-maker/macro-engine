@@ -76,7 +76,7 @@ async function activity(page, sleep, work, lifestyle) {
       assert.equal(p1.energy.targetKcal, p2.energy.targetKcal); assert.equal(p1.macros.protein.target, p2.macros.protein.target); assert.notEqual(data.days[today].carbAdjustmentG, before.days[today].carbAdjustmentG);
       await page.locator('[data-view="coach"]').click();
       assert.equal(await page.locator('[data-action="coach-provider"]').count(), 0);
-      assert.equal(await page.locator('#coachChatInput').isDisabled(), true, 'offline AI conversation is disabled while records and memory remain usable');
+      assert.equal(await page.locator('#coachChatInput').count(), 0, 'offline mode offers records without an unusable AI compose box');
       assert.match(await page.locator('.coach-record-summary').textContent(), /기록 요약/);
       await page.locator('[data-action="coach-memory"]').click();
       await page.locator('#entryForm [name="focus"]').fill('무리한 증량보다 같은 조건의 수행 확인'); await page.locator('#entryForm [name="constraints"]').fill('브랜드가 다른 머신의 중량은 비교하지 않기'); await submit(page);

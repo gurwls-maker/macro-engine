@@ -78,7 +78,7 @@ async function submit(page) { await page.locator('#entryForm button[type="submit
         await page.locator('#toast').evaluate(element => { element.hidden = true; });
         await page.screenshot({ path: path.join(artifacts, `pilot-today-${width}.png`), fullPage: true });
         await page.locator('[data-view="coach"]').click();
-        assert.equal(await page.locator('#coachChatInput').isDisabled(), true, 'offline pilot does not invent AI counselling');
+        assert.equal(await page.locator('#coachChatInput').count(), 0, 'offline pilot does not invent AI counselling');
         assert.match(await page.locator('.coach-continuity').innerText(), /수면과 다음 운동 수행/);
         assert.doesNotMatch(await page.locator('.coach-continuity').innerText(), /식사 배분과 실제 기록 함께 점검/);
         assert.equal((await stored(page)).training.followUps.length, 3, 'both action-compatible and ordinary follow-up data are preserved');
