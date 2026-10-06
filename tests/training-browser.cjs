@@ -586,6 +586,8 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     await page.locator('[data-action="image-workout-preview"]').waitFor();
     assert.deepEqual((await state(page)).training.records, beforeImage.training.records, 'AI completion only creates a preview');
     await page.locator('[data-action="image-workout-preview"]').click();
+    assert.equal(await page.locator('[data-action="training-import-confirm"]').isDisabled(), true, 'whole image draft must be reviewed before saving');
+    await page.locator('#imageWorkoutReviewed').check();
     await page.locator('[data-action="training-import-confirm"]').click();
     saved = await state(page);
     const imageRecord = saved.training.records.find(record => record.label === '이미지 합성 운동');

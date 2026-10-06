@@ -205,17 +205,78 @@
     }
   }
   function createEmpty() {
-    return { version: VERSION, records: [], mappings: [], settings: { daysPerWeek: 3, sessionMinutes: 60, equipment: "gym", priorityMuscles: [] }, messages: [], planning: emptyPlanning(), memory: { constraints: "", focus: "", agreements: "", updatedAt: null }, followUps: [] };
+    return { version: VERSION, records: [], mappings: [], settings: { daysPerWeek: 3, sessionMinutes: 60, equipment: "gym", priorityMuscles: [] }, messages: [], planning: emptyPlanning(), memory: { constraints: "", focus: "", agreements: "", updatedAt: null }, followUps: [], actions: [] };
+  }
+  function validateActionValue(value, kind) {
+    if (kind === "program") {
+      fields(value, ["activeProgramId"], "프로그램 변경값"); text(value.activeProgramId, 512, "프로그램 변경값", true);
+    } else if (kind === "schedule") {
+      fields(value, ["date", "adjustmentReviewDate"], "일정 변경값");
+      if (!date(value.date) || value.adjustmentReviewDate !== null && (!date(value.adjustmentReviewDate) || value.adjustmentReviewDate < value.date)) fail("일정 변경 날짜를 확인해 주세요.");
+    } else if (kind === "allocation") {
+      fields(value, ["carbAdjustmentG", "carbsG", "fatG", "proteinG", "kcal"], "식사 배분 변경값");
+      number(value.carbAdjustmentG, -500, 500, "탄수 배분 조정량");
+      for (const key of ["carbsG", "fatG", "proteinG", "kcal"]) number(value[key], 0, 100000, "배분 계산값");
+    } else {
+      fields(value, ["date", "prescription", "adjustment"], "훈련 부담 변경값"); validatePrescription(value.prescription);
+      if (!date(value.date)) fail("훈련 부담 선택 당시 날짜를 확인해 주세요.");
+      if (value.adjustment !== null) {
+        const change = value.adjustment;
+        fields(change, ["kind", "reason", "reviewDate", "reviewed", "originalPrescription"], "행동의 훈련 조정");
+        if (!["progression", "deload", "maintain"].includes(change.kind) || !date(change.reviewDate) || change.reviewDate < value.date || typeof change.reviewed !== "boolean") fail("행동의 훈련 조정을 확인해 주세요.");
+        text(change.reason, 2000, "조정 이유"); validatePrescription(change.originalPrescription);
+        if (change.originalPrescription.id !== value.prescription.id) fail("조정 전후 계획 연결을 확인해 주세요.");
+      }
+    }
+  }
+  function validateActions(actions) {
+    list(actions, 500, "선택한 행동"); const ids = new Set();
+    for (const action of actions) {
+      fields(action, ["id", "kind", "targetId", "choice", "basis", "before", "after", "reason", "reviewDate", "status", "createdAt", "appliedAt", "resolvedAt", "reviews"], "행동 초안");
+      uniqueId(action.id, ids, "행동 ID"); if (action.id.length > 128) fail("행동 ID가 너무 깁니다.");
+      if (!["program", "schedule", "allocation", "burden"].includes(action.kind) || !["draft", "applied", "cancelled", "undone"].includes(action.status)) fail("행동 종류 또는 상태를 확인해 주세요.");
+      text(action.targetId, 512, "행동 대상"); text(action.reason, 2000, "행동 선택 이유");
+      if (!date(action.reviewDate) || !iso(action.createdAt) || action.appliedAt !== null && !iso(action.appliedAt) || action.resolvedAt !== null && !iso(action.resolvedAt)) fail("행동의 작성·적용·점검 날짜를 확인해 주세요.");
+      if (typeof action.basis !== "string" || !/^[a-f0-9]{16}$/.test(action.basis)) fail("행동 기준 식별자를 확인해 주세요.");
+      if ((["applied", "undone"].includes(action.status)) !== (action.appliedAt !== null) || (["cancelled", "undone"].includes(action.status)) !== (action.resolvedAt !== null)) fail("행동 상태와 적용 이력이 일치하지 않습니다.");
+      if (action.appliedAt !== null && action.appliedAt < action.createdAt || action.resolvedAt !== null && action.resolvedAt < (action.appliedAt || action.createdAt)) fail("행동 이력의 시간 순서를 확인해 주세요.");
+      validateActionValue(action.before, action.kind); validateActionValue(action.after, action.kind);
+      const choice = action.choice;
+      if (action.kind === "program") { fields(choice, ["programId"], "프로그램 선택"); text(choice.programId, 512, "선택 프로그램"); if (action.targetId !== "active-program" || action.after.activeProgramId !== choice.programId) fail("프로그램 선택과 변경값이 일치하지 않습니다."); }
+      else if (action.kind === "schedule") { fields(choice, ["date", "adjustmentReviewDate"], "일정 선택"); if (!date(choice.date) || choice.adjustmentReviewDate !== null && !date(choice.adjustmentReviewDate)) fail("선택 일정 날짜를 확인해 주세요."); if (action.after.date !== choice.date || action.after.adjustmentReviewDate !== choice.adjustmentReviewDate) fail("일정 선택과 변경값이 일치하지 않습니다."); }
+      else if (action.kind === "allocation") { fields(choice, ["deltaG"], "배분 선택"); number(choice.deltaG, -500, 500, "선택 배분 조정량"); if (!date(action.targetId)) fail("배분 대상 날짜를 확인해 주세요."); if (action.after.carbAdjustmentG !== choice.deltaG || action.before.proteinG !== action.after.proteinG || action.before.kcal !== action.after.kcal || Math.abs((action.after.carbsG - action.before.carbsG) * 4 + (action.after.fatG - action.before.fatG) * 9) > 1e-6) fail("배분 선택의 열량·단백질 보존을 확인해 주세요."); }
+      else {
+        fields(choice, ["kind", "setReduction", "rirIncrease", "exerciseId", "loadKg"], "훈련 부담 선택");
+        if (!["maintain", "deload", "progression"].includes(choice.kind)) fail("훈련 부담 선택을 확인해 주세요.");
+        number(choice.setReduction, 0, 19, "줄일 세트", false, true); number(choice.rirIncrease, 0, 10, "늘릴 반복 여유");
+        text(choice.exerciseId, 512, "조정 운동", true); number(choice.loadKg, 0, 10000, "선택 중량", true);
+        if (action.before.date !== action.after.date || action.before.prescription.id !== action.after.prescription.id || !action.after.adjustment || action.after.adjustment.kind !== choice.kind || action.after.adjustment.reason !== action.reason) fail("훈련 부담 선택과 변경값이 일치하지 않습니다.");
+      }
+      list(action.reviews, 100, "행동 점검 이력"); const reviewIds = new Set();
+      for (const review of action.reviews) {
+        fields(review, ["id", "date", "outcome", "execution", "note", "nextReviewDate", "createdAt", "evidence"], "행동 점검");
+        uniqueId(review.id, reviewIds, "행동 점검 ID"); text(review.note, 4000, "점검 관찰");
+        if (!date(review.date) || !date(review.nextReviewDate) || review.nextReviewDate < review.date || !iso(review.createdAt) || !["maintain", "change", "insufficient"].includes(review.outcome) || !["yes", "no", "unknown"].includes(review.execution)) fail("행동 점검 결과와 날짜를 확인해 주세요.");
+        fields(review.evidence, ["from", "to", "recordIds", "dayDates", "performedAssignments", "completedDays"], "점검 당시 기록 근거");
+        if (!date(review.evidence.from) || !date(review.evidence.to) || review.evidence.from > review.evidence.to) fail("점검 근거 범위를 확인해 주세요.");
+        strings(review.evidence.recordIds, LIMITS.records, 512, "점검 운동 근거"); strings(review.evidence.dayDates, 10000, 10, "점검 날짜 근거");
+        if (review.evidence.dayDates.some(value => !date(value) || value < review.evidence.from || value > review.evidence.to)) fail("점검 기록 날짜가 조회 범위를 벗어났습니다.");
+        number(review.evidence.performedAssignments, 0, 10000, "연결한 수행 수", false, true); number(review.evidence.completedDays, 0, 10000, "완료한 날짜 수", false, true);
+      }
+      if (action.reviews.length && action.appliedAt === null) fail("아직 적용하지 않은 행동에 수행 점검을 저장할 수 없습니다.");
+    }
   }
   function validate(raw) {
     const workspace = clone(raw);
     if (!own(workspace, "planning")) workspace.planning = emptyPlanning();
     if (!own(workspace, "memory")) workspace.memory = { constraints: "", focus: "", agreements: "", updatedAt: null };
     if (!own(workspace, "followUps")) workspace.followUps = [];
-    fields(workspace, ["version", "records", "mappings", "settings", "messages", "planning", "memory", "followUps"], "훈련 작업공간");
+    if (!own(workspace, "actions")) workspace.actions = [];
+    fields(workspace, ["version", "records", "mappings", "settings", "messages", "planning", "memory", "followUps", "actions"], "훈련 작업공간");
     if (workspace.version !== VERSION) fail("지원하지 않는 훈련 저장 버전입니다.");
     validateRecords(workspace.records);
     validatePlanning(workspace.planning, workspace.records);
+    validateActions(workspace.actions);
     fields(workspace.memory, ["constraints", "focus", "agreements", "updatedAt"], "개인 코치 기억");
     for (const key of ["constraints", "focus", "agreements"]) text(workspace.memory[key], 6000, "개인 코치 기억", false, true);
     if (workspace.memory.updatedAt !== null && !iso(workspace.memory.updatedAt)) fail("개인 기억 수정 시각을 확인해 주세요.");

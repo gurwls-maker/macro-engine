@@ -11,12 +11,15 @@
     let editor = null, editorIsDraft = false, editorAssignmentId = null, chatDraft = '', jobs = [], uploadedImages = [], unprocessedImages = [], inboxError = null, jobStarting = false, followUpDraft = null;
     let scheduleWeek = I.dateKey();
     let editorNewProgram = null, editorNewAssignment = null;
+    const intakeQueueKey = `${S.STORAGE_KEY}.image-queue`;
+    let intakeQueue = [], intakeQueuePaused = true, intakeQueueError = null, queuePumping = false, imageUploads = [], imageUploadBusy = false;
     let chatScrollTop = 0, lastChatMessage = null, chatNearBottom = true, chatScrollToLatest = false;
     let analyzedState = null, analyzedDate = null, cachedAnalysis = null, cachedProgram = null, cachedProgramDate = null;
     const bridge = root.MacroBridge.create(() => app.render());
     function canAskAI() { return bridge.status?.connected === true && bridge.status.runtime?.available === true; }
     function workspace() { return app.getState().training || TS.createEmpty(); }
     function planning(value = workspace()) { return value.planning || TS.createEmpty().planning; }
+    function actionLinkedFollowUp(row) { return (workspace().actions || []).some(action => action.status === 'applied' && row.id.startsWith(`${action.id}:followup:`)); }
     function activeProgram() { const value = planning(); return value.programs.find(row => row.id === value.activeProgramId) || null; }
     function saveWorkspace(value, message) { const next = copy(app.getState()); next.training = TS.validate(value); return app.save(next, message); }
     function analysis() {
@@ -54,7 +57,19 @@
     function options(values, selected) { return values.map(([value, label]) => `<option value="${e(value)}" ${value === selected ? 'selected' : ''}>${e(label)}</option>`).join(''); }
     function sourceBadge(record) { return `<span class="source-badge ${record.source.kind === 'legacy-ocr' ? 'source-unverified' : ''}">${e(sourceNames[record.source.kind])}</span>`; }
     function dateControl() { return `<label class="field compact-date"><span>분석 기준일</span><input type="date" id="trainingDate" min="1900-01-01" max="${I.dateKey()}" value="${app.getDate()}"></label>`; }
-    function imageThumbnail(hash, className = '') { return bridge.status?.connected && hash ? `<img class="diary-thumbnail ${className}" src="/api/images/${e(hash)}" alt="운동 기록 원본" loading="lazy" data-image-fallback>` : ''; }
+    function imageThumbnail(hash, className = '') { return bridge.status?.connected && hash ? `<img class="diary-thumbnail ${className}" src="/api/images/${e(hash)}" alt="기록 원본" loading="lazy" data-image-fallback>` : ''; }
+    function sourceReviewHTML(hash) { return bridge.status?.connected && hash ? `<figure class="image-source-review"><a href="/api/images/${e(hash)}" target="_blank" rel="noopener" aria-label="원본 이미지 크게 보기"><img src="/api/images/${e(hash)}" alt="확인할 원본 이미지" data-image-fallback></a><figcaption>원본</figcaption></figure>` : '<p class="form-help">원본 연결이 없어 숫자를 대조할 수 없어요.</p>'; }
+    function todayHTML() {
+      const date = app.getDate(), data = workspace(), actual = data.records.filter(row => row.date === date), assigned = planning().schedule.filter(row => row.date === date), due = (data.followUps || []).filter(row => row.status === 'open' && row.reviewDate <= date && !actionLinkedFollowUp(row)).sort((a, b) => a.reviewDate.localeCompare(b.reviewDate)), complete = app.getState().days[date]?.complete === true;
+      const latest = data.records.filter(row => row.date <= date).sort((a, b) => b.date.localeCompare(a.date) || (b.time || '').localeCompare(a.time || ''))[0];
+      return `<section class="today-training-lanes"><div class="section-header"><h2>이어갈 운동·점검</h2><div class="toolbar-actions">${!complete ? command('coach-checkin', '컨디션 · 선택', 'heart-pulse') : ''}${command('nav-program', '계획', 'calendar-days')}</div></div>${due.map(row => `<div class="today-training-row"><div><strong>${e(row.note)}</strong><span>${row.reviewDate} · 다시 확인할 점검</span></div>${iconButton('coach-followup-edit', '점검 확인·수정', 'arrow-up-right', `data-id="${e(row.id)}"`)}</div>`).join('')}${assigned.map(row => `<div class="today-training-row"><div><strong>${e(row.prescription.label)}</strong><span>${row.status === 'performed' ? '계획에 실제 일지 연결됨' : row.status === 'skipped' ? '건너뛰기로 표시한 계획' : '예정 · 실제 수행 미확인'}</span></div>${row.status === 'planned' && date <= I.dateKey() && !complete ? command('today-schedule-start', '수행 기록', 'plus', `data-id="${e(row.id)}"`) : ''}</div>`).join('')}${actual.map(row => `<div class="today-training-row"><div><strong>${e(row.label)}</strong><span>실제 기록 · ${row.exercises.length}종목${row.time ? ` · ${e(row.time)}` : ''}</span></div>${iconButton('today-workout-open', '운동 일지 보기', 'arrow-up-right', `data-id="${e(row.id)}"`)}</div>`).join('')}${!assigned.length && !actual.length ? '<p class="secondary-text">이 날짜에 배치한 계획과 실제 일지가 없어요.</p>' : ''}${latest && !complete ? `<div class="today-training-reuse"><span>${latest.date} · ${e(latest.label)}</span>${command('today-workout-reuse', '지난 운동 재사용', 'copy', `data-id="${e(latest.id)}"`)}</div>` : ''}</section>`;
+    }
+    function intakeSummaryHTML() {
+      const imageJobs = jobs.filter(row => row.kind !== 'chat' && row.kind !== 'unknown'), hashes = new Set([...uploadedImages, ...unprocessedImages].map(row => row.hash));
+      imageJobs.forEach(row => hashes.add(row.imageHash));
+      const unconfirmed = imageJobs.filter(row => row.status === 'completed' && !hasStoredImageRecord(row)).length, waiting = intakeQueue.filter(row => ['queued', 'running', 'requesting', 'failed'].includes(row.status)).length;
+      return `<section class="today-intake-summary"><div><strong>${unconfirmed ? `확인할 판독 초안 ${unconfirmed}개` : hashes.size ? `보관 사진 ${hashes.size}개` : '사진으로 기록 남기기'}</strong><span>${waiting ? `판독 대기·확인 ${waiting}개` : '확인해 저장하기 전에는 숫자 기록에 포함하지 않아요.'}</span></div><div class="toolbar-actions">${command('training-image', '사진 추가', 'image-plus')}${hashes.size || waiting || inboxError ? command('image-inbox-open', '확인함', 'inbox') : ''}</div></section>`;
+    }
     function connectionPanel() {
       const status = bridge.status;
       if (!status?.connected) return `<div class="connection-note">${icon('hard-drive')}<div><strong>기기 기록 모드</strong><span>개인 코치 연결 주소: http://127.0.0.1:4173</span></div>${location.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(location.hostname) ? command('bridge-refresh', '서버 다시 확인', 'refresh-cw') : ''}</div>`;
@@ -211,6 +226,8 @@
         const name = String(form.get(`exercise-${x}`) || '').trim();
         if (name !== exercise.rawName) { exercise.exerciseId = T.resolveExercise(name, workspace().mappings)?.id || null; exercise.equipmentKey = null; exercise.loadConvention = 'as-recorded'; }
         exercise.rawName = name;
+        if (form.has(`equipment-${x}`)) exercise.equipmentKey = String(form.get(`equipment-${x}`) || '').trim() || null;
+        if (form.has(`convention-${x}`)) exercise.loadConvention = String(form.get(`convention-${x}`));
         exercise.sets.forEach((set, y) => { for (const key of ['loadKg', 'reps', 'rir']) set[key] = numeric(form, `${x}-${y}-${key}`); set.marker = String(form.get(`${x}-${y}-marker`) || '').trim() || null; });
       });
     }
@@ -223,7 +240,7 @@
         if (editorIsDraft) {
           TS.validate({ ...next, records: [copy(editor)] });
           pendingImport.records = pendingImport.records.map(record => record.id === editor.id ? copy(editor) : record);
-          pendingImport.result = TS.mergeRecords(workspace(), pendingImport.records); closeDialog(); render(); toast('초안을 수정했어요. 아직 앱 기록에 저장하지 않았습니다.'); return;
+          pendingImport.result = TS.mergeRecords(workspace(), pendingImport.records); pendingImport.reviewed = false; closeDialog(); render(); toast('초안을 수정했어요. 아직 앱 기록에 저장하지 않았습니다.'); return;
         }
         if (index >= 0) next.records[index] = copy(editor); else next.records.push(copy(editor));
         if (editorNewProgram) { next.planning.programs.push(copy(editorNewProgram)); next.planning.activeProgramId = editorNewProgram.id; next.planning.schedule.push(copy(editorNewAssignment)); }
@@ -234,6 +251,11 @@
         }
         if (saveWorkspace(next, '운동 일지와 코칭에 반영했어요.')) { chosen = editor.id; closeDialog(); render(); }
       });
+      $('entryForm').querySelectorAll('.editor-exercise').forEach((element, index) => {
+        const exercise = editor.exercises[index], description = T.describeExercise(exercise, workspace().mappings);
+        element.querySelector('.editor-exercise-heading').insertAdjacentHTML('afterend', `<details class="source-details"><summary>장비·중량 기준${description.equipmentKey ? ` · ${e(description.equipmentKey)}` : ''}</summary><div class="form-grid"><label class="field"><span>실제 장비 · 확인할 때만</span><input name="equipment-${index}" type="text" maxlength="128" value="${e(exercise.equipmentKey || '')}" placeholder="이름의 브랜드만으로 같은 머신을 확정하지 않아요"></label><label class="field"><span>직접 지정한 kg 기준</span><select name="convention-${index}">${options([['as-recorded', '직접 지정 없음 · 확인한 연결/이름 규칙'], ['total', '전체 중량'], ['per-side', '한쪽 중량'], ['bodyweight', '맨몸·추가 부하']], exercise.loadConvention)}</select></label></div></details>`);
+      });
+      if (editorIsDraft && editor.source.hash) $('entryForm').insertAdjacentHTML('afterbegin', sourceReviewHTML(editor.source.hash));
       const assignment = editorNewAssignment || planning().schedule.find(row => row.id === editorAssignmentId || row.recordId === editor.id);
       if (assignment) $('entryForm').insertAdjacentHTML('afterbegin', `<details class="source-details" open><summary>배치 당시 목표 · 실제 값과 별도</summary>${assignment.prescription.exercises.map(row => `<p><strong>${e(row.label)}</strong> ${e(targetText(row))}</p>`).join('')}<p class="form-help">아래에는 실제 수행한 숫자만 입력해 주세요. 권장 반복·RIR을 실제 값으로 미리 채우지 않았어요.</p></details>`);
       $('entryDialog').classList.add('dialog-wide');
@@ -291,14 +313,14 @@
         if (app.save(next, '확인한 운동 시간만 영양 목표에 반영했어요.')) closeDialog();
       });
     }
-    function previewRecords(records, warnings = []) {
-      const result = TS.mergeRecords(workspace(), records); pendingImport = { records, warnings: [...warnings, ...result.warnings], result };
+    function previewRecords(records, warnings = [], imageJob = null) {
+      const result = TS.mergeRecords(workspace(), records); pendingImport = { records, warnings: [...warnings, ...result.warnings], result, imageJob, reviewed: false };
       tab = 'log'; app.selectView('training'); render();
     }
     function renderImportPreview() {
       if (!$('trainingImportPreview')) { const section = document.createElement('section'); section.id = 'trainingImportPreview'; section.className = 'import-review'; $('trainingContent').prepend(section); }
       const data = pendingImport, result = data.result;
-      $('trainingImportPreview').innerHTML = `<div class="section-header"><h2>일지 가져오기 확인</h2>${iconButton('training-import-cancel', '가져오기 취소', 'x')}</div><p>추가 ${result.added} · 경로 갱신 ${result.updated} · 동일 ${result.unchanged} · 보류 ${result.conflicts.length}</p>${[...new Set(data.warnings)].map(line => `<p class="form-help">${e(line)}</p>`).join('')}<div class="import-record-list">${data.records.slice(0, 20).map(record => `<div><span>${record.date}</span><strong>${e(record.label)}</strong><small>${record.exercises.length}종목 · ${sourceNames[record.source.kind]}</small></div>`).join('')}</div>${data.records.length > 20 ? `<p class="form-help">총 ${data.records.length}개 기록입니다.</p>` : ''}${result.conflicts.length ? `<details open><summary>보류한 기록 ${result.conflicts.length}개</summary>${result.conflicts.map((conflict, index) => `<div class="conflict-row"><div><strong>${conflict.incoming.date} · ${e(conflict.incoming.label)}</strong><p>${e(conflict.reason)}</p></div>${command('training-conflict', '비교', 'git-compare-arrows', `data-index="${index}"`)}</div>`).join('')}</details>` : ''}<div class="form-actions">${command('training-import-confirm', '확인한 비충돌 기록 가져오기', 'check', '', true)}${command('training-import-cancel', '취소', 'x')}</div>`;
+      $('trainingImportPreview').innerHTML = `<div class="section-header"><h2>일지 가져오기 확인</h2>${iconButton('training-import-cancel', '가져오기 취소', 'x')}</div><p>추가 ${result.added} · 경로 갱신 ${result.updated} · 동일 ${result.unchanged} · 보류 ${result.conflicts.length}</p>${[...new Set(data.warnings)].map(line => `<p class="form-help">${e(line)}</p>`).join('')}${data.imageJob ? `<div class="image-review-layout">${sourceReviewHTML(data.imageJob.imageHash)}<div>${data.records.map(draftRecordHTML).join('')}</div></div><label class="checkbox-field"><input id="imageWorkoutReviewed" type="checkbox" ${data.reviewed ? 'checked' : ''}>모든 운동의 날짜·세트 숫자와 중량 기준을 원본과 대조했어요. 빈 숫자는 미확인으로 남길게요.</label>` : ''}<div class="import-record-list">${data.records.slice(0, data.imageJob ? data.records.length : 20).map(record => `<div><span>${record.date}</span><strong>${e(record.label)}</strong><small>${record.exercises.length}종목 · ${sourceNames[record.source.kind]}</small></div>`).join('')}</div>${data.records.length > 20 && !data.imageJob ? `<p class="form-help">총 ${data.records.length}개 기록입니다.</p>` : ''}${result.conflicts.length ? `<details open><summary>보류한 기록 ${result.conflicts.length}개</summary>${result.conflicts.map((conflict, index) => `<div class="conflict-row"><div><strong>${conflict.incoming.date} · ${e(conflict.incoming.label)}</strong><p>${e(conflict.reason)}</p></div>${command('training-conflict', '비교', 'git-compare-arrows', `data-index="${index}"`)}</div>`).join('')}</details>` : ''}<div class="form-actions">${command('training-import-confirm', '확인한 비충돌 기록 가져오기', 'check', data.imageJob && !data.reviewed ? 'disabled' : '', true)}${command('training-import-cancel', '취소', 'x')}</div>`;
       $('trainingImportPreview').querySelectorAll('.import-record-list > div').forEach((row, index) => row.insertAdjacentHTML('beforeend', iconButton('training-import-detail', '원문 세트 초안 확인', 'list-checks', `data-id="${e(data.records[index].id)}"`)));
       app.icons();
     }
@@ -319,43 +341,138 @@
       });
     }
     function imageDialog() {
+      if (imageUploadBusy) { toast('사진 보관이 아직 진행 중이에요. 보관 결과는 확인함에 남습니다. 끝난 뒤 다음 사진을 추가해 주세요.', true); return; }
       if (!bridge.status?.connected) { toast('사진 보관은 로컬 앱 서버가 필요해요. 지금도 직접 기록·지난 운동 재사용·JSON 가져오기는 가능합니다.', true); return; }
-      openDialog('사진 추가', `<div class="form-grid"><label class="field"><span>기록 종류</span><select id="imageKind" name="kind">${options([['workout', '운동 일지'], ['meal', '식사 · 영양 라벨'], ['body', '체성분 · 인바디']], 'workout')}</select></label><label class="field"><span>이미지</span><input id="coachImageFile" type="file" accept="image/png,image/jpeg,image/webp" required></label><label class="field full-width"><span>분량·날짜 등 메모 · 선택</span><textarea id="imageNote" name="note" rows="2" maxlength="6000" placeholder="예: 라벨의 1회 분량 중 절반을 먹었어요"></textarea></label></div><label class="checkbox-field"><input id="imageAnalyze" name="analyze" type="checkbox" ${canAskAI() ? '' : 'disabled'}>보관 후 Codex 판독도 요청</label>${!canAskAI() ? '<p class="notice notice-warning">지금은 AI 판독에 연결할 수 없어요. 사진과 메모만 보관하거나 숫자를 직접 기록할 수 있습니다.</p>' : '<p class="form-help">판독을 선택하면 이미지와 메모를 Codex에 전송해 계정 사용량을 사용합니다.</p>'}<p class="form-help">사진 보관만으로 세트·섭취량·측정값이 추가되지는 않아요. 판독 초안도 확인한 뒤에만 기록에 반영합니다.</p>${actions('사진 보관')}`, async form => {
-        const entry = $('entryForm'), file = $('coachImageFile').files[0]; if (!file) return;
+      imageUploads.forEach(row => URL.revokeObjectURL(row.url)); imageUploads = [];
+      openDialog('사진 추가', `<div class="form-grid"><label class="field"><span>기록 종류</span><select id="imageKind" name="kind">${options([['workout', '운동 일지'], ['meal', '식사 · 영양 라벨'], ['body', '체성분 · 인바디']], 'workout')}</select></label><label class="field"><span>이미지 · 여러 장 선택</span><input id="coachImageFile" type="file" accept="image/png,image/jpeg,image/webp" multiple required></label><label class="field full-width"><span>분량·날짜 등 메모 · 선택</span><textarea id="imageNote" name="note" rows="2" maxlength="6000" placeholder="예: 라벨의 1회 분량 중 절반을 먹었어요"></textarea></label></div><div id="imageUploadList" class="image-upload-list" aria-live="polite"></div><label class="checkbox-field"><input id="imageAnalyze" name="analyze" type="checkbox" ${canAskAI() ? '' : 'disabled'}>보관 후 Codex 판독도 요청</label>${!canAskAI() ? '<p class="notice notice-warning">지금은 AI 판독에 연결할 수 없어요. 사진과 메모만 보관하거나 숫자를 직접 기록할 수 있습니다.</p>' : '<p class="form-help">선택한 사진과 메모를 하나씩 Codex에 전송하며 계정 사용량을 사용합니다. 같은 사진의 기존 판독은 다시 읽지 않아요.</p>'}<p class="form-help">사진 보관만으로 세트·섭취량·측정값이 추가되지는 않아요. 판독 초안도 확인한 뒤에만 기록에 반영합니다.</p>${actions('사진 보관')}`, async form => {
+        const entry = $('entryForm'); if (!imageUploads.length || imageUploadBusy) return;
         const kind = String(form.get('kind')), note = String(form.get('note') || ''), analyze = form.get('analyze') === 'on';
-        if (file.size > 10 * 1024 * 1024) throw new Error('10MB 이하의 PNG, JPG, WebP를 선택해 주세요.');
         if (note.length > 6000) throw new Error('메모는 6,000자 이내로 줄여 주세요.');
-        const buffer = new Uint8Array(await file.arrayBuffer()); let binary = ''; for (const byte of buffer) binary += String.fromCharCode(byte);
-        const uploaded = await bridge.request('/api/inbox', { name: file.name, kind, note, base64: btoa(binary) });
-        uploadedImages = [...uploadedImages.filter(row => row.hash !== uploaded.hash), uploaded];
+        imageUploadBusy = true; const failures = [];
+        try {
+          for (const row of imageUploads) {
+            if (row.status === 'stored') continue;
+            row.status = 'uploading'; row.error = null; drawImageUploads();
+            try {
+              const buffer = new Uint8Array(await row.file.arrayBuffer()); let binary = ''; for (const byte of buffer) binary += String.fromCharCode(byte);
+              const uploaded = await bridge.request('/api/inbox', { name: row.file.name, kind, note, base64: btoa(binary) });
+              uploadedImages = [...uploadedImages.filter(source => source.hash !== uploaded.hash), uploaded];
+              Object.assign(row, { status: 'stored', uploaded, kind, note });
+            } catch (error) { row.status = 'failed'; row.error = error.message; failures.push(`${row.file.name}: ${error.message}`); }
+            drawImageUploads();
+          }
+        } finally { imageUploadBusy = false; drawImageUploads(); }
+        if (failures.length) throw new Error(`보관한 사진은 유지했고 실패한 사진만 다시 시도할 수 있어요. ${failures.join(' · ')}`);
+        const storedRows = imageUploads.slice();
         const stillOpen = entry.isConnected && $('entryDialog').open;
         if (stillOpen) closeDialog();
         if (stillOpen) { tab = 'log'; app.selectView('training'); }
         await refreshJobs();
-        const stored = uploaded.metadataConflict ? '같은 사진이 이미 보관되어 기존 종류와 메모를 유지했어요.' : uploaded.reused ? '이미 보관한 사진을 다시 확인했어요.' : '사진과 메모를 이 PC에 보관했어요.';
+        const stored = storedRows.some(row => row.uploaded.metadataConflict) ? '같은 사진이 이미 보관되어 기존 종류와 메모를 유지했어요.' : storedRows.every(row => row.uploaded.reused) ? '이미 보관한 사진을 다시 확인했어요.' : `${storedRows.length}장의 사진과 메모를 이 PC에 보관했어요.`;
         toast(`${stored} 사진 보관만으로 숫자 기록을 새로 추가하지는 않았습니다.${inboxError ? ' 보관 목록을 불러오지 못했어요. 서버를 다시 확인해 주세요.' : ''}`, !!inboxError);
         if (!analyze || !stillOpen) return;
-        try { await startJob(kind, note, uploaded.hash); }
-        catch (error) { toast(`사진은 보관됐지만 AI 판독을 시작하지 못했어요. ${error.message}`, true); }
+        enqueueImages(storedRows.map(row => ({ hash: row.uploaded.hash, kind: row.kind, note: row.note, name: row.file.name })));
+        intakeQueuePaused = false; void pumpImageQueue();
       });
+      $('entryForm').addEventListener('paste', event => {
+        const files = [...(event.clipboardData?.items || [])].filter(item => item.kind === 'file').map(item => item.getAsFile()).filter(Boolean);
+        if (files.length && !imageUploadBusy) { event.preventDefault(); addImageUploads(files); }
+      });
+    }
+    function addImageUploads(files) {
+      const errors = [];
+      for (const file of files) {
+        if (imageUploads.length >= 50) { errors.push('한 번에 50장까지 선택해 주세요.'); break; }
+        if (file.size > 10 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) { errors.push(`${file.name}: 10MB 이하의 PNG, JPG, WebP를 선택해 주세요.`); continue; }
+        if (imageUploads.some(row => row.file.name === file.name && row.file.size === file.size && row.file.lastModified === file.lastModified)) continue;
+        imageUploads.push({ id: id(), file, url: URL.createObjectURL(file), status: 'selected', error: null });
+      }
+      if ($('coachImageFile')) $('coachImageFile').required = !imageUploads.length;
+      drawImageUploads(); if (errors.length) toast(errors.join(' '), true);
+    }
+    function drawImageUploads() {
+      const list = $('imageUploadList'); if (!list) return;
+      list.innerHTML = imageUploads.map(row => `<div class="image-upload-row"><img src="${e(row.url)}" alt="선택한 이미지"><div><strong>${e(row.file.name)}</strong><span>${{ selected: '보관 전', uploading: '보관 중', stored: 'PC에 보관됨', failed: '보관 실패 · 재시도 가능' }[row.status]}</span>${row.error ? `<p>${e(row.error)}</p>` : ''}</div>${!imageUploadBusy && row.status !== 'stored' ? iconButton('image-upload-remove', '선택에서 제외', 'x', `data-id="${e(row.id)}"`) : ''}</div>`).join('');
+      app.icons();
     }
     async function refreshJobs() {
       if (!bridge.status?.connected) return;
-      const errors = [];
-      try { const result = await bridge.request('/api/jobs'); jobs = result.jobs || []; unprocessedImages = unprocessedImages.filter(source => !jobs.some(job => job.imageHash === source.hash && job.status === 'completed')); } catch (error) { errors.push(`판독 요청 목록: ${error.message}`); }
+      const errors = []; let jobsRead = false;
+      try { const result = await bridge.request('/api/jobs'); jobs = result.jobs || []; jobsRead = true; unprocessedImages = unprocessedImages.filter(source => !jobs.some(job => job.imageHash === source.hash && job.status === 'completed')); } catch (error) { errors.push(`판독 요청 목록: ${error.message}`); }
       try { const result = await bridge.request('/api/inbox'); uploadedImages = result.images || []; } catch (error) { errors.push(`사진 보관 목록: ${error.message}`); }
       inboxError = errors.join(' ') || null;
+      if (jobsRead) reconcileImageQueue();
       if (app.getView?.() === 'training') render();
     }
+    function persistImageQueue() {
+      try { localStorage.setItem(intakeQueueKey, JSON.stringify({ version: 1, rows: intakeQueue })); intakeQueueError = null; }
+      catch (error) { intakeQueuePaused = true; intakeQueueError = '이 브라우저에 판독 대기를 저장하지 못했어요. 사진 원본과 서버 초안은 유지되지만 새로고침 전 대기 목록을 확인해 주세요.'; }
+    }
+    function loadImageQueue() {
+      try {
+        const raw = localStorage.getItem(intakeQueueKey); if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed.version !== 1 || !Array.isArray(parsed.rows) || parsed.rows.length > 100 || parsed.rows.some(row => !row || !/^[a-f0-9]{64}$/.test(row.hash) || !['workout', 'meal', 'body'].includes(row.kind) || typeof row.note !== 'string' || row.note.length > 6000 || typeof row.id !== 'string' || row.id.length > 128 || typeof row.name !== 'string' || row.name.length > 300 || !S.isValidDate(row.date) || row.date > I.dateKey() || !['queued', 'requesting', 'running', 'failed', 'completed', 'cancelled'].includes(row.status) || (row.jobId !== null && (typeof row.jobId !== 'string' || !/^[a-f0-9]{32}$/.test(row.jobId))) || typeof row.queuedAt !== 'string' || !Number.isFinite(Date.parse(row.queuedAt)))) throw new Error('invalid queue');
+        intakeQueue = parsed.rows; intakeQueuePaused = true;
+      } catch (error) { intakeQueueError = '판독 대기 저장본을 읽지 못했어요. 이 저장본을 덮어쓰지 않고 사진·서버 요청 목록에서 확인합니다.'; }
+    }
+    function enqueueImages(sources) {
+      if (intakeQueueError) { toast(intakeQueueError, true); return; }
+      for (const source of sources) {
+        if (intakeQueue.some(row => row.hash === source.hash && ['queued', 'requesting', 'running'].includes(row.status))) continue;
+        if (jobs.some(row => row.imageHash === source.hash && ['completed', 'running', 'pending'].includes(row.status))) continue;
+        if (intakeQueue.length >= 100) intakeQueue = intakeQueue.filter(row => !['completed', 'cancelled'].includes(row.status));
+        if (intakeQueue.length >= 100) { toast('판독 대기가 100개입니다. 기존 대기를 확인한 뒤 추가해 주세요. 사진은 보관되어 있어요.', true); break; }
+        intakeQueue.push({ id: id(), hash: source.hash, kind: source.kind, note: source.note, name: source.name.slice(0, 300), date: app.getDate(), status: 'queued', queuedAt: new Date().toISOString(), jobId: null, retry: false, error: null });
+      }
+      persistImageQueue(); app.render();
+    }
+    function reconcileImageQueue() {
+      if (intakeQueueError) return;
+      let changed = false;
+      for (const row of intakeQueue) {
+        if (!['requesting', 'running'].includes(row.status)) continue;
+        const job = row.jobId ? jobs.find(item => item.id === row.jobId) : jobs.find(item => item.imageHash === row.hash && item.kind === row.kind && Date.parse(item.createdAt) >= Date.parse(row.queuedAt));
+        if (!job) {
+          if (jobStarting || queuePumping || currentJob?.id === row.jobId && ['running', 'pending'].includes(currentJob?.status)) continue;
+          row.status = 'failed'; row.error = '요청 결과가 확인되지 않아요. 서버 목록을 다시 확인한 뒤 명시적으로 재시도해 주세요.'; changed = true; continue;
+        }
+        row.jobId = job.id; row.status = ['pending', 'running'].includes(job.status) ? 'running' : job.status === 'completed' ? 'completed' : 'failed'; row.error = job.error || null; changed = true;
+      }
+      if (changed) persistImageQueue();
+    }
+    async function pumpImageQueue() {
+      if (intakeQueuePaused || intakeQueueError || queuePumping || jobStarting || ['running', 'pending'].includes(currentJob?.status)) return;
+      const row = intakeQueue.find(item => item.status === 'queued'); if (!row) return;
+      const existing = !row.retry && jobs.find(job => job.imageHash === row.hash && ['completed', 'pending', 'running'].includes(job.status));
+      if (existing) {
+        row.jobId = existing.id; row.status = existing.status === 'completed' ? 'completed' : 'running'; persistImageQueue();
+        if (existing.status !== 'completed') { currentJob = { ...existing, queueId: row.id }; await pollJob(); }
+        else setTimeout(() => void pumpImageQueue(), 0);
+        app.render(); return;
+      }
+      if (!canAskAI()) { intakeQueuePaused = true; app.render(); return; }
+      queuePumping = true; row.status = 'requesting'; persistImageQueue();
+      if (intakeQueuePaused) { row.status = 'queued'; queuePumping = false; app.render(); return; }
+      try { await startJob(row.kind, row.note, row.hash, null, row.retry, row); }
+      catch (error) { row.status = 'failed'; row.error = error.message; intakeQueuePaused = true; persistImageQueue(); toast(`사진은 보관됐지만 AI 판독을 시작하지 못했어요. ${error.message}`, true); }
+      finally { queuePumping = false; app.render(); if (!['running', 'pending'].includes(currentJob?.status)) setTimeout(() => void pumpImageQueue(), 0); }
+    }
+    function queueHTML() {
+      const rows = intakeQueue.filter(row => !['completed', 'cancelled'].includes(row.status));
+      if (!rows.length && !intakeQueueError) return '';
+      return `<section class="intake-queue"><div class="section-header"><h3>선택한 판독 대기 ${rows.length}개</h3>${intakeQueuePaused ? command('image-queue-continue', '대기 판독 계속', 'play', canAskAI() && !intakeQueueError && rows.some(row => row.status === 'queued') ? '' : 'disabled') : command('image-queue-pause', '대기 일시정지', 'pause')}</div>${intakeQueueError ? `<p class="notice notice-warning">${e(intakeQueueError)}</p>` : ''}${intakeQueuePaused && rows.some(row => row.status === 'queued') ? '<p class="form-help">대기는 보존했어요. 계속하기 전에는 새 AI 요청을 보내지 않습니다.</p>' : ''}${rows.map(row => `<div class="intake-queue-row"><div><strong>${e(row.name)}</strong><span>${{ queued: '판독 대기', requesting: '요청 결과 확인 중', running: 'AI 판독 중', failed: '요청 실패 · 사진 보관' }[row.status]}</span>${row.error ? `<p>${e(row.error)}</p>` : ''}</div><div class="toolbar-actions">${row.status === 'failed' ? command('image-queue-retry', '다시 요청', 'rotate-cw', `data-id="${e(row.id)}" ${canAskAI() ? '' : 'disabled'}`) : ''}${row.status === 'queued' || row.status === 'failed' ? iconButton('image-queue-remove', '대기에서 제외 · 사진 유지', 'x', `data-id="${e(row.id)}"`) : ''}</div></div>`).join('')}</section>`;
+    }
+    function hasStoredImageRecord(job) { return job.kind === 'workout' ? workspace().records.some(row => row.source.hash === job.imageHash) : job.kind === 'meal' ? Object.values(app.getState().days).some(day => day.meals.some(meal => meal.source?.hash === job.imageHash)) : false; }
     function inboxHTML() {
       const images = jobs.filter(job => job.kind !== 'chat' && job.kind !== 'unknown');
       const pending = uploadedImages.filter(source => !images.some(job => job.imageHash === source.hash));
       const external = unprocessedImages.filter(source => !uploadedImages.some(row => row.hash === source.hash) && !images.some(job => job.imageHash === source.hash));
       const kinds = { workout: '운동 일지', meal: '식사', body: '체성분' };
-      const requestButton = source => command('image-source-start', '판독 요청', 'scan-text', `data-hash="${e(source.hash)}" ${source.damaged ? 'disabled title="사진 보관 정보 확인이 필요해요"' : canAskAI() ? '' : 'disabled title="AI 판독 연결이 필요해요"'}`);
-      const storedRecord = job => job.kind === 'workout' ? workspace().records.some(row => row.source.hash === job.imageHash) : job.kind === 'meal' ? Object.values(app.getState().days).some(day => day.meals.some(meal => meal.source?.hash === job.imageHash)) : false;
-      const jobStatus = job => job.status === 'completed' ? job.kind === 'body' ? 'AI 판독 결과 · 저장 여부는 기록에서 확인' : storedRecord(job) ? '관련 저장 기록 있음 · AI 원문 초안' : 'AI 판독 초안 · 반영 전 확인 필요' : ({ running: 'AI 판독 중', pending: 'AI 판독 대기', cancelled: '취소됨 · 사진 보관', failed: '판독 실패 · 사진 보관', interrupted: '중단됨 · 사진 보관' }[job.status] || '확인 필요');
+      const requestButton = source => command('image-source-start', '판독 요청', 'scan-text', `data-hash="${e(source.hash)}" ${source.damaged ? 'disabled title="사진 보관 정보 확인이 필요해요"' : intakeQueue.some(row => row.hash === source.hash && ['queued', 'requesting', 'running'].includes(row.status)) ? 'disabled title="선택한 판독 대기에 있어요"' : canAskAI() ? '' : 'disabled title="AI 판독 연결이 필요해요"'}`);
+      const jobStatus = job => job.status === 'completed' ? job.kind === 'body' ? 'AI 판독 결과 · 저장 여부는 기록에서 확인' : hasStoredImageRecord(job) ? '관련 저장 기록 있음 · AI 원문 초안' : 'AI 판독 초안 · 반영 전 확인 필요' : ({ running: 'AI 판독 중', pending: 'AI 판독 대기', cancelled: '취소됨 · 사진 보관', failed: '판독 실패 · 사진 보관', interrupted: '중단됨 · 사진 보관' }[job.status] || '확인 필요');
       return `<details class="image-inbox"><summary>이미지 확인함 <span>${images.length + pending.length + external.length}${inboxError ? ' · 조회 확인 필요' : ''}</span></summary>
+        ${queueHTML()}
         ${inboxError ? `<div class="notice notice-warning" role="alert"><strong>보관 목록을 불러오지 못했어요.</strong><p>${e(inboxError)}</p><p>사진이 없는 것으로 처리하지 않습니다. 마지막 확인 목록은 그대로 남겨요.</p>${command('bridge-refresh', '서버 다시 확인', 'refresh-cw')}</div>` : ''}
         ${images.length ? `<h3>판독 요청과 초안</h3>${images.map(job => `<div class="inbox-row" data-image-hash="${e(job.imageHash)}">${imageThumbnail(job.imageHash)}<div><strong>${kinds[job.kind]}</strong><span>${e(job.createdAt?.slice(0, 10) || '')} · ${jobStatus(job)}</span></div>${command('image-job-open', '확인', 'arrow-up-right', `data-id="${e(job.id)}"`)}</div>`).join('')}` : ''}
         ${pending.length ? `<h3>사진만 보관 · 미판독</h3>${pending.map(source => `<div class="inbox-row" data-image-hash="${e(source.hash)}">${imageThumbnail(source.hash)}<div><strong>${e(source.name || '사진 보관 정보 확인 필요')}</strong><span>${source.damaged ? '보관 정보 손상 · 숫자 기록에 반영되지 않음' : `${e(source.createdAt?.slice(0, 10) || '')} · ${kinds[source.kind] || '종류 미확인'} · 사진만 보관 · 미판독`}</span>${source.note ? `<p class="inbox-note">${e(source.note)}</p>` : ''}</div>${requestButton(source)}</div>`).join('')}` : ''}
@@ -385,19 +502,34 @@
     function renderImagePreview() {
       if (!$('imageDraftPreview')) { const section = document.createElement('section'); section.id = 'imageDraftPreview'; section.className = 'import-review'; $('trainingContent').prepend(section); }
       const result = imageDraft.result;
-      $('imageDraftPreview').innerHTML = `<div class="section-header"><h2>이미지 판독 확인</h2>${iconButton('image-draft-dismiss', '초안 닫기', 'x')}</div><div class="image-draft-summary">${imageThumbnail(imageDraft.imageHash)}<div><p class="conversation-text">${e(result.answer)}</p>${result.uncertainties.map(line => `<p class="form-help">${e(line)}</p>`).join('')}${result.questions.map(line => `<p>${e(line)}</p>`).join('')}</div></div>${result.kind === 'workout' ? command('image-workout-preview', '세트 초안 확인', 'list-checks', '', true) : result.kind === 'meal' ? command('image-meal-confirm', '식사 숫자 확인', 'utensils', '', true) : command('image-body-confirm', '측정값 확인', 'scale', '', true)}`;
+      const allValues = result.kind === 'workout' ? workoutDraftRecords().map(draftRecordHTML).join('') : result.kind === 'meal' ? `<h3>${e(result.meal.name)}</h3><p>${e(result.meal.date)} · ${result.meal.basis === 'label' ? '영양 라벨' : '분량 추정'}</p><dl class="image-draft-values">${[['protein', '단백질', 'g'], ['carbs', '탄수화물', 'g'], ['fat', '지방', 'g'], ['otherKcal', '기타 열량', 'kcal'], ['alcoholG', '알코올', 'g']].map(([key, label, unit]) => `<div><dt>${label}</dt><dd>${result.meal[key] == null ? '미확인' : `${fmt(result.meal[key], 1)}${unit}`}</dd></div>`).join('')}</dl><p>${e(result.meal.note)}</p>` : `<h3>체성분 측정 초안</h3><p>${e(result.body.date)} · ${e(result.body.method)}</p><dl class="image-draft-values">${[['weightKg', '체중', 'kg'], ['bodyFatPct', '체지방률', '%'], ['skeletalMuscleKg', '골격근량', 'kg']].map(([key, label, unit]) => `<div><dt>${label}</dt><dd>${result.body[key] == null ? '미확인' : `${fmt(result.body[key], 1)}${unit}`}</dd></div>`).join('')}</dl>`;
+      $('imageDraftPreview').innerHTML = `<div class="section-header"><h2>이미지 판독 확인</h2>${iconButton('image-draft-dismiss', '초안 닫기', 'x')}</div><div class="image-review-layout">${sourceReviewHTML(imageDraft.imageHash)}<div><p class="conversation-text">${e(result.answer)}</p>${result.uncertainties.map(line => `<p class="notice notice-warning">${e(line)}</p>`).join('')}${result.questions.map(line => `<p>${e(line)}</p>`).join('')}${allValues}</div></div>${result.kind === 'workout' ? command('image-workout-preview', '세트 초안 확인', 'list-checks', '', true) : result.kind === 'meal' ? command('image-meal-confirm', '식사 숫자 확인', 'utensils', '', true) : command('image-body-confirm', '측정값 확인', 'scale', '', true)}`;
       app.icons();
+    }
+    function draftRecordHTML(record) {
+      const conventions = { total: '전체 중량', 'per-side': '한쪽 중량', bodyweight: '맨몸·추가 부하', 'as-recorded': '중량 기준 미확인' };
+      return `<section class="image-record-review"><div class="section-header"><h3>${e(record.date)} · ${e(record.label)}</h3>${command('image-review-detail', '숫자 수정', 'pencil', `data-id="${e(record.id)}"`)}</div><p class="secondary-text">시각 ${record.time || '미확인'} · 시간 ${record.durationMinutes == null ? '미확인' : `${fmt(record.durationMinutes)}분`} · 원문 세트 ${fmt(record.reportedSetCount)} · 볼륨 ${record.reportedVolumeKg == null ? '미확인' : `${fmt(record.reportedVolumeKg, 1)}kg`} · 원문 열량 ${record.reportedEnergyKcal == null ? '미확인' : `${fmt(record.reportedEnergyKcal)}kcal`}</p>${record.source.uncertainties.map(line => `<p class="form-help">${e(line)}</p>`).join('')}${record.exercises.map(exercise => {
+        const description = T.describeExercise(exercise, workspace().mappings), flags = [];
+        if (description.ruleConflict) flags.push('이름과 중량 기준 충돌');
+        if (!description.resolved) flags.push('운동·부위 연결 미확인');
+        if (!['record', 'mapping'].includes(description.equipmentSource) && description.equipmentKey) flags.push('새 장비 표기 · 같은 물리적 머신인지 미확인');
+        if (!description.equipmentKey) flags.push('장비 미확인');
+        if (description.loadConvention === 'as-recorded') flags.push('중량 기준 미확인');
+        if (exercise.sets.some(set => set.loadKg == null || set.reps == null)) flags.push('중량·반복에 미확인 숫자');
+        if (exercise.sets.some(set => set.rir == null)) flags.push('RIR 미확인 · 원문에 없으면 입력 불필요');
+        return `<section class="exercise-block"><h4>${e(exercise.rawName)}</h4><p class="secondary-text">${e(description.equipmentKey || '장비 미확인')} · ${e(conventions[description.loadConvention])}${description.equipmentSource === 'mapping' || description.resolved?.confidence === 'confirmed' ? ' · 확인한 연결 재사용' : ''}</p>${flags.length ? `<ul class="image-review-flags">${flags.map(line => `<li>${e(line)}</li>`).join('')}</ul>` : ''}${exercise.sets.length ? `<div class="set-table" role="table" aria-label="${e(exercise.rawName)} 전체 판독 세트"><div class="set-table-head" role="row"><span role="columnheader">세트</span><span role="columnheader">원문 kg</span><span role="columnheader">반복</span><span role="columnheader">RIR</span></div>${exercise.sets.map((set, index) => `<div class="set-table-row" role="row"><span role="cell">${e(set.marker || String(index + 1))}</span><strong role="cell">${set.loadKg == null ? '미확인' : fmt(set.loadKg, 1)}</strong><strong role="cell">${set.reps == null ? '미확인' : fmt(set.reps)}</strong><span role="cell">${set.rir == null ? '미확인' : fmt(set.rir)}</span></div>`).join('')}</div>` : '<p class="form-help">세트 상세 없음</p>'}${exercise.durationMinutes != null || exercise.repsTotal != null ? `<p>종목 시간 ${fmt(exercise.durationMinutes)}분 · 총 반복 ${fmt(exercise.repsTotal)}</p>` : ''}</section>`;
+      }).join('')}</section>`;
     }
     function workoutDraftRecords() {
       return imageDraft.result.workouts.map((session, index) => ({ id: `${imageDraft.imageHash}:${index}`, date: session.date, time: session.time, label: session.label,
         durationMinutes: session.durationMinutes, reportedSetCount: session.reportedSetCount, reportedVolumeKg: session.reportedVolumeKg, reportedEnergyKcal: session.reportedEnergyKcal,
         source: { kind: 'visual', hash: imageDraft.imageHash, paths: [], uncertainties: [...session.uncertainties, ...imageDraft.result.uncertainties, 'Codex 이미지 해석 초안 · 사용자 확인 필요'], revision: imageDraft.id },
-        exercises: session.exercises.map((exercise, x) => ({ id: `exercise-${x}`, rawName: exercise.rawName, exerciseId: null, equipmentKey: null, loadConvention: exercise.loadConvention,
+        exercises: session.exercises.map((exercise, x) => ({ id: `exercise-${x}`, rawName: exercise.rawName, exerciseId: null, equipmentKey: null, loadConvention: 'as-recorded',
           durationMinutes: exercise.durationMinutes, repsTotal: exercise.repsTotal, reportedVolumeKg: exercise.reportedVolumeKg, notes: '', sets: exercise.sets.map((set, y) => ({ id: `set-${x}-${y}`, ...set, rir: null })) })), notes: '', effort: null, pain: null }));
     }
     function confirmMeal() {
       const value = imageDraft.result.meal, job = imageDraft;
-      openDialog('画像 식사 초안 확인'.replace('画像', '이미지'), `<p class="form-help">${e(value.note)} ${value.basis === 'estimate' ? '사진 추정값이며 정확한 계량값이 아니에요.' : '먹은 분량이 라벨과 맞는지 확인해 주세요.'}</p><div class="form-grid"><label class="field"><span>먹은 날짜</span><input name="date" type="date" max="${I.dateKey()}" value="${e(value.date)}" required></label>${field('식사 이름', 'name', value.name, { type: 'text', required: true })}${['protein', 'carbs', 'fat', 'otherKcal', 'alcoholG'].map((key, index) => field(['단백질 g', '탄수화물 g', '지방 g', '기타 열량 kcal', '알코올 g'][index], key, value[key] ?? '', { max: key === 'otherKcal' ? 10000 : key === 'alcoholG' ? 500 : 2000, required: true })).join('')}</div><p class="form-help">미확인 숫자는 비워 두었습니다. 추정 근거나 실제 분량을 확인한 뒤 채워 주세요. 모르는 값을 0으로 바꾸지 않아요.</p><label class="checkbox-field"><input name="confirmed" type="checkbox" required>먹은 분량과 숫자를 확인했어요.</label>${actions('확인한 식사 저장')}`, form => {
+      openDialog('이미지 식사 초안 확인', `${sourceReviewHTML(job.imageHash)}<p class="form-help">${e(value.note)} ${value.basis === 'estimate' ? '사진 추정값이며 정확한 계량값이 아니에요.' : '먹은 분량이 라벨과 맞는지 확인해 주세요.'}</p><div class="form-grid"><label class="field"><span>먹은 날짜</span><input name="date" type="date" max="${I.dateKey()}" value="${e(value.date)}" required></label>${field('식사 이름', 'name', value.name, { type: 'text', required: true })}${['protein', 'carbs', 'fat', 'otherKcal', 'alcoholG'].map((key, index) => field(['단백질 g', '탄수화물 g', '지방 g', '기타 열량 kcal', '알코올 g'][index], key, value[key] ?? '', { max: key === 'otherKcal' ? 10000 : key === 'alcoholG' ? 500 : 2000, required: true })).join('')}</div><p class="form-help">미확인 숫자는 비워 두었습니다. 추정 근거나 실제 분량을 확인한 뒤 채워 주세요. 모르는 값을 0으로 바꾸지 않아요.</p><label class="checkbox-field"><input name="confirmed" type="checkbox" required>먹은 분량과 숫자를 확인했어요.</label>${actions('확인한 식사 저장')}`, form => {
         const date = String(form.get('date')); if (!S.isValidDate(date) || date > I.dateKey()) throw new Error('먹은 날짜를 확인해 주세요.');
         const next = copy(app.getState()); if (!next.days[date]) next.days[date] = app.emptyDay(date); if (next.days[date].complete) throw new Error('완료한 날짜는 먼저 기록을 다시 열어 주세요.');
         const entry = { id: `image-meal:${job.id}`, name: String(form.get('name')).trim(), source: { kind: value.basis === 'label' ? 'label' : 'image', confidence: value.basis === 'label' ? 'known' : 'estimated', note: value.note, hash: job.imageHash } };
@@ -409,10 +541,11 @@
     }
     function confirmBody() {
       const value = imageDraft.result.body;
-      openDialog('측정값 확인', `<div class="form-grid"><label class="field"><span>측정 날짜</span><input name="date" type="date" max="${I.dateKey()}" value="${e(value.date)}" required></label>${field('측정 체중 kg', 'weightKg', value.weightKg ?? '', { min: 20, max: 350 })}${field('체지방률 % · 선택', 'bodyFatPct', value.bodyFatPct ?? '', { min: 2, max: 65 })}${field('골격근량 kg · 선택', 'skeletalMuscleKg', value.skeletalMuscleKg ?? '', { min: 1, max: 200 })}<label class="field"><span>측정 방법</span><select name="bodyFatMethod">${options([['unknown', '모름'], ['bia', '인바디 · 체성분 체중계'], ['dxa', 'DXA'], ['caliper', '피하지방']], value.method)}</select></label></div><label class="checkbox-field"><input name="confirmed" type="checkbox" required>이미지의 측정 날짜와 값을 확인했어요.</label>${actions('측정값 저장')}`, form => {
+      openDialog('측정값 확인', `${sourceReviewHTML(imageDraft.imageHash)}<div class="form-grid"><label class="field"><span>측정 날짜</span><input name="date" type="date" max="${I.dateKey()}" value="${e(value.date)}" required></label>${field('측정 체중 kg', 'weightKg', value.weightKg ?? '', { min: 20, max: 350 })}${field('체지방률 % · 선택', 'bodyFatPct', value.bodyFatPct ?? '', { min: 2, max: 65 })}${field('골격근량 kg · 선택', 'skeletalMuscleKg', value.skeletalMuscleKg ?? '', { min: 1, max: 200 })}<label class="field"><span>측정 방법</span><select name="bodyFatMethod">${options([['unknown', '모름'], ['bia', '인바디 · 체성분 체중계'], ['dxa', 'DXA'], ['caliper', '피하지방']], value.method)}</select></label></div><label class="checkbox-field"><input name="confirmed" type="checkbox" required>이미지의 측정 날짜와 값을 확인했어요.</label>${actions('측정값 저장')}`, form => {
         const date = String(form.get('date')), weightKg = numeric(form, 'weightKg'), bodyFatPct = numeric(form, 'bodyFatPct'), skeletalMuscleKg = numeric(form, 'skeletalMuscleKg');
         if (!S.isValidDate(date) || date > I.dateKey()) throw new Error('측정 날짜를 확인해 주세요.');
         if ((bodyFatPct !== null || skeletalMuscleKg !== null) && weightKg === null) throw new Error('같은 측정의 체중이 필요해요.');
+        if (weightKg === null && bodyFatPct === null && skeletalMuscleKg === null) throw new Error('확인한 측정 숫자가 아직 없어요. 초안으로 남겨 둘 수 있습니다.');
         const next = copy(app.getState()); if (!next.days[date]) next.days[date] = app.emptyDay(date); if (next.days[date].complete) throw new Error('완료한 날짜는 먼저 기록을 다시 열어 주세요.');
         const existing = next.days[date];
         const hasExisting = ['weightKg', 'bodyFatPct', 'skeletalMuscleKg'].some(key => existing[key] !== null);
@@ -443,12 +576,13 @@
       return `<section class="personal-conversation"><div class="section-header"><h2>코치 상담</h2><span class="source-badge">${available ? 'Codex 연결' : 'AI 연결 없음'}</span></div><span class="conversation-provider">${available ? '선택한 기록과 대화 일부를 전송 · 계정 사용량 사용' : '상담은 AI 연결이 필요해요 · 이전 대화는 유지됩니다'}</span>
         <div class="conversation-log" role="log" aria-label="코치 대화">${messages.map(row => `<div class="conversation-message conversation-${row.role}"><span>${sourceLabel(row)}${row.status === 'pending' ? ' · 답변 대기' : ''}</span><p class="conversation-text">${e(row.text)}</p></div>`).join('') || (available ? '<div class="conversation-empty"><strong>지금 가장 걸리는 것은 무엇인가요?</strong><span>최근 운동과 식사, 오늘 몸 상태를 함께 살펴볼게요.</span></div>' : '')}</div>
         ${!available ? `<div class="conversation-unavailable" role="status"><strong>상담 연결이 없어요</strong><p>기록 요약·직접 기록·지난 운동 재사용·저장한 계획은 계속 사용할 수 있습니다. AI 대신 규칙 문장을 상담 답변으로 내보내지는 않아요.</p>${reconnect}</div>` : ''}
-        <form id="coachChatForm" class="conversation-compose"><label class="sr-only" for="coachChatInput">코치에게 질문</label><textarea id="coachChatInput" rows="2" maxlength="6000" placeholder="${available ? '운동 수행이 떨어지고 허기가 심해. 오늘은 어떻게 할까?' : 'AI 연결 후 질문할 수 있어요'}" required ${available ? '' : 'disabled'}></textarea><button class="icon-button send-button" type="submit" aria-label="코치에게 보내기" title="코치에게 보내기" ${!available || busy ? 'disabled' : ''}>${icon('arrow-up')}</button></form>${jobHTML()}<div class="conversation-actions">${command('training-image', '사진 추가', 'image-plus')}${command('nav-training', '직접 기록 · 운동 일지', 'dumbbell')}${command('nav-program', '다음 운동', 'calendar-days')}</div>${connectionPanel()}</section>`;
+        ${app.retrievalHTML?.(messages.findLast(row => row.role === 'user')?.text || '') || ''}<form id="coachChatForm" class="conversation-compose"><label class="sr-only" for="coachChatInput">코치에게 질문</label><textarea id="coachChatInput" rows="2" maxlength="6000" placeholder="${available ? '운동 수행이 떨어지고 허기가 심해. 오늘은 어떻게 할까?' : 'AI 연결 후 질문할 수 있어요'}" required ${available ? '' : 'disabled'}></textarea><button class="icon-button send-button" type="submit" aria-label="코치에게 보내기" title="코치에게 보내기" ${!available || busy ? 'disabled' : ''}>${icon('arrow-up')}</button></form>${jobHTML()}<div class="conversation-actions">${command('training-image', '사진 추가', 'image-plus')}${command('nav-training', '직접 기록 · 운동 일지', 'dumbbell')}${command('nav-program', '다음 운동', 'calendar-days')}</div>${connectionPanel()}</section>`;
     }
     function memoryHTML() {
       const data = workspace(), memory = data.memory || TS.createEmpty().memory;
-      const open = (data.followUps || []).filter(row => row.status === 'open').sort((a, b) => a.reviewDate.localeCompare(b.reviewDate));
-      return `<section class="coach-continuity"><div class="section-header"><h3>이어갈 약속</h3><div class="toolbar-actions">${iconButton('coach-memory', '코치가 기억할 사항', 'notebook-pen')}${iconButton('coach-followup-add', '다음 점검 추가', 'calendar-plus')}</div></div>${memory.focus ? `<p class="coach-focus">${e(memory.focus)}</p>` : ''}${open.length ? `<ul class="item-list">${open.slice(0, 8).map(row => `<li class="item-row"><div class="item-main"><span class="source-badge">${row.reviewDate}${row.reviewDate <= I.dateKey() ? ' · 확인할 때' : ''}</span><p>${e(row.note)}</p></div><div class="item-actions">${iconButton('coach-followup-edit', '점검 내용 수정', 'pencil', `data-id="${e(row.id)}"`)}${iconButton('coach-followup-done', '확인한 점검으로 표시', 'check', `data-id="${e(row.id)}"`)}</div></li>`).join('')}</ul>` : ''}${followUpDraft ? `<div class="form-actions">${command('coach-followup-proposal', '코치가 제안한 다음 점검 확인', 'calendar-check')}</div>` : ''}<details class="source-details"><summary>기억과 점검 기록</summary><dl>${[['constraints', '주의할 사항'], ['focus', '지금의 우선순위'], ['agreements', '함께 정한 방향']].map(([key, label]) => `<div><dt>${label}</dt><dd>${e(memory[key] || '아직 없음')}</dd></div>`).join('')}</dl>${(data.followUps || []).filter(row => row.status === 'done').slice(-8).reverse().map(row => `<p class="form-help">${row.reviewDate} · 확인함 · ${e(row.note)}</p>`).join('')}</details></section>`;
+      const visibleFollowUps = (data.followUps || []).filter(row => !actionLinkedFollowUp(row));
+      const open = visibleFollowUps.filter(row => row.status === 'open').sort((a, b) => a.reviewDate.localeCompare(b.reviewDate));
+      return `<section class="coach-continuity"><div class="section-header"><h3>이어갈 약속</h3><div class="toolbar-actions">${iconButton('coach-memory', '코치가 기억할 사항', 'notebook-pen')}${iconButton('coach-followup-add', '다음 점검 추가', 'calendar-plus')}</div></div>${memory.focus ? `<p class="coach-focus">${e(memory.focus)}</p>` : ''}${open.length ? `<ul class="item-list">${open.slice(0, 8).map(row => `<li class="item-row"><div class="item-main"><span class="source-badge">${row.reviewDate}${row.reviewDate <= I.dateKey() ? ' · 확인할 때' : ''}</span><p>${e(row.note)}</p></div><div class="item-actions">${iconButton('coach-followup-edit', '점검 내용 수정', 'pencil', `data-id="${e(row.id)}"`)}${iconButton('coach-followup-done', '확인한 점검으로 표시', 'check', `data-id="${e(row.id)}"`)}</div></li>`).join('')}</ul>` : ''}${followUpDraft ? `<div class="form-actions">${command('coach-followup-proposal', '코치가 제안한 다음 점검 확인', 'calendar-check')}</div>` : ''}<details class="source-details"><summary>기억과 점검 기록</summary><dl>${[['constraints', '주의할 사항'], ['focus', '지금의 우선순위'], ['agreements', '함께 정한 방향']].map(([key, label]) => `<div><dt>${label}</dt><dd>${e(memory[key] || '아직 없음')}</dd></div>`).join('')}</dl>${visibleFollowUps.filter(row => row.status === 'done').slice(-8).reverse().map(row => `<p class="form-help">${row.reviewDate} · 확인함 · ${e(row.note)}</p>`).join('')}</details></section>`;
     }
     function memoryDialog() {
       const current = workspace().memory || TS.createEmpty().memory;
@@ -498,22 +632,23 @@
       const next = copy(workspace()), user = next.messages.find(row => row.id === replyTo); if (user) user.status = 'answered';
       next.messages.push(message('coach', `상담 요청을 완료하지 못했어요.\n\n${text}\n\n기록은 유지됩니다. 연결을 확인한 뒤 다시 요청해 주세요.`, 'codex', replyTo)); saveWorkspace(next);
     }
-    async function startJob(kind, question, imageHash = null, replyTo = null, retry = false) {
+    async function startJob(kind, question, imageHash = null, replyTo = null, retry = false, queueEntry = null) {
       if (!canAskAI()) throw new Error('Codex에 연결할 수 없어요. 설치·로그인과 사용 한도를 확인해 주세요.');
       if (jobStarting || currentJob?.status === 'running' || currentJob?.status === 'pending') throw new Error('현재 코치 요청이 끝난 뒤 진행해 주세요.');
       jobStarting = true; app.render();
       try {
-        const job = await bridge.request('/api/jobs', { kind, question, imageHash, state: app.getState(), date: app.getDate(), retry });
-        currentJob = { ...job, replyTo };
+        const job = await bridge.request('/api/jobs', { kind, question, imageHash, state: app.getState(), date: queueEntry?.date || app.getDate(), retry });
+        currentJob = { ...job, replyTo, queueId: queueEntry?.id || null };
+        if (queueEntry) { queueEntry.status = 'running'; queueEntry.jobId = job.id; persistImageQueue(); }
         if (replyTo) { const next = copy(workspace()); const user = next.messages.find(row => row.id === replyTo); if (user) { user.contextDigest = job.contextDigest; saveWorkspace(next); } }
-        if (kind !== 'chat') { tab = 'log'; app.selectView('training'); }
+        if (kind !== 'chat' && !queueEntry) { tab = 'log'; app.selectView('training'); }
         await pollJob();
       } finally { jobStarting = false; app.render(); }
     }
     async function pollJob() {
       clearTimeout(jobTimer); if (!currentJob) return;
       try {
-        const replyTo = currentJob.replyTo, result = await bridge.request(`/api/jobs/${currentJob.id}`); currentJob = { ...result, replyTo };
+        const replyTo = currentJob.replyTo, queueId = currentJob.queueId, result = await bridge.request(`/api/jobs/${currentJob.id}`); currentJob = { ...result, replyTo, queueId };
         if (result.status === 'running' || result.status === 'pending') { app.renderJob?.(); jobTimer = setTimeout(pollJob, 1500); return; }
         if (result.status === 'completed') {
           if (result.kind === 'chat') {
@@ -522,11 +657,13 @@
             if (user && !next.messages.some(row => row.replyTo === replyTo && row.contextDigest === result.contextDigest)) {
               user.status = 'answered'; next.messages.push(message('coach', [result.result.answer, ...result.result.questions.map(question => `확인할 것: ${question}`), ...result.result.uncertainties.map(line => `판단의 한계: ${line}`)].join('\n\n'), 'codex', replyTo, 'answered', result.contextDigest)); saveWorkspace(next);
             }
-          } else { imageDraft = result; render(); }
+          } else { if (!imageDraft && !pendingImport) imageDraft = result; if (app.getView?.() === 'training') render(); }
         } else if (replyTo) answerFailure(replyTo, result.error || '응답이 중단됐어요. 다시 요청해 주세요.');
         else toast(result.error || '이미지를 읽지 못했어요.', true);
-        app.render(); void refreshJobs();
-      } catch (error) { currentJob = { ...currentJob, status: 'failed', error: error.message }; if (currentJob.replyTo) answerFailure(currentJob.replyTo, error.message); app.render(); }
+        const queued = intakeQueue.find(row => row.id === queueId);
+        if (queued) { queued.status = result.status === 'completed' ? 'completed' : 'failed'; queued.error = result.error || null; if (result.status !== 'completed') intakeQueuePaused = true; persistImageQueue(); }
+        app.render(); void refreshJobs(); if (!intakeQueuePaused) setTimeout(() => void pumpImageQueue(), 0);
+      } catch (error) { currentJob = { ...currentJob, status: 'failed', error: error.message }; if (currentJob.replyTo) answerFailure(currentJob.replyTo, error.message); const queued = intakeQueue.find(row => row.id === currentJob.queueId); if (queued) { queued.status = 'failed'; queued.error = error.message; intakeQueuePaused = true; persistImageQueue(); } app.render(); }
     }
     async function connectDialog() {
       await bridge.refresh();
@@ -545,11 +682,11 @@
       });
     }
     async function handleAction(button) {
-      const action = button.dataset.action, data = workspace();
+      const action = ({ 'today-workout-open': 'training-open', 'today-workout-reuse': 'training-reuse', 'today-workout-add': 'training-add', 'today-schedule-start': 'schedule-start' })[button.dataset.action] || button.dataset.action, data = workspace();
       const record = data.records.find(row => row.id === (button.dataset.id || button.dataset.record));
       if (action === 'nav-training' || action === 'nav-program') { tab = action === 'nav-program' ? 'program' : 'log'; app.selectView('training'); }
       else if (action === 'training-tab') { tab = button.dataset.tab; render(); $(`trainingContent`).querySelector(`[data-action="training-tab"][data-tab="${tab}"]`)?.focus(); }
-      else if (action === 'training-open') { chosen = button.dataset.id; tab = 'log'; render(); }
+      else if (action === 'training-open') { chosen = button.dataset.id; tab = 'log'; app.selectView('training'); render(); }
       else if (action === 'training-add') recordDialog();
       else if (action === 'training-edit') recordDialog(record);
       else if (action === 'training-reuse') recordDialog(record, true);
@@ -592,15 +729,24 @@
       else if (action === 'training-import-detail') { editorIsDraft = true; editorAssignmentId = null; editorNewProgram = null; editorNewAssignment = null; editor = copy(pendingImport.records.find(record => record.id === button.dataset.id)); drawEditor(); }
       else if (action === 'training-import-confirm') {
         if (!pendingImport) return true;
+        if (pendingImport.imageJob && !pendingImport.reviewed) throw new Error('모든 날짜·세트 숫자와 중량 기준을 원본과 대조한 뒤 확인해 주세요.');
         const fresh = TS.mergeRecords(workspace(), pendingImport.records);
         const oldConflicts = pendingImport.result.conflicts.map(row => `${row.id}:${row.reason}`).sort().join('|'), newConflicts = fresh.conflicts.map(row => `${row.id}:${row.reason}`).sort().join('|');
-        if (oldConflicts !== newConflicts) { pendingImport.result = fresh; render(); toast('미리보기 이후 기록이 바뀌어 충돌을 다시 확인했어요.'); return true; }
+        if (oldConflicts !== newConflicts) { pendingImport.result = fresh; pendingImport.reviewed = false; render(); toast('미리보기 이후 기록이 바뀌어 충돌을 다시 확인했어요.'); return true; }
         if (saveWorkspace(fresh.workspace, '충돌 없는 기록을 가져왔어요. 보류한 원문은 그대로 남아 있어요.')) { if (fresh.conflicts.length) { pendingImport.records = fresh.conflicts.map(row => row.incoming); pendingImport.result = TS.mergeRecords(workspace(), pendingImport.records); } else pendingImport = null; render(); }
       }
       else if (action === 'training-conflict') conflictDialog(pendingImport.result.conflicts[Number(button.dataset.index)]);
       else if (action === 'training-image') imageDialog();
+      else if (action === 'image-inbox-open') { tab = 'log'; app.selectView('training'); render(); const inbox = $('trainingContent').querySelector('.image-inbox'); if (inbox) { inbox.open = true; inbox.querySelector('summary').focus(); inbox.scrollIntoView({ block: 'start' }); } }
+      else if (action === 'image-upload-remove') { if (imageUploadBusy) return true; const row = imageUploads.find(item => item.id === button.dataset.id); if (row?.status === 'stored') return true; if (row) URL.revokeObjectURL(row.url); imageUploads = imageUploads.filter(item => item.id !== button.dataset.id); if ($('coachImageFile')) $('coachImageFile').required = !imageUploads.length; drawImageUploads(); }
+      else if (action === 'image-queue-pause') { intakeQueuePaused = true; app.render(); }
+      else if (action === 'image-queue-continue') { if (!canAskAI()) throw new Error('AI 판독 연결을 확인해 주세요. 사진과 대기는 남아 있어요.'); await refreshJobs(); intakeQueuePaused = false; void pumpImageQueue(); }
+      else if (action === 'image-queue-remove') { const row = intakeQueue.find(item => item.id === button.dataset.id); if (row && ['queued', 'failed'].includes(row.status)) { row.status = 'cancelled'; persistImageQueue(); app.render(); } }
+      else if (action === 'image-queue-retry') { const row = intakeQueue.find(item => item.id === button.dataset.id); if (row?.status === 'failed') { if (!canAskAI()) throw new Error('AI 판독 연결을 확인해 주세요.'); row.status = 'queued'; row.retry = true; row.error = null; persistImageQueue(); intakeQueuePaused = false; void pumpImageQueue(); } }
+      else if (action === 'image-review-detail') { if (!pendingImport?.imageJob) { if (!imageDraft) return true; previewRecords(workoutDraftRecords(), [], imageDraft); imageDraft = null; } editorIsDraft = true; editorAssignmentId = null; editorNewProgram = null; editorNewAssignment = null; editor = copy(pendingImport.records.find(row => row.id === button.dataset.id)); drawEditor(); }
       else if (action === 'image-source-start') {
         if (!canAskAI()) throw new Error('AI 판독에 연결할 수 없어요. 사진과 메모는 그대로 보관됩니다.');
+        if (intakeQueue.some(row => row.hash === button.dataset.hash && ['queued', 'requesting', 'running'].includes(row.status))) throw new Error('이미 선택한 판독 대기에 있어요. 대기 목록에서 계속하거나 제외한 뒤 요청해 주세요.');
         const source = uploadedImages.find(row => row.hash === button.dataset.hash);
         if (source?.damaged) throw new Error('이 사진의 보관 정보가 손상돼 먼저 확인해야 해요. 원본은 덮어쓰지 않습니다.');
         openDialog('보관한 사진 판독', `<div class="image-draft-summary">${imageThumbnail(button.dataset.hash)}<label class="field"><span>기록 종류</span><select name="kind">${options([['workout', '운동 일지'], ['meal', '식사'], ['body', '체성분']], source?.kind || 'workout')}</select></label></div><label class="field"><span>날짜·분량 맥락 · 선택</span><textarea name="note" rows="2" maxlength="6000">${e(source?.note || '')}</textarea></label><p class="form-help">이 이미지와 메모를 Codex에 전송해 계정 사용량을 사용합니다. 초안을 확인한 뒤에만 숫자 기록에 반영해요.</p>${actions('이 이미지 판독 요청')}`, async form => {
@@ -611,7 +757,7 @@
           } catch (error) { throw new Error(`사진은 보관되어 있어요. 입력한 종류와 메모를 유지했습니다. ${error.message}`); }
         });
       }
-      else if (action === 'image-workout-preview') { const records = workoutDraftRecords(); if (!records.length) { toast('판독한 세트가 없어요. 더 선명한 원본이나 날짜를 확인해 주세요.', true); return true; } previewRecords(records); imageDraft = null; render(); }
+      else if (action === 'image-workout-preview') { const records = workoutDraftRecords(); if (!records.length) { toast('판독한 세트가 없어요. 더 선명한 원본이나 날짜를 확인해 주세요.', true); return true; } previewRecords(records, [], imageDraft); imageDraft = null; render(); }
       else if (action === 'image-meal-confirm') confirmMeal();
       else if (action === 'image-body-confirm') confirmBody();
       else if (action === 'image-draft-dismiss') { imageDraft = null; render(); }
@@ -629,12 +775,14 @@
       }
       else if (action === 'bridge-connect') await connectDialog();
       else if (action === 'bridge-refresh') { await bridge.refresh(); await refreshJobs(); }
-      else if (action === 'coach-job-cancel') { await bridge.request(`/api/jobs/${currentJob.id}/cancel`, {}); await pollJob(); }
+      else if (action === 'coach-job-cancel') { if (currentJob.queueId) intakeQueuePaused = true; await bridge.request(`/api/jobs/${currentJob.id}/cancel`, {}); await pollJob(); }
       else if (action === 'coach-job-retry') { const previous = currentJob; await startJob(previous.kind, previous.question, previous.imageHash, previous.replyTo, true); }
       else return false;
       return true;
     }
     async function handleChange(event) {
+      if (event.target.id === 'coachImageFile') { if (!imageUploadBusy) addImageUploads([...event.target.files]); return true; }
+      if (event.target.id === 'imageWorkoutReviewed') { if (pendingImport?.imageJob) { pendingImport.reviewed = event.target.checked; const button = $('trainingImportPreview').querySelector('[data-action="training-import-confirm"]'); button.disabled = !pendingImport.reviewed; } return true; }
       if (event.target.id === 'savedProgramSelect') { const next = copy(workspace()); next.planning.activeProgramId = event.target.value; saveWorkspace(next); $('savedProgramSelect')?.focus(); return true; }
       if (event.target.id === 'scheduleWeek') { const date = event.target.value; if (!S.isValidDate(date) || date > '2199-12-25') throw new Error('주 시작 날짜를 확인해 주세요.'); scheduleWeek = date; render(); $('scheduleWeek')?.focus(); return true; }
       if (event.target.id === 'trainingDate') { const date = event.target.value; if (!S.isValidDate(date) || date > I.dateKey()) throw new Error('오늘까지의 날짜를 선택해 주세요.'); app.setDate(date); return true; }
@@ -649,13 +797,19 @@
     document.addEventListener('input', event => { if (event.target.id === 'coachChatInput') chatDraft = event.target.value; });
     document.addEventListener('error', event => { if (event.target.matches?.('[data-image-fallback]')) { const fallback = document.createElement('span'); fallback.className = 'image-unavailable'; fallback.textContent = '원본 연결 없음'; event.target.replaceWith(fallback); } }, true);
     async function init() {
+      loadImageQueue();
       await bridge.refresh();
       try { await bridge.resume(app.getState()); } catch (error) { toast(error.message, true); }
       await refreshJobs();
       const pending = workspace().messages.findLast(message => message.role === 'user' && message.status === 'pending' && message.contextDigest);
       if (pending && bridge.status?.connected) { currentJob = { id: pending.contextDigest.slice(0, 32), replyTo: pending.id, status: 'running' }; await pollJob(); }
+      else {
+        const active = jobs.find(row => ['running', 'pending'].includes(row.status));
+        if (active && bridge.status?.connected) { currentJob = { ...active, queueId: intakeQueue.find(row => row.jobId === active.id)?.id || null }; await pollJob(); }
+      }
+      app.render();
     }
-    return { render, analysis, program, coachingProgram, handleAction, handleChange, chatHTML, memoryHTML, coachContextHTML, connectionPanel,
+    return { render, analysis, program, coachingProgram, handleAction, handleChange, chatHTML, memoryHTML, coachContextHTML, connectionPanel, todayHTML, intakeSummaryHTML, inboxHTML,
       onSave(state) { bridge.sync(state); }, init, jobHTML, enhanceChat, captureChatScroll };
   }
   root.MacroTrainingUI = { create };

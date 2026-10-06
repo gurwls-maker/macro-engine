@@ -7,6 +7,7 @@ const I = require('../src/insights.js');
 const Coach = require('../src/coach.js');
 const Nutrition = require('../src/nutrition.js');
 const Training = require('../src/training.js');
+const Query = require('../src/coach-query.js');
 const Diary = require('./diary.cjs');
 
 const nullableNumber = { type: ['number', 'null'] };
@@ -144,7 +145,7 @@ function maskKnownDates(value, context, followUp) {
   const visit = object => {
     if (!object || typeof object !== 'object') return;
     for (const [key, child] of Object.entries(object)) {
-      if (typeof child === 'string' && /(?:date|At|Start|End)$/i.test(key)) {
+      if (typeof child === 'string' && /(?:date|At|Start|End|^from$|^to$)$/i.test(key)) {
         if (S.isValidDate(child)) known.add(child);
         else if (/^\d{4}-\d{2}-\d{2}T/.test(child) && Number.isFinite(Date.parse(child))) known.add(I.dateKey(new Date(child)));
       } else if (child && typeof child === 'object') visit(child);
@@ -184,6 +185,21 @@ function compactPlan(plan) {
   if (!plan) return null;
   return { status: plan.status, version: plan.version, energy: plan.energy, macros: plan.macros, context: { goal: plan.context?.goal || null } };
 }
+function compactAction(action, date) {
+  const change = value => {
+    if (!value?.prescription) return value;
+    return { ...value, prescription: { ...value.prescription, exercises: value.prescription.exercises.slice(0, 4), originalExerciseCount: value.prescription.exercises.length, sampled: value.prescription.exercises.length > 4 },
+      adjustment: value.adjustment ? { kind: value.adjustment.kind, reason: value.adjustment.reason, reviewDate: value.adjustment.reviewDate, reviewed: value.adjustment.reviewed } : null };
+  };
+  const reviews = (action.reviews || []).filter(row => I.dateKey(new Date(row.createdAt)) <= date);
+  const latest = reviews.at(-1);
+  const review = latest ? { ...latest, note: latest.note.slice(0, 1200), evidence: { ...latest.evidence,
+    recordIds: latest.evidence.recordIds.slice(0, 8), dayDates: latest.evidence.dayDates.slice(0, 8), originalRecordCount: latest.evidence.recordIds.length,
+    originalDayCount: latest.evidence.dayDates.length, sampled: latest.evidence.recordIds.length > 8 || latest.evidence.dayDates.length > 8 } } : null;
+  return { id: action.id, kind: action.kind, targetId: action.targetId, choice: action.choice, before: change(action.before), after: change(action.after),
+    reason: action.reason.slice(0, 1600), reviewDate: action.reviewDate, status: action.status, createdAt: action.createdAt, appliedAt: action.appliedAt, review,
+    source: 'user-approved-app-change', executionScope: '적용한 계획·배분 선택입니다. 실제 운동 수행이나 실제 식사량이 아니며 review.execution도 사용자 확인입니다.' };
+}
 function packetFacts(packet) {
   const facts = [];
   const unitFor = (key, path) => {
@@ -200,6 +216,8 @@ function packetFacts(packet) {
     if (['age'].includes(key)) return '세';
     if (key === 'trainingYears') return '년';
     if (/Days$/.test(key) || key === 'daysWithRecords') return '일';
+    if (/Months$/.test(key)) return '개월';
+    if (/Weeks$/.test(key)) return '주';
     if (key === 'heightCm') return 'cm';
     if (key === 'speedKmh') return 'km/h';
     if (key === 'bmi') return 'kg/m2';
@@ -213,14 +231,15 @@ function packetFacts(packet) {
   };
   const visit = (value, prefix, date, label, estimated) => {
     if (!value || typeof value !== 'object') return;
-    const when = S.isValidDate(value.date) ? value.date : date;
+    const when = S.isValidDate(value.date) ? value.date : S.isValidDate(value.to) ? value.to : date;
     const name = value.rawName || value.name || value.label || label;
     for (const [key, child] of Object.entries(value)) {
       if (key === 'facts') continue;
       const position = `${prefix}.${key}`;
-      const model = estimated || ['planSnapshot', 'savedPlan', 'program', 'savedProgram'].includes(key);
+      const model = estimated || ['planSnapshot', 'savedPlan', 'program', 'savedProgram'].includes(key)
+        || (prefix.startsWith('packet.recall.actions') && ['before', 'after'].includes(key));
       if (typeof child === 'number' && Number.isFinite(child)) facts.push({ id: position.length <= 200 ? position : `packet.long.${digest(position)}`, label: `${name || prefix} ${key}`.slice(0, 180), value: child,
-        unit: unitFor(key, position), source: model ? 'provided-plan-estimate' : 'provided-context', date: when, estimated: model });
+        unit: unitFor(key, position), source: model ? 'provided-plan-estimate' : position.startsWith('packet.retrieval.') ? 'selected-confirmed-records' : 'provided-context', date: when, estimated: model });
       else if (child && typeof child === 'object') visit(child, position, when, name, model);
     }
   };
@@ -252,7 +271,10 @@ function recallContext(state, date, question) {
   const recentDates = new Set(days.slice(0, 21).map(row => row.date));
   const olderDays = days.filter(row => !recentDates.has(row.date)).map(row => ({ row, score: score(`${row.note || ''} ${row.meals.map(meal => `${meal.name} ${meal.note || ''}`).join(' ')}`) })).filter(row => row.score > 0).sort((a, b) => b.score - a.score || b.row.date.localeCompare(a.row.date)).slice(0, 3).map(({ row }) => ({ date: row.date, note: (row.note || '').slice(0, 1200), complete: row.complete, intake: row.meals.length ? I.mealTotals(row.meals) : null, savedPlan: compactPlan(row.planSnapshot), meals: row.meals.filter(meal => score(`${meal.name} ${meal.note || ''}`) > 0).slice(0, 6).map(meal => ({ name: meal.name, type: meal.type || null, note: (meal.note || '').slice(0, 800) })) }));
   const followUps = (state.training?.followUps || []).filter(row => I.dateKey(new Date(row.createdAt)) <= date && (row.status === 'open' || score(row.note) > 0)).slice(-12);
-  return { memory, followUps, conversation, workouts: olderWorkouts, days: olderDays, scope: '사용자가 저장한 맥락과 점검 항목, 질문의 단어와 일치한 과거 기록 일부. 관련 기록을 모두 찾았다는 뜻은 아닙니다.' };
+  const actions = (state.training?.actions || []).filter(row => row.status === 'applied' && row.appliedAt && I.dateKey(new Date(row.appliedAt)) <= date).slice(-8).map(row => compactAction(row, date));
+  const actionStatus = (state.training?.actions || []).filter(row => ['cancelled', 'undone'].includes(row.status) && row.resolvedAt && I.dateKey(new Date(row.resolvedAt)) <= date).slice(-4)
+    .map(row => ({ id: row.id, kind: row.kind, targetId: row.targetId, status: row.status, resolvedAt: row.resolvedAt, reason: row.reason.slice(0, 800) }));
+  return { memory, followUps, actions, actionStatus, conversation, workouts: olderWorkouts, days: olderDays, scope: '사용자가 저장한 맥락과 점검, 적용한 최근 선택 최대 8개와 마지막 점검, 취소·복구된 최근 선택의 상태, 단어와 일치한 과거 일부입니다. 전체 장기 대화·행동을 모두 회수한 것은 아닙니다.' };
 }
 function summarizeState(raw, date, question = '') {
   const state = S.validateState(raw);
@@ -295,7 +317,7 @@ function summarizeState(raw, date, question = '') {
   const relevance = value => terms.reduce((sum, term) => sum + (value.normalize('NFKC').toLowerCase().includes(term) ? 1 : 0), 0);
   const detailed = recent.map((row, index) => ({ row, index, score: relevance(`${row.label} ${row.notes} ${row.exercises.map(exercise => `${exercise.rawName} ${exercise.notes}`).join(' ')}`) }))
     .sort((a, b) => (a.index === 0 ? -1 : b.index === 0 ? 1 : b.score - a.score || a.index - b.index)).slice(0, 4);
-  const packet = { contractVersion: 2, date, profile: state.profile, calculationProfile,
+  const packet = { contractVersion: 2, date, profile: state.profile, calculationProfile, retrieval: Query.retrieve(state, date, question),
     today: { ...current, meals: current.meals.slice(0, 12), mealCount: current.meals.length, intake: current.meals.length ? I.mealTotals(current.meals) : null, mealsSampled: current.meals.length > 12 },
     recentDays: days.slice(0, 21).map(day => ({ date: day.date, complete: day.complete,
       weightKg: day.weightKg, bodyFatPct: day.bodyFatPct, skeletalMuscleKg: day.skeletalMuscleKg,
@@ -307,23 +329,45 @@ function summarizeState(raw, date, question = '') {
     workoutIndex: recent.map(record => ({ id: record.id, date: record.date, time: record.time, label: record.label, originalExerciseCount: record.exercises.length, originalSetCount: record.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) })),
     recentWorkouts: detailed.map(({ row }) => compactWorkout(row, relevance, state.training?.mappings)),
     conversation: (state.training?.messages || []).filter(row => I.dateKey(new Date(row.createdAt)) <= date).slice(-12),
-    contextScope: '최근 21개 날짜 영양 요약(날짜별 식사 메모 최대 6개), 선택일 식사 상세 최대 12개와 전체 합계, 전체 28일 훈련 집계, 최근 12개 일지 목록과 최신/질문 관련 4개 상세(각 최대 6운동·6세트), 질문 관련 과거 최대 3개 일지·3개 날짜·4개 대화. 표본으로 총량을 다시 계산하지 않습니다.',
-    factValidationScope: '수치의 출처·단위 일치 확인이지 문장의 의미·인과·조언의 정확성 보증이 아닙니다. 계획 숫자는 실제 수행이나 처방 승인이 아닙니다.' };
+    contextScope: '질문별 retrieval에 명시한 기간 전체의 선택 기록 집계와 제한된 원문을 추가합니다. 일반 배경은 최근 21개 날짜 영양 요약, 선택일 식사 최대 12개와 전체 합계, 전체 28일 훈련 집계, 최근 12개 일지 목록과 4개 상세, 단어가 맞는 과거 일부입니다. 질문의 지정 기간을 배경 28일이나 원문 표본으로 대신하지 않습니다.',
+    factValidationScope: '수치의 출처·단위 일치 확인이지 문장의 의미·인과·조언의 정확성 보증이 아닙니다. 계획 숫자는 실제 수행이나 처방 승인이 아닙니다. 이번 질문에서 새로 말한 수면 시간 등 숫자는 원문 자기보고이며 자동으로 저장·계산 facts에 승격하지 않습니다. 해당 사실 항목이 없으면 그 숫자의 직접 인용도 보류될 수 있습니다.' };
   const build = () => ({ ...packet, facts: [...facts, ...packetFacts(packet)] });
   let result = build();
   const fits = () => Buffer.byteLength(promptFor({ kind: 'chat', question, imageHash: null, context: result }), 'utf8') <= 245 * 1024;
   // Source counts and full-window aggregates remain intact when detail samples shrink.
   for (const limit of [3, 1]) {
     if (fits()) break;
-    for (const record of [...packet.recentWorkouts, ...packet.recall.workouts]) {
+    for (const record of [...packet.recentWorkouts, ...packet.recall.workouts, ...packet.retrieval.periods.flatMap(period => period.details.workouts)]) {
       for (const exercise of record.exercises) if (exercise.sets.length > limit) { exercise.sets = exercise.sets.slice(0, limit); exercise.sampled = true; record.sampled = true; }
     }
     packet.samplingReducedForBudget = true;
     result = build();
   }
+  for (const limit of [400, 120]) {
+    if (fits()) break;
+    const trim = (object, key, size) => {
+      if (typeof object?.[key] === 'string' && object[key].length > size) { object[key] = object[key].slice(0, size); object[`${key}Sampled`] = true; }
+    };
+    if (packet.trainingAnalysis) packet.trainingAnalysis.progression = packet.trainingAnalysis.progression.slice(0, limit === 400 ? 6 : 3);
+    for (const period of packet.retrieval.periods) period.training.progression = period.training.progression.slice(0, limit === 400 ? 4 : 1);
+    for (const record of [...packet.recentWorkouts, ...packet.recall.workouts, ...packet.retrieval.periods.flatMap(period => period.details.workouts)]) {
+      trim(record, 'notes', limit); record.exercises.forEach(exercise => trim(exercise, 'notes', limit));
+    }
+    for (const day of [packet.today, ...packet.recentDays, ...packet.recall.days, ...packet.retrieval.periods.flatMap(period => period.details.days)]) {
+      trim(day, 'note', limit); (day.meals || []).forEach(meal => trim(meal, 'note', limit));
+    }
+    for (const row of [...packet.conversation, ...packet.recall.conversation]) trim(row, 'text', limit === 400 ? 1600 : 600);
+    if (packet.recall.memory) for (const key of ['constraints', 'focus', 'agreements']) trim(packet.recall.memory, key, limit === 400 ? 2400 : 800);
+    for (const action of packet.recall.actions) {
+      trim(action, 'reason', limit); trim(action.review, 'note', limit);
+      for (const value of [action.before, action.after]) if (value?.prescription && value.prescription.exercises.length > 1) { value.prescription.exercises = value.prescription.exercises.slice(0, 1); value.prescription.sampled = true; }
+    }
+    packet.samplingReducedForBudget = true; packet.textScope = '맥락 예산 때문에 일부 원문·이전 대화·기억·계획 상세를 축약했습니다. 질문과 기간 전체 집계·출처 건수는 유지하며 생략된 내용의 의미를 확인된 것처럼 채우지 않습니다.';
+    result = build();
+  }
   for (const limit of [3, 1]) {
     if (fits()) break;
-    for (const record of [...packet.recentWorkouts, ...packet.recall.workouts]) if (record.exercises.length > limit) { record.exercises = record.exercises.slice(0, limit); record.sampled = true; }
+    for (const record of [...packet.recentWorkouts, ...packet.recall.workouts, ...packet.retrieval.periods.flatMap(period => period.details.workouts)]) if (record.exercises.length > limit) { record.exercises = record.exercises.slice(0, limit); record.sampled = true; }
     packet.samplingReducedForBudget = true;
     result = build();
   }
@@ -348,6 +392,11 @@ function promptFor(input) {
     'recentWorkouts와 recall.workouts의 sampled가 true이면 일부 종목·세트만 전달됐습니다. originalSetCount와 표본을 구분하고 총량은 전체 기록으로 계산한 trainingAnalysis.coverage/muscles만 사용하세요. savedProgram은 저장된 과거 계획이며 program.status가 ready가 아니면 새로 수행 가능한 계획으로 제안하지 마세요.',
     'coaching.followUp은 사용자와 확인할 다음 점검의 초안입니다. topic, 구체적인 note, 기준일부터 90일 이내 reviewDate를 제안하거나 필요 없으면 null로 두세요. 점검 날짜는 reviewDate의 날짜 그대로 표현하고 저장·실행·자동 알림이 이미 된 것처럼 말하지 마세요.',
     'context.recall.memory는 사용자가 저장한 맥락입니다. 이전 대화의 주장이나 AI 답변은 확인된 사실이 아닙니다. 관련 과거 기록은 원래 날짜를 밝혀 사용하고, 현재 상태로 추측하지 마세요.',
+    'context.retrieval은 질문별 결정적 기록 조회입니다. periods의 from/to와 available을 구분하고 실제 조회 기간·운동/부위·누락을 답변에 밝혀 주세요. 전체 기간 집계는 periods.training.coverage/muscles와 nutrition만 사용하고 details 표본·일반 trainingAnalysis의 28일 집계로 긴 기간을 대신하지 마세요. 구간끼리 더하면 같은 기록이 중복될 수 있습니다.',
+    'retrieval의 comparisonRequested는 비교 요청이고 앞쪽/뒤쪽 split-period는 제품이 선택한 날짜 분할입니다. 명시한 비교 대상이 없거나 needsClarification이면 필요한 확인 질문을 먼저 하세요. 원문 이름 대응은 결정적 이름/부위 검색일 뿐 자유 질문의 의미를 모두 알아냈다고 말하지 마세요. 일/부위 세트 수 변화는 성장률이 아니며 progressionScope 밖의 수행 증가율은 만들지 마세요.',
+    'retrieval.currentReport는 이번 질문에서 말한 상태이며 저장된 checkin·memory와 분리됩니다. 새로 말한 수면 저하·허기·목표 변경·합의 취소를 오래된 좋은 컨디션이나 과거 약속으로 덮지 마세요. 새 진술은 자기보고이며 숫자 기록·프로필·목표·기억이 이미 수정된 것이 아닙니다. 충돌과 철회 요청을 명확히 확인하고 자동 적용했다고 말하지 마세요.',
+    '질문 원문에 새로 나온 수면 시간·몸무게 등의 숫자를 확인된 수치 사실로 승격하지 않습니다. facts에 같은 뜻·출처의 수치 항목이 없으면 그 숫자를 직접 인용하는 답변도 수치 검사에서 보류됩니다. 이 제한 때문에 새 진술 자체를 무시하지 말고, 숫자를 반복하지 않고 사용자가 말한 변화·상황을 존중해서 필요한 확인과 다음 행동을 설명하세요.',
+    'context.recall.actions는 사용자가 미리보고 실제 적용한 앱 계획·배분 선택입니다. before/after는 목표·계획이며 실제 수행·섭취가 아닙니다. 마지막 review.execution은 사용자 확인이고 evidence는 점검 당시 존재하던 기록 범위·건수입니다. 미기록을 미실행·무효과로 단정하지 말고 유지/변경/보류 판단과 다음 점검을 연결하세요. actionStatus의 undone/cancelled는 현재 적용 중인 선택이 아닙니다. 새 제안은 적용한 행동 목록에 없으면 아직 적용되지 않았습니다.',
     '이미지는 확인용 초안입니다. 보이지 않는 숫자/날짜/종목은 invent하지 마세요. 운동명은 원문을 유지하며 모든 세트와 W/D/A 등 표기를 보존하세요. 중복 블록을 합치지 말고 per-side 변환하지 마세요.',
     'sets[].marker는 W, D, A 등 해당 세트의 특별 표기입니다. 행번호 1, 2, 3은 순번일 뿐 특별 표기가 아니므로 일반 세트의 marker는 null입니다. 부하와 반복 수가 안 보이면 null로 두세요.',
     '운동 이미지는 workouts만, 식사는 meal만, 체성분은 body만 사용하고 나머지는 [] 또는 null입니다. 이미지 요청의 coaching은 null입니다. kind는 요청 kind를 유지하세요. chat은 기록 초안을 만들지 않으며 coaching={claims:[],followUp:null} 형식을 사용합니다.',
@@ -413,7 +462,7 @@ class CoachRuntime {
     if (this.active) throw new Error('이미 코치가 답변 중이에요. 완료하거나 취소한 뒤 요청해 주세요.');
     const prompt = promptFor(input);
     if (Buffer.byteLength(prompt, 'utf8') > 256 * 1024) throw new Error('코칭 맥락이 너무 커요. 최근 기록 범위를 줄이거나 질문을 나눠 주세요.');
-    const pipelineVersion = input.kind === 'chat' ? 5 : 4;
+    const pipelineVersion = input.kind === 'chat' ? 6 : 4;
     const key = digest({ pipelineVersion, input }); const jobId = key.slice(0, 32);
     const previous = this.get(jobId);
     if (previous?.status === 'completed' && !retry) return previous;
