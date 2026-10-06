@@ -97,6 +97,9 @@
     const available = !!analysis && typeof analysis === "object" && end !== null && (selected === null || end <= selected);
     const source = available ? analysis : {};
     const last = source.lastSession && dateNumber(source.lastSession.date) !== null && dateNumber(source.lastSession.date) <= end ? source.lastSession : null;
+    const unknownLegacySets = last?.sourceKind === "legacy-ocr" && last.totalSets === 0;
+    const exerciseCount = last && !unknownLegacySets && Array.isArray(last.exercises) && last.exercises.length <= 200
+      && last.exercises.every(row => row && typeof row === "object" && !Array.isArray(row)) ? last.exercises.length : null;
     const matchesLast = value => last && value?.date === last.date && (!text(last.id) || text(value.sessionId) === text(last.id));
     const point = value => value && typeof value === "object" && dateNumber(value.date) !== null && dateNumber(value.date) <= end ? {
       sessionId: text(value.sessionId) || null, blockId: text(value.blockId) || null, date: value.date, time: text(value.time) || null,
@@ -125,7 +128,10 @@
     if (analysis && !available) limitations.push("선택한 날짜까지의 훈련 분석이 확인되지 않아 이후 기록으로 과거를 평가하지 않았어요.");
     return {
       available, windowStart: available && dateNumber(source.windowStart) !== null ? source.windowStart : null, windowEnd: available ? source.windowEnd : null,
-      lastSession: last ? { id: text(last.id) || null, date: last.date, time: text(last.time) || null, label: text(last.label), sourceKind: text(last.sourceKind) || "unknown", totalSets: last.sourceKind === "legacy-ocr" && last.totalSets === 0 ? null : knownCount(last.totalSets), workingSets: last.sourceKind === "legacy-ocr" && last.totalSets === 0 ? null : knownCount(last.workingSets), durationMinutes: knownCount(last.durationMinutes) } : null,
+      lastSession: last ? { id: text(last.id) || null, date: last.date, time: text(last.time) || null, label: text(last.label), sourceKind: text(last.sourceKind) || "unknown",
+        exerciseCount, totalSets: unknownLegacySets ? null : knownCount(last.totalSets), workingSets: unknownLegacySets ? null : knownCount(last.workingSets),
+        warmupSets: unknownLegacySets ? null : knownCount(last.warmupSets), markedSets: unknownLegacySets ? null : knownCount(last.markedSets),
+        unknownEffortSets: unknownLegacySets ? null : knownCount(last.unknownEffortSets), durationMinutes: knownCount(last.durationMinutes) } : null,
       coverage, muscles, progression, recovery, limitations,
       settings: { daysPerWeek: knownCount(workspace?.settings?.daysPerWeek), sessionMinutes: knownCount(workspace?.settings?.sessionMinutes) },
       programStatus: ["ready", "review", "incomplete"].includes(program?.status) ? program.status : null,
@@ -142,21 +148,14 @@
     return `${before || "이전 대표 세트 미확인"} → ${now || "최근 대표 세트 미확인"}`;
   }
 
-  function latestProgression(training) {
+  function hasLatestObservation(training) {
     const last = training.lastSession;
-    if (!last) return null;
+    if (!last) return false;
     const matches = point => point?.date === last.date && (!last.id || point.sessionId === last.id);
-    const numeric = point => point && (finite(point.loadKg) || finite(point.reps));
-    const candidates = training.progression.flatMap(row => {
-      const source = matches(row.observed.current) ? "observed" : matches(row.current) ? "current" : null;
-      const current = source === "observed" ? row.observed.current : source === "current" ? row.current : null;
-      if (!numeric(current)) return [];
-      const prior = source === "observed" ? row.observed.previous : row.previous;
-      const distinct = prior && (prior.date !== current.date || prior.sessionId && current.sessionId && prior.sessionId !== current.sessionId);
-      const previous = numeric(prior) && distinct && prior.date <= current.date ? prior : null;
-      return [{ row, current, previous, source }];
+    return training.progression.some(row => {
+      const current = matches(row.observed.current) ? row.observed.current : matches(row.current) ? row.current : null;
+      return current && (finite(current.loadKg) || finite(current.reps));
     });
-    return candidates.find(value => value.previous) || candidates[0] || null;
   }
 
   function trainingLogAction(last) {
@@ -196,26 +195,24 @@
       result.headline = result.priorities[0]?.title || result.headline;
       return result;
     }
-    const selectedMovement = latestProgression(training);
-    if (selectedMovement) {
-      const { row: movement, current, previous, source } = selectedMovement;
-      const name = movement.label || current.rawName || "운동", equipment = current.equipmentKey || movement.equipmentKey || "장비 미확인";
-      const observation = progressionObservation({ current, previous });
-      const basis = !finite(current.loadKg) ? "부하가 확인되지 않아 기록된 반복 수만 관찰값으로 보여줘요. 다음 목표를 뜻하지 않아요."
-        : current.basis === "highest-recorded-load-then-reps"
-        ? "숫자는 각 운동 블록에서 표시 중량이 가장 큰 세트(같은 중량이면 반복 수 우선)를 가져왔어요. 일반 작업 중량이나 다음 목표를 뜻하지 않아요."
-        : "선택한 운동의 원문 중량·반복 관찰값을 보여줘요.";
-      const reason = !previous && !["insufficient", "incomparable"].includes(movement.status)
-        ? "앞선 숫자 기록의 날짜·출처를 확인하지 못해 수행 변화 판정은 보류했어요."
-        : movement.reason || "같은 장비·중량 규약·노력 수준인지 확인해야 해요.";
-      const explanation = `${last.date}${last.time ? ` ${last.time}` : ""} ${name} · ${equipment}: ${observation}. ${previous ? `이 일지의 관찰값과 ${previous.date}${previous.time ? ` ${previous.time}` : ""}의 기존 기록을 나란히 표시했어요.` : "이 일지의 관찰값만 확인했어요. 앞선 숫자 기록이 충분하지 않아 수행 변화는 비교하지 않았어요."} ${basis} ${reason} 기록상 관찰이며 근육 증가량을 뜻하지 않아요.`;
-      const evidence = { current, previous, latestSessionId: last.id, latestSessionDate: last.date,
-        selection: last.id ? "latest-session-id" : "latest-date-fallback", pointSource: source, exerciseId: movement.exerciseId, equipmentKey: equipment };
-      trainingItems.push(item("training-progression", `${last.date} ${name} 기록 ${previous ? "비교" : "확인"}`, explanation, logAction.action,
-        { ...logAction, kind: "training", confidence: !previous || movement.status === "incomparable" || movement.status === "insufficient" ? "low" : "medium", source: "training-records", evidence }));
-      result.questions.push({ id: "training-progression", label: `${last.date} ${name} ${previous ? "기록은 어떻게 달라졌나요?" : "숫자는 무엇이 확인됐나요?"}`, answer: explanation, ...logAction, evidence });
-    } else if (last) trainingItems.push(item("training-log", `${last.date} ${last.label || "훈련"} 일지 확인`, `${logSummary} 이 일지에서 비교할 중량·반복 수가 확인되지 않아 이전 종목의 숫자를 대신 보여주지 않았어요. 같은 운동도 장비와 실제 세트, 반복 여유가 맞아야 수행 변화를 비교할 수 있어요.`, logAction.action,
-      { ...logAction, kind: "training", confidence: "medium", source: "training-records", evidence: { latestSessionId: last.id, latestSessionDate: last.date, current: null, previous: null } }));
+    if (last) {
+      const numericObservation = hasLatestObservation(training);
+      const counts = [`운동 블록 ${last.exerciseCount === null ? "수 미확인" : `${fmt(last.exerciseCount)}개`}`,
+        last.workingSets === null ? "일반 세트 수 미확인" : `일반 ${fmt(last.workingSets)}세트`];
+      if (last.warmupSets !== null) counts.push(`준비 ${fmt(last.warmupSets)}세트`);
+      if (last.markedSets !== null) counts.push(`별도 표시 ${fmt(last.markedSets)}세트`);
+      if (last.unknownEffortSets !== null) counts.push(`RIR 미확인 ${fmt(last.unknownEffortSets)}세트`);
+      const explanation = `${last.date}${last.time ? ` ${last.time}` : ""} ${last.label || "훈련"}의 전체 기록이에요. ${counts.join(" · ")}. ${last.sourceKind === "legacy-ocr" ? "이전 OCR 자료는 원문을 새로 검증한 기록이 아니에요. " : ""}${numericObservation
+        ? "중량·반복 관찰이 있어도 한 종목을 전체 운동의 향상이나 저하로 대신하지 않아요. 각 운동 블록의 장비·중량 표기·RIR·수행 순서 조건을 따로 확인해야 해요."
+        : "이 일지에서 중량·반복 수가 확인되지 않아 이전 종목의 숫자를 대신 보여주지 않았어요. 숫자 없는 운동도 기록에 남겨 두고 확인하죠."} 세트 수와 원문 숫자는 기록상 관찰이며 근육 증가량이나 다음 목표 중량을 뜻하지 않아요.`;
+      const evidence = { scope: "whole-session", latestSessionId: last.id, latestSessionDate: last.date,
+        selection: last.id ? "latest-session-id" : "latest-date-fallback", exerciseCount: last.exerciseCount,
+        workingSets: last.workingSets, warmupSets: last.warmupSets, markedSets: last.markedSets,
+        unknownEffortSets: last.unknownEffortSets, current: null, previous: null };
+      trainingItems.push(item(numericObservation ? "training-progression" : "training-log", `${last.date} 최근 운동 전체 관찰`, explanation, logAction.action,
+        { ...logAction, kind: "training", confidence: "medium", source: "training-records", evidence }));
+      if (numericObservation) result.questions.push({ id: "training-progression", label: `${last.date} 전체 운동 기록은 무엇이 확인됐나요?`, answer: explanation, ...logAction, evidence });
+    }
     const muscles = training.muscles.filter(row => (row.directSets || 0) + (row.indirectSets || 0) > 0).slice(0, 4);
     result.questions.push({ id: "training-muscles", label: "부위별로 어떤 훈련이 쌓였나요?", answer: muscles.length ? `${training.windowStart || "기간 시작 미확인"}~${training.windowEnd}: ${muscles.map(row => `${row.label || row.id} 직접 ${fmt(row.directSets)}·간접 ${fmt(row.indirectSets)}세트`).join(", ")}. 운동 분류에 따른 노출 집계이며 둘을 같은 효과의 세트로 합치지 않아요. ${training.coverage.unknownEffortSets !== null ? `노력 수준 미확인 ${fmt(training.coverage.unknownEffortSets)}세트가 있어요.` : "실제 노력 수준도 함께 확인해야 해요."}` : "분류된 부위 기록이 아직 충분하지 않아요. 원문 운동명·기구와 실제 세트를 확인하면 직접·간접 노출을 나누어 볼 수 있어요.", action: "nav-training", actionLabel: actionLabels["nav-training"] });
     result.questions.push({ id: "training-deload", label: "쉬거나 디로드할 때인가요?", answer: `${recovery.reasons.join(" ") || "현재 기록만으로 회복 상태를 확정하지 않았어요."} ${recovery.questions.join(" ")} 단일 일지의 총볼륨으로 디로드를 단정하지 않아요. 반복되는 수행 변화와 수면·피로·통증, 같은 운동의 노력 수준을 함께 확인해요.`, action: "nav-training", actionLabel: actionLabels["nav-training"] });

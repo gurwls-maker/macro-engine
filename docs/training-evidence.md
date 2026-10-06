@@ -67,6 +67,12 @@
 
 ## 기술 검증
 
+### 일지 전체 관찰과 표시 우선순위
+
+최근 코칭 요약은 일지 전체의 종목·세트·확인 상태를 보여 주며 한 종목의 표시 중량을 전체 운동의 향상·저하로 대표하지 않는다. `reviewSession`은 선택한 세션까지의 관찰만 사용해 각 원문 블록의 세트와 비교 근거를 제공한다. 장비·중량 표기·순서 맥락이 다른 블록, 같은 날 복수 세션과 A→B→A를 하나의 수행 숫자로 합치지 않는다. 숫자가 없는 운동도 표시하며 조회 범위가 부분적이면 날짜 범위를 명시한다.
+
+메인 운동은 사용자가 지정한 표시 선호이며 장비를 강제로 한 개만 쓰게 하는 규칙이 아니다. 우선순위순의 메인 → 설정 우선 부위의 직접 자극 운동 → 복합 동작 → 나머지와 일지순의 원문 순서는 **제품의 화면 배치 선택**이다. 같은 단계는 원문 순서로 유지한다. 고중량·총볼륨·변화율로 생리학적 중요도를 계산하지 않으며 복합 동작 우선을 개인의 최적 운동 순서로 주장하지 않는다. 표시 정렬·메인 선호는 실제 수행 순서·회복 평가·영양 목표·계획 처방을 변경하지 않는다.
+
 `src/training.js`는 DOM·저장소·시간 전역에 의존하지 않는 UMD 모듈이다. `MacroTraining`과 Node의 `module.exports`로 같은 API를 제공한다. 기준 날짜가 없고 기록도 없으면 날짜를 만들지 않는다. 기록만 제공된 경우 최신 기록 날짜를 분석 끝으로 사용한다.
 
 공개 API는 `catalog`, `muscleLabels`, `resolveExercise(rawName, mappings)`, `analyze(records, options)`, `recommendProgram(profile, settings, analysis, preferences)`, `createProgram(draft, options)`, `createAssignment(program, dayId, date, id)`, `evaluateAssignment(assignment, records)`, `adjustAssignment(assignment, change, context)`다. `src/training-store.js`는 실제 일지와 계획·날짜 배치·선호·기억·후속 약속을 별도로 검증하며 중앙 백업에 포함한다. 실사용자의 일지나 이미지를 테스트 fixture에 넣지 않았다. 테스트는 합성 자료로 작성했다.

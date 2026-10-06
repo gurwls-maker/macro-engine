@@ -152,6 +152,19 @@
   function emptyPlanning() {
     return { activeProgramId: null, programs: [], schedule: [], preferences: { preferredExerciseIds: [], excludedExerciseIds: [] } };
   }
+  function emptyReviewPreferences() { return { order: "priority", mainExerciseKeys: [] }; }
+  function validateReviewPreferences(preferences) {
+    fields(preferences, ["order", "mainExerciseKeys"], "운동 분석 표시 설정");
+    if (!["priority", "diary"].includes(preferences.order)) fail("운동 분석의 표시 순서를 확인해 주세요.");
+    strings(preferences.mainExerciseKeys, 500, 6000, "메인 운동");
+    const normalize = value => value.normalize("NFKC").toLowerCase().replace(/[\s_-]+/g, "");
+    for (const key of preferences.mainExerciseKeys) {
+      const exercise = key.startsWith("exercise:") && key.length > 9 && key.length <= 137 && key.slice(9).trim() === key.slice(9);
+      const raw = key.startsWith("raw:") && key.length > 4 && normalize(key.slice(4)) === key.slice(4);
+      if ((!exercise && !raw) || /[\u0000-\u001f]/.test(key)) fail("메인 운동의 식별 기준을 확인해 주세요.");
+    }
+    if (new Set(preferences.mainExerciseKeys).size !== preferences.mainExerciseKeys.length) fail("메인 운동이 중복되었습니다.");
+  }
   function validatePrescription(day) {
     fields(day, ["id", "label", "exercises"], "계획 세션");
     text(day.id, 512, "계획 세션 ID"); text(day.label, 200, "계획 세션 이름");
@@ -213,7 +226,7 @@
     }
   }
   function createEmpty() {
-    return { version: VERSION, records: [], mappings: [], settings: { daysPerWeek: 3, sessionMinutes: 60, equipment: "gym", priorityMuscles: [] }, messages: [], planning: emptyPlanning(), memory: { constraints: "", focus: "", agreements: "", updatedAt: null }, followUps: [], actions: [] };
+    return { version: VERSION, records: [], mappings: [], settings: { daysPerWeek: 3, sessionMinutes: 60, equipment: "gym", priorityMuscles: [] }, messages: [], planning: emptyPlanning(), reviewPreferences: emptyReviewPreferences(), memory: { constraints: "", focus: "", agreements: "", updatedAt: null }, followUps: [], actions: [] };
   }
   function validateActionValue(value, kind) {
     if (kind === "program") {
@@ -280,11 +293,13 @@
     if (!own(workspace, "memory")) workspace.memory = { constraints: "", focus: "", agreements: "", updatedAt: null };
     if (!own(workspace, "followUps")) workspace.followUps = [];
     if (!own(workspace, "actions")) workspace.actions = [];
-    fields(workspace, ["version", "records", "mappings", "settings", "messages", "planning", "memory", "followUps", "actions"], "훈련 작업공간");
+    if (!own(workspace, "reviewPreferences")) workspace.reviewPreferences = emptyReviewPreferences();
+    fields(workspace, ["version", "records", "mappings", "settings", "messages", "planning", "reviewPreferences", "memory", "followUps", "actions"], "훈련 작업공간");
     if (workspace.version !== VERSION) fail("지원하지 않는 훈련 저장 버전입니다.");
     validateRecords(workspace.records);
     validatePlanning(workspace.planning, workspace.records);
     validateActions(workspace.actions);
+    validateReviewPreferences(workspace.reviewPreferences);
     fields(workspace.memory, ["constraints", "focus", "agreements", "updatedAt"], "개인 코치 기억");
     for (const key of ["constraints", "focus", "agreements"]) text(workspace.memory[key], 6000, "개인 코치 기억", false, true);
     if (workspace.memory.updatedAt !== null && !iso(workspace.memory.updatedAt)) fail("개인 기억 수정 시각을 확인해 주세요.");

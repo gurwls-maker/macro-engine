@@ -15,6 +15,7 @@
     let intakeQueue = [], intakeQueuePaused = true, intakeQueueError = null, queuePumping = false, imageUploads = [], imageUploadBusy = false;
     let chatScrollTop = 0, lastChatMessage = null, chatNearBottom = true, chatScrollToLatest = false;
     let setupChecking = false, setupNotice = '';
+    let reviewDate = null, reviewSessionId = null, reviewBlockId = null, reviewedSessionId = null;
     const aiPreferenceKey = 'macro-engine.codex-use';
     let aiEnabled = true;
     try { aiEnabled = localStorage.getItem(aiPreferenceKey) !== 'disabled'; } catch {}
@@ -745,7 +746,77 @@
     }
     function coachContextHTML() {
       const report = analysis(), last = report.lastSession;
-      return `<section class="coach-training-context"><div class="section-header"><h2>마지막 운동 일지</h2>${last ? command('training-open', `${last.date} 일지 보기`, 'notebook-pen', `data-id="${e(last.id)}"`) : ''}</div>${last ? `<strong>${last.date} · ${e(last.label)}</strong><p>${last.exercises.map(exercise => e(exercise.label || exercise.rawName || '')).filter(Boolean).slice(0, 4).join(' · ')}</p><span class="secondary-text">일반 ${last.workingSets}세트 · RIR 미확인 ${last.unknownEffortSets}세트</span>` : '<p>최근 운동 세트는 아직 확인하지 못했어요.</p>'}<p class="form-help">${e(report.recovery.reasons[0] || '')}</p>${command('nav-program', '다음 훈련 살펴보기', 'calendar-days')}</section>`;
+      return `<section class="coach-training-context"><div class="section-header"><h2>마지막 운동 일지</h2>${last ? command('training-open', `${last.date} 일지 보기`, 'notebook-pen', `data-id="${e(last.id)}"`) : ''}</div>${last ? `<strong>${last.date} · ${e(last.label)}</strong><p>${last.exercises.map(exercise => e(exercise.label || exercise.rawName || '')).filter(Boolean).slice(0, 4).join(' · ')}</p><span class="secondary-text">${e(reviewSessionCounts(last))}</span>` : '<p>최근 운동 세트는 아직 확인하지 못했어요.</p>'}<p class="form-help">${e(report.recovery.reasons[0] || '')}</p>${command('nav-program', '다음 훈련 살펴보기', 'calendar-days')}</section>`;
+    }
+    function reviewSessionCounts(session) {
+      if (session.sourceKind === 'legacy-ocr' && session.totalSets === 0) return '종목별 세트 미확인 · 과거 OCR 원문 미검증';
+      const unknownReps = session.exercises.reduce((sum, exercise) => sum + exercise.sets.filter(set => set.reps == null).length, 0);
+      return `${session.exercises.length}종목 · 일반 ${session.workingSets}세트 · 준비 ${session.warmupSets}세트${session.markedSets ? ` · 별도 표기 ${session.markedSets}세트` : ''}${unknownReps ? ` · 반복 미확인 ${unknownReps}세트` : ''}`;
+    }
+    function workoutReview() {
+      if (reviewDate !== app.getDate()) {
+        reviewDate = app.getDate(); reviewSessionId = null; reviewBlockId = null; reviewedSessionId = null;
+      }
+      const report = analysis();
+      if (reviewSessionId && !report.sessions.some(row => row.id === reviewSessionId)) reviewSessionId = null;
+      const value = T.reviewSession(report, { sessionId: reviewSessionId, preferences: workspace().reviewPreferences, priorityMuscles: workspace().settings.priorityMuscles });
+      if (value.session?.id !== reviewedSessionId) { reviewedSessionId = value.session?.id || null; reviewBlockId = null; }
+      if (!value.rows.some(row => row.blockId === reviewBlockId)) reviewBlockId = value.rows[0]?.blockId || null;
+      return value;
+    }
+    function reviewPoint(value) {
+      return value ? `${value.loadKg == null ? '중량 미확인' : `${fmt(value.loadKg, 1)}kg`} × ${value.reps == null ? '반복 미확인' : `${fmt(value.reps)}회`}` : '앞선 같은 조건 기록 없음';
+    }
+    function reviewStatus(row) {
+      const value = row.progression, current = value?.current;
+      if (!current || (current.loadKg == null && current.reps == null)) return '숫자 미확인';
+      if (value.status === 'insufficient' && value.historyCoverage?.otherConditionGroupCount > 0) return '기록 있음 · 조건별 분리';
+      return statusNames[value.status] || '비교 조건 미확인';
+    }
+    function mainExerciseLabel(key) {
+      return key.startsWith('exercise:') ? T.catalog.find(row => row.id === key.slice(9))?.label || key.slice(9) : key.slice(4);
+    }
+    function reviewMainHTML(value) {
+      const keys = T.getReviewPreferences(workspace().reviewPreferences).mainExerciseKeys;
+      if (!keys.length) return '';
+      return `<details class="coach-review-mains source-details"><summary>메인 운동 ${keys.length}개</summary><ol>${keys.map((key, index) => {
+        const label = mainExerciseLabel(key), extra = `data-exercise-key="${e(key)}"`;
+        return `<li><span><strong>${e(label)}</strong>${value.rows.some(row => row.exerciseKey === key || row.mainKeys.includes(key)) ? '' : '<small>이 일지에 없음</small>'}</span><div class="toolbar-actions">${iconButton('coach-review-main-up', `${e(label)} 메인 우선순위 올리기`, 'arrow-up', `${extra} ${index ? '' : 'disabled'}`)}${iconButton('coach-review-main-down', `${e(label)} 메인 우선순위 내리기`, 'arrow-down', `${extra} ${index < keys.length - 1 ? '' : 'disabled'}`)}${iconButton('coach-review-main', `${e(label)} 메인 운동 해제`, 'pin-off', extra)}</div></li>`;
+      }).join('')}</ol></details>`;
+    }
+    function reviewDetailHTML(value, row) {
+      if (!row) return '';
+      const session = value.session, progression = row.progression, current = progression?.current, previous = progression?.previous;
+      const convention = { total: '전체 중량', 'per-side': '한쪽 중량', bodyweight: '맨몸·추가 부하', 'as-recorded': '중량 표기 미확인' }[row.loadConvention];
+      const raw = workspace().records.find(record => record.id === session.id)?.exercises.find(exercise => exercise.id === row.blockId);
+      const resolved = row.exerciseKey.startsWith('exercise:') ? T.catalog.find(exercise => exercise.id === row.exerciseKey.slice(9)) : null;
+      const coverage = progression?.historyCoverage;
+      const contextBlock = session.context?.blocks.find(block => block.blockId === row.blockId);
+      const index = value.rows.indexOf(row), neighbor = offset => value.rows[index + offset];
+      const navigation = `<div class="coach-review-navigation">${command('coach-review-list', '운동 목록', 'list', `data-block-id="${e(row.blockId)}"`)}<div class="toolbar-actions">${iconButton('coach-review-select', '목록의 이전 운동 분석', 'chevron-left', neighbor(-1) ? `data-block-id="${e(neighbor(-1).blockId)}"` : 'disabled')}${iconButton('coach-review-select', '목록의 다음 운동 분석', 'chevron-right', neighbor(1) ? `data-block-id="${e(neighbor(1).blockId)}"` : 'disabled')}</div></div>`;
+      return `<div id="coachReviewDetail" class="coach-review-detail" role="region" tabindex="-1" aria-labelledby="coachReviewDetailTitle">${navigation}<div class="section-header"><div><span class="eyebrow">${session.date}${session.time ? ` · ${e(session.time)}` : ''} · 일지 ${row.diaryPosition}</span><h3 id="coachReviewDetailTitle">${e(row.rawName || row.label)}</h3></div><span class="source-badge">${e(reviewStatus(row))}</span></div><dl class="exercise-details"><div><dt>장비</dt><dd>${e(row.equipmentKey || '미확인')}</dd></div><div><dt>중량 표기</dt><dd>${e(convention)}</dd></div><div><dt>운동 분류</dt><dd>${e(resolved?.label || '미확인')}</dd></div><div><dt>직접 자극 부위</dt><dd>${resolved ? resolved.primaryMuscles.map(key => e(T.muscleLabels[key])).join(' · ') : '미확인'}</dd></div></dl><div class="coach-review-observation"><span>${current?.marker ? '별도 표기 세트 관찰' : '표시 세트 관찰'}</span><strong>${current ? reviewPoint(current) : '비교할 숫자 미확인'}</strong>${previous ? `<p>이전 ${previous.date}${previous.time ? ` ${e(previous.time)}` : ''} · ${e(reviewPoint(previous))}</p>` : '<p>앞선 같은 조건의 세트 관찰 없음</p>'}</div><p class="coach-review-reason">${e(progression?.reason || '세트 숫자가 없어 수행 변화를 비교하지 않았어요. 빈 운동 블록도 원문 순서대로 남겨 두었습니다.')}</p>${coverage ? `<p class="form-help">${e(value.windowStart)} ~ ${e(value.windowEnd)} · 같은 운동 ${coverage.exerciseDayCount}일 · 이 장비·표기 ${coverage.equipmentDayCount}일 · 같은 기록 조건 ${coverage.conditionDayCount}일</p>` : ''}<p class="form-help">${Number.isInteger(contextBlock?.executionPosition) ? `실제 순차 수행으로 확인된 일지의 ${contextBlock.executionPosition}번째 블록` : `원문 일지의 ${row.diaryPosition}번째 블록 · 실제 순차 수행 미확인`}${session.context?.sameDaySessions > 1 ? ' · 같은 날 여러 세션의 피로 맥락은 미확인' : ''}. 다른 장비·표기·순서의 중량은 합치지 않습니다.</p>${row.sets.length ? `<div class="set-table" role="table" aria-label="${e(row.rawName || row.label)} 기록 세트"><div class="set-table-head" role="row"><span role="columnheader">세트</span><span role="columnheader">원문 kg</span><span role="columnheader">반복</span><span role="columnheader">RIR</span></div>${row.sets.map((set, index) => `<div class="set-table-row ${set.marker === 'W' ? 'set-warmup' : ''}" role="row"><span role="cell">${e(set.marker || String(index + 1))}</span><strong role="cell">${set.loadKg == null ? '미확인' : fmt(set.loadKg, 1)}</strong><strong role="cell">${set.reps == null ? '미확인' : fmt(set.reps)}</strong><span role="cell">${set.rir == null ? '미확인' : fmt(set.rir)}</span></div>`).join('')}</div>` : '<p class="form-help">세트 상세 없음</p>'}${raw?.notes ? `<p class="form-help">${e(raw.notes)}</p>` : ''}<div class="form-actions">${command('training-open', `${session.date} 일지 보기`, 'notebook-pen', `data-id="${e(session.id)}"`)}${previous?.sessionId && previous.sessionId !== session.id ? command('training-open', `${previous.date} 비교 일지 보기`, 'history', `data-id="${e(previous.sessionId)}"`) : ''}</div></div>`;
+    }
+    function workoutReviewHTML() {
+      const report = analysis(), value = workoutReview(), session = value.session;
+      if (!session) return `<section id="coachWorkoutReview" class="coach-workout-review" aria-labelledby="coachWorkoutReviewTitle"><div class="section-header"><h2 id="coachWorkoutReviewTitle">운동별 기록 살펴보기</h2></div><p class="secondary-text">${report.windowStart} ~ ${report.windowEnd}에 저장된 세트 일지가 없어요. 운동 미기록은 휴식했다는 뜻이 아닙니다.</p>${command('training-add', '운동 직접 기록', 'dumbbell')}</section>`;
+      const preferences = T.getReviewPreferences(workspace().reviewPreferences), selected = value.rows.find(row => row.blockId === reviewBlockId);
+      let safety = ['stop', 'review'].includes(report.recovery.status) ? report.recovery.reasons[0] : null;
+      const sessionPain = session.pain === 'stop' ? '이 일지에 중단이 필요한 통증이 기록되어 있어요. 통증을 유발하는 운동은 멈추고 전문가 평가를 우선해 주세요.' : session.pain === 'mild' ? '이 일지에 통증이 기록되어 있어요. 수행 수치가 늘었더라도 자동 증량보다 증상 확인이 먼저예요.' : null;
+      if (safety && sessionPain && session.id !== report.lastSession?.id) safety += ` ${session.date} 선택 일지: ${sessionPain}`;
+      return `<section id="coachWorkoutReview" class="coach-workout-review" aria-labelledby="coachWorkoutReviewTitle"><div class="section-header"><h2 id="coachWorkoutReviewTitle">운동별 기록 살펴보기</h2><div class="segmented" role="group" aria-label="운동 정렬">${[['priority', '우선순위순'], ['diary', '일지순']].map(([order, label]) => `<button type="button" data-action="coach-review-order" data-order="${order}" aria-pressed="${value.order === order}">${label}</button>`).join('')}</div></div>${safety ? `<div class="notice notice-warning coach-review-safety" role="note"><strong>최근 기록의 안전 확인</strong><p>${e(safety)}</p></div>` : ''}${sessionPain && !safety ? `<div class="notice notice-warning coach-review-safety" role="note"><p>${e(sessionPain)}</p></div>` : ''}<label class="field coach-review-session"><span>살펴볼 운동 일지 · 최근 28일</span><select id="coachReviewSession">${options([...report.sessions].reverse().map(row => [row.id, `${row.date}${row.time ? ` ${row.time}` : ''} · ${row.label}${row.id === report.lastSession?.id ? ' · 최근' : ''}`]), session.id)}</select></label><div class="coach-review-session-summary"><strong>${session.date}${session.time ? ` · ${e(session.time)}` : ''} · ${e(session.label)}</strong><span>${e(reviewSessionCounts(session))}${session.durationMinutes == null ? ' · 시간 미확인' : ` · ${fmt(session.durationMinutes)}분`}</span></div><p class="coach-review-range secondary-text">관찰 범위 ${e(value.windowStart)} ~ ${e(value.windowEnd)}</p>${reviewMainHTML(value)}${value.rows.length ? `<div class="coach-review-columns" aria-hidden="true"><span>운동 · 일지 위치</span><span>표시 세트 관찰</span><span>비교 상태</span><span>메인</span></div><ol class="coach-review-list" aria-label="분석할 운동">${value.rows.map(row => {
+        const main = preferences.mainExerciseKeys.indexOf(row.mainKey || row.exerciseKey), active = row.blockId === reviewBlockId;
+        const rank = main >= 0 ? `메인 ${main + 1}` : { focus: '우선 부위', suggested: '복합 동작', other: '일반' }[row.priorityKind] || '일반';
+        return `<li class="coach-review-row ${active ? 'is-selected' : ''}" data-block-id="${e(row.blockId)}" data-exercise-key="${e(row.exerciseKey)}"><button type="button" class="coach-review-select" data-action="coach-review-select" data-block-id="${e(row.blockId)}" aria-pressed="${active}" aria-controls="coachReviewDetail"><span class="coach-review-name"><small>${e(rank)} · 일지 ${row.diaryPosition}</small><strong>${e(row.rawName || row.label)}</strong><span>${e(row.equipmentKey || '장비 미확인')}</span></span><span class="coach-review-values"><strong>${row.progression?.current ? e(reviewPoint(row.progression.current)) : '숫자 미확인'}</strong><small>${row.progression?.previous ? `이전 ${row.progression.previous.date} · ${e(reviewPoint(row.progression.previous))}` : '앞선 같은 조건 기록 없음'}</small></span><span class="coach-review-status">${e(reviewStatus(row))}${icon('chevron-right')}</span></button>${iconButton('coach-review-main', `${e(row.label)} 메인 운동 ${main >= 0 ? '해제' : '지정'}`, main >= 0 ? 'pin-off' : 'pin', `data-exercise-key="${e(row.mainKey || row.exerciseKey)}" data-block-id="${e(row.blockId)}" aria-pressed="${main >= 0}"`)}</li>`;
+      }).join('')}</ol>${reviewDetailHTML(value, selected)}` : '<p class="empty-state">이 일지에는 종목별 세트가 없어요. 전체 요약을 임의로 나누지 않습니다.</p>'}<details class="source-details coach-review-limits"><summary>관찰 기준과 정렬 근거</summary>${value.limitations.map(line => `<p>${e(line)}</p>`).join('')}<p>메인 운동 → 설정한 우선 부위에 직접 해당하는 운동 → 복합 동작 → 나머지 순서입니다. 같은 단계는 일지순이며, 중량·세트 수로 중요도를 정하지 않습니다. 복합 동작 우선은 화면 배치용 기본값이며 개인의 최적 운동이나 성장 순위가 아닙니다.</p>${selected ? `<p>${e(selected.priorityReason)}</p>` : ''}<p>일반 세트가 있으면 가장 높은 기록 중량, 같은 중량이면 가장 많은 반복을 관찰합니다. 일반 세트가 없으면 준비 세트를 제외한 별도 표기 세트의 숫자만 남기며 수행 비교는 보류합니다. 근성장률·최대근력 측정이 아니며, 별도 표기 세트와 조건 미확인은 비교를 보류합니다. 정렬·메인 지정은 실제 운동 순서나 저장한 계획을 바꾸지 않습니다.</p></details></section>`;
+    }
+    function focusReviewAction(action, key, blockId) {
+      const button = [...document.querySelectorAll('#coachWorkoutReview [data-action]')].find(row => row.dataset.action === action && (!key || row.dataset.exerciseKey === key) && (!blockId || row.dataset.blockId === blockId));
+      button?.closest('details')?.setAttribute('open', '');
+      button?.focus({ preventScroll: true });
+    }
+    function changeReviewPreference(change, message) {
+      const next = copy(workspace()); next.reviewPreferences = T.getReviewPreferences(next.reviewPreferences); change(next.reviewPreferences);
+      return saveWorkspace(next, message);
     }
     function message(role, text, source, replyTo = null, status = 'answered', contextDigest = null) { return { id: id(), role, text, createdAt: new Date().toISOString(), source, replyTo, contextDigest, status }; }
     async function sendChat(text) {
@@ -823,6 +894,30 @@
       const action = ({ 'today-workout-open': 'training-open', 'today-workout-reuse': 'training-reuse', 'today-workout-add': 'training-add', 'today-schedule-start': 'schedule-start' })[button.dataset.action] || button.dataset.action, data = workspace();
       const record = data.records.find(row => row.id === (button.dataset.id || button.dataset.record));
       if (action === 'connection-setup') setupDialog();
+      else if (action === 'coach-review-order') {
+        if (!['priority', 'diary'].includes(button.dataset.order)) return true;
+        const saved = changeReviewPreference(value => { value.order = button.dataset.order; });
+        if (!saved) app.render();
+        [...document.querySelectorAll('#coachWorkoutReview [data-action="coach-review-order"]')].find(row => row.dataset.order === button.dataset.order)?.focus({ preventScroll: true });
+      }
+      else if (action === 'coach-review-select') {
+        if (!workoutReview().rows.some(row => row.blockId === button.dataset.blockId)) throw new Error('선택한 운동 기록이 바뀌었어요. 일지를 다시 확인해 주세요.');
+        reviewBlockId = button.dataset.blockId; app.render(); $('coachReviewDetail')?.focus();
+      }
+      else if (action === 'coach-review-list') { focusReviewAction('coach-review-select', null, button.dataset.blockId); document.activeElement?.scrollIntoView({ block: 'center' }); }
+      else if (action === 'coach-review-main' || action === 'coach-review-main-up' || action === 'coach-review-main-down') {
+        const key = button.dataset.exerciseKey, current = T.getReviewPreferences(data.reviewPreferences), index = current.mainExerciseKeys.indexOf(key);
+        const row = button.dataset.blockId ? workoutReview().rows.find(item => item.blockId === button.dataset.blockId) : null;
+        // A row can be pinned by both its original name and its confirmed movement.
+        const removalKeys = new Set(row?.mainKeys || [key]);
+        if (index < 0 && (action !== 'coach-review-main' || !workoutReview().rows.some(row => row.exerciseKey === key))) throw new Error('메인 운동으로 지정할 기록을 찾을 수 없어요.');
+        changeReviewPreference(value => {
+          if (action === 'coach-review-main') { if (index >= 0) value.mainExerciseKeys = value.mainExerciseKeys.filter(item => !removalKeys.has(item)); else value.mainExerciseKeys.push(key); }
+          else { const to = index + (action === 'coach-review-main-up' ? -1 : 1); if (to >= 0 && to < value.mainExerciseKeys.length) [value.mainExerciseKeys[index], value.mainExerciseKeys[to]] = [value.mainExerciseKeys[to], value.mainExerciseKeys[index]]; }
+        }, action === 'coach-review-main' ? index >= 0 ? '메인 운동 지정을 해제했어요.' : '다음 일지에도 이 종목을 메인 운동으로 표시해요.' : '메인 운동의 표시 우선순위를 바꿨어요.');
+        focusReviewAction(action, button.dataset.blockId ? null : key, button.dataset.blockId);
+        if (!document.activeElement?.closest('#coachWorkoutReview')) $('coachReviewSession')?.focus();
+      }
       else if (action === 'connection-copy-command') {
         try { await navigator.clipboard.writeText(button.dataset.command); toast('명령을 복사했어요. 실행은 터미널에서 직접 선택합니다.'); }
         catch { toast('명령을 복사하지 못했어요. 화면의 명령은 그대로 확인할 수 있습니다.', true); }
@@ -943,6 +1038,10 @@
       return true;
     }
     async function handleChange(event) {
+      if (event.target.id === 'coachReviewSession') {
+        if (!analysis().sessions.some(row => row.id === event.target.value)) throw new Error('이 분석 범위에 없는 일지예요.');
+        reviewSessionId = event.target.value; reviewBlockId = null; app.render(); $('coachReviewSession')?.focus({ preventScroll: true }); return true;
+      }
       if (event.target.id === 'codexUseEnabled') {
         const next = event.target.checked;
         try { localStorage.setItem(aiPreferenceKey, next ? 'enabled' : 'disabled'); aiEnabled = next; setupNotice = ''; app.render(); refreshSetup(); $('codexUseEnabled')?.focus(); }
@@ -978,7 +1077,7 @@
       }
       app.render();
     }
-    return { render, analysis, program, coachingProgram, handleAction, handleChange, chatHTML, memoryHTML, coachContextHTML, connectionPanel, setupDialog, canAskAI, bridge, todayHTML, intakeSummaryHTML, inboxHTML,
+    return { render, analysis, program, coachingProgram, handleAction, handleChange, chatHTML, memoryHTML, coachContextHTML, workoutReviewHTML, connectionPanel, setupDialog, canAskAI, bridge, todayHTML, intakeSummaryHTML, inboxHTML,
       onDiaryScan(result) { unprocessedImages = Array.isArray(result?.pending) ? result.pending : []; app.render(); },
       onSave(state) { bridge.sync(state); }, init, jobHTML, enhanceChat, captureChatScroll };
   }

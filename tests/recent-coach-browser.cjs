@@ -100,11 +100,18 @@ async function assertPriority(page, expected, hasNumbers) {
   assert.ok(await card.count() > 0, 'a recent-record card must target the latest eligible session');
   const text = await card.first().innerText();
   assert.match(text, new RegExp(expected.date));
+  assert.match(text, new RegExp(expected.label));
   if (hasNumbers) {
-    assert.match(text, /42\.5kg\s*×\s*13회/, 'latest observed numbers remain available even with unknown RIR');
-    assert.doesNotMatch(text, /풀 업|풀업/, 'older first progression must not become the recent-record card');
-    assert.match(text, /근육 증가량을 뜻하지|근성장.*아니|근력.*판정.*아니/, 'observed numbers are not a muscle-growth measurement');
+    assert.match(text, /전체|운동 블록/);
+    assert.doesNotMatch(text, /42\.5kg|40kg|90kg|99kg|풀 업|풀업/, 'a whole-session summary must not choose an arbitrary exercise or old progression as the representative');
   }
+}
+async function latestObservation(page, expected) {
+  return page.evaluate(({ key, recordId, date }) => {
+    const state = JSON.parse(localStorage.getItem(key));
+    const analysis = window.MacroTraining.analyze(state.training.records, { date, profile: state.profile, checkins: state.days, mappings: state.training.mappings });
+    return analysis.progression.find(row => row.current?.sessionId === recordId) || null;
+  }, { key: S.STORAGE_KEY, recordId: expected.id, date: today });
 }
 
 (async () => {
@@ -131,8 +138,12 @@ async function assertPriority(page, expected, hasNumbers) {
           assert.match(answerText, new RegExp(data.latest.date));
           assert.doesNotMatch(answerText, /99kg/, 'future observations cannot be used before their date');
           if (hasNumbers) {
-            assert.match(answerText, /42\.5kg\s*×\s*13회/);
-            assert.match(answerText, kind === 'same-day' ? /같은 날.*두 세션/ : /RIR/);
+            assert.match(answerText, new RegExp(data.latest.label));
+            assert.doesNotMatch(answerText, /42\.5kg|40kg|90kg/, 'the question answer summarizes the whole session rather than one representative set');
+            const observation = await latestObservation(page, data.latest);
+            assert.ok(observation, 'latest numeric observations remain available for individual review');
+            assert.equal(observation.current.loadKg, 42.5); assert.equal(observation.current.reps, 13); assert.equal(observation.current.rir, null);
+            assert.match(observation.reason, kind === 'same-day' ? /같은 날.*두 세션/ : /RIR/);
           } else {
             assert.equal(await page.locator('[data-action="coach-question"][data-question="training-progression"]').count(), 0,
               'latest aggregate or numeric-unknown session must not fall back to an older exercise progression');
@@ -179,6 +190,6 @@ async function assertPriority(page, expected, hasNumbers) {
         } finally { await context.close(); }
       }
     }
-    console.log('Recent coach browser: latest session independent of record/group order, exact-ID card/question/sidebar links, stale selection and search reset, historical cutoffs, same-day sessions, unknown RIR observations and summary/numeric-unknown no-old-comparison fallback at 320/390/1280px passed. State unchanged; no AI or private data.');
+    console.log('Recent coach browser: latest whole-session summary without arbitrary representative sets, exact-ID card/question/sidebar links, stale selection and search reset, historical cutoffs, same-day sessions, retained unknown-RIR observations and summary/numeric-unknown no-old-comparison fallback at 320/390/1280px passed. State unchanged; no AI or private data.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -615,6 +615,99 @@
     return { version: VERSION, windowStart, windowEnd, coverage, muscles, sessions, lastSession: sessions.at(-1) || null, progression, recovery, limitations };
   }
 
+  function getReviewPreferences(preferences) {
+    const value = preferences && typeof preferences === "object" && !Array.isArray(preferences) ? preferences : {};
+    const validKey = key => typeof key === "string" && key.length <= 6000 && !/[\u0000-\u001f]/.test(key)
+      && (key.startsWith("exercise:") && text(key.slice(9)) === key.slice(9) && key.length > 9 && key.length <= 137
+        || key.startsWith("raw:") && key.length > 4 && normalize(key.slice(4)) === key.slice(4));
+    return { order: value.order === "diary" ? "diary" : "priority", mainExerciseKeys: [...new Set((Array.isArray(value.mainExerciseKeys) ? value.mainExerciseKeys : []).filter(validKey))].slice(0, 500) };
+  }
+
+  function reviewSession(analysis, options = {}) {
+    options = options && typeof options === "object" && !Array.isArray(options) ? options : {};
+    const preferences = getReviewPreferences(options.preferences), order = preferences.order;
+    const sessions = (Array.isArray(analysis?.sessions) ? analysis.sessions : []).filter(row => row && text(row.id) && dateNumber(row.date) !== null && Array.isArray(row.exercises))
+      .slice().sort((a, b) => a.date.localeCompare(b.date) || text(a.time).localeCompare(text(b.time)) || a.id.localeCompare(b.id));
+    const requestedId = text(options.sessionId);
+    const lastIndex = sessions.findIndex(row => row.id === analysis?.lastSession?.id);
+    const selectedIndex = requestedId ? sessions.findIndex(row => row.id === requestedId)
+      : lastIndex >= 0 ? lastIndex : sessions.length - 1;
+    if (selectedIndex < 0) return { session: null, rows: [], order, windowStart: null, windowEnd: null, limitations: [] };
+    const selected = sessions[selectedIndex], end = dateNumber(selected.date), desiredStart = end - 27 * DAY;
+    const sourceStart = dateNumber(analysis?.windowStart), start = Math.max(desiredStart, sourceStart ?? desiredStart);
+    const windowStart = new Date(start).toISOString().slice(0, 10), windowEnd = selected.date;
+    const limitations = sourceStart !== null && sourceStart > desiredStart ? ["선택한 일지 이전 28일 전체가 현재 분석에 포함되어 있지 않아요. 표시한 조회 기간 안의 기록만 비교했어요."] : [];
+    const groups = new Map(), historyByExercise = new Map(), descriptors = new Map();
+    const rawMainIdentities = new Map(preferences.mainExerciseKeys.filter(key => key.startsWith("raw:")).map(key => [key, new Set()]));
+    // Build once at the selected-session cutoff; sorting the review never changes actual block context.
+    for (const session of sessions.slice(0, selectedIndex + 1)) {
+      if (dateNumber(session.date) < start) continue;
+      const blocks = new Map((session.context?.blocks || []).map(block => [block.blockId, block]));
+      for (const ex of session.exercises) {
+        if (rawMainIdentities.size && ex.exerciseId) rawMainIdentities.get("raw:" + normalize(ex.rawName))?.add(ex.exerciseId);
+        const identity = ex.exerciseId || `unresolved:${normalize(ex.rawName)}`;
+        const base = [identity, ex.equipmentKey || "unconfirmed:" + normalize(ex.rawName), ex.loadConvention, ex.variantKey, ex.loadRole];
+        const block = blocks.get(ex.id), equipmentKey = JSON.stringify(base), conditionKey = JSON.stringify([...base, block?.contextKey || `unknown-position:${block?.displayPosition || 0}`]);
+        const descriptor = { identity, equipmentKey, conditionKey };
+        if (session.id === selected.id) descriptors.set(ex, descriptor);
+        if (!historyByExercise.has(identity)) historyByExercise.set(identity, []);
+        historyByExercise.get(identity).push({ sessionId: session.id, date: session.date, equipmentKey, conditionKey, hasRecordedSets: ex.sets.length > 0 });
+        if (!ex.sets.length) continue;
+        if (!groups.has(conditionKey)) groups.set(conditionKey, []);
+        groups.get(conditionKey).push({ ...ex, sessionId: session.id, date: session.date, time: session.time || null, sourceKind: session.sourceKind });
+      }
+    }
+    const priorityMuscles = new Set(Array.isArray(options.priorityMuscles) ? options.priorityMuscles : []);
+    const mains = new Map(preferences.mainExerciseKeys.map((key, index) => [key, index]));
+    const resolvedMainAliases = new Map();
+    for (const [key, identities] of rawMainIdentities) if (identities.size === 1) {
+      const id = [...identities][0];
+      if (!resolvedMainAliases.has(id)) resolvedMainAliases.set(id, []);
+      resolvedMainAliases.get(id).push(key);
+    }
+    const compound = new Set(["horizontal-push", "vertical-push", "horizontal-pull", "vertical-pull", "squat", "hinge", "lunge"]);
+    const priorByGroup = new Map(), coverageByGroup = new Map();
+    const formatPoint = value => !value || value.reps === null ? "반복 미확인" : `${value.loadKg === null ? "부하 미확인" : value.loadKg + "kg"} × ${value.reps}회`;
+    const rows = selected.exercises.map((ex, index) => {
+      const exerciseKey = ex.exerciseId ? "exercise:" + ex.exerciseId : "raw:" + normalize(ex.rawName), rawKey = "raw:" + normalize(ex.rawName);
+      const mainKeys = [...new Set([exerciseKey, rawKey, ...(resolvedMainAliases.get(ex.exerciseId) || [])])].filter(key => mains.has(key)).sort((a, b) => mains.get(a) - mains.get(b));
+      const mainKey = mainKeys[0] || null, resolved = byId.get(ex.exerciseId);
+      const focus = resolved?.primaryMuscles.filter(id => priorityMuscles.has(id)) || [];
+      const priorityKind = mainKey ? "main" : focus.length ? "focus" : compound.has(resolved?.pattern) ? "suggested" : "other";
+      const priorityReason = mainKey ? "사용자가 메인 운동으로 지정한 순서예요. 실제 수행 순서나 성장 우열은 바꾸지 않아요."
+        : focus.length ? `설정한 우선 부위 ${focus.map(id => muscleLabels[id]).join("·")}에 직접 해당하는 운동을 먼저 표시했어요. 실제 자극 기여율을 측정한 것은 아니에요.`
+          : priorityKind === "suggested" ? "확인된 복합 동작을 먼저 표시하는 화면 배치 기준이에요. 개인의 최적 운동 순서가 아니에요." : "메인·우선 부위·복합 동작 기준에 해당하지 않아 일지 순서를 유지했어요.";
+      let progression = null;
+      if (ex.sets.length) {
+        const descriptor = descriptors.get(ex), key = descriptor.conditionKey;
+        if (!priorByGroup.has(key)) {
+          const priorSessions = new Map();
+          for (const occurrence of groups.get(key) || []) if (occurrence.sessionId !== selected.id) priorSessions.set(occurrence.sessionId, occurrence);
+          priorByGroup.set(key, [...priorSessions.values()].slice(-2).map(point));
+        }
+        const prior = priorByGroup.get(key), current = point({ ...ex, sessionId: selected.id, date: selected.date, time: selected.time || null, sourceKind: selected.sourceKind }), previous = prior.at(-1) || null;
+        const judgment = ex.exerciseId === null ? { status: "incomparable", reason: "운동 이름 대응이 확인되지 않았어요. 원문 기록을 남기고 확인 후 비교해요." } : compare(current, previous);
+        if (!coverageByGroup.has(key)) coverageByGroup.set(key, historyCoverageFor(historyByExercise.get(descriptor.identity) || [], descriptor.equipmentKey, key));
+        const historyCoverage = coverageByGroup.get(key);
+        if (judgment.status === "insufficient" && historyCoverage.otherConditionGroupCount && historyCoverage.exerciseRecordCount > 1) {
+          judgment.reason = `같은 종목은 ${historyCoverage.exerciseDayCount}일·${historyCoverage.exerciseRecordCount}개 일지에 있지만, 이 장비·중량 표기·수행 순서 조건에서 세트가 있는 기록은 ${historyCoverage.conditionObservationRecordCount}회라 앞뒤 비교를 보류했어요. 다른 조건의 기록도 따로 보존했어요.`;
+        } else if (judgment.status === "insufficient" && historyCoverage.conditionRecordCount > historyCoverage.conditionObservationRecordCount) {
+          judgment.reason = `같은 조건의 일지는 ${historyCoverage.conditionRecordCount}회지만 원문 세트가 남아 있는 기록은 ${historyCoverage.conditionObservationRecordCount}회예요. 앞선 세트가 없어 비교를 보류했으며, 빈 운동 기록도 삭제하지 않았어요.`;
+        }
+        const recent = [...prior, current], repeatedDecline = recent.length === 3 && new Set(recent.map(row => row.date)).size === 3 && compare(recent[1], recent[0]).status === "declined" && compare(recent[2], recent[1]).status === "declined";
+        progression = { exerciseId: ex.exerciseId, label: ex.label, equipmentKey: current.equipmentKey, current, previous, ...judgment, historyCoverage, repeatedDecline,
+          observed: { current, previous, description: `${previous ? formatPoint(previous) + " → " : "현재 기록 "}${formatPoint(current)}. 표시된 세트의 관찰값이며 근성장률이 아니에요.` } };
+      }
+      return { key: JSON.stringify([selected.id, ex.id]), exerciseKey, mainKey, mainKeys, blockId: ex.id, diaryPosition: index + 1, label: ex.label, rawName: ex.rawName,
+        equipmentKey: ex.equipmentKey, loadConvention: ex.loadConvention, sets: ex.sets, priorityKind, priorityReason, progression };
+    });
+    if (order === "priority") {
+      const ranks = { main: 0, focus: 1, suggested: 2, other: 3 };
+      rows.sort((a, b) => ranks[a.priorityKind] - ranks[b.priorityKind] || (a.priorityKind === "main" ? mains.get(a.mainKey) - mains.get(b.mainKey) : 0) || a.diaryPosition - b.diaryPosition);
+    }
+    return JSON.parse(JSON.stringify({ session: selected, rows, order, windowStart, windowEnd, limitations }));
+  }
+
   function recommendProgram(profile, settings = {}, analysis = {}, preferences = {}) {
     settings = settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {};
     analysis = analysis && typeof analysis === "object" && !Array.isArray(analysis) ? analysis : {};
@@ -764,5 +857,5 @@
     return next;
   }
 
-  return Object.freeze({ VERSION, catalog, muscleLabels, movementFamilies, relatedExerciseIds, parseExerciseName, describeExercise, resolveExercise, previewMapping, sessionContext, startingReference, analyze, recommendProgram, createProgram, createAssignment, evaluateAssignment, adjustAssignment });
+  return Object.freeze({ VERSION, catalog, muscleLabels, movementFamilies, relatedExerciseIds, parseExerciseName, describeExercise, resolveExercise, previewMapping, sessionContext, startingReference, analyze, getReviewPreferences, reviewSession, recommendProgram, createProgram, createAssignment, evaluateAssignment, adjustAssignment });
 });

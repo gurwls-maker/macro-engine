@@ -2,6 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const N = require("../src/nutrition.js");
 const T = require("../src/training.js");
+const S = require("../src/storage.js");
+const TS = require("../src/training-store.js");
 const { buildCoach, buildFacts, summarizeTraining } = require("../src/coach.js");
 
 const profile = { sex: "male", age: 35, heightCm: 175, weightKg: 75, bodyFatPct: null, bodyFatWeightKg: null, bodyFatMethod: "unknown", bodyFatDate: null, trainingYears: 3, sport: "strength", goal: "maintain", activity: "light", healthContext: "general", proteinPreference: "standard" };
@@ -364,9 +366,13 @@ test("set-level training observes incomparable raw progression without changing 
   const before = JSON.stringify({ profile, d, trainingAnalysis });
   const result = buildCoach(profile, d, [], { trainingAnalysis, training: { settings: { daysPerWeek: 3, sessionMinutes: 45 } } });
   assert.equal(result.priorities[0].id, "training-progression");
-  assert.match(result.priorities[0].body, /50kg × 10회.*50kg × 12회/);
-  assert.match(result.priorities[0].body, /노력 수준이 미확인/);
-  assert.match(result.priorities[0].body, /근육 증가량을 뜻하지/);
+  assert.match(result.priorities[0].title, /최근 운동 전체 관찰/);
+  assert.match(result.priorities[0].body, /한 종목을 전체 운동의 향상이나 저하로 대신하지/);
+  assert.match(result.priorities[0].body, /근육 증가량이나 다음 목표 중량을 뜻하지/);
+  assert.doesNotMatch(result.priorities[0].body, /50kg|50kg × 12회/);
+  const progression = result.context.training.progression[0];
+  assert.equal(progression.current.reps, 12); assert.equal(progression.previous.reps, 10);
+  assert.equal(progression.status, "incomparable"); assert.match(progression.reason, /노력 수준이 미확인/);
   assert.equal(result.context.targetKcal, N.calculatePlan(profile, d).energy.targetKcal);
   assert.equal(result.context.training.coverage.unknownDays, 26);
   assert.equal(JSON.stringify({ profile, d, trainingAnalysis }), before);
@@ -515,7 +521,7 @@ test("direct coach calls use the selected day's paired measurements without rewr
   assert.equal(buildCoach(p, saved).context.targetKcal, saved.planSnapshot.energy.targetKcal);
 });
 
-test("latest-session coaching follows actual analyzed session IDs, not the first historical exercise group", () => {
+test("whole-session coaching follows actual analyzed session IDs without choosing a historical exercise as its representative", () => {
   const records = [workout("old-pullup", "2026-09-09", "이전 풀업", "pullup", 15),
     workout("prior-press", "2026-09-24", "벤치 프레스", "bench_press", 50),
     workout("latest-press", "2026-10-04", "벤치 프레스", "bench_press", 55)];
@@ -524,23 +530,32 @@ test("latest-session coaching follows actual analyzed session IDs, not the first
   assert.equal(analysis.progression[0].current.sessionId, "old-pullup", "fixture reproduces chronological group insertion");
   const result = trainingCoach(analysis), selected = result.priorities.find(row => row.id === "training-progression");
   assert.equal(result.context.training.lastSession.id, "latest-press");
-  assert.equal(selected.evidence.current.sessionId, "latest-press"); assert.equal(selected.evidence.previous.sessionId, "prior-press");
+  assert.equal(selected.evidence.scope, "whole-session"); assert.equal(selected.evidence.latestSessionId, "latest-press");
+  assert.equal(selected.evidence.current, null); assert.equal(selected.evidence.previous, null);
+  assert.equal(selected.evidence.exerciseCount, 1); assert.equal(selected.evidence.workingSets, 1); assert.equal(selected.evidence.unknownEffortSets, 1);
   assert.equal(selected.action, "training-open"); assert.equal(selected.actionRecordId, "latest-press");
-  assert.equal(selected.actionLabel, "2026-10-04 일지 보기"); assert.match(selected.title, /2026-10-04.*벤치/);
+  assert.equal(selected.actionLabel, "2026-10-04 일지 보기"); assert.equal(selected.title, "2026-10-04 최근 운동 전체 관찰");
   assert.doesNotMatch(selected.title + selected.body, /이전 풀업|2026-09-09|최근 대표 세트/);
-  assert.match(selected.body, /2026-09-24.*50kg × 10회.*2026-10-04.*55kg × 10회/);
-  assert.match(selected.body, /RIR이 비어 있거나 달라/); assert.match(selected.body, /표시 중량이 가장 큰 세트/);
+  assert.match(selected.body, /운동 블록 1개.*일반 1세트.*RIR 미확인 1세트/);
+  assert.doesNotMatch(selected.body, /50kg|55kg|2026-09-24/);
+  const raw = result.context.training.progression.find(row => row.current?.sessionId === "latest-press");
+  assert.equal(raw.current.loadKg, 55); assert.equal(raw.previous.loadKg, 50); assert.equal(raw.previous.sessionId, "prior-press");
+  assert.match(raw.reason, /RIR이 비어 있거나 달라/);
+  assert.ok(buildFacts(result, day).some(row => row.id.startsWith("progression.") && row.value === 55));
   const question = result.questions.find(row => row.id === "training-log");
   assert.equal(question.actionRecordId, "latest-press"); assert.match(question.answer, /2026-10-04/);
   assert.equal(JSON.stringify(records), input);
 });
 
-test("latest-session candidates with prior numeric observations precede unpaired latest movements", () => {
+test("a whole-session summary does not rank individual movements by prior observation availability or historical group order", () => {
   const current = trainingPoint("latest", "2026-10-04"), previous = trainingPoint("prior", "2026-09-24");
   const analysis = latestTraining([progressionRow("처음 기록한 운동", current), progressionRow("비교할 숫자가 있는 프레스", current, previous)]);
   const input = JSON.stringify(analysis), result = trainingCoach(analysis), selected = result.priorities.find(row => row.id === "training-progression");
-  assert.match(selected.title, /비교할 숫자가 있는 프레스.*비교/); assert.equal(selected.evidence.previous.sessionId, "prior");
-  assert.equal(selected.evidence.selection, "latest-session-id"); assert.equal(selected.evidence.current.blockId, "latest-block");
+  assert.equal(selected.title, "2026-10-04 최근 운동 전체 관찰"); assert.equal(selected.evidence.previous, null);
+  assert.equal(selected.evidence.selection, "latest-session-id"); assert.equal(selected.evidence.current, null);
+  assert.doesNotMatch(selected.title + selected.body, /비교할 숫자가 있는 프레스|처음 기록한 운동|50kg/);
+  const reordered = trainingCoach(latestTraining([...analysis.progression].reverse())).priorities.find(row => row.id === "training-progression");
+  assert.deepEqual(reordered, selected, "a top-level summary must not depend on an arbitrary individual group order");
   assert.equal(JSON.stringify(analysis), input);
 });
 
@@ -548,9 +563,11 @@ test("a latest unpaired observation does not borrow a stronger comparison from a
   const older = progressionRow("오래된 풀업", trainingPoint("old", "2026-09-09", { loadKg: 99 }), trainingPoint("older", "2026-09-08"));
   const latest = progressionRow("새 운동", trainingPoint("latest", "2026-10-04", { loadKg: 25, reps: 12 }));
   const result = trainingCoach(latestTraining([older, latest])), selected = result.priorities.find(row => row.id === "training-progression");
-  assert.equal(selected.evidence.current.sessionId, "latest"); assert.equal(selected.evidence.previous, null);
-  assert.match(selected.title, /2026-10-04.*새 운동.*확인/); assert.match(selected.body, /25kg × 12회/);
-  assert.match(selected.body, /관찰값만 확인.*수행 변화는 비교하지/); assert.match(selected.body, /앞선 숫자 기록이 더 필요/);
+  assert.equal(selected.evidence.latestSessionId, "latest"); assert.equal(selected.evidence.previous, null);
+  assert.equal(selected.title, "2026-10-04 최근 운동 전체 관찰");
+  assert.match(selected.body, /한 종목을 전체 운동의 향상이나 저하로 대신하지/);
+  const preserved = result.context.training.progression.find(row => row.current?.sessionId === "latest");
+  assert.equal(preserved.current.loadKg, 25); assert.equal(preserved.current.reps, 12); assert.equal(preserved.previous, null);
   assert.doesNotMatch(selected.body, /→/);
   assert.doesNotMatch(selected.body, /오래된 풀업|99kg|2026-09-09/);
 });
@@ -562,9 +579,13 @@ test("same-day sessions require the latest exact ID and never substitute another
   const result = trainingCoach(latestTraining([progressionRow("오전 프레스", morning, prior), progressionRow("저녁 프레스", evening, morning,
     { reason: "같은 날의 두 세션은 장기 수행 변화로 판정하지 않아요." })]));
   const selected = result.priorities.find(row => row.id === "training-progression");
-  assert.equal(selected.actionRecordId, "latest"); assert.equal(selected.evidence.current.time, "20:00");
-  assert.equal(selected.evidence.current.rir, null); assert.equal(selected.evidence.previous.sessionId, "morning");
-  assert.match(selected.body, /42.5kg × 13회/); assert.match(selected.body, /같은 날의 두 세션/);
+  assert.equal(selected.actionRecordId, "latest"); assert.equal(selected.evidence.latestSessionId, "latest");
+  assert.equal(selected.evidence.current, null); assert.equal(selected.evidence.previous, null);
+  assert.match(selected.body, /2026-10-04 20:00 최신 실제 일지/);
+  assert.doesNotMatch(selected.body, /42.5kg|30kg|08:00/);
+  const preserved = result.context.training.progression.find(row => row.current?.sessionId === "latest");
+  assert.equal(preserved.current.rir, null); assert.equal(preserved.current.loadKg, 42.5); assert.equal(preserved.current.reps, 13);
+  assert.equal(preserved.previous.sessionId, "morning"); assert.match(preserved.reason, /같은 날의 두 세션/);
   for (const point of [morning, { ...evening, sessionId: null }]) {
     const rejected = trainingCoach(latestTraining([progressionRow("다른 세션", point, prior)]));
     assert.ok(!rejected.questions.some(row => row.id === "training-progression"));
@@ -578,7 +599,7 @@ test("latest sessions without known load or reps summarize that session instead 
   for (const progression of [[older], [older, unknown]]) {
     const result = trainingCoach(latestTraining(progression)), summary = result.priorities.find(row => row.id === "training-log");
     assert.ok(!result.questions.some(row => row.id === "training-progression"));
-    assert.match(summary.title, /2026-10-04.*최신 실제 일지/); assert.match(summary.body, /숫자를 대신 보여주지 않았/);
+    assert.equal(summary.title, "2026-10-04 최근 운동 전체 관찰"); assert.match(summary.body, /최신 실제 일지.*숫자를 대신 보여주지 않았/);
     assert.equal(summary.actionRecordId, "latest"); assert.equal(summary.actionLabel, "2026-10-04 일지 보기");
     assert.equal(summary.evidence.current, null); assert.doesNotMatch(summary.body, /50kg|2026-09-24/);
   }
@@ -598,14 +619,17 @@ test("normalization rejects invalid and future points and retains exact IDs for 
   assert.equal(normalized.lastSession.id, "latest"); assert.equal(normalized.progression[0].observed.current.sessionId, "latest");
 });
 
-test("latest current fallback keeps its own prior instead of pairing it with an unrelated observed point", () => {
+test("whole-session fallback never pairs a current record with an unrelated observed point", () => {
   const current = trainingPoint("latest", "2026-10-04", { loadKg: 55 }), previous = trainingPoint("prior", "2026-09-24");
   const unrelated = trainingPoint("old", "2026-09-09", { loadKg: 999 });
   const result = trainingCoach(latestTraining([progressionRow("최신 프레스", current, previous,
     { observed: { current: unrelated, previous: unrelated, description: "다른 세션 원문" } })]));
   const selected = result.priorities.find(row => row.id === "training-progression");
-  assert.equal(selected.evidence.pointSource, "current"); assert.equal(selected.evidence.previous.sessionId, "prior");
-  assert.match(selected.body, /50kg.*55kg/); assert.doesNotMatch(selected.body, /999kg/);
+  assert.equal(selected.evidence.current, null); assert.equal(selected.evidence.previous, null);
+  assert.doesNotMatch(selected.body, /50kg|55kg|999kg/);
+  const preserved = result.context.training.progression[0];
+  assert.equal(preserved.current.loadKg, 55); assert.equal(preserved.previous.sessionId, "prior");
+  assert.equal(preserved.observed.current.loadKg, 999);
 });
 
 test("rejected prior provenance cannot leave an improvement claim attached to a lone current observation", () => {
@@ -613,7 +637,7 @@ test("rejected prior provenance cannot leave an improvement claim attached to a 
   const result = trainingCoach(latestTraining([progressionRow("최신 프레스", current, future,
     { status: "improved", reason: "반복 수가 늘었어요." })]));
   const selected = result.priorities.find(row => row.id === "training-progression");
-  assert.equal(selected.evidence.previous, null); assert.match(selected.body, /수행 변화 판정은 보류/);
+  assert.equal(selected.evidence.previous, null); assert.match(selected.body, /한 종목을 전체 운동의 향상이나 저하로 대신하지/);
   assert.doesNotMatch(selected.body, /반복 수가 늘었어요/);
   assert.equal(result.context.training.progression[0].status, "improved", "source judgment remains intact; display must not use it after rejecting its prior evidence");
 });
@@ -632,7 +656,8 @@ test("the bounded coach summary does not truncate a latest session behind many o
   const latest = progressionRow("최신 마지막 운동", trainingPoint("latest", "2026-10-04"));
   const result = trainingCoach(latestTraining([...older, latest]));
   assert.equal(result.context.training.progression.length, 100);
-  assert.match(result.priorities.find(row => row.id === "training-progression").title, /최신 마지막 운동/);
+  assert.equal(result.priorities.find(row => row.id === "training-progression").title, "2026-10-04 최근 운동 전체 관찰");
+  assert.ok(result.context.training.progression.some(row => row.current?.sessionId === "latest"));
 });
 
 test("latest session selection remains retrospective at historical dates and names nutrition input actions precisely", () => {
@@ -645,4 +670,69 @@ test("latest session selection remains retrospective at historical dates and nam
   const planned = buildCoach(profile, { ...day, coachCheckin: { trainingPlan: "planned" } });
   assert.equal(planned.questions.find(row => row.id === "training").actionLabel, "운동 시간 기록");
   assert.equal(planned.questions.find(row => row.id === "composition").actionLabel, "체중·체성분 기록");
+});
+
+test("a complete A-B-A multi-machine session remains a whole-session summary with distinct raw progression facts", () => {
+  const latest = workout("whole-session", "2026-10-04", "합성 전체 세션", "bench_press", 80, { time: "19:30" });
+  const first = latest.exercises[0];
+  first.equipmentKey = "합성 장비 A";
+  first.sets.push({ id: "warmup", marker: "W", loadKg: 20, reps: 10, rir: null },
+    { id: "marked", marker: "D", loadKg: 60, reps: 12, rir: 2 });
+  latest.exercises.push({ ...first, id: "middle-B", rawName: "합성 두 번째 장비 프레스", equipmentKey: "합성 장비 B",
+    sets: [{ id: "middle-set", marker: null, loadKg: 45, reps: 12, rir: 2 }] },
+  { ...first, id: "return-A", rawName: "합성 다시 장비 A", sets: [{ id: "return-set", marker: null, loadKg: 65, reps: 8, rir: null }] });
+  const input = JSON.stringify(latest), analysis = T.analyze([latest], { date: day.date }), result = trainingCoach(analysis);
+  const priority = result.priorities.find(row => row.id === "training-progression");
+  assert.equal(priority.evidence.scope, "whole-session"); assert.equal(priority.evidence.exerciseCount, 3);
+  assert.equal(priority.evidence.workingSets, 3); assert.equal(priority.evidence.warmupSets, 1);
+  assert.equal(priority.evidence.markedSets, 1); assert.equal(priority.evidence.unknownEffortSets, 1);
+  assert.match(priority.body, /2026-10-04 19:30 합성 전체 세션/);
+  assert.match(priority.body, /운동 블록 3개.*일반 3세트.*준비 1세트.*별도 표시 1세트.*RIR 미확인 1세트/);
+  assert.doesNotMatch(priority.body, /80kg|45kg|65kg|향상됐|저하됐|합성 장비 A|합성 장비 B/);
+  const rows = result.context.training.progression.filter(row => row.current?.sessionId === latest.id);
+  assert.deepEqual(new Set(rows.map(row => row.current.blockId)), new Set([first.id, "middle-B", "return-A"]));
+  for (const value of [80, 45, 65]) assert.ok(buildFacts(result, day).some(row => row.id.startsWith("progression.") && row.value === value));
+  assert.equal(result.questions.find(row => row.id === "training-progression").actionRecordId, latest.id);
+  assert.equal(JSON.stringify(latest), input);
+});
+
+test("whole-session counts preserve unknowns and bound malformed external exercise summaries", () => {
+  const point = trainingPoint("latest", "2026-10-04"), progression = [progressionRow("숫자 운동", point)];
+  for (const exercises of [undefined, null, [null], ["bad"], Array.from({ length: 201 }, () => ({}))]) {
+    const result = trainingCoach(latestTraining(progression, { exercises, workingSets: null, warmupSets: null, markedSets: null, unknownEffortSets: null }));
+    const summary = result.priorities.find(row => row.id === "training-progression");
+    assert.equal(summary.evidence.exerciseCount, null); assert.equal(summary.evidence.workingSets, null);
+    assert.match(summary.body, /운동 블록 수 미확인.*일반 세트 수 미확인/);
+    assert.doesNotMatch(summary.body, /운동 블록 0개|일반 0세트|준비 0세트|별도 표시 0세트|RIR 미확인 0세트/);
+  }
+  const empty = trainingCoach(latestTraining([], { exercises: [], workingSets: 0, warmupSets: 0, markedSets: 0, unknownEffortSets: 0 }));
+  assert.equal(empty.priorities.find(row => row.id === "training-log").evidence.exerciseCount, 0, "a confirmed empty manual session is known, not missing");
+});
+
+test("a legacy aggregate cannot become zero performed exercises or a single older representative", () => {
+  const older = progressionRow("옛 운동", trainingPoint("older", "2026-09-24", { loadKg: 999 }));
+  const result = trainingCoach(latestTraining([older], { sourceKind: "legacy-ocr", totalSets: 0, workingSets: 0,
+    warmupSets: 0, markedSets: 0, unknownEffortSets: 0, exercises: [] }));
+  const summary = result.priorities.find(row => row.id === "training-log");
+  assert.equal(summary.evidence.exerciseCount, null); assert.equal(summary.evidence.workingSets, null);
+  assert.equal(summary.evidence.unknownEffortSets, null); assert.equal(summary.actionRecordId, "latest");
+  assert.match(summary.body, /운동 블록 수 미확인.*이전 OCR.*새로 검증한 기록이 아니/);
+  assert.doesNotMatch(summary.body, /옛 운동|999kg|2026-09-24|운동 블록 0개|일반 0세트/);
+  assert.ok(!result.questions.some(row => row.id === "training-progression"));
+});
+
+test("profileless training scope retains whole-session observation while pain safety stays first", () => {
+  const latest = workout("profileless", "2026-10-04", "프로필 없는 실제 기록", "bench_press", 40);
+  const state = S.createEmpty(); state.trackingScope = "training"; state.training = TS.createEmpty(); state.training.records = [latest];
+  const before = JSON.stringify(state), selectedDay = { ...day, meals: [] };
+  const analysis = T.analyze(state.training.records, { date: selectedDay.date });
+  const ordinary = buildCoach(null, selectedDay, [], { state, training: state.training, trainingAnalysis: analysis });
+  assert.equal(ordinary.status, "tracking"); assert.equal(ordinary.context.targetKcal, undefined);
+  assert.equal(ordinary.priorities.find(row => row.id === "training-progression").evidence.exerciseCount, 1);
+  assert.equal(ordinary.questions.find(row => row.id === "training-progression").actionRecordId, latest.id);
+  const painAnalysis = T.analyze([{ ...latest, pain: "stop" }], { date: selectedDay.date });
+  const pain = buildCoach(null, selectedDay, [], { state, training: state.training, trainingAnalysis: painAnalysis });
+  assert.equal(pain.priorities[0].kind, "safety"); assert.match(pain.priorities[0].body, /통증/);
+  assert.ok(pain.priorities.some(row => row.id === "training-progression"));
+  assert.equal(pain.context.targetKcal, undefined); assert.equal(JSON.stringify(state), before);
 });
