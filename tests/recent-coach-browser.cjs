@@ -103,7 +103,9 @@ async function assertPriority(page, expected, hasNumbers) {
   assert.match(text, new RegExp(expected.label));
   if (hasNumbers) {
     assert.match(text, /전체|운동 블록/);
-    assert.doesNotMatch(text, /42\.5kg|40kg|90kg|99kg|풀 업|풀업/, 'a whole-session summary must not choose an arbitrary exercise or old progression as the representative');
+    assert.match(text, new RegExp(expected.exercises[0].rawName), 'a movement-specific next action names its actual movement rather than claiming to represent every exercise');
+    assert.match(text, /42\.5kg/);
+    assert.doesNotMatch(text, /90kg|99kg|풀 업|풀업/, 'a whole-session summary cannot substitute an unrelated earlier, same-day or future record');
   }
 }
 async function latestObservation(page, expected) {
@@ -139,7 +141,10 @@ async function latestObservation(page, expected) {
           assert.doesNotMatch(answerText, /99kg/, 'future observations cannot be used before their date');
           if (hasNumbers) {
             assert.match(answerText, new RegExp(data.latest.label));
-            assert.doesNotMatch(answerText, /42\.5kg|40kg|90kg/, 'the question answer summarizes the whole session rather than one representative set');
+            assert.match(answerText, /운동 블록|전체|1종목/);
+            assert.match(answerText, new RegExp(data.latest.exercises[0].rawName), 'the actionable comparison identifies the specific movement inside its session');
+            assert.match(answerText, /42\.5kg/);
+            assert.doesNotMatch(answerText, /90kg|풀 업|풀업/, 'the question cannot substitute an unrelated old movement or same-day session');
             const observation = await latestObservation(page, data.latest);
             assert.ok(observation, 'latest numeric observations remain available for individual review');
             assert.equal(observation.current.loadKg, 42.5); assert.equal(observation.current.reps, 13); assert.equal(observation.current.rir, null);
@@ -190,6 +195,6 @@ async function latestObservation(page, expected) {
         } finally { await context.close(); }
       }
     }
-    console.log('Recent coach browser: latest whole-session summary without arbitrary representative sets, exact-ID card/question/sidebar links, stale selection and search reset, historical cutoffs, same-day sessions, retained unknown-RIR observations and summary/numeric-unknown no-old-comparison fallback at 320/390/1280px passed. State unchanged; no AI or private data.');
+    console.log('Recent coach browser: latest whole-session summary with explicitly named movement actions, exact-ID card/question/sidebar links, stale selection and search reset, historical cutoffs, same-day sessions, retained unknown-RIR observations and summary/numeric-unknown no-old-comparison fallback at 320/390/1280px passed. State unchanged; no AI or private data.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

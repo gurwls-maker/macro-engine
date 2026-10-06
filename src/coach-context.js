@@ -140,7 +140,8 @@
       setsWithKnownLoad: sets.filter(set => finite(set.loadKg)).length, setsWithUnknownLoad: sets.filter(set => !finite(set.loadKg)).length,
       setsWithKnownReps: sets.filter(set => finite(set.reps)).length, setsWithUnknownReps: sets.filter(set => !finite(set.reps)).length },
       actualRecordIds: weekAnalysis.sessions.map(row => row.id), lastSession: weekAnalysis.lastSession
-        ? { id: weekAnalysis.lastSession.id, date: weekAnalysis.lastSession.date, label: weekAnalysis.lastSession.label } : null,
+        ? { id: weekAnalysis.lastSession.id, date: weekAnalysis.lastSession.date, label: weekAnalysis.lastSession.label,
+          ...(weekAnalysis.lastSession.trainingIntent ? { trainingIntent: weekAnalysis.lastSession.trainingIntent } : {}) } : null,
       todayPlans: planRows, todayPlanCount: todayPlans.length, todayPlansSampled: todayPlans.length > 6,
       hasUnlinkedTodayPlan: todayPlans.some(row => row.status === "planned"),
       recovery: copy(trainingAnalysis.recovery), recoveryWindow: { from: trainingAnalysis.windowStart, to: date },
@@ -176,7 +177,7 @@
     if (scope.nutritionEnabled && currentStatus === "partial") ask("meal-coverage", "현재 일부 식사만으로 하루 섭취를 평가하지 않습니다.", "이 기록은 오늘 먹은 전부인가요, 일부인가요? 다음 식사를 정할 때 필요한 내용만 남겨 주세요.", "meal-add");
     if (scope.trainingEnabled && training.hasUnlinkedTodayPlan) ask("plan-actual", "예정 운동과 실제 수행은 다릅니다.", "예정 운동 중 실제로 한 부분이 있나요? 일부만 했다면 실제 일지를 연결하고 남은 계획은 따로 결정해 주세요.", "nav-training");
     if (scope.trainingEnabled && /수행|부진|저하|중량|반복|비교|디로드/.test(question) && training.coverage.unknownEffortSets > 0)
-      ask("comparison-conditions", "기록 RIR이 비어 있어 같은 노력 수준을 확인하지 못했습니다.", "장비·순서·휴식·반복 여유 중 이전과 달라진 조건이 있었나요? 아는 조건 하나만 알려줘도 판단에 도움이 됩니다.", "nav-training");
+      ask("comparison-conditions", "기록값의 변화는 볼 수 있고, 세트 느낌을 남기면 다음 시도를 더 세밀하게 맞출 수 있어요.", "다음 운동은 같은 장비의 최근 수행에서 이어가 보세요. 더 맞추고 싶다면 마지막 일반 세트가 여유로웠는지, 힘들었는지만 선택해서 남길 수 있어요.", "nav-training");
     if (scope.trainingEnabled && !observed.training) ask("training-coverage", "최근 운동 기록 공백은 휴식이나 실패의 증거가 아닙니다.", "최근 실제로 운동했나요? 했으면 지난 일지 재사용이나 사진 보관으로 남기고, 쉬었다면 복귀 계획을 따로 정할 수 있습니다.", "nav-training");
     if (scope.nutritionEnabled && !observed.nutrition) ask("nutrition-coverage", "식사를 기록하지 않았다는 것과 먹지 않았다는 것은 다릅니다.", "식사도 함께 볼까요? 원하면 자주 먹는 식사나 실제 먹은 한 끼부터 남길 수 있습니다.", "meal-add");
     if (scope.effective === "none") ask("record-scope", "아직 활용할 식사·운동 기록이 없습니다.", "식사, 운동 또는 둘 다 중 먼저 관리할 범위를 고르고 평소 방식의 기록부터 시작할 수 있습니다.", "tracking-scope");

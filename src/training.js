@@ -303,7 +303,8 @@
     }
     const result = { records: [...independent], duplicateRecords: 0, conflictedRecords: 0 };
     for (const rows of groups.values()) {
-      const interpretations = new Set(rows.map(row => JSON.stringify([row.pain || null, row.effort ?? null, row.sequence || { order: "unknown", structure: "unknown" }, row.exercises.map(raw => [raw?.exerciseId || null, raw?.equipmentKey || null, raw?.loadConvention, raw?.loadRole || "unknown", raw?.groupKey || null])])));
+      const interpretations = new Set(rows.map(row => JSON.stringify([row.pain || null, row.effort ?? null, row.sequence || { order: "unknown", structure: "unknown" }, row.trainingIntent || null, row.exercises.map(raw => [raw?.exerciseId || null, raw?.equipmentKey || null, raw?.loadConvention, raw?.loadRole || "unknown", raw?.groupKey || null,
+        raw?.feedback ? [(raw.sets || []).findIndex(set => set.id === raw.feedback.setId), raw.feedback.feeling, raw.feedback.loadKg, raw.feedback.reps] : null])])));
       if (interpretations.size > 1) result.conflictedRecords += rows.length;
       else { result.records.push(rows[0]); result.duplicateRecords += rows.length - 1; }
     }
@@ -449,11 +450,12 @@
     if (!candidates.length) candidates.push(...occurrence.sets.filter(set => set.marker?.toUpperCase() !== "W" && Number.isInteger(set.reps) && set.reps > 0));
     candidates.sort((a, b) => (b.loadKg ?? -1) - (a.loadKg ?? -1) || b.reps - a.reps);
     const set = candidates[0];
-    return { sessionId: occurrence.sessionId, blockId: occurrence.id, date: occurrence.date, time: occurrence.time, rawName: occurrence.rawName, loadKg: set?.loadKg ?? null, reps: set?.reps ?? null, marker: set?.marker ?? null, rir: finite(set?.rir) ? set.rir : null, setCount: workingCount, equipmentKey: occurrence.equipmentKey, equipmentSource: occurrence.equipmentSource, loadConvention: occurrence.loadConvention, loadConventionSource: occurrence.loadConventionSource, ruleConflict: occurrence.ruleConflict, loadRole: occurrence.loadRole, context: occurrence.context || null, sourceKind: occurrence.sourceKind, basis: "highest-recorded-load-then-reps" };
+    return { sessionId: occurrence.sessionId, blockId: occurrence.id, date: occurrence.date, time: occurrence.time, rawName: occurrence.rawName, loadKg: set?.loadKg ?? null, reps: set?.reps ?? null, marker: set?.marker ?? null, rir: finite(set?.rir) ? set.rir : null, setCount: workingCount, equipmentKey: occurrence.equipmentKey, equipmentSource: occurrence.equipmentSource, loadConvention: occurrence.loadConvention, loadConventionSource: occurrence.loadConventionSource, ruleConflict: occurrence.ruleConflict, loadRole: occurrence.loadRole, context: occurrence.context || null, sourceKind: occurrence.sourceKind, trainingIntent: occurrence.trainingIntent || null, basis: "highest-recorded-load-then-reps" };
   }
 
   function compare(current, previous) {
     if (!previous) return { status: "insufficient", reason: "이 운동의 앞선 기록이 더 필요해요. 현재 세트는 관찰값으로 남겼어요." };
+    if ([current, previous].some(row => row?.trainingIntent && row.trainingIntent !== "regular")) return { status: "incomparable", reason: "디로드·연습·복귀 등 별도 목적의 운동이에요. 의도한 부담 조절을 평소 수행 저하로 평가하지 않아요." };
     if (!current || !finite(current.reps) || !finite(previous.reps)) return { status: "incomparable", reason: "일반 세트의 반복 수가 확인되지 않아 수행 비교를 보류했어요." };
     if (current.marker !== null || previous.marker !== null) return { status: "incomparable", reason: "별도 문자가 표시된 세트라 일반 세트와 같은 조건으로 비교하지 않았어요. 표시와 숫자는 그대로 보존했어요." };
     if (current.date === previous.date) return { status: "incomparable", reason: "같은 날의 두 세션은 서로 보존했어요. 세션 순서·당일 피로 영향 때문에 장기 수행 변화로 판정하지 않아요." };
@@ -521,7 +523,7 @@
     const dateCounts = new Map();
     for (const row of uniqueSources.records) dateCounts.set(row.date, (dateCounts.get(row.date) || 0) + 1);
     for (const row of uniqueSources.records.sort((a, b) => a.date.localeCompare(b.date) || text(a.time).localeCompare(text(b.time)) || a.id.localeCompare(b.id))) {
-      const summary = { id: row.id, date: row.date, time: row.time || null, label: text(row.label), durationMinutes: finite(row.durationMinutes) ? row.durationMinutes : null, pain: row.pain || null, effort: finite(row.effort) ? row.effort : null, sourceKind: row.source?.kind || "unknown", totalSets: 0, workingSets: 0, warmupSets: 0, markedSets: 0, unknownEffortSets: 0, unresolvedExercises: 0, exercises: [] };
+      const summary = { id: row.id, date: row.date, time: row.time || null, label: text(row.label), durationMinutes: finite(row.durationMinutes) ? row.durationMinutes : null, pain: row.pain || null, effort: finite(row.effort) ? row.effort : null, trainingIntent: row.trainingIntent || null, sourceKind: row.source?.kind || "unknown", totalSets: 0, workingSets: 0, warmupSets: 0, markedSets: 0, unknownEffortSets: 0, unresolvedExercises: 0, exercises: [] };
       const suppliedContext = options.sessionContexts?.[row.id];
       const context = suppliedContext?.recordId === row.id && Array.isArray(suppliedContext.blocks) && row.exercises.every(raw => suppliedContext.blocks.some(block => block.blockId === raw?.id)) ? suppliedContext : sessionContext(row, options.mappings);
       const sameDaySessions = options.sessionRecordCounts?.[row.date] ?? dateCounts.get(row.date) ?? 1;
@@ -556,6 +558,8 @@
             }
           }
         }
+        const feedbackSet = ex.sets.find(set => set.id === raw.feedback?.setId && set.marker === null && set.loadKg === raw.feedback.loadKg && set.reps === raw.feedback.reps);
+        if (feedbackSet && ["comfortable", "hard", "limit"].includes(raw.feedback.feeling)) ex.feedback = { ...raw.feedback };
         summary.exercises.push(ex);
         const identity = resolved?.id || `unresolved:${normalize(raw.rawName)}`;
         const equipmentGroupKey = JSON.stringify([identity, ex.equipmentKey || "unconfirmed:" + normalize(raw.rawName), ex.loadConvention, ex.variantKey, ex.loadRole]);
@@ -565,7 +569,7 @@
         historyByExercise.get(identity).push({ sessionId: summary.id, date: row.date, equipmentKey: equipmentGroupKey, conditionKey: key, hasRecordedSets: ex.sets.length > 0 });
         if (ex.sets.length) {
           if (!groups.has(key)) groups.set(key, []);
-          groups.get(key).push({ ...ex, sets: [...ex.sets], sessionId: summary.id, date: row.date, time: row.time || null, sourceKind: summary.sourceKind });
+          groups.get(key).push({ ...ex, sets: [...ex.sets], sessionId: summary.id, date: row.date, time: row.time || null, sourceKind: summary.sourceKind, trainingIntent: summary.trainingIntent });
         }
       }
       sessions.push(summary);
@@ -578,7 +582,8 @@
     const progression = [];
     const formatPoint = value => !value || value.reps === null ? "반복 미확인" : `${value.loadKg === null ? "부하 미확인" : value.loadKg + "kg"} × ${value.reps}회`;
     for (const [key, occurrences] of groups) {
-      const recent = occurrences.slice(-3).map(point);
+      const latest = occurrences.at(-1), regular = !latest.trainingIntent || latest.trainingIntent === "regular";
+      const recent = (regular ? occurrences.filter(row => !row.trainingIntent || row.trainingIntent === "regular") : occurrences).slice(-3).map(point);
       const current = recent.at(-1), previous = recent.at(-2) || null;
       const judgment = occurrences.at(-1).exerciseId === null ? { status: "incomparable", reason: "운동 이름 대응이 확인되지 않았어요. 원문 기록을 남기고 확인 후 비교해요." } : compare(current, previous);
       const parts = JSON.parse(key), historyCoverage = historyCoverageFor(historyByExercise.get(parts[0]) || [], JSON.stringify(parts.slice(0, -1)), key);
@@ -654,7 +659,7 @@
         historyByExercise.get(identity).push({ sessionId: session.id, date: session.date, equipmentKey, conditionKey, hasRecordedSets: ex.sets.length > 0 });
         if (!ex.sets.length) continue;
         if (!groups.has(conditionKey)) groups.set(conditionKey, []);
-        groups.get(conditionKey).push({ ...ex, sessionId: session.id, date: session.date, time: session.time || null, sourceKind: session.sourceKind });
+        groups.get(conditionKey).push({ ...ex, sessionId: session.id, date: session.date, time: session.time || null, sourceKind: session.sourceKind, trainingIntent: session.trainingIntent });
       }
     }
     const priorityMuscles = new Set(Array.isArray(options.priorityMuscles) ? options.priorityMuscles : []);
@@ -682,10 +687,10 @@
         const descriptor = descriptors.get(ex), key = descriptor.conditionKey;
         if (!priorByGroup.has(key)) {
           const priorSessions = new Map();
-          for (const occurrence of groups.get(key) || []) if (occurrence.sessionId !== selected.id) priorSessions.set(occurrence.sessionId, occurrence);
+          for (const occurrence of groups.get(key) || []) if (occurrence.sessionId !== selected.id && (selected.trainingIntent && selected.trainingIntent !== "regular" || !occurrence.trainingIntent || occurrence.trainingIntent === "regular")) priorSessions.set(occurrence.sessionId, occurrence);
           priorByGroup.set(key, [...priorSessions.values()].slice(-2).map(point));
         }
-        const prior = priorByGroup.get(key), current = point({ ...ex, sessionId: selected.id, date: selected.date, time: selected.time || null, sourceKind: selected.sourceKind }), previous = prior.at(-1) || null;
+        const prior = priorByGroup.get(key), current = point({ ...ex, sessionId: selected.id, date: selected.date, time: selected.time || null, sourceKind: selected.sourceKind, trainingIntent: selected.trainingIntent }), previous = prior.at(-1) || null;
         const judgment = ex.exerciseId === null ? { status: "incomparable", reason: "운동 이름 대응이 확인되지 않았어요. 원문 기록을 남기고 확인 후 비교해요." } : compare(current, previous);
         if (!coverageByGroup.has(key)) coverageByGroup.set(key, historyCoverageFor(historyByExercise.get(descriptor.identity) || [], descriptor.equipmentKey, key));
         const historyCoverage = coverageByGroup.get(key);
@@ -706,6 +711,114 @@
       rows.sort((a, b) => ranks[a.priorityKind] - ranks[b.priorityKind] || (a.priorityKind === "main" ? mains.get(a.mainKey) - mains.get(b.mainKey) : 0) || a.diaryPosition - b.diaryPosition);
     }
     return JSON.parse(JSON.stringify({ session: selected, rows, order, windowStart, windowEnd, limitations }));
+  }
+
+  const intentLabels = Object.freeze({ regular: "평소 운동", deload: "디로드", light: "가벼운 운동", technique: "기술 연습", "time-limited": "시간이 부족한 운동", return: "복귀 운동", test: "수행 테스트" });
+
+  // Record coaching uses a broader history than the strict, effort-matched performance judgment.
+  function coachSession(analysis, options = {}) {
+    options = options && typeof options === "object" && !Array.isArray(options) ? options : {};
+    const review = reviewSession(analysis, options), session = review.session;
+    if (!session) return { ...review, sessionCoaching: null };
+    const intent = Object.hasOwn(intentLabels, session.trainingIntent) ? session.trainingIntent : "unknown";
+    const general = ex => ex.sets.filter(set => set.marker === null && Number.isInteger(set.reps) && set.reps > 0);
+    const key = ex => JSON.stringify([ex.exerciseId || "raw:" + normalize(ex.rawName), ex.equipmentKey || "raw:" + normalize(ex.rawName), ex.loadConvention, ex.variantKey, ex.loadRole]);
+    const format = set => set.loadKg === null ? `${set.reps}회` : `${set.loadKg}kg × ${set.reps}회`;
+    const median = values => { const sorted = values.slice().sort((a, b) => a - b); return sorted.length ? sorted[Math.floor(sorted.length / 2)] : null; };
+    const currentCounts = new Map(), histories = new Map();
+    for (const ex of session.exercises) currentCounts.set(key(ex), (currentCounts.get(key(ex)) || 0) + 1);
+    const sessions = (analysis.sessions || []).filter(row => row.date >= review.windowStart && row.date < session.date).slice().sort((a, b) => a.date.localeCompare(b.date) || text(a.time).localeCompare(text(b.time)) || a.id.localeCompare(b.id));
+    for (const old of sessions) for (const ex of old.exercises) {
+      const identity = key(ex);
+      if (!histories.has(identity)) histories.set(identity, []);
+      histories.get(identity).push({ session: old, ex });
+    }
+    const references = new Map();
+    for (const ex of session.exercises) {
+      const history = histories.get(key(ex)) || [];
+      const eligible = intent === "unknown" || intent === "regular" ? history.filter(row => !row.session.trainingIntent || row.session.trainingIntent === "regular") : history;
+      const latest = eligible.at(-1), sameDate = latest ? eligible.filter(row => row.session.date === latest.session.date) : [];
+      references.set(ex.id, currentCounts.get(key(ex)) === 1 && sameDate.length === 1 ? latest : null);
+    }
+    let eligibleReductions = 0;
+    const reduced = [];
+    for (const ex of session.exercises) {
+      const reference = references.get(ex.id), currentSets = general(ex), previousSets = reference ? general(reference.ex) : [];
+      const knownLoadedMovement = ["barbell", "dumbbell", "machine", "cable", "band"].includes(byId.get(ex.exerciseId)?.equipment) && !["pull_up", "chin_up", "dip", "assisted_pull_up", "assisted_dip"].includes(ex.exerciseId);
+      if (!reference || !currentSets.length || !previousSets.length || ex.ruleConflict) continue;
+      if (ex.sets.some(set => set.marker === null && set.reps === null) || reference.ex.sets.some(set => set.marker === null && set.reps === null)) continue;
+      eligibleReductions++;
+      const currentLoads = currentSets.filter(set => finite(set.loadKg) && set.loadKg > 0).map(set => set.loadKg), previousLoads = previousSets.filter(set => finite(set.loadKg) && set.loadKg > 0).map(set => set.loadKg);
+      const loadRatio = (ex.loadRole === "external" || ex.loadRole === "unknown" && knownLoadedMovement) && currentLoads.length === currentSets.length && previousLoads.length === previousSets.length ? median(currentLoads) / median(previousLoads) : null;
+      const setRatio = currentSets.length / previousSets.length, repRatio = currentSets.reduce((sum, set) => sum + set.reps, 0) / previousSets.reduce((sum, set) => sum + set.reps, 0);
+      if (loadRatio !== null && loadRatio <= 0.7 || setRatio <= 0.6 || loadRatio !== null && loadRatio <= 1 && repRatio <= 0.65) reduced.push({ blockId: ex.id, loadRatio, setRatio, referenceDate: reference.session.date });
+    }
+    const broadReduction = reduced.length >= 2 && reduced.length >= Math.ceil(eligibleReductions * 2 / 3);
+    const profile = options.profile || {}, clinical = profile.healthContext && profile.healthContext !== "general" || finite(profile.age) && (profile.age < 18 || profile.age > 80);
+    const unsafe = session.pain === "stop" || session.pain === "mild" || ["stop", "review"].includes(analysis.recovery?.status) || clinical;
+    for (const row of review.rows) {
+      const ex = session.exercises.find(value => value.id === row.blockId), sets = general(ex), reference = references.get(ex.id), previousSets = reference ? general(reference.ex) : [];
+      const first = sets[0], previous = previousSets[0], conditions = [], observations = [];
+      const grouped = sets.length && sets.every(set => set.loadKg === first.loadKg);
+      let summary = sets.length ? grouped ? `${first.loadKg === null ? "기록된 반복은 " : first.loadKg + "kg에서 "}${sets.map(set => set.reps).join("·")}회, 일반 ${sets.length}세트를 기록했어요.` : `일반 ${sets.length}세트: ${sets.slice(0, 5).map(format).join(" / ")}${sets.length > 5 ? " 외" : ""}.` : ex.sets.length ? `세트 ${ex.sets.length}개가 남아 있어요. ${ex.sets.filter(set => set.reps !== null).slice(0, 3).map(set => `${set.marker || "미확인 표기"} ${format(set)}`).join(" / ")}` : "운동 이름이 기록되어 있어요.";
+      if (first && previous) {
+        let change;
+        if (first.loadKg === previous.loadKg) change = `첫 일반 세트는 ${reference.session.date}의 ${previous.reps}회에서 ${first.reps}회로 ${first.reps > previous.reps ? "늘었어요" : first.reps < previous.reps ? "줄었어요" : "같아요"}${first.loadKg === null ? "" : ` (${first.loadKg}kg)`}.`;
+        else change = `첫 일반 세트가 ${reference.session.date}의 ${format(previous)}에서 ${format(first)}로 바뀌었어요.`;
+        observations.push(change);
+        if (sets.length !== previousSets.length) observations.push(`일반 세트 수는 ${previousSets.length}개에서 ${sets.length}개로 바뀌었어요.`);
+        if (ex.loadRole === "assistance") conditions.push("보조 kg가 적으면 오히려 더 어려울 수 있어요. 외부 중량과 방향이 달라요.");
+        if (!ex.context?.contextKey || ex.context.contextKey !== reference.ex.context?.contextKey) conditions.push("배치·선행 운동 조건은 달라질 수 있어요. 숫자 관찰과 근력 판정을 구분했어요.");
+      } else if (first) {
+        const otherGear = sessions.some(old => old.exercises.some(value => value.exerciseId && value.exerciseId === ex.exerciseId && key(value) !== key(ex)));
+        observations.push(currentCounts.get(key(ex)) > 1 ? "같은 장비의 운동 블록이 여러 개예요. 블록별 기록을 유지하며 과거의 한 블록에 임의로 대응시키지 않았어요." : otherGear ? "이 장비의 출발 기록이 생겼어요. 다른 장비의 운동 맥락은 이어가고 시작 기준은 이 기록으로 잡아요." : "이번 실제 수행이 다음 운동의 출발점이에요.");
+      }
+      const fallingSets = grouped && sets.length >= 2 && sets.at(-1).reps <= first.reps * 0.7;
+      if (fallingSets) observations.push(`같은 표시 중량에서 일지 앞 세트 ${first.reps}회, 뒤 세트 ${sets.at(-1).reps}회예요.`);
+      if (reference && dateNumber(session.date) - dateNumber(reference.session.date) >= 14 * DAY) conditions.push("마지막 같은 장비 기록과 2주 이상 떨어져 있어요. 미기록 기간을 휴식으로 간주하지 않았어요.");
+      if (ex.equipmentSource?.startsWith("name-")) conditions.push("장비명은 운동명에서 읽은 표기예요. 실제 다른 머신이라면 장비를 나눠 주세요.");
+      if (!ex.exerciseId) conditions.push("원문 운동을 기준으로 읽었어요. 운동 분류를 확인하면 부위 분석도 연결돼요.");
+      if (sets.some(set => set.rir === null)) conditions.push("세트 느낌을 남기면 다음 시도를 더 세밀하게 조절할 수 있어요.");
+      const feedback = ex.feedback, target = sets.find(set => set.id === feedback?.setId) || first;
+      let action = { kind: "repeat", title: "다음 운동의 첫 확인", body: first ? `같은 장비에서 연습 세트로 상태를 보고, 첫 일반 세트는 ${format(first)}를 출발점으로 삼아 보세요. 충분히 여유가 있으면 한 세트에서만 1회 더 시도하고, 버거우면 반복을 억지로 채우지 마세요.` : "다음에도 이 운동을 기록하고, 실제 한 세트의 반복부터 남겨 주세요. 읽을 수 있는 기록부터 이어갈게요.", provisional: true };
+      if (!first) action = { ...action, kind: "log", title: "다음 기록을 이어가기", body: ex.sets.some(set => set.marker !== null) ? "준비·드롭 등 별도 표기의 숫자는 남겨 두세요. 평소 일반 세트가 있다면 그 세트 하나만 추가하면 다음 시도를 함께 잡을 수 있어요." : action.body };
+      else if (target.reps <= 3) action = { ...action, kind: "practice", title: "고중량 기록과 평소 운동을 나누기", body: `${format(target)}는 낮은 반복의 기록이에요. 이 중량을 곧바로 다음 시작값으로 쓰지 말고, 평소 여러 번 제어할 수 있는 부하로 연습 세트부터 확인해 주세요.` };
+      else if (feedback?.feeling === "limit" || target.rir === 0) action = { ...action, kind: "ease", title: "다음에는 반복을 밀지 않기", body: `${format(target)}${feedback?.feeling === "limit" ? "가 한계에 가까웠다고 남겼어요" : "에 RIR 0을 기록했어요"}. 다음에는 이 반복을 억지로 넘기지 마세요. ${ex.loadRole === "external" ? "동작이 흐트러지면 사용 가능한 가장 작은 단계만큼 중량을 낮춰 보세요." : ex.loadRole === "assistance" ? "동작이 흐트러지면 보조를 더 받는 방향으로 조절해 보세요." : "더 제어하기 쉬운 조건에서 여유를 남겨 보세요."}` };
+      else if (feedback?.feeling === "comfortable") action = { ...action, kind: "reps-option", title: "여유 있었던 세트에서 작은 변화", body: `${format(target)}에 여유가 있었다고 남겼어요. 다음 같은 장비에서 이 세트만 ${target.reps < 100000 ? target.reps + 1 : target.reps}회를 시도해 보세요. 계획한 반복 상단에 도달했다면 횟수를 계속 늘리기보다 ${ex.loadRole === "external" ? "가능한 최소 증량" : ex.loadRole === "assistance" ? "보조를 조금 덜 받는 선택" : "부하의 의미와 동작 난도"}을 검토하세요.` };
+      else if (feedback?.feeling === "hard") action = { ...action, title: "힘들었던 수행을 먼저 안정시키기", body: `${format(target)}가 힘들었다고 남겼어요. 다음에는 같은 장비에서 이 세트를 다시 해보고, 다른 세트까지 중량·반복을 한꺼번에 올리지 마세요.` };
+      else if (grouped && sets.length >= 2 && sets.at(-1).reps <= first.reps * 0.7) action = { ...action, title: "뒤 세트까지 이어갈 여유 만들기", body: `첫 일반 세트 ${format(first)}를 유지하며 세트 사이 회복 시간을 충분히 확보해 보세요. 뒤 세트 반복을 억지로 채우기보다 제어 가능한 반복을 남기고, 그래도 급격히 줄면 시작 부담을 조금 낮춰 보세요.` };
+      else if (previous && ex.loadRole === "external" && first.loadKg !== null && previous.loadKg !== null && first.loadKg > previous.loadKg && first.reps < previous.reps) action = { ...action, title: "무게와 반복을 동시에 올리지 않기", body: `이번 ${format(first)}를 같은 장비에서 먼저 안정시켜 보세요. 계획한 반복 범위보다 낮았다면 이전 ${format(previous)} 쪽으로 조절하는 선택도 있어요.` };
+      else if (previous && first.loadKg === previous.loadKg && first.reps < previous.reps) action = { ...action, title: "줄어든 반복을 한 번 더 확인", body: `다음 같은 장비에서는 이번 ${format(first)}를 출발점으로 삼고, 연습 세트에서 평소보다 버거운지 봐요. 계속 버거우면 추가 세트를 밀지 말고 부담을 낮춰 보세요.` };
+      if (fallingSets && feedback?.feeling === "comfortable" && target.id === first.id && action.kind === "reps-option") action = { ...action, kind: "repeat", title: "첫 세트의 여유를 뒤 세트까지 이어가기", body: `첫 ${format(first)}에는 여유가 있었지만 뒤 기록은 ${sets.at(-1).reps}회예요. 다음에는 첫 세트를 늘리기보다 지금 반복을 유지하고 세트 사이 회복 시간을 충분히 확보해 보세요. 뒤 세트까지 안정되는지 본 뒤 한 세트만 늘려요.` };
+      const priorDistinct = new Map();
+      for (const old of histories.get(key(ex)) || []) if ((!old.session.trainingIntent || old.session.trainingIntent === "regular") && general(old.ex).length) {
+        if (!priorDistinct.has(old.session.date)) priorDistinct.set(old.session.date, []);
+        priorDistinct.get(old.session.date).push(old);
+      }
+      const recent = [...priorDistinct.values()].slice(-2);
+      if (first && reference && recent.length === 2 && recent.every(rows => rows.length === 1) && !feedback && action.kind === "repeat" && (intent === "unknown" || intent === "regular")) {
+        const starts = [...recent.map(rows => general(rows[0].ex)[0]), first];
+        if (starts.every(set => set.loadKg === first.loadKg && set.reps === first.reps)) {
+          observations.push(`최근 세 번의 첫 일반 세트가 ${format(first)}로 같아요.`);
+          action = { ...action, title: ["maintain", "cut"].includes(profile.goal) ? "지금 수행을 유지하며 이어가기" : "익숙한 수행에서 한 가지씩 바꾸기", body: ["maintain", "cut"].includes(profile.goal) ? `${profile.goal === "cut" ? "감량 중에는 " : "유지 목표라면 "}이번 수행을 이어가는 것도 유용한 기준이에요. 다음에도 ${format(first)}에서 시작하고, 버거워지지 않는지 봐요. 매번 중량을 올릴 필요는 없어요.` : `다음 ${format(first)}에서 충분히 여유가 있으면 한 세트에만 1회 더 시도해 보세요. 여전히 힘들면 그대로 유지하고 뒤 세트까지 안정되는지 봐요.` };
+        } else if (ex.loadRole === "external" && starts.every(set => finite(set.loadKg)) && starts[1].loadKg <= starts[0].loadKg && first.loadKg <= starts[1].loadKg && starts[1].reps <= starts[0].reps && first.reps <= starts[1].reps && (first.loadKg < starts[0].loadKg || first.reps < starts[0].reps)) {
+          observations.push("최근 세 번의 첫 일반 세트에서 중량 또는 반복이 낮아지는 흐름이 있어요.");
+          action = { ...action, kind: "review-recovery", title: "반복되는 부담 변화를 함께 점검", body: `다음에는 이번 ${format(first)}에서 가볍게 상태를 확인하고, 버거우면 세트를 더 밀지 마세요. 의도한 조절인지, 운동 배치·휴식·최근 수면이나 식사가 달랐는지 한 가지씩 살펴본 뒤 부담을 정해요.` };
+        }
+      }
+      if (broadReduction && (intent === "unknown" || intent === "regular")) action = { ...action, kind: "check-intent", title: intent === "unknown" ? "가볍게 한 이유부터 맞추기" : "예상 밖으로 버거웠다면 다음 시작부터 확인", body: intent === "unknown" ? "여러 운동의 부담이 함께 줄었어요. 디로드나 연습으로 줄인 날이라면 다시 올릴 필요가 없어요. 아래에서 운동 목적을 골라 주면 다음 방향을 맞출게요." : `평소 운동으로 했지만 여러 종목의 부담이 줄었어요. 다음에는 ${first ? format(first) + "를 출발점으로 " : ""}연습 세트에서 상태를 확인하고, 버거우면 추가 세트를 밀지 마세요. 순서·휴식·컨디션을 함께 보고 반복되는지 점검해요.` };
+      if (intent !== "unknown" && intent !== "regular") {
+        const bodies = { deload: "부담을 낮추는 목적에 맞게 운동했어요. 이번 가벼운 기록을 채우려고 세트나 중량을 보충하지 마세요. 계획한 기간을 마친 뒤 평소 운동의 연습 세트에서 상태를 보고 복귀 강도를 정해요.", light: "가볍게 움직이는 목적이면 지금 구성을 유지해도 괜찮아요. 이번 기록을 평소 중량 목표로 올려놓거나 빠진 볼륨을 보충할 필요는 없어요.", technique: "이번에는 중량보다 같은 동작 범위와 제어를 재현하는 데 집중해 보세요. 기술 연습 기록은 평소 수행 기준과 나눠 이어갈게요.", "time-limited": "시간 때문에 줄인 세트는 다음 날에 몰아서 보충하지 마세요. 다음 같은 부위 운동에서 메인 운동을 먼저 배치하고 평소 구성으로 이어가 보세요.", return: "복귀 첫 수행을 지금의 출발점으로 삼으세요. 이전 최고 기록을 한 번에 따라잡기보다 이번 부담에서 다음 날 반응까지 보고 한 가지씩 늘려요.", test: "이번 테스트 기록은 따로 남겨요. 다음 평소 운동은 테스트 최고 중량이 아니라 평소 일반 세트 기준과 연습 세트 반응으로 시작하세요." };
+        action = { ...action, kind: intent, title: `${intentLabels[intent]}의 다음 방향`, body: bodies[intent] };
+      }
+      if (unsafe) action = { ...action, kind: "individual-care", title: "부담 증가보다 상태 확인 먼저", body: clinical ? "기록 관찰은 이어가되, 훈련 강도 변경은 현재 상태를 아는 전문가의 개별 계획에 맞춰 주세요." : session.pain === "stop" || session.pain === "mild" || analysis.recovery?.status === "stop" ? "통증을 유발하는 운동은 멈추고 증상을 확인해 주세요. 수행 숫자가 좋아도 중량·반복을 더 밀지는 마세요. 중단 수준의 통증은 전문가 평가가 우선이에요." : "여러 번 낮아진 수행과 현재 회복 신호를 함께 봐요. 다음에는 가볍게 연습하며 상태를 확인하고, 버거우면 세트·강도를 더 늘리지 마세요. 최근 수면·피로·식사와 운동 목적을 확인한 뒤 부담 조절을 정해요." };
+      row.interpretation = { basis: "record-observation", summary, observations, nextAction: action, reference: reference ? { sessionId: reference.session.id, blockId: reference.ex.id, date: reference.session.date, contextMatched: !!ex.context?.contextKey && ex.context.contextKey === reference.ex.context?.contextKey } : null, conditions };
+    }
+    const question = broadReduction && intent === "unknown" && !unsafe ? { id: "session-intent", title: "의도적으로 가볍게 한 운동인가요?", choices: [{ value: "deload", label: "디로드" }, { value: "technique", label: "가볍게·기술 연습" }, { value: "time-limited", label: "시간 부족" }, { value: "regular", label: "평소처럼 했음" }] } : null;
+    const unknownGeneral = session.exercises.some(ex => ex.sets.some(set => set.marker === null && set.reps === null));
+    const summary = !session.exercises.length ? "이 일지는 전체 요약으로 남아 있어요. 다음 운동은 실제 종목과 한 세트부터 남기면 그 수행에서 이어갈 수 있어요." : broadReduction ? `${reduced.length}개 운동에서 앞선 같은 운동·장비 표기의 기록보다 표시 중량·반복 또는 일반 세트 수가 크게 줄었어요.${intent === "unknown" ? " 먼저 의도한 부담 조절인지 맞춰 볼게요." : ` ${intentLabels[intent]}로 남긴 목적에 맞춰 볼게요.`}` : `${session.exercises.length}종목${session.workingSets || !unknownGeneral ? `, 확인한 일반 ${session.workingSets}세트` : ""}를 기록했어요.${intent !== "unknown" ? ` ${intentLabels[intent]}의 흐름으로 이어갈게요.` : " 다음 운동은 아래 실제 수행에서 이어가 보세요."}`;
+    const actions = review.rows.filter(row => row.sets.length).slice(0, 2).map(row => ({ blockId: row.blockId, title: `${row.label} · ${row.interpretation.nextAction.title}`, body: row.interpretation.nextAction.body }));
+    return { ...review, sessionCoaching: { summary, actions, question, intent, pattern: broadReduction ? "broad-reduction" : "ordinary", reducedExercises: reduced } };
   }
 
   function recommendProgram(profile, settings = {}, analysis = {}, preferences = {}) {
@@ -857,5 +970,5 @@
     return next;
   }
 
-  return Object.freeze({ VERSION, catalog, muscleLabels, movementFamilies, relatedExerciseIds, parseExerciseName, describeExercise, resolveExercise, previewMapping, sessionContext, startingReference, analyze, getReviewPreferences, reviewSession, recommendProgram, createProgram, createAssignment, evaluateAssignment, adjustAssignment });
+  return Object.freeze({ VERSION, catalog, muscleLabels, movementFamilies, relatedExerciseIds, parseExerciseName, describeExercise, resolveExercise, previewMapping, sessionContext, startingReference, analyze, getReviewPreferences, reviewSession, coachSession, intentLabels, recommendProgram, createProgram, createAssignment, evaluateAssignment, adjustAssignment });
 });

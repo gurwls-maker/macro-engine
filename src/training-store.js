@@ -10,6 +10,8 @@
   const MAX_BYTES = 8 * 1024 * 1024;
   const LIMITS = Object.freeze({ records: 10000, exercises: 200, sets: 200, mappings: 5000, messages: 2000 });
   const LOAD_CONVENTIONS = Object.freeze(["as-recorded", "per-side", "total", "bodyweight"]);
+  const TRAINING_INTENTS = Object.freeze(["regular", "deload", "light", "technique", "time-limited", "return", "test"]);
+  const FEEDBACK_FEELINGS = Object.freeze(["comfortable", "hard", "limit"]);
   const forbidden = new Set(["__proto__", "prototype", "constructor"]);
   const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
   const plain = value => value !== null && typeof value === "object" && !Array.isArray(value)
@@ -94,7 +96,7 @@
     list(records, LIMITS.records, "운동 기록");
     const recordIds = new Set();
     for (const record of records) {
-      fields(record, ["id", "date", "time", "label", "durationMinutes", "reportedSetCount", "reportedVolumeKg", "reportedEnergyKcal", "source", "exercises", "notes", "effort", "pain"], "운동 기록", ["sequence"]);
+      fields(record, ["id", "date", "time", "label", "durationMinutes", "reportedSetCount", "reportedVolumeKg", "reportedEnergyKcal", "source", "exercises", "notes", "effort", "pain"], "운동 기록", ["sequence", "trainingIntent"]);
       uniqueId(record.id, recordIds, "운동 기록 식별자");
       if (!date(record.date) || !time(record.time)) fail("운동 날짜 또는 헤더 시각을 확인해 주세요.");
       text(record.label, 200, "운동 분류");
@@ -105,6 +107,7 @@
       text(record.notes, 10000, "운동 메모", false, true);
       number(record.effort, 0, 10, "체감 강도", true);
       if (record.pain !== null && !["none", "mild", "stop"].includes(record.pain)) fail("통증 선택값을 확인해 주세요.");
+      if (own(record, "trainingIntent") && !TRAINING_INTENTS.includes(record.trainingIntent)) fail("운동 의도를 확인해 주세요. 미확인은 선택하지 않은 상태로 남겨 주세요.");
       if (own(record, "sequence")) {
         fields(record.sequence, ["order", "structure"], "실제 수행 순서");
         if (!["unknown", "listed"].includes(record.sequence.order) || !["unknown", "straight", "grouped"].includes(record.sequence.structure)) fail("실제 수행 순서와 세트 구성을 확인해 주세요.");
@@ -120,7 +123,7 @@
       const exerciseIds = new Set();
       const setIds = new Set();
       for (const exercise of record.exercises) {
-        fields(exercise, ["id", "rawName", "exerciseId", "equipmentKey", "loadConvention", "durationMinutes", "repsTotal", "reportedVolumeKg", "sets", "notes"], "종목", ["loadRole", "groupKey"]);
+        fields(exercise, ["id", "rawName", "exerciseId", "equipmentKey", "loadConvention", "durationMinutes", "repsTotal", "reportedVolumeKg", "sets", "notes"], "종목", ["loadRole", "groupKey", "feedback"]);
         uniqueId(exercise.id, exerciseIds, "종목 식별자");
         text(exercise.rawName, 300, "원문 종목명");
         text(exercise.exerciseId, 128, "연결 종목", true);
@@ -143,6 +146,16 @@
           number(set.reps, 0, 100000, "반복 수", true, true);
           text(set.marker, 32, "원문 세트 표기", true);
           number(set.rir, 0, 10, "남길 수 있었던 반복 수", true);
+        }
+        if (own(exercise, "feedback")) {
+          const feedback = exercise.feedback;
+          fields(feedback, ["setId", "feeling", "loadKg", "reps"], "선택한 세트의 체감");
+          text(feedback.setId, 512, "체감을 기록한 세트");
+          if (!FEEDBACK_FEELINGS.includes(feedback.feeling)) fail("선택한 세트의 체감을 확인해 주세요.");
+          number(feedback.loadKg, 0, 10000, "체감을 기록한 원문 부하", true);
+          number(feedback.reps, 0, 100000, "체감을 기록한 반복 수", true, true);
+          const selected = exercise.sets.find(set => set.id === feedback.setId);
+          if (!selected || selected.marker !== null || selected.loadKg !== feedback.loadKg || selected.reps !== feedback.reps) fail("체감을 기록한 일반 세트의 중량·반복이 달라졌어요. 현재 세트를 다시 확인해 주세요.");
         }
       }
     }
@@ -381,6 +394,7 @@
       if (!plain(entry.session)) fail("세트 상세가 없는 요약이에요. context --details로 다시 내보내 주세요.");
       if (typeof entry.id !== "string" || !new RegExp(`^${entry.hash}:\\d+$`).test(entry.id)) fail("운동일지의 출처별 세션 식별자가 올바르지 않습니다.");
       const session = entry.session;
+      if (own(session, "trainingIntent")) fail("사진 판독에서 운동 의도를 대신 정할 수 없습니다. 가져온 뒤 직접 선택해 주세요.");
       if (entry.date !== session.date || entry.time !== session.time || entry.label !== session.label) fail("운동일지 요약과 세션 원문이 일치하지 않습니다.");
       strings(entry.sourcePaths, 100, 2048, "원문 경로");
       if (typeof entry.sourceAvailable !== "boolean") fail("원문 접근 상태를 확인해 주세요.");
@@ -499,5 +513,5 @@
     return output;
   }
 
-  return Object.freeze({ VERSION, MAX_BYTES, LIMITS, LOAD_CONVENTIONS, createEmpty, validate, validatePrescription, fromDiaryContext, mergeRecords, parseImport, exportExchange });
+  return Object.freeze({ VERSION, MAX_BYTES, LIMITS, LOAD_CONVENTIONS, TRAINING_INTENTS, FEEDBACK_FEELINGS, createEmpty, validate, validatePrescription, fromDiaryContext, mergeRecords, parseImport, exportExchange });
 });

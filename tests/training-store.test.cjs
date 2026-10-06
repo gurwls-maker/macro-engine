@@ -34,6 +34,11 @@ test("an unscanned source path is unknown, not an observed missing original", ()
   assert.ok(Training.fromDiaryContext(value).records[0].source.uncertainties.some(line => /찾지 못했/.test(line)));
 });
 function workspace() { const value = Training.createEmpty(); value.records = [record()]; return value; }
+function withFeedback(value = workspace(), feeling = "comfortable") {
+  const exercise = value.records[0].exercises[0], set = exercise.sets.find(row => row.marker === null);
+  exercise.feedback = { setId: set.id, feeling, loadKg: set.loadKg, reps: set.reps };
+  return value;
+}
 function message(id = "question", overrides = {}) {
   return { id, role: "user", text: "어떤 기록이 필요한가요?", createdAt: "2026-01-05T12:00:00.000Z", source: "local", replyTo: null, contextDigest: null, status: "pending", ...overrides };
 }
@@ -53,6 +58,123 @@ test("old workspaces normalize optional planning, memory and follow-ups without 
   assert.deepEqual(normalized.records, before); assert.deepEqual(normalized.planning, Training.createEmpty().planning);
   assert.deepEqual(normalized.memory, { constraints: "", focus: "", agreements: "", updatedAt: null }); assert.deepEqual(normalized.followUps, []);
   assert.equal(value.planning, undefined);
+});
+
+test("optional training intent and selected-set feelings preserve old records and full backup exchange", () => {
+  const S = require("../src/storage.js"), old = workspace(), before = structuredClone(old);
+  assert.deepEqual(Training.validate(old), old);
+  assert.equal(Object.hasOwn(Training.validate(old).records[0], "trainingIntent"), false);
+  assert.equal(Object.hasOwn(Training.validate(old).records[0].exercises[0], "feedback"), false);
+  assert.deepEqual(old, before);
+  for (const intent of Training.TRAINING_INTENTS) for (const feeling of Training.FEEDBACK_FEELINGS) {
+    const value = withFeedback(workspace(), feeling); value.records[0].trainingIntent = intent;
+    const original = structuredClone(value), validated = Training.validate(value);
+    assert.deepEqual(validated, value);
+    assert.deepEqual(validated.records[0].exercises[0].sets.map(set => set.rir), [null, null, null]);
+    assert.deepEqual(Training.parseImport(Training.exportExchange(value)).records, value.records);
+    const state = S.createEmpty(); state.training = value;
+    assert.deepEqual(S.parseBackup(S.exportBackup(state)).state.training, value);
+    assert.deepEqual(value, original);
+  }
+  assert.ok(Object.isFrozen(Training.TRAINING_INTENTS));
+  assert.ok(Object.isFrozen(Training.FEEDBACK_FEELINGS));
+});
+
+test("intent and feeling contracts reject coercion, invented RIR, unknown values and extra keys", () => {
+  for (const intent of [null, undefined, "", "unknown", "rest", 0, true, { kind: "deload" }]) {
+    const value = workspace(); value.records[0].trainingIntent = intent;
+    assert.throws(() => Training.validate(value));
+  }
+  const changes = [
+    value => { value.records[0].exercises[0].feedback = null; },
+    value => { value.records[0].exercises[0].feedback.feeling = "easy"; },
+    value => { value.records[0].exercises[0].feedback.feeling = 0; },
+    value => { value.records[0].exercises[0].feedback.setId = " "; },
+    value => { value.records[0].exercises[0].feedback.loadKg = "40"; },
+    value => { value.records[0].exercises[0].feedback.loadKg = -1; },
+    value => { value.records[0].exercises[0].feedback.loadKg = 10001; },
+    value => { value.records[0].exercises[0].feedback.reps = "6"; },
+    value => { value.records[0].exercises[0].feedback.reps = 6.5; },
+    value => { value.records[0].exercises[0].feedback.reps = -1; },
+    value => { value.records[0].exercises[0].feedback.reps = 100001; },
+    value => { value.records[0].exercises[0].feedback.rir = 3; },
+    value => { delete value.records[0].exercises[0].feedback.reps; }
+  ];
+  for (const change of changes) { const value = withFeedback(); change(value); assert.throws(() => Training.validate(value)); }
+});
+
+test("feedback belongs to the selected current general set and stale or cross-block snapshots fail", () => {
+  const changes = [
+    value => { value.records[0].exercises[0].feedback.setId = "missing"; },
+    value => { value.records[0].exercises[0].sets.splice(1, 1); },
+    value => { value.records[0].exercises[0].sets[1].loadKg = 41; },
+    value => { value.records[0].exercises[0].sets[1].reps = 7; },
+    value => { value.records[0].exercises[0].sets[1].marker = "W"; },
+    value => { value.records[0].exercises[0].sets[1].marker = "D"; },
+    value => { value.records[0].exercises[0].feedback.loadKg = null; },
+    value => { value.records[0].exercises[0].feedback.reps = null; },
+    value => { const set = value.records[0].exercises[1].sets[0]; set.marker = null; value.records[0].exercises[0].feedback = { setId: set.id, feeling: "hard", loadKg: set.loadKg, reps: set.reps }; },
+    value => { const set = value.records[0].exercises[0].sets[0]; value.records[0].exercises[0].feedback = { setId: set.id, feeling: "limit", loadKg: set.loadKg, reps: set.reps }; }
+  ];
+  for (const change of changes) { const value = withFeedback(); change(value); assert.throws(() => Training.validate(value), /체감/); }
+  const corrected = withFeedback(); corrected.records[0].exercises[0].sets[1].loadKg = 41;
+  delete corrected.records[0].exercises[0].feedback;
+  assert.deepEqual(Training.validate(corrected), corrected);
+});
+
+test("feedback snapshots distinguish unknown values from numeric zero without filling RIR", () => {
+  for (const loadKg of [null, 0]) for (const reps of [null, 0]) {
+    const value = workspace(), set = value.records[0].exercises[0].sets[1];
+    set.loadKg = loadKg; set.reps = reps;
+    withFeedback(value, "hard");
+    const saved = Training.validate(value).records[0].exercises[0];
+    assert.equal(saved.feedback.loadKg, loadKg); assert.equal(saved.feedback.reps, reps);
+    assert.equal(saved.sets[1].rir, null);
+    const mismatch = structuredClone(value);
+    mismatch.records[0].exercises[0].feedback.loadKg = loadKg === null ? 0 : null;
+    assert.throws(() => Training.validate(mismatch), /체감/);
+  }
+});
+
+test("source reimport keeps confirmed intent and feedback without changing image observation identity", () => {
+  const value = withFeedback(); value.records[0].trainingIntent = "light";
+  value.records[0].notes = "사용자 선택 보존";
+  const before = structuredClone(value), incoming = record();
+  const unchanged = Training.mergeRecords(value, [incoming]);
+  assert.equal(unchanged.unchanged, 1); assert.equal(unchanged.conflicts.length, 0);
+  assert.deepEqual(unchanged.workspace, before); assert.deepEqual(value, before);
+  incoming.trainingIntent = "deload";
+  withFeedback({ records: [incoming] }, "limit");
+  incoming.source.paths = ["moved/example.png"];
+  const moved = Training.mergeRecords(value, [incoming]);
+  assert.equal(moved.updated, 1); assert.equal(moved.conflicts.length, 0);
+  assert.equal(moved.workspace.records[0].trainingIntent, "light");
+  assert.deepEqual(moved.workspace.records[0].exercises[0].feedback, before.records[0].exercises[0].feedback);
+  assert.equal(moved.workspace.records[0].notes, "사용자 선택 보존");
+  const changed = record(); changed.exercises[0].sets[1].loadKg = 41;
+  const conflict = Training.mergeRecords(value, [changed]);
+  assert.equal(conflict.conflicts.length, 1); assert.deepEqual(conflict.workspace, before);
+});
+
+test("different image candidates remain separate conflicts regardless of user annotations", () => {
+  const incoming = record(); incoming.id = "c".repeat(64) + ":0"; incoming.source.hash = "c".repeat(64);
+  incoming.trainingIntent = "test";
+  withFeedback({ records: [incoming] }, "limit");
+  const value = withFeedback(); value.records[0].trainingIntent = "regular";
+  const result = Training.mergeRecords(value, [incoming]);
+  assert.equal(result.conflicts.length, 1); assert.equal(result.added, 0);
+  assert.deepEqual(result.workspace, value);
+});
+
+test("image extraction cannot create training intent, feelings or set RIR", () => {
+  const clean = Training.fromDiaryContext(context()).records[0];
+  assert.equal(Object.hasOwn(clean, "trainingIntent"), false);
+  assert.ok(clean.exercises.every(exercise => !Object.hasOwn(exercise, "feedback")));
+  for (const change of [
+    value => { value.sessions[0].session.trainingIntent = "deload"; },
+    value => { value.sessions[0].session.exercises[0].feedback = { setId: "invented", feeling: "comfortable", loadKg: 40, reps: 6 }; },
+    value => { value.sessions[0].session.exercises[0].sets[1].rir = 3; }
+  ]) { const value = context(); change(value); assert.throws(() => Training.fromDiaryContext(value)); }
 });
 
 test("stored programs, snapshot assignments and explicit reviews survive exchange without record invention", () => {

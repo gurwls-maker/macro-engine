@@ -280,6 +280,7 @@ function assertMachine(value, { equipment = machineA, convention = 'per-side', r
           await page.locator('[data-action="training-tab"][data-tab="analysis"]').click();
           const separated = page.locator('.progression-row').filter({ hasText: machineA }).filter({ has: page.locator('.source-badge').filter({ hasText: '기록 있음 · 조건별 분리' }) }).first();
           await separated.waitFor({ state: 'visible' });
+          await separated.locator('details summary').click();
           assert.match(await separated.locator('.progression-coverage').innerText(), /같은 운동 3일.*이 장비·표기 2일.*같은 기록 조건 1일/);
           assert.match(await separated.locator('.progression-explanation').innerText(), /같은 종목은 3일.*이 장비·중량 표기·수행 순서 조건.*앞뒤 비교를 보류/);
           assert.ok(await separated.locator('[data-action="training-open"]').count() > 0, 'condition-limited comparison must still link the actual stored record');

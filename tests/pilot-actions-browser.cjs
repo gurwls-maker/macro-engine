@@ -55,6 +55,7 @@ async function overflow(page, label) {
     const fresh = await browser.newContext({ viewport: { width: 320, height: 900 } });
     const freshPage = await fresh.newPage(); freshPage.on('pageerror', error => errors.push(error.message));
     await freshPage.goto(`http://127.0.0.1:${server.address().port}`);
+    await freshPage.locator('#view-today').waitFor({ state: 'visible' });
     assert.equal(await freshPage.locator('#view-today').isVisible(), true);
     assert.equal(await state(freshPage), null, 'fresh app must not save a fabricated profile or training workspace');
     await coach(freshPage);

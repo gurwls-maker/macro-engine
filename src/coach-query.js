@@ -200,7 +200,8 @@
     const exercises = record.exercises.map((exercise, index) => ({ exercise, index })).filter(({ exercise }) => matchingExercise(exercise, selection, mappings));
     const sample = exercises.slice(0, 4), sampledIds = new Set(sample.map(({ exercise }) => exercise.id));
     const context = fullContext || T.sessionContext(record, mappings);
-    return { id: record.id, date: record.date, label: record.label, time: record.time, pain: record.pain, effort: record.effort, sourceKind: record.source?.kind,
+    return { id: record.id, date: record.date, label: record.label, time: record.time, pain: record.pain, effort: record.effort,
+      ...(record.trainingIntent ? { trainingIntent: record.trainingIntent } : {}), sourceKind: record.source?.kind,
       sourceRevision: record.source?.revision, notes: (record.notes || "").slice(0, 800), originalExerciseCount: record.exercises.length,
       originalSetCount: record.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0), matchedExerciseCount: exercises.length,
       matchedSetCount: exercises.reduce((sum, { exercise }) => sum + exercise.sets.length, 0), sampled: record.exercises.length > sample.length || exercises.some(({ exercise }) => exercise.sets.length > 4),
@@ -211,7 +212,8 @@
         return { id: exercise.id, sourceExercisePosition: index + 1, rawName: exercise.rawName, exerciseId: d.resolved?.id || null, equipmentKey: d.equipmentKey, equipmentSource: d.equipmentSource,
           loadRole: d.loadRole,
           loadConvention: d.loadConvention, loadConventionSource: d.loadConventionSource, ruleConflict: d.ruleConflict,
-          originalSetCount: exercise.sets.length, sampled: exercise.sets.length > 4, sets: exercise.sets.slice(0, 4), notes: (exercise.notes || "").slice(0, 400) };
+          originalSetCount: exercise.sets.length, sampled: exercise.sets.length > 4, sets: exercise.sets.slice(0, 4),
+          ...(exercise.feedback ? { feedback: { ...exercise.feedback } } : {}), notes: (exercise.notes || "").slice(0, 400) };
       }) };
   }
   function retrieve(state, date, question = "") {

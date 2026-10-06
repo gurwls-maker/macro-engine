@@ -1,10 +1,10 @@
 (function (root, factory) {
   const node = typeof module === "object" && module.exports;
   const api = factory(node ? require("./nutrition.js") : root.MacroNutrition, node ? require("./insights.js") : root.MacroInsights,
-    node ? require("./coach-context.js") : root.MacroCoachContext);
+    node ? require("./coach-context.js") : root.MacroCoachContext, node ? require("./training.js") : root.MacroTraining);
   if (node) module.exports = api;
   root.MacroCoach = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function (Nutrition, Insights, DecisionContext) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (Nutrition, Insights, DecisionContext, Training) {
   "use strict";
 
   const VERSION = "9.3-evidence-coach-v2";
@@ -188,34 +188,48 @@
       const pain = ["mild", "stop"].includes(recovery.pain) || recovery.status === "stop";
       trainingItems.push(item("training-safety", pain ? "통증이 있는 동작은 멈춰 주세요" : "훈련을 늘리기 전에 회복부터 확인해요", `${recovery.reasons.join(" ")} ${pain ? "통증이 생기는 동작은 중단하고, 심하거나 계속되는 증상은 의료진에게 확인해 주세요." : "수면·피로·최근 식사를 함께 확인한 뒤 다음 훈련을 정하죠. 이 기록만으로 통증이나 원인을 단정하지 않아요."}`, "nav-training", { kind: "safety", tone: "attention", confidence: "high", source: "training-self-report" }));
     } else if (recovery.status === "watch") {
-      trainingItems.push(item("training-recovery", "최근 수행과 회복을 함께 확인해요", `${recovery.reasons.join(" ")} ${recovery.questions[0] || "수면·피로·통증과 실제 세트의 남은 반복 여유를 알려 주세요."} 한 번의 기록만으로 디로드를 확정하거나 칼로리를 더 줄이지 않아요.`, "coach-checkin", { kind: "safety", tone: "attention", confidence: "medium", source: "training-pattern" }));
-    }
-    if (["onboarding", "incomplete", "review"].includes(result.status)) {
-      result.priorities = [...trainingItems, ...result.priorities].slice(0, 3);
-      result.headline = result.priorities[0]?.title || result.headline;
-      return result;
+      trainingItems.push(item("training-recovery", "늘리기 전에 회복을 살펴봐요", `다음 운동은 현재 구성을 출발점으로 두고, 오늘 유난히 힘들면 쉬거나 부담을 낮추는 선택을 해요. ${recovery.reasons[0] || "수면·피로 중 평소와 가장 달라진 한 가지를 알려 주세요."}`, "coach-checkin", { kind: "safety", tone: "attention", confidence: "medium", source: "training-pattern" }));
     }
     if (last) {
       const numericObservation = hasLatestObservation(training);
+      const analysis = options.trainingAnalysis;
+      const hasSession = last.id && Array.isArray(analysis?.sessions) && analysis.sessions.some(row => row?.id === last.id && row.date === last.date);
+      const workspace = options.training || options.state?.training;
+      const review = hasSession && typeof Training?.coachSession === "function" ? Training.coachSession(analysis, {
+        preferences: workspace?.reviewPreferences, priorityMuscles: workspace?.settings?.priorityMuscles, profile
+      }) : null;
+      const coaching = review?.session?.id === last.id ? review.sessionCoaching : null;
+      if (coaching) training.sessionCoaching = { summary: text(coaching.summary), intent: text(coaching.intent), pattern: text(coaching.pattern),
+        actions: (Array.isArray(coaching.actions) ? coaching.actions : []).slice(0, 3).map(row => ({ title: text(row.title), body: text(row.body), blockId: text(row.blockId) })), question: coaching.question || null };
       const counts = [`운동 블록 ${last.exerciseCount === null ? "수 미확인" : `${fmt(last.exerciseCount)}개`}`,
         last.workingSets === null ? "일반 세트 수 미확인" : `일반 ${fmt(last.workingSets)}세트`];
       if (last.warmupSets !== null) counts.push(`준비 ${fmt(last.warmupSets)}세트`);
       if (last.markedSets !== null) counts.push(`별도 표시 ${fmt(last.markedSets)}세트`);
-      if (last.unknownEffortSets !== null) counts.push(`RIR 미확인 ${fmt(last.unknownEffortSets)}세트`);
-      const explanation = `${last.date}${last.time ? ` ${last.time}` : ""} ${last.label || "훈련"}의 전체 기록이에요. ${counts.join(" · ")}. ${last.sourceKind === "legacy-ocr" ? "이전 OCR 자료는 원문을 새로 검증한 기록이 아니에요. " : ""}${numericObservation
-        ? "중량·반복 관찰이 있어도 한 종목을 전체 운동의 향상이나 저하로 대신하지 않아요. 각 운동 블록의 장비·중량 표기·RIR·수행 순서 조건을 따로 확인해야 해요."
-        : "이 일지에서 중량·반복 수가 확인되지 않아 이전 종목의 숫자를 대신 보여주지 않았어요. 숫자 없는 운동도 기록에 남겨 두고 확인하죠."} 세트 수와 원문 숫자는 기록상 관찰이며 근육 증가량이나 다음 목표 중량을 뜻하지 않아요.`;
+      const selectedRows = coaching ? review.rows.slice(0, 2).filter(row => row.interpretation) : [];
+      const observations = selectedRows.map(row => {
+        const value = row.interpretation, next = value.nextAction;
+        return `${text(row.rawName || row.label)}: ${text(value.summary)} ${texts(value.observations).slice(0, 2).join(" ")}${next ? ` 다음 선택: ${text(next.title)}. ${text(next.body)}` : ""}`.trim();
+      });
+      const fallback = numericObservation ? "종목별 중량·반복은 아래 일지에서 이어서 볼 수 있어요. 다음 운동은 같은 장비의 기록과 나란히 두고 확인해 보세요."
+        : "숫자 없는 운동도 기록에 남겨 두었어요. 다음에는 지난 일지를 재사용하고 실제로 한 세트만 채우면 됩니다.";
+      const explanation = `${last.date}${last.time ? ` ${last.time}` : ""} ${last.label || "훈련"}의 전체 기록이에요. ${counts.join(" · ")}.${last.sourceKind === "legacy-ocr" ? " 이전 OCR 자료는 원문을 새로 검증한 기록이 아니에요." : ""}\n\n${coaching ? [text(coaching.summary), ...observations].filter(Boolean).join("\n\n") : fallback}`;
       const evidence = { scope: "whole-session", latestSessionId: last.id, latestSessionDate: last.date,
         selection: last.id ? "latest-session-id" : "latest-date-fallback", exerciseCount: last.exerciseCount,
         workingSets: last.workingSets, warmupSets: last.warmupSets, markedSets: last.markedSets,
-        unknownEffortSets: last.unknownEffortSets, current: null, previous: null };
+        unknownEffortSets: last.unknownEffortSets, current: null, previous: null,
+        interpretedBlockIds: selectedRows.map(row => row.blockId), interpretationSource: coaching ? "record-observations" : "session-counts" };
       trainingItems.push(item(numericObservation ? "training-progression" : "training-log", `${last.date} 최근 운동 전체 관찰`, explanation, logAction.action,
         { ...logAction, kind: "training", confidence: "medium", source: "training-records", evidence }));
       if (numericObservation) result.questions.push({ id: "training-progression", label: `${last.date} 전체 운동 기록은 무엇이 확인됐나요?`, answer: explanation, ...logAction, evidence });
     }
     const muscles = training.muscles.filter(row => (row.directSets || 0) + (row.indirectSets || 0) > 0).slice(0, 4);
-    result.questions.push({ id: "training-muscles", label: "부위별로 어떤 훈련이 쌓였나요?", answer: muscles.length ? `${training.windowStart || "기간 시작 미확인"}~${training.windowEnd}: ${muscles.map(row => `${row.label || row.id} 직접 ${fmt(row.directSets)}·간접 ${fmt(row.indirectSets)}세트`).join(", ")}. 운동 분류에 따른 노출 집계이며 둘을 같은 효과의 세트로 합치지 않아요. ${training.coverage.unknownEffortSets !== null ? `노력 수준 미확인 ${fmt(training.coverage.unknownEffortSets)}세트가 있어요.` : "실제 노력 수준도 함께 확인해야 해요."}` : "분류된 부위 기록이 아직 충분하지 않아요. 원문 운동명·기구와 실제 세트를 확인하면 직접·간접 노출을 나누어 볼 수 있어요.", action: "nav-training", actionLabel: actionLabels["nav-training"] });
-    result.questions.push({ id: "training-deload", label: "쉬거나 디로드할 때인가요?", answer: `${recovery.reasons.join(" ") || "현재 기록만으로 회복 상태를 확정하지 않았어요."} ${recovery.questions.join(" ")} 단일 일지의 총볼륨으로 디로드를 단정하지 않아요. 반복되는 수행 변화와 수면·피로·통증, 같은 운동의 노력 수준을 함께 확인해요.`, action: "nav-training", actionLabel: actionLabels["nav-training"] });
+    result.questions.push({ id: "training-muscles", label: "부위별로 어떤 훈련이 쌓였나요?", answer: muscles.length ? `${training.windowStart || "기간 시작 미확인"}~${training.windowEnd}: ${muscles.map(row => `${row.label || row.id} 직접 ${fmt(row.directSets)}·간접 ${fmt(row.indirectSets)}세트`).join(", ")}. 다음 계획에서는 우선 부위에 직접 해당하는 운동이 어떻게 배치됐는지 확인해 보세요. 직접·간접 세트는 서로 다른 노출로 봅니다.` : "운동명·기구를 한 번 연결하면 같은 이름의 기록에서 부위별 세트를 이어서 볼 수 있어요. 연결 전에도 원문 일지는 그대로 사용할 수 있습니다.", action: "nav-training", actionLabel: actionLabels["nav-training"] });
+    const recoveryAction = ["mild", "stop"].includes(recovery.pain) || recovery.status === "stop"
+      ? "통증이 생기는 동작은 중단하고, 심하거나 계속되는 증상은 의료진에게 확인해 주세요."
+      : recovery.status === "review" ? "다음 계획을 늘리기 전에 부담을 낮추거나 쉴 여유를 검토해요. 수면·피로 중 최근 가장 달라진 한 가지부터 확인해 주세요."
+        : recovery.status === "watch" ? "다음 운동은 현재 구성을 출발점으로 두고, 늘리기 전에 회복을 살펴보세요. 오늘 유난히 힘들다면 부담을 낮추는 선택도 가능합니다."
+          : "다음 운동은 지난 구성에서 이어갈 수 있어요. 몸이 힘든 날에는 쉬거나 부담을 낮추는 선택을 하고, 실제로 한 부분만 기록해 주세요.";
+    result.questions.push({ id: "training-deload", label: "쉬거나 디로드할 때인가요?", answer: `${recoveryAction}${recovery.reasons.length && recovery.status !== "insufficient" ? ` ${recovery.reasons[0]}` : ""}`, action: ["stop", "review", "watch"].includes(recovery.status) ? "coach-checkin" : "nav-training", actionLabel: actionLabels[["stop", "review", "watch"].includes(recovery.status) ? "coach-checkin" : "nav-training"] });
     if (!currentClinical && !["stop", "review"].includes(recovery.status) && training.programStatus) {
       result.questions.push({ id: "training-program", label: "내 일정에 맞는 훈련 계획은 무엇인가요?", answer: `${training.programName || "훈련 계획"}: ${training.programReason || "확인된 일정·장비·목표를 기준으로 계획을 살펴볼 수 있어요."} ${training.programStatus === "ready" ? "설정 기반 초안이며 실제 통증·피로와 수행 기록에 맞춰 확인해야 해요." : "빠진 일정과 장비 조건을 확인한 뒤 계획을 정해요."}`, action: "nav-program", actionLabel: actionLabels["nav-program"] });
     }
@@ -346,7 +360,7 @@
       const reasons = (plan.reasons || []).filter(reason => typeof reason === "string");
       question("scope", review ? "왜 자동 목표가 없나요?" : "무엇을 확인해야 하나요?", reasons.join(" ") || "계산에 필요한 기준을 확인해 주세요.", source === "missing-snapshot" ? "reopen" : "nav-profile");
       question("tracking", "지금 할 수 있는 일은 무엇인가요?", review ? "전문가와 정한 계획을 우선하면서 식사와 몸 상태를 기록해 주세요. 여기서는 체중 감량이나 숫자 변경을 권하지 않아요." : "확인되지 않은 값은 비워 두고 실제로 먹은 식사와 측정값부터 남겨 주세요.", complete ? "nav-trends" : "meal-add");
-      question("recovery", "몸이 힘든 날은 무엇을 남길까요?", "컨디션·허기·수면과 식사를 어렵게 하는 상황을 아는 만큼 남겨 주세요. 원인을 진단하거나 섭취량을 자동으로 바꾸지 않아요.", "coach-checkin");
+      question("recovery", "몸이 힘든 날은 어떻게 할까요?", "쉬거나 훈련 부담을 낮추고, 평소 식사를 챙길 여유를 두세요. 상태를 더 남긴다면 수면·허기·피로 중 평소와 가장 달라진 한 가지만 알려 주세요. 전문가와 정한 계획이 있다면 그 지침을 우선해요.", "coach-checkin");
       return finish(review ? "review" : "incomplete", [item("scope", review ? "개별 계획을 우선해 주세요" : "계산 기준을 먼저 확인해요", reasons.join(" ") || "기록의 계산 기준이 확인되지 않았어요.", source === "missing-snapshot" ? "reopen" : "nav-profile", { kind: review ? "safety" : "data", tone: "attention", confidence: "high", source })], "기록은 유지하면서, 확인되지 않은 목표로 식사를 평가하지 않아요.");
     }
     if (!validMeals(meals)) {
@@ -401,7 +415,7 @@
     if (recent.comparableDays < 3) context.limitations.push("같은 목표로 완료한 비교 기록이 적어 반복되는 섭취 양상으로 해석하지 않았어요.");
     if (!saved && profile?.sex === "unspecified") context.limitations.push("성별을 지정하지 않아 안정시대사량은 두 공식의 중간 추정이에요.");
 
-    if (recoveryConcern) add(item("checkin-recovery", "오늘은 알려 준 몸 상태부터 챙겨요", `${reportedConcerns.join("·")}를 알려 주셨어요. ${sessionRows.length ? `${fmt(sessionMinutes)}분 운동과 ${fmt(totals.kcal)}kcal의 식사 기록을 함께 보되, ` : ""}이 정보만으로 원인을 정할 수는 없어요. 식사를 더 깎거나 추가 운동으로 보상하지 말고, 빠진 식사와 쉴 여유를 먼저 확인해 주세요. ${constraintAdvice || "상태가 계속 나쁘거나 회복·월경 변화가 이어지면 개별 평가를 받아 주세요."}`, !meals.length ? "meal-add" : "coach-checkin", { kind: "safety", tone: "attention", confidence: "high", source: "self-report", evidence: { reportedConcerns: [...reportedConcerns], diagnostic: false } }));
+    if (recoveryConcern) add(item("checkin-recovery", "오늘은 알려 준 몸 상태부터 챙겨요", `${reportedConcerns.join("·")} 상태를 알려 주셨어요. 다음 식사는 평소 구성을 챙기고 쉴 여유를 확보해 보세요. 식사를 더 깎거나 추가 운동으로 맞추는 변경은 미뤄요.${sessionRows.length ? ` 기록한 운동 ${fmt(sessionMinutes)}분과 식사 ${fmt(totals.kcal)}kcal는 그대로 두고 다음 상태를 살펴봅니다.` : ""}${constraintAdvice ? ` ${constraintAdvice}` : " 상태가 계속 나쁘거나 일상에 지장이 생기면 개별 평가를 받아 주세요."}`, !meals.length ? "meal-add" : "coach-checkin", { kind: "safety", tone: "attention", confidence: "high", source: "self-report", evidence: { reportedConcerns: [...reportedConcerns], diagnostic: false } }));
     if (recovery && !recoveryConcern) add(item("recovery", "회복 상태를 먼저 확인해요", "목표와 측정 당시 체성분을 참고하면 운동을 제외하고 남는 에너지가 적을 수 있어요. 지속적인 피로나 회복 저하, 해당되는 경우 월경 변화가 있다면 식사를 더 줄이기보다 개별 평가를 받아 주세요. 현재 증상이 있다는 뜻은 아니에요.", "nav-profile", { kind: "safety", tone: "attention", confidence: "low", source: "measurement", evidence: { energyAvailability: plan.context?.energyAvailability ?? null, diagnostic: false } }));
     if (totals.alcoholG > 0) add(item("alcohol", "술의 열량과 회복은 따로 봐요", `기록한 순알코올 ${fmt(totals.alcoholG, 1)}g의 ${fmt(totals.alcoholG * 7)}kcal가 총열량에 포함돼요. 열량에 맞았다고 수면에 미치는 영향이 없어지는 것은 아니에요. 술 때문에 다음 식사를 굶거나 운동으로 상쇄하지 마세요.`, complete ? "nav-trends" : "meal-add", { kind: "safety", tone: "attention", confidence: "high", source: "day", evidence: { alcoholG: totals.alcoholG, alcoholKcal: totals.alcoholG * 7, sourceUrl: "https://www.niaaa.nih.gov/publications/brochures-and-fact-sheets/hangovers" } }));
 
@@ -474,7 +488,7 @@
     question("composition", "체성분은 얼마나 믿어도 되나요?", compositionAnswer, complete ? "nav-trends" : "measurement");
     question("trend", "최근 흐름을 보면 목표를 바꿔야 하나요?", `선택한 날 전 최근 28일에 완료한 식사 기록은 ${recent.completedDays}일, 같은 목표로 비교 가능한 기록은 ${recent.comparableDays}일이에요. ${recent.weeklyWeightChangeKg === null ? "체중은 최근 두 주에 각각 3회 이상, 충분히 떨어진 날짜의 측정이 더 필요해요." : `체중 추세는 주당 ${recent.weeklyWeightChangeKg >= 0 ? "+" : ""}${fmt(recent.weeklyWeightChangeKg, 2)}kg이지만 수분과 측정 조건도 포함돼요.`} 현재 정보로 섭취량을 자동 변경하거나 체지방 증감을 단정하지 않아요.`, "nav-trends");
     question("allocation", "탄수·지방 배분을 바꾸면 어떻게 되나요?", allocation && Math.abs(allocation.appliedCarbDeltaG) > 0.5 ? `선택한 배분을 반영해 탄수 ${fmt(plan.macros.carbs.target)}g, 지방 ${fmt(plan.macros.fat.target)}g을 기준으로 보고 있어요. 탄수와 지방을 열량 기준으로 교환하므로 총열량과 단백질은 그대로예요. 이미 먹은 양을 따라 자동으로 목표를 옮기지는 않아요.` : "탄수화물 25g과 지방 약 11.1g은 각각 약 100kcal예요. 가능한 범위 안에서 둘을 교환하면 총열량과 단백질을 유지할 수 있어요. 먹기 편한 배분을 직접 고르는 설정이에요.", null);
-    question("recovery", "몸이 힘든 날은 어떻게 할까요?", recoveryConcern ? `${reportedConcerns.join("·")}를 알려 주셨어요. 지금은 식사를 더 깎거나 추가 운동으로 맞출 때가 아니라, 식사 누락과 쉬는 시간을 확인할 때예요. ${constraintAdvice || "알려 준 상태가 지속되거나 일상·운동에 지장을 주면 전문가와 개별적으로 살펴 주세요."} 이 앱은 원인이나 질환을 진단하지 않아요.` : `${missingCore.length ? "오늘 컨디션·허기·수면이 아직 전부 확인되지 않았어요." : "알려 준 체크인에서 낮은 컨디션·강한 허기·낮은 수면 신호는 없지만 건강하다는 판정은 아니에요."} ${constraintAdvice || "몸이 힘들다면 먼저 아는 상태를 알려 주세요. 숫자에 맞추기 위해 식사를 거르거나 운동으로 보상하지 않도록 같이 확인해요."}`, "coach-checkin");
+    question("recovery", "몸이 힘든 날은 어떻게 할까요?", recoveryConcern ? `${reportedConcerns.join("·")} 상태를 알려 주셨어요. 다음 식사는 평소 구성으로 챙기고, 오늘 운동에는 쉴 여유를 두세요. 식사를 더 깎거나 추가 운동으로 맞추는 변경은 미뤄요. ${constraintAdvice || "알려 준 상태가 지속되거나 일상·운동에 지장을 주면 전문가와 개별적으로 살펴 주세요."}` : `평소 식사와 운동 구성을 출발점으로 이어갈 수 있어요. 몸이 힘든 날에는 쉬거나 훈련 부담을 낮추는 선택을 하고, 실제로 한 부분만 기록해 주세요. ${constraintAdvice || "추가 정보를 남긴다면 수면·허기·피로 중 평소와 가장 달랐던 한 가지만 알려 주세요."}`, "coach-checkin");
     if (!complete && meals.length) question("finish", "오늘 기록은 언제 마무리할까요?", "먹은 식사·간식·음료와 실제 운동이 모두 기록됐는지 확인해 주세요. 전부 맞으면 하루를 완료하면 돼요. 그때의 목표를 함께 저장하므로 나중에 기준이 바뀌어도 이 날의 비교 기준은 남아요.", "complete");
     const summary = `${saved ? "저장 당시 기준" : goalText} · 식사 ${meals.length}건 ${complete ? "완료" : "기록 중"} · ${sessionRows.length ? `운동 ${fmt(sessionMinutes)}분` : "운동 기록 없음"}`;
     return finish(complete ? "complete" : "recording", priorities, summary);

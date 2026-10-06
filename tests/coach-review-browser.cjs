@@ -210,13 +210,17 @@ async function screenshotStart(page, locator, filename) {
           assert.match(await page.locator('#coachWorkoutReview').innerText(), /통증|중단/);
         }
         if (kind === 'grouped') {
-          assert.match(detail, /실제 순차 수행 미확인/);
-          assert.doesNotMatch(detail, /실제 순차 수행으로 확인된/, 'listed grouped blocks do not prove sequential performance order');
+          await page.locator('#coachReviewDetail .coach-review-comparison summary').click();
+          const comparison = await page.locator('#coachReviewDetail .coach-review-comparison').innerText();
+          assert.match(comparison, /실제 순차 수행 미확인/);
+          assert.doesNotMatch(comparison, /실제 순차 수행으로 확인된/, 'listed grouped blocks do not prove sequential performance order');
         }
         if (kind === 'marked') {
-          assert.match(await page.locator('.coach-review-observation').innerText(), /별도 표기 세트 관찰/);
-          assert.match(await page.locator('.coach-review-reason').innerText(), /별도 문자가 표시된 세트.*일반 세트.*비교하지 않았/);
-          assert.match(await page.locator('#coachReviewDetail .source-badge').innerText(), /비교 보류/);
+          assert.match(await page.locator('#coachReviewDetail .coach-review-meaning').innerText(), /D.*34\.5kg.*7회/);
+          assert.match(await page.locator('#coachReviewDetail .coach-review-next-trial').innerText(), /별도 표기.*일반 세트/);
+          assert.equal(await page.locator('#coachReviewDetail [data-action="training-feedback"]').count(), 0, 'marked-only records cannot receive ordinary-set effort feedback');
+          await page.locator('#coachReviewDetail .coach-review-comparison summary').click();
+          assert.match(await page.locator('#coachReviewDetail .coach-review-comparison').innerText(), /별도 문자가 표시된 세트.*일반 세트.*비교하지 않았/);
           assert.doesNotMatch(detail, /수행이 늘|수행 증가|같은.*중량.*늘었|일반 세트 관찰/, 'marked-only observations are not ordinary-set performance improvement');
         }
         if (kind === 'no-profile') assert.equal((await stored(page)).profile, null, 'review works without creating a fabricated profile');

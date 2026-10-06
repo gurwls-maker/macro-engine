@@ -173,7 +173,8 @@ function compactWorkout(row, score = () => 0, mappings = []) {
   const selectedIds = new Set(exercises.map(({ exercise }) => exercise.id));
   return { id: row.id, date: row.date, time: row.time, label: row.label, durationMinutes: row.durationMinutes,
     reportedSetCount: row.reportedSetCount, reportedEnergyKcal: row.reportedEnergyKcal, reportedVolumeKg: row.reportedVolumeKg,
-    effort: row.effort, pain: row.pain, notes: row.notes.slice(0, 1200), sourceKind: row.source.kind,
+    effort: row.effort, pain: row.pain, ...(row.trainingIntent ? { trainingIntent: row.trainingIntent } : {}),
+    notes: row.notes.slice(0, 1200), sourceKind: row.source.kind,
     uncertainties: row.source.uncertainties.slice(0, 8).map(value => value.slice(0, 400)),
     originalExerciseCount: row.exercises.length, originalSetCount: row.exercises.reduce((sum, item) => sum + item.sets.length, 0),
     sampled: row.exercises.length > 6 || row.exercises.some(item => item.sets.length > 6),
@@ -187,7 +188,8 @@ function compactWorkout(row, score = () => 0, mappings = []) {
         loadRole: description.loadRole,
         loadConvention: description.loadConvention, loadConventionSource: description.loadConventionSource, loadRuleConflict: description.ruleConflict,
         reportedVolumeKg: exercise.reportedVolumeKg, durationMinutes: exercise.durationMinutes, repsTotal: exercise.repsTotal,
-        originalSetCount: exercise.sets.length, sampled: exercise.sets.length > 6, sets: exercise.sets.slice(0, 6), notes: exercise.notes.slice(0, 400) };
+        originalSetCount: exercise.sets.length, sampled: exercise.sets.length > 6, sets: exercise.sets.slice(0, 6),
+        ...(exercise.feedback ? { feedback: { ...exercise.feedback } } : {}), notes: exercise.notes.slice(0, 400) };
     }) };
 }
 function compactPlan(plan) {
@@ -307,8 +309,10 @@ function summarizeState(raw, date, question = '') {
       if (program.status === 'ready') program = { ...program, name: active.name, reason: '현재 지원 범위에서 참고할 사용자가 저장한 훈련 계획', days: savedProgram.days, source: 'saved-program' };
     }
     const last = trainingAnalysis.lastSession;
-    trainingAnalysis = { ...trainingAnalysis, progression: trainingAnalysis.progression.slice(0, 12), lastSession: last ? { id: last.id, date: last.date, label: last.label, workingSets: last.workingSets, unknownEffortSets: last.unknownEffortSets } : null,
-      sessions: trainingAnalysis.sessions.slice(-12).map(session => ({ id: session.id, date: session.date, label: session.label, workingSets: session.workingSets, unknownEffortSets: session.unknownEffortSets })),
+    trainingAnalysis = { ...trainingAnalysis, progression: trainingAnalysis.progression.slice(0, 12), lastSession: last ? { id: last.id, date: last.date, label: last.label, workingSets: last.workingSets, unknownEffortSets: last.unknownEffortSets,
+      ...(last.trainingIntent ? { trainingIntent: last.trainingIntent } : {}) } : null,
+      sessions: trainingAnalysis.sessions.slice(-12).map(session => ({ id: session.id, date: session.date, label: session.label, workingSets: session.workingSets, unknownEffortSets: session.unknownEffortSets,
+        ...(session.trainingIntent ? { trainingIntent: session.trainingIntent } : {}) })),
       detailScope: 'coverage와muscles는전체28일집계. sessions는최근12개요약, progression은최대12개비교. 원문세트표본으로총량을다시합산하지않습니다.' };
   }
   const calculationProfile = Nutrition.profileForDay(state.profile, current);
@@ -341,7 +345,8 @@ function summarizeState(raw, date, question = '') {
     trainingAnalysis, trainingSettings: state.training?.settings || null, program, savedProgram,
     unknowns: coach.context.missingSignals, reviewSignals: coach.priorities.filter(row => row.kind === 'safety'),
     recall,
-    workoutIndex: recent.map(record => ({ id: record.id, date: record.date, time: record.time, label: record.label, originalExerciseCount: record.exercises.length, originalSetCount: record.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) })),
+    workoutIndex: recent.map(record => ({ id: record.id, date: record.date, time: record.time, label: record.label,
+      ...(record.trainingIntent ? { trainingIntent: record.trainingIntent } : {}), originalExerciseCount: record.exercises.length, originalSetCount: record.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) })),
     recentWorkouts: detailed.map(({ row }) => compactWorkout(row, relevance, state.training?.mappings)),
     conversation: (state.training?.messages || []).filter(row => I.dateKey(new Date(row.createdAt)) <= date).slice(-12),
     contextScope: '질문별 retrieval에 명시한 기간 전체의 선택 기록 집계와 제한된 원문을 추가합니다. 선택 종목 맥락은 필터 전 세션 전체로 계산하며 유사 동작 참고는 relatedContext에 따로 둡니다. decisionContext는 기록 범위와 선택일의 다음 판단 조건이고 질문별 장기 집계의 대체가 아닙니다. 일반 배경은 최근 21개 날짜 영양 요약, 선택일 식사 최대 12개와 전체 합계, 전체 28일 훈련 집계, 최근 12개 일지 목록과 4개 상세, 단어가 맞는 과거 일부입니다. 질문의 지정 기간을 배경 28일이나 원문 표본으로 대신하지 않습니다.',
@@ -362,7 +367,7 @@ function summarizeState(raw, date, question = '') {
     packet.samplingReducedForBudget = true;
     result = build();
   }
-  for (const limit of [400, 120]) {
+  for (const limit of [400, 120, 60]) {
     if (fits()) break;
     const trim = (object, key, size) => {
       if (typeof object?.[key] === 'string' && object[key].length > size) { object[key] = object[key].slice(0, size); object[`${key}Sampled`] = true; }
@@ -394,6 +399,37 @@ function summarizeState(raw, date, question = '') {
     packet.samplingReducedForBudget = true;
     result = build();
   }
+  for (const limit of [6, 3]) {
+    if (fits()) break;
+    if (packet.trainingAnalysis?.sessions.length > limit) {
+      const analysis = packet.trainingAnalysis;
+      analysis.originalSessionSummaryCount ??= analysis.sessions.length;
+      analysis.sessions = analysis.sessions.slice(-limit); analysis.sessionsSampled = true;
+      analysis.detailScope = 'coverage와muscles는전체28일집계. sessions는맥락예산에맞춘최근일부요약, progression은일부비교입니다. workoutIndex도최근일지목록일뿐전체원문을전달한것은아닙니다. 표본으로전체총량을다시합산하지않습니다.';
+      packet.samplingReducedForBudget = true;
+      result = build();
+    }
+  }
+  for (const limit of [2, 1]) {
+    if (fits()) break;
+    for (const analysis of [packet.trainingAnalysis, ...packet.retrieval.periods.map(period => period.training)].filter(Boolean)) {
+      if (analysis.progression.length <= limit) continue;
+      analysis.originalProgressionSummaryCount ??= analysis.progression.length;
+      analysis.progression = analysis.progression.slice(0, limit); analysis.progressionSampled = true;
+      analysis.progressionDetailScope = '맥락예산에맞춘일부수행비교입니다. 전체기간의모든종목·장비비교를전달한것이아니며원래전체세트집계는coverage와muscles에보존했습니다.';
+    }
+    packet.samplingReducedForBudget = true;
+    result = build();
+  }
+  for (const limit of [7, 3]) {
+    if (fits()) break;
+    if (packet.recentDays.length <= limit) continue;
+    packet.originalRecentDayCount ??= packet.recentDays.length;
+    packet.recentDays = packet.recentDays.slice(0, limit); packet.recentDaysSampled = true;
+    packet.contextScope = '질문별retrieval의명시기간전체선택기록집계와제한된원문을전달합니다. 전체28일훈련집계와선택일식사합계는유지하지만일반배경의recentDays·sessions·progression과운동원문은맥락예산에맞춘일부표본입니다. workoutIndex는최근일지목록이며실제상세전달건수와다릅니다. 표본이나일반배경으로질문의지정기간전체집계를대신하지않습니다.';
+    packet.samplingReducedForBudget = true;
+    result = build();
+  }
   return result;
 }
 function promptFor(input) {
@@ -406,6 +442,7 @@ function promptFor(input) {
     '처방 수치가 제공된 계획과 다르면 이유와 확인할 조건을 설명하세요. 임신/수유/섭식장애/질환/미성년은 자동 식단·운동 처방을 만들지 말고 담당 전문가와 조정하세요.',
     '통증·흉통·호흡곤란·심한 어지럼·실신은 훈련/식단 강화보다 중단과 적절한 진료가 우선입니다. 진단하지 마세요.',
     '장비·부하 표기·RIR가 불명확하면 동일 중량 비교나 유효 세트로 단정하지 마세요. 한두 번의 부진으로 디로딩을 확정하지 마세요.',
+    'trainingIntent는 사용자가 남긴 운동 목적입니다. deload/light/technique/time-limited/return/test의 의도한 부담 조절을 평소 수행 저하나 근력 퇴보로 판정하지 마세요. 값이 없으면 목적은 미확인이며 regular만으로 비교 조건이 같다고 단정하지 않습니다. exercises[].feedback는 지정 setId의 당시 loadKg/reps에 대한 사용자 세트 체감입니다. comfortable/hard/limit를 숫자 RIR로 환산하거나 다른 세트·세션 전체에 확대하지 마세요. 해당 세트가 sets 원문 표본 밖이어도 feedback의 스냅샷은 보존하지만 원문 전체를 읽었다는 뜻은 아닙니다. 이미지 판독에서는 운동 목적·세트 느낌·RIR을 만들어 넣지 마세요.',
     'equipmentSource가 name-prefix 또는 name-delimiter인 장비명은 운동 이름에 적힌 표기를 읽은 것입니다. 같은 브랜드·모델이라고 같은 물리적 머신·저항·중량 표기 기준이 확인된 것은 아닙니다. rawName의 변형·그립·번호를 지우거나 부하를 환산하지 마세요.',
     'loadConventionSource가 name-rule이면 원암·덤벨을 한쪽, 바벨을 전체로 읽는 사용자 이름 규칙을 적용한 것입니다. 실제 kg는 원문 그대로이며 덤벨/원암의 kg를 두 배로 환산해 비교하거나 총운동량을 새로 만들지 마세요. 서로 충돌하는 이름 단서는 미확인입니다.',
     '운동의 loadRole은 external(외부 부하), assistance(보조 중량), unknown(미확인)입니다. 보조 중량 증가를 수행 향상으로, 감소를 퇴보로 해석하지 마세요. 미확인 부하 역할을 임의로 정하거나 체중에서 빼서 실제 저항을 계산하지 마세요.',
