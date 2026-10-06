@@ -11,6 +11,8 @@ const { PassThrough, Writable } = require("node:stream");
 const { setTimeout: delay } = require("node:timers/promises");
 const { spawn } = require("node:child_process");
 const S = require("../src/storage.js");
+const T = require("../src/training.js");
+const TS = require("../src/training-store.js");
 const D = require("../tools/diary.cjs");
 const { createBridge, imageType } = require("../tools/bridge.cjs");
 const { createServer } = require("../tools/serve.cjs");
@@ -57,10 +59,10 @@ function request(port, target, options = {}) {
     req.end(payload);
   });
 }
-async function server(t) {
+async function server(t, runtime) {
   const root = temporary(t);
   const data = path.join(root, "private");
-  const instance = createServer({ bridge: { data, runtimeOptions: { bin: null } } });
+  const instance = createServer({ bridge: { data, runtimeOptions: { bin: null }, ...(runtime ? { runtime } : {}) } });
   await new Promise((resolve, reject) => { instance.once("error", reject); instance.listen(0, "127.0.0.1", resolve); });
   cleanup(t, () => new Promise(resolve => instance.close(resolve)));
   const port = instance.address().port;
@@ -113,13 +115,16 @@ test("bridge token and private API reject foreign host, origin, fetch site and m
     { "Sec-Fetch-Site": "cross-site" },
     { "Sec-Fetch-Site": "same-site" }
   ]) {
-    const response = await api.get("/api/bridge/status", { headers });
-    assert.equal(response.status, 403);
-    assert.equal(response.json.token, undefined);
+    for (const endpoint of ["/api/bridge/status", "/api/inbox", `/api/images/${hash(PNG)}`]) {
+      const response = await api.get(endpoint, { headers });
+      assert.equal(response.status, 403);
+      assert.equal(response.json.token, undefined);
+    }
   }
   for (const token of [undefined, "incorrect"]) {
     const response = await request(api.port, "/api/state", { method: "POST", body: { state: state(), expectedDigest: null }, headers: token ? { "x-macro-token": token } : {} });
     assert.equal(response.status, 403);
+    assert.equal((await request(api.port, "/api/inbox", { method: "POST", body: { kind: "workout", name: "synthetic.png", base64: PNG.toString("base64") }, headers: token ? { "x-macro-token": token } : {} })).status, 403);
   }
   const sameOrigin = await api.get("/api/bridge/status", { headers: { Origin: `http://127.0.0.1:${api.port}`, "Sec-Fetch-Site": "same-origin" } });
   assert.equal(sameOrigin.status, 200);
@@ -335,19 +340,170 @@ test("image upload is content-addressed, preserves duplicate bytes and rejects a
   }
   fs.writeFileSync(path.join(api.data, "inbox", `${imageHash}.png`), Buffer.from("modified"));
   assert.equal((await api.get(`/api/images/${imageHash}`)).status, 400);
+  assert.equal((await api.post("/api/inbox", input)).status, 400);
+  assert.deepEqual(fs.readFileSync(path.join(api.data, "inbox", `${imageHash}.png`)), Buffer.from("modified"));
   assert.equal(imageType(Buffer.from("<svg></svg>")), null);
+});
+
+test("images and notes can be stored and reopened with unavailable, busy or quota-limited AI without launching a job", async t => {
+  let launches = 0;
+  const runtime = {
+    status: () => ({ available: false, busy: false, running: null, provider: "codex-local" }),
+    start: () => { launches++; throw new Error("synthetic AI quota limit"); },
+    list: () => [], close: () => {}
+  };
+  const api = await server(t, runtime), imageHash = hash(PNG);
+  const input = { kind: "workout", name: "synthetic.png", base64: PNG.toString("base64"), note: "합성 일지 메모\n\t분량은 미확인" };
+  const extraction = path.join(api.data, "extractions", `${imageHash}.json`);
+  D.atomicJson(extraction, { synthetic: "original extraction cache" });
+  const cacheBytes = fs.readFileSync(extraction);
+  const upload = await api.post("/api/inbox", input);
+  assert.equal(upload.status, 200); assert.equal(upload.json.reused, false); assert.equal(upload.json.metadataConflict, false);
+  assert.equal(upload.json.note, input.note); assert.equal(launches, 0);
+  assert.equal((await api.get("/api/inbox")).json.images[0].note, input.note);
+  assert.deepEqual((await api.get(`/api/images/${imageHash}`)).bytes, PNG);
+  for (const status of [{ available: true, busy: true, running: "synthetic" }, { available: true, busy: false, running: null }]) {
+    runtime.status = () => ({ ...status, provider: "codex-local" });
+    const response = await api.post("/api/inbox", input);
+    assert.equal(response.status, 200); assert.equal(response.json.reused, true);
+    assert.equal((await api.get("/api/bridge/status")).json.inbox[0].note, input.note);
+    assert.equal(launches, 0);
+  }
+  const failedAI = await api.post("/api/jobs", { kind: "workout", question: "판독", state: state(), date: "2026-10-05", imageHash });
+  assert.equal(failedAI.status, 400); assert.equal(launches, 1);
+  assert.equal((await api.post("/api/inbox", input)).status, 200);
+  assert.equal((await api.get(`/api/images/${imageHash}`)).status, 200); assert.equal(launches, 1);
+  assert.deepEqual(fs.readFileSync(extraction), cacheBytes);
+  assert.equal(fs.existsSync(path.join(api.data, "app-state.json")), false, "photo storage must not invent a structured diary entry");
+});
+
+test("duplicate photo uploads return the original metadata and do not silently replace a different note or purpose", async t => {
+  const api = await server(t), imageHash = hash(PNG);
+  const original = { kind: "workout", name: "original.png", base64: PNG.toString("base64"), note: "처음 보관한 목적" };
+  const first = await api.post("/api/inbox", original);
+  const metadata = path.join(api.data, "inbox", `${imageHash}.json`), before = fs.readFileSync(metadata), mtime = fs.statSync(metadata).mtimeMs;
+  const repeat = await api.post("/api/inbox", original);
+  assert.equal(repeat.json.reused, true); assert.equal(repeat.json.metadataConflict, false);
+  const changed = await api.post("/api/inbox", { ...original, kind: "meal", name: "different.png", note: "새 목적 메모" });
+  assert.equal(changed.status, 200); assert.equal(changed.json.reused, true); assert.equal(changed.json.metadataConflict, true);
+  assert.equal(changed.json.kind, original.kind); assert.equal(changed.json.name, original.name); assert.equal(changed.json.note, original.note);
+  assert.equal(changed.json.createdAt, first.json.createdAt);
+  assert.deepEqual(fs.readFileSync(metadata), before); assert.equal(fs.statSync(metadata).mtimeMs, mtime);
+  assert.equal(fs.existsSync(`${metadata}.previous`), false);
+  assert.deepEqual((await api.get("/api/inbox")).json.images, (await api.get("/api/bridge/status")).json.inbox);
+});
+
+test("chat shares the app's latest structured-record analysis without reopening source images", async t => {
+  const calls = [];
+  const runtime = {
+    status: () => ({ available: true, busy: false, running: null }),
+    start: (input, imageFile) => { calls.push({ input, imageFile }); return { id: `synthetic-chat-${calls.length}`, kind: "chat", status: "running" }; },
+    list: () => [], close: () => {}
+  };
+  const api = await server(t, runtime), imageHash = hash(PNG), date = "2026-10-05";
+  await api.post("/api/inbox", { kind: "workout", name: "synthetic-source.png", base64: PNG.toString("base64") });
+  const value = state(); value.training = TS.createEmpty();
+  value.training.records = [{ id: "synthetic-record", date, time: null, label: "Synthetic workout", durationMinutes: null,
+    reportedSetCount: null, reportedVolumeKg: null, reportedEnergyKcal: null, notes: "", effort: null, pain: null,
+    source: { kind: "visual", hash: imageHash, paths: [], revision: "synthetic-confirmation", uncertainties: [] },
+    exercises: [{ id: "synthetic-exercise", rawName: "바벨 로우", exerciseId: null, equipmentKey: null, loadConvention: "as-recorded",
+      durationMinutes: null, repsTotal: null, reportedVolumeKg: null, notes: "",
+      sets: [{ id: "warmup", loadKg: 20, reps: 10, rir: null, marker: "W" }, { id: "working-1", loadKg: 30, reps: 10, rir: 2, marker: null }, { id: "working-2", loadKg: 30, reps: 8, rir: 1, marker: null }] }] }];
+  // An inaccessible source must not prevent reuse of already confirmed numbers.
+  fs.writeFileSync(path.join(api.data, "inbox", `${imageHash}.png`), Buffer.from("synthetic inaccessible source"));
+  assert.equal((await api.get(`/api/images/${imageHash}`)).status, 400);
+  for (const question of ["등 운동 기록을 함께 봐줘", "식사와 운동의 방향을 확인해 줘"]) {
+    assert.equal((await api.post("/api/jobs", { kind: "chat", question, state: value, date })).status, 200);
+    const { input, imageFile } = calls.at(-1), expected = T.analyze(S.validateState(value).training.records, { date, profile: null, checkins: {}, mappings: [] });
+    assert.equal(imageFile, null);
+    assert.deepEqual(input.context.trainingAnalysis.coverage, expected.coverage);
+    assert.deepEqual(input.context.trainingAnalysis.muscles, expected.muscles);
+    assert.equal(input.context.trainingAnalysis.coverage.workingSets, 2);
+    assert.equal(input.context.recentWorkouts[0].exercises[0].rawName, "바벨 로우");
+    assert.equal(input.context.recentWorkouts[0].exercises[0].sets[1].loadKg, 30);
+  }
+  value.training.records[0].exercises[0].sets.push({ id: "working-3", loadKg: 30, reps: 7, rir: 1, marker: null });
+  assert.equal((await api.post("/api/jobs", { kind: "chat", question: "새 기록을 확인해 줘", state: value, date })).status, 200);
+  assert.equal(calls.at(-1).input.context.trainingAnalysis.coverage.workingSets, 3);
+  assert.equal(calls.at(-1).imageFile, null);
+  assert.equal(fs.existsSync(path.join(api.data, "app-state.json")), false, "preparing a conversation cannot rewrite stored records");
+});
+
+test("image notes accept 6000 Korean characters and well-formed UTF-8 but reject invalid fields without writing files", async t => {
+  const api = await server(t);
+  const input = { kind: "meal", name: "synthetic.png", base64: PNG.toString("base64") };
+  for (const change of [
+    { note: null }, { note: 1 }, { note: "한".repeat(6001) }, { note: "bad\u0000note" }, { note: "bad\u007fnote" },
+    { note: "bad\ud800note" }, { note: "bad\udc00note" }, { unexpected: true }
+  ]) assert.equal((await api.post("/api/inbox", { ...input, ...change })).status, 400);
+  for (const invalid of [null, [], "not an object"]) assert.equal((await api.post("/api/inbox", invalid)).status, 400);
+  assert.deepEqual(fs.readdirSync(path.join(api.data, "inbox")), []);
+  const note = "한".repeat(5996) + "\ud83c\udfcb\ufe0f\n";
+  assert.equal(note.length, 6000);
+  const saved = await api.post("/api/inbox", { ...input, note });
+  assert.equal(saved.status, 200); assert.equal(saved.json.note, note);
+  assert.equal((await api.get("/api/inbox")).json.images[0].note, note);
+});
+
+test("legacy inbox metadata remains unchanged and damaged metadata cannot be overwritten by reupload", async t => {
+  const api = await server(t), imageHash = hash(PNG);
+  const input = { kind: "body", name: "synthetic.png", base64: PNG.toString("base64") };
+  await api.post("/api/inbox", input);
+  const metadata = path.join(api.data, "inbox", `${imageHash}.json`);
+  const legacy = D.readJson(metadata); delete legacy.note;
+  fs.writeFileSync(metadata, JSON.stringify(legacy), "utf8");
+  const legacyBytes = fs.readFileSync(metadata);
+  assert.equal((await api.get("/api/inbox")).json.images[0].note, "");
+  assert.equal((await api.post("/api/inbox", input)).json.metadataConflict, false);
+  assert.deepEqual(fs.readFileSync(metadata), legacyBytes);
+  for (const damaged of ["{damaged synthetic metadata", JSON.stringify({ ...legacy, hash: "a".repeat(64) }), JSON.stringify({ ...legacy, note: "bad\u0000note" }), JSON.stringify({ ...legacy, bytes: "1" })]) {
+    fs.writeFileSync(metadata, damaged, "utf8");
+    assert.deepEqual((await api.get("/api/inbox")).json.images, [{ damaged: true, hash: imageHash }]);
+    assert.equal((await api.post("/api/inbox", input)).status, 400);
+    assert.equal((await api.get(`/api/images/${imageHash}`)).status, 400);
+    assert.equal(fs.readFileSync(metadata, "utf8"), damaged);
+    assert.deepEqual(fs.readFileSync(path.join(api.data, "inbox", `${imageHash}.png`)), PNG);
+  }
+});
+
+test("photo storage honors a concurrent private write lock without losing the user's retry", async t => {
+  const api = await server(t), lock = path.join(api.data, ".write-lock");
+  const input = { kind: "workout", name: "synthetic.png", base64: PNG.toString("base64"), note: "잠시 보관할 합성 메모" };
+  fs.writeFileSync(lock, "synthetic diary owner\n", "utf8");
+  assert.equal((await api.post("/api/inbox", input)).status, 409);
+  assert.deepEqual(fs.readdirSync(path.join(api.data, "inbox")), []);
+  assert.equal(fs.readFileSync(lock, "utf8"), "synthetic diary owner\n");
+  fs.unlinkSync(lock);
+  assert.equal((await api.post("/api/inbox", input)).status, 200);
+  assert.equal((await api.get("/api/inbox")).json.images[0].note, input.note);
+});
+
+test("inbox listing and reupload reject metadata junctions without reading or replacing external files", async t => {
+  const api = await server(t), imageHash = hash(PNG);
+  const outside = path.join(api.root, "external-metadata"), metadata = path.join(api.data, "inbox", `${imageHash}.json`);
+  fs.mkdirSync(outside);
+  const sentinel = path.join(outside, "original.txt"); fs.writeFileSync(sentinel, "preserved external data", "utf8");
+  fs.symlinkSync(outside, metadata, process.platform === "win32" ? "junction" : "dir");
+  assert.deepEqual((await api.get("/api/inbox")).json.images, [{ damaged: true, hash: imageHash }]);
+  assert.equal((await api.post("/api/inbox", { kind: "workout", name: "synthetic.png", base64: PNG.toString("base64") })).status, 400);
+  assert.equal((await api.get(`/api/images/${imageHash}`)).status, 400);
+  assert.equal(fs.lstatSync(metadata).isSymbolicLink(), true);
+  assert.equal(fs.readFileSync(sentinel, "utf8"), "preserved external data");
 });
 
 test("an upload metadata-write failure can be retried without replacing its original image", async t => {
   const api = await server(t), imageHash = hash(PNG), originalAtomic = D.atomicJson;
-  const input = { kind: "workout", name: "synthetic.png", base64: PNG.toString("base64") };
+  const input = { kind: "workout", name: "synthetic.png", base64: PNG.toString("base64"), note: "재시도에도 보존할 메모" };
   try {
     D.atomicJson = (file, value) => { if (file === path.join(api.data, "inbox", `${imageHash}.json`)) throw new Error("synthetic metadata write failure"); return originalAtomic(file, value); };
     assert.equal((await api.post("/api/inbox", input)).status, 400);
   } finally { D.atomicJson = originalAtomic; }
   assert.deepEqual(fs.readFileSync(path.join(api.data, "inbox", `${imageHash}.png`)), PNG);
+  assert.equal((await api.get("/api/inbox")).json.images.length, 0);
   assert.equal((await api.post("/api/inbox", input)).status, 200);
   assert.equal((await api.get("/api/inbox")).json.images.length, 1);
+  assert.equal((await api.get("/api/inbox")).json.images[0].note, input.note);
+  assert.equal(fs.readdirSync(api.data).includes(".write-lock"), false);
 });
 
 test("runtime launches only an ephemeral read-only isolated Codex process and caches completed context", t => {

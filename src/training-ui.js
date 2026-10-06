@@ -7,13 +7,14 @@
     const copy = value => JSON.parse(JSON.stringify(value));
     const sourceNames = { visual: '이미지 판독', 'legacy-ocr': '과거 OCR · 미검증', manual: '직접 기록' };
     const statusNames = { improved: '비교 조건 내 향상', declined: '비교 조건 내 감소', stable: '비슷함', mixed: '변화 혼재', incomparable: '비교 조건 확인', insufficient: '이전 기록 부족' };
-    let tab = 'log', chosen = null, pendingImport = null, filter = '', currentJob = null, jobTimer = null, provider = 'local', imageDraft = null;
-    let editor = null, editorIsDraft = false, editorAssignmentId = null, chatDraft = '', jobs = [], unprocessedImages = [], jobStarting = false, followUpDraft = null;
+    let tab = 'log', chosen = null, pendingImport = null, filter = '', currentJob = null, jobTimer = null, imageDraft = null;
+    let editor = null, editorIsDraft = false, editorAssignmentId = null, chatDraft = '', jobs = [], uploadedImages = [], unprocessedImages = [], inboxError = null, jobStarting = false, followUpDraft = null;
     let scheduleWeek = I.dateKey();
     let editorNewProgram = null, editorNewAssignment = null;
     let chatScrollTop = 0, lastChatMessage = null, chatNearBottom = true, chatScrollToLatest = false;
     let analyzedState = null, analyzedDate = null, cachedAnalysis = null, cachedProgram = null, cachedProgramDate = null;
-    const bridge = root.MacroBridge.create(() => { if (bridge.status?.runtime?.available && !bridge.status.storageError && provider === 'local' && !workspace().messages.length) provider = 'codex'; app.render(); });
+    const bridge = root.MacroBridge.create(() => app.render());
+    function canAskAI() { return bridge.status?.connected === true && bridge.status.runtime?.available === true; }
     function workspace() { return app.getState().training || TS.createEmpty(); }
     function planning(value = workspace()) { return value.planning || TS.createEmpty().planning; }
     function activeProgram() { const value = planning(); return value.programs.find(row => row.id === value.activeProgramId) || null; }
@@ -318,35 +319,58 @@
       });
     }
     function imageDialog() {
-      if (!bridge.status?.connected) { toast('이미지 코칭은 로컬 앱 주소에서 연결할 수 있어요. 수동 기록과 JSON 가져오기는 지금도 사용할 수 있습니다.', true); return; }
-      openDialog('이미지로 기록', `<div class="form-grid"><label class="field"><span>기록 종류</span><select id="imageKind" name="kind">${options([['workout', '운동 일지'], ['meal', '식사 · 영양 라벨'], ['body', '체성분 · 인바디']], 'workout')}</select></label><label class="field"><span>이미지</span><input id="coachImageFile" type="file" accept="image/png,image/jpeg,image/webp" required></label><label class="field full-width"><span>분량·날짜 등 맥락 · 선택</span><textarea id="imageNote" name="note" rows="2" maxlength="6000" placeholder="예: 라벨의 1회 분량 중 절반을 먹었어요"></textarea></label></div><p class="form-help">이미지는 Codex에 전송돼 계정 사용량을 사용합니다. 판독 결과를 확인한 뒤에만 기록에 반영해요.</p>${bridge.status.runtime.available ? actions('이미지 해석 요청') : '<p class="notice notice-warning">Codex 실행 파일을 찾지 못했어요. 직접 기록하거나 JSON 결과를 가져와 주세요.</p>'}`, async form => {
+      if (!bridge.status?.connected) { toast('사진 보관은 로컬 앱 서버가 필요해요. 지금도 직접 기록·지난 운동 재사용·JSON 가져오기는 가능합니다.', true); return; }
+      openDialog('사진 추가', `<div class="form-grid"><label class="field"><span>기록 종류</span><select id="imageKind" name="kind">${options([['workout', '운동 일지'], ['meal', '식사 · 영양 라벨'], ['body', '체성분 · 인바디']], 'workout')}</select></label><label class="field"><span>이미지</span><input id="coachImageFile" type="file" accept="image/png,image/jpeg,image/webp" required></label><label class="field full-width"><span>분량·날짜 등 메모 · 선택</span><textarea id="imageNote" name="note" rows="2" maxlength="6000" placeholder="예: 라벨의 1회 분량 중 절반을 먹었어요"></textarea></label></div><label class="checkbox-field"><input id="imageAnalyze" name="analyze" type="checkbox" ${canAskAI() ? '' : 'disabled'}>보관 후 Codex 판독도 요청</label>${!canAskAI() ? '<p class="notice notice-warning">지금은 AI 판독에 연결할 수 없어요. 사진과 메모만 보관하거나 숫자를 직접 기록할 수 있습니다.</p>' : '<p class="form-help">판독을 선택하면 이미지와 메모를 Codex에 전송해 계정 사용량을 사용합니다.</p>'}<p class="form-help">사진 보관만으로 세트·섭취량·측정값이 추가되지는 않아요. 판독 초안도 확인한 뒤에만 기록에 반영합니다.</p>${actions('사진 보관')}`, async form => {
         const entry = $('entryForm'), file = $('coachImageFile').files[0]; if (!file) return;
-        try {
-          if (file.size > 10 * 1024 * 1024) throw new Error('10MB 이하의 PNG, JPG, WebP를 선택해 주세요.');
-          const buffer = new Uint8Array(await file.arrayBuffer()); let binary = ''; for (const byte of buffer) binary += String.fromCharCode(byte);
-          const uploaded = await bridge.request('/api/inbox', { name: file.name, kind: String(form.get('kind')), base64: btoa(binary) });
-          if (!entry.isConnected || !$('entryDialog').open) return;
-          closeDialog(); await startJob(String(form.get('kind')), String(form.get('note') || ''), uploaded.hash);
-        } catch (error) { toast(error.message, true); }
+        const kind = String(form.get('kind')), note = String(form.get('note') || ''), analyze = form.get('analyze') === 'on';
+        if (file.size > 10 * 1024 * 1024) throw new Error('10MB 이하의 PNG, JPG, WebP를 선택해 주세요.');
+        if (note.length > 6000) throw new Error('메모는 6,000자 이내로 줄여 주세요.');
+        const buffer = new Uint8Array(await file.arrayBuffer()); let binary = ''; for (const byte of buffer) binary += String.fromCharCode(byte);
+        const uploaded = await bridge.request('/api/inbox', { name: file.name, kind, note, base64: btoa(binary) });
+        uploadedImages = [...uploadedImages.filter(row => row.hash !== uploaded.hash), uploaded];
+        const stillOpen = entry.isConnected && $('entryDialog').open;
+        if (stillOpen) closeDialog();
+        if (stillOpen) { tab = 'log'; app.selectView('training'); }
+        await refreshJobs();
+        const stored = uploaded.metadataConflict ? '같은 사진이 이미 보관되어 기존 종류와 메모를 유지했어요.' : uploaded.reused ? '이미 보관한 사진을 다시 확인했어요.' : '사진과 메모를 이 PC에 보관했어요.';
+        toast(`${stored} 사진 보관만으로 숫자 기록을 새로 추가하지는 않았습니다.${inboxError ? ' 보관 목록을 불러오지 못했어요. 서버를 다시 확인해 주세요.' : ''}`, !!inboxError);
+        if (!analyze || !stillOpen) return;
+        try { await startJob(kind, note, uploaded.hash); }
+        catch (error) { toast(`사진은 보관됐지만 AI 판독을 시작하지 못했어요. ${error.message}`, true); }
       });
     }
     async function refreshJobs() {
       if (!bridge.status?.connected) return;
-      try { const result = await bridge.request('/api/jobs'); jobs = result.jobs || []; unprocessedImages = unprocessedImages.filter(source => !jobs.some(job => job.imageHash === source.hash && job.status === 'completed')); if (app.getView?.() === 'training') render(); } catch {}
+      const errors = [];
+      try { const result = await bridge.request('/api/jobs'); jobs = result.jobs || []; unprocessedImages = unprocessedImages.filter(source => !jobs.some(job => job.imageHash === source.hash && job.status === 'completed')); } catch (error) { errors.push(`판독 요청 목록: ${error.message}`); }
+      try { const result = await bridge.request('/api/inbox'); uploadedImages = result.images || []; } catch (error) { errors.push(`사진 보관 목록: ${error.message}`); }
+      inboxError = errors.join(' ') || null;
+      if (app.getView?.() === 'training') render();
     }
     function inboxHTML() {
       const images = jobs.filter(job => job.kind !== 'chat' && job.kind !== 'unknown');
-      return `<details class="image-inbox"><summary>이미지 확인함 <span>${images.length + unprocessedImages.length}</span></summary>${images.length ? images.map(job => `<div class="inbox-row">${imageThumbnail(job.imageHash)}<div><strong>${{ workout: '운동 일지', meal: '식사', body: '몸 상태' }[job.kind]}</strong><span>${e(job.createdAt?.slice(0, 10) || '')} · ${{ completed: '판독 초안', running: '판독 중', cancelled: '취소됨', failed: '확인 필요', interrupted: '중단됨' }[job.status] || '확인 필요'}</span></div>${command('image-job-open', '확인', 'arrow-up-right', `data-id="${e(job.id)}"`)}</div>`).join('') : '<p class="form-help">보관된 이미지 초안이 없어요.</p>'}${unprocessedImages.length ? `<h3>새 폴더 이미지 · 미판독</h3>${unprocessedImages.map(source => `<div class="inbox-row">${imageThumbnail(source.hash)}<div><strong>${e(source.paths[0]?.split(/[\\/]/).at(-1) || '새 이미지')}</strong><span>기존 판독 캐시 없음</span></div>${command('image-source-start', '판독 요청', 'scan-text', `data-hash="${source.hash}"`)}</div>`).join('')}` : ''}</details>`;
+      const pending = uploadedImages.filter(source => !images.some(job => job.imageHash === source.hash));
+      const external = unprocessedImages.filter(source => !uploadedImages.some(row => row.hash === source.hash) && !images.some(job => job.imageHash === source.hash));
+      const kinds = { workout: '운동 일지', meal: '식사', body: '체성분' };
+      const requestButton = source => command('image-source-start', '판독 요청', 'scan-text', `data-hash="${e(source.hash)}" ${source.damaged ? 'disabled title="사진 보관 정보 확인이 필요해요"' : canAskAI() ? '' : 'disabled title="AI 판독 연결이 필요해요"'}`);
+      const storedRecord = job => job.kind === 'workout' ? workspace().records.some(row => row.source.hash === job.imageHash) : job.kind === 'meal' ? Object.values(app.getState().days).some(day => day.meals.some(meal => meal.source?.hash === job.imageHash)) : false;
+      const jobStatus = job => job.status === 'completed' ? job.kind === 'body' ? 'AI 판독 결과 · 저장 여부는 기록에서 확인' : storedRecord(job) ? '관련 저장 기록 있음 · AI 원문 초안' : 'AI 판독 초안 · 반영 전 확인 필요' : ({ running: 'AI 판독 중', pending: 'AI 판독 대기', cancelled: '취소됨 · 사진 보관', failed: '판독 실패 · 사진 보관', interrupted: '중단됨 · 사진 보관' }[job.status] || '확인 필요');
+      return `<details class="image-inbox"><summary>이미지 확인함 <span>${images.length + pending.length + external.length}${inboxError ? ' · 조회 확인 필요' : ''}</span></summary>
+        ${inboxError ? `<div class="notice notice-warning" role="alert"><strong>보관 목록을 불러오지 못했어요.</strong><p>${e(inboxError)}</p><p>사진이 없는 것으로 처리하지 않습니다. 마지막 확인 목록은 그대로 남겨요.</p>${command('bridge-refresh', '서버 다시 확인', 'refresh-cw')}</div>` : ''}
+        ${images.length ? `<h3>판독 요청과 초안</h3>${images.map(job => `<div class="inbox-row" data-image-hash="${e(job.imageHash)}">${imageThumbnail(job.imageHash)}<div><strong>${kinds[job.kind]}</strong><span>${e(job.createdAt?.slice(0, 10) || '')} · ${jobStatus(job)}</span></div>${command('image-job-open', '확인', 'arrow-up-right', `data-id="${e(job.id)}"`)}</div>`).join('')}` : ''}
+        ${pending.length ? `<h3>사진만 보관 · 미판독</h3>${pending.map(source => `<div class="inbox-row" data-image-hash="${e(source.hash)}">${imageThumbnail(source.hash)}<div><strong>${e(source.name || '사진 보관 정보 확인 필요')}</strong><span>${source.damaged ? '보관 정보 손상 · 숫자 기록에 반영되지 않음' : `${e(source.createdAt?.slice(0, 10) || '')} · ${kinds[source.kind] || '종류 미확인'} · 사진만 보관 · 미판독`}</span>${source.note ? `<p class="inbox-note">${e(source.note)}</p>` : ''}</div>${requestButton(source)}</div>`).join('')}` : ''}
+        ${external.length ? `<h3>새 폴더 이미지 · 미판독</h3>${external.map(source => `<div class="inbox-row" data-image-hash="${e(source.hash)}">${imageThumbnail(source.hash)}<div><strong>${e(source.paths[0]?.split(/[\\/]/).at(-1) || '새 이미지')}</strong><span>기존 판독 캐시 없음</span></div>${requestButton(source)}</div>`).join('')}` : ''}
+        ${!inboxError && !images.length && !pending.length && !external.length ? '<p class="form-help">보관한 이미지가 없어요.</p>' : ''}${!canAskAI() ? '<p class="form-help">AI 판독은 현재 연결할 수 없어요. 사진 보관과 직접 기록은 가능합니다.</p>' : ''}<p class="form-help">보관한 사진과 AI 초안은 확인해 저장한 숫자 기록과 별개입니다.</p></details>`;
     }
     function enhanceChat() {
       if (!$('coachChatInput')) return;
       $('coachChatInput').value = chatDraft;
-      $('coachChatForm').querySelector('[type="submit"]').disabled = jobStarting || currentJob?.status === 'running' || currentJob?.status === 'pending';
-      if (bridge.status?.runtime?.available) {
+      $('coachChatForm').querySelector('[type="submit"]').disabled = !canAskAI() || jobStarting || currentJob?.status === 'running' || currentJob?.status === 'pending';
+      if (canAskAI()) {
         const messages = workspace().messages.slice(-40);
         $('coachContent').querySelectorAll('.conversation-message').forEach((element, index) => {
           const item = messages[index];
-          if (item.role === 'coach' && item.source === 'local' && item.replyTo && !/119|즉시|응급/.test(item.text)) element.insertAdjacentHTML('beforeend', command('coach-continue', '개인 코치로 이어 묻기', 'messages-square', `data-user="${e(item.replyTo)}"`));
+          if (item.role === 'coach' && item.source === 'local' && item.replyTo && !/안전 안내|119|즉시|응급/.test(item.text)) element.insertAdjacentHTML('beforeend', command('coach-continue', '이 질문을 AI와 다시 살펴보기', 'messages-square', `data-user="${e(item.replyTo)}"`));
         });
       }
       const log = $('coachContent').querySelector('.conversation-log'), latest = workspace().messages.at(-1)?.id || null;
@@ -413,7 +437,13 @@
     }
     function chatHTML() {
       const messages = workspace().messages.slice(-40);
-      return `<section class="personal-conversation"><div class="section-header"><h2>코치와 대화</h2><div class="segmented compact-segmented" role="group" aria-label="응답 방식"><button type="button" data-action="coach-provider" data-provider="local" aria-pressed="${provider === 'local'}">기록 코치</button><button type="button" data-action="coach-provider" data-provider="codex" aria-pressed="${provider === 'codex'}" ${!bridge.status?.runtime?.available ? 'disabled' : ''}>Codex</button></div></div><span class="conversation-provider">${provider === 'codex' ? '개인 AI · 현재 기록을 전송 · 계정 사용량 사용' : '확인된 기록과 규칙에 기반한 응답 · 개인 AI 아님'}</span><div class="conversation-log" role="log" aria-label="코치 대화">${messages.map(message => `<div class="conversation-message conversation-${message.role}"><span>${message.role === 'user' ? '나' : message.source === 'codex' ? '개인 코치 · Codex' : '기록 코치'}${message.status === 'pending' ? ' · 답변 대기' : ''}</span><p class="conversation-text">${e(message.text)}</p></div>`).join('') || '<div class="conversation-empty"><strong>지금 가장 걸리는 것은 무엇인가요?</strong><span>최근 운동과 식사, 오늘 몸 상태를 함께 살펴볼게요.</span></div>'}</div><form id="coachChatForm" class="conversation-compose"><label class="sr-only" for="coachChatInput">코치에게 질문</label><textarea id="coachChatInput" rows="2" maxlength="6000" placeholder="운동 수행이 떨어지고 허기가 심해. 오늘은 어떻게 할까?" required></textarea><button class="icon-button send-button" type="submit" aria-label="코치에게 보내기" title="코치에게 보내기" ${currentJob?.status === 'running' ? 'disabled' : ''}>${icon('arrow-up')}</button></form>${jobHTML()}<div class="conversation-actions">${command('training-image', '이미지 기록', 'image-plus')}${command('nav-training', '운동 일지', 'dumbbell')}${command('nav-program', '다음 운동', 'calendar-days')}</div>${connectionPanel()}</section>`;
+      const available = canAskAI(), busy = jobStarting || currentJob?.status === 'running' || currentJob?.status === 'pending';
+      const sourceLabel = row => row.role === 'user' ? '나' : row.text.startsWith('상담 요청을 완료하지 못했어요.') ? '연결 안내' : row.source === 'codex' ? '개인 코치 · Codex' : /안전 안내|119|즉시|응급/.test(row.text) ? '즉시 안전 안내' : '이전 기록 안내';
+      const reconnect = location.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(location.hostname) ? command('bridge-refresh', '서버 다시 확인', 'refresh-cw') : '';
+      return `<section class="personal-conversation"><div class="section-header"><h2>코치 상담</h2><span class="source-badge">${available ? 'Codex 연결' : 'AI 연결 없음'}</span></div><span class="conversation-provider">${available ? '선택한 기록과 대화 일부를 전송 · 계정 사용량 사용' : '상담은 AI 연결이 필요해요 · 이전 대화는 유지됩니다'}</span>
+        <div class="conversation-log" role="log" aria-label="코치 대화">${messages.map(row => `<div class="conversation-message conversation-${row.role}"><span>${sourceLabel(row)}${row.status === 'pending' ? ' · 답변 대기' : ''}</span><p class="conversation-text">${e(row.text)}</p></div>`).join('') || (available ? '<div class="conversation-empty"><strong>지금 가장 걸리는 것은 무엇인가요?</strong><span>최근 운동과 식사, 오늘 몸 상태를 함께 살펴볼게요.</span></div>' : '')}</div>
+        ${!available ? `<div class="conversation-unavailable" role="status"><strong>상담 연결이 없어요</strong><p>기록 요약·직접 기록·지난 운동 재사용·저장한 계획은 계속 사용할 수 있습니다. AI 대신 규칙 문장을 상담 답변으로 내보내지는 않아요.</p>${reconnect}</div>` : ''}
+        <form id="coachChatForm" class="conversation-compose"><label class="sr-only" for="coachChatInput">코치에게 질문</label><textarea id="coachChatInput" rows="2" maxlength="6000" placeholder="${available ? '운동 수행이 떨어지고 허기가 심해. 오늘은 어떻게 할까?' : 'AI 연결 후 질문할 수 있어요'}" required ${available ? '' : 'disabled'}></textarea><button class="icon-button send-button" type="submit" aria-label="코치에게 보내기" title="코치에게 보내기" ${!available || busy ? 'disabled' : ''}>${icon('arrow-up')}</button></form>${jobHTML()}<div class="conversation-actions">${command('training-image', '사진 추가', 'image-plus')}${command('nav-training', '직접 기록 · 운동 일지', 'dumbbell')}${command('nav-program', '다음 운동', 'calendar-days')}</div>${connectionPanel()}</section>`;
     }
     function memoryHTML() {
       const data = workspace(), memory = data.memory || TS.createEmpty().memory;
@@ -438,7 +468,8 @@
     }
     function jobHTML() {
       if (jobStarting) return `<div class="job-status" role="status"><span>${icon('loader-circle')}코치 요청 연결 중…</span></div>`;
-      return currentJob ? `<div class="job-status" role="status"><span>${icon(currentJob.status === 'running' ? 'loader-circle' : currentJob.status === 'completed' ? 'circle-check' : 'circle-alert')}${currentJob.status === 'running' ? '기록을 연결해 생각 중…' : currentJob.status === 'completed' ? '응답 완료' : e(currentJob.error || '요청이 중단됐어요.')}</span>${currentJob.status === 'running' ? iconButton('coach-job-cancel', '코치 요청 취소', 'x') : currentJob.status !== 'completed' ? command('coach-job-retry', '다시 요청', 'rotate-cw') : ''}</div>` : '';
+      const active = ['running', 'pending'].includes(currentJob?.status);
+      return currentJob ? `<div class="job-status" role="status"><span>${icon(active ? 'loader-circle' : currentJob.status === 'completed' ? 'circle-check' : 'circle-alert')}${active ? '기록을 연결해 생각 중…' : currentJob.status === 'completed' ? '응답 완료' : e(currentJob.error || '요청이 중단됐어요.')}</span>${active ? iconButton('coach-job-cancel', '코치 요청 취소', 'x') : currentJob.status !== 'completed' ? command('coach-job-retry', '다시 요청', 'rotate-cw', canAskAI() ? '' : 'disabled title="AI 연결이 필요해요"') : ''}</div>` : '';
     }
     function coachContextHTML() {
       const report = analysis(), last = report.lastSession;
@@ -449,13 +480,14 @@
       if (!text.trim()) return;
       const local = root.MacroConversation.respond(text, { profile: app.getState().profile, day: app.getDay(), history: app.getState().days, coach: app.coachFor(), trainingAnalysis: analysis(), program: coachingProgram() });
       const safetyFirst = /safety|urgent|pain|clinical/.test(local.topic);
-      const source = safetyFirst ? 'local' : provider;
+      const source = safetyFirst ? 'local' : 'codex';
+      if (!safetyFirst && !canAskAI()) throw new Error('AI 상담에 연결할 수 없어요. 직접 기록과 기록 요약은 계속 사용할 수 있습니다.');
       if (source === 'codex' && (jobStarting || currentJob?.status === 'running' || currentJob?.status === 'pending')) throw new Error('현재 코치 요청이 끝난 뒤 진행해 주세요.');
       const next = copy(workspace()), user = message('user', text.trim(), source, null, source === 'codex' ? 'pending' : 'answered');
       next.messages.push(user);
       chatScrollToLatest = true;
       if (source === 'local') {
-        next.messages.push(message('coach', local.text, 'local', user.id)); if (saveWorkspace(next)) chatDraft = ''; app.selectView('coach', false); return;
+        next.messages.push(message('coach', `안전 안내\n\n${local.text}`, 'local', user.id)); if (saveWorkspace(next)) chatDraft = ''; app.selectView('coach', false); return;
       }
       if (!saveWorkspace(next)) return;
       chatDraft = '';
@@ -464,9 +496,10 @@
     function answerFailure(replyTo, text) {
       if (!replyTo) { toast(text, true); return; }
       const next = copy(workspace()), user = next.messages.find(row => row.id === replyTo); if (user) user.status = 'answered';
-      next.messages.push(message('coach', text, 'codex', replyTo)); saveWorkspace(next);
+      next.messages.push(message('coach', `상담 요청을 완료하지 못했어요.\n\n${text}\n\n기록은 유지됩니다. 연결을 확인한 뒤 다시 요청해 주세요.`, 'codex', replyTo)); saveWorkspace(next);
     }
     async function startJob(kind, question, imageHash = null, replyTo = null, retry = false) {
+      if (!canAskAI()) throw new Error('Codex에 연결할 수 없어요. 설치·로그인과 사용 한도를 확인해 주세요.');
       if (jobStarting || currentJob?.status === 'running' || currentJob?.status === 'pending') throw new Error('현재 코치 요청이 끝난 뒤 진행해 주세요.');
       jobStarting = true; app.render();
       try {
@@ -567,22 +600,35 @@
       else if (action === 'training-conflict') conflictDialog(pendingImport.result.conflicts[Number(button.dataset.index)]);
       else if (action === 'training-image') imageDialog();
       else if (action === 'image-source-start') {
-        openDialog('새 이미지 판독', `<div class="image-draft-summary">${imageThumbnail(button.dataset.hash)}<label class="field"><span>기록 종류</span><select name="kind">${options([['workout', '운동 일지'], ['meal', '식사'], ['body', '체성분']], 'workout')}</select></label></div><label class="field"><span>날짜·분량 맥락 · 선택</span><textarea name="note" rows="2" maxlength="6000"></textarea></label><p class="form-help">이 이미지를 Codex에 전송해 계정 사용량을 사용합니다. 확인 후에만 기록에 반영해요.</p>${actions('이 이미지 판독 요청')}`, async form => { try { closeDialog(); await startJob(String(form.get('kind')), String(form.get('note') || ''), button.dataset.hash); } catch (error) { toast(error.message, true); } });
+        if (!canAskAI()) throw new Error('AI 판독에 연결할 수 없어요. 사진과 메모는 그대로 보관됩니다.');
+        const source = uploadedImages.find(row => row.hash === button.dataset.hash);
+        if (source?.damaged) throw new Error('이 사진의 보관 정보가 손상돼 먼저 확인해야 해요. 원본은 덮어쓰지 않습니다.');
+        openDialog('보관한 사진 판독', `<div class="image-draft-summary">${imageThumbnail(button.dataset.hash)}<label class="field"><span>기록 종류</span><select name="kind">${options([['workout', '운동 일지'], ['meal', '식사'], ['body', '체성분']], source?.kind || 'workout')}</select></label></div><label class="field"><span>날짜·분량 맥락 · 선택</span><textarea name="note" rows="2" maxlength="6000">${e(source?.note || '')}</textarea></label><p class="form-help">이 이미지와 메모를 Codex에 전송해 계정 사용량을 사용합니다. 초안을 확인한 뒤에만 숫자 기록에 반영해요.</p>${actions('이 이미지 판독 요청')}`, async form => {
+          const entry = $('entryForm');
+          try {
+            await startJob(String(form.get('kind')), String(form.get('note') || ''), button.dataset.hash);
+            if (entry.isConnected && $('entryDialog').open) closeDialog();
+          } catch (error) { throw new Error(`사진은 보관되어 있어요. 입력한 종류와 메모를 유지했습니다. ${error.message}`); }
+        });
       }
       else if (action === 'image-workout-preview') { const records = workoutDraftRecords(); if (!records.length) { toast('판독한 세트가 없어요. 더 선명한 원본이나 날짜를 확인해 주세요.', true); return true; } previewRecords(records); imageDraft = null; render(); }
       else if (action === 'image-meal-confirm') confirmMeal();
       else if (action === 'image-body-confirm') confirmBody();
       else if (action === 'image-draft-dismiss') { imageDraft = null; render(); }
-      else if (action === 'coach-provider') { provider = button.dataset.provider; app.render(); }
       else if (action === 'coach-memory') memoryDialog();
       else if (action === 'coach-followup-add') followUpDialog();
       else if (action === 'coach-followup-proposal') { if (followUpDraft) followUpDialog(null, followUpDraft); }
       else if (action === 'coach-followup-edit') followUpDialog(data.followUps.find(row => row.id === button.dataset.id));
       else if (action === 'coach-followup-done') { const next = copy(data), row = next.followUps.find(item => item.id === button.dataset.id); if (row) { row.status = 'done'; saveWorkspace(next, '확인한 점검으로 표시했어요.'); } }
-      else if (action === 'coach-continue') { const user = workspace().messages.find(row => row.id === button.dataset.user); if (user) { provider = 'codex'; chatDraft = user.text; app.selectView('coach'); $('coachChatInput').value = chatDraft; $('coachChatInput').focus(); } }
-      else if (action === 'image-job-open') { currentJob = await bridge.request(`/api/jobs/${button.dataset.id}`); if (currentJob.status === 'completed') { imageDraft = currentJob; tab = 'log'; app.selectView('training'); render(); } else { app.selectView('training'); await pollJob(); } }
+      else if (action === 'coach-continue') { const user = workspace().messages.find(row => row.id === button.dataset.user); if (user && canAskAI()) { chatDraft = user.text; app.selectView('coach'); $('coachChatInput').value = chatDraft; $('coachChatInput').focus(); } }
+      else if (action === 'image-job-open') {
+        if (jobStarting || (['running', 'pending'].includes(currentJob?.status) && currentJob.id !== button.dataset.id)) throw new Error('현재 요청이 끝난 뒤 이전 이미지 초안을 확인해 주세요.');
+        const fetched = await bridge.request(`/api/jobs/${button.dataset.id}`);
+        if (jobStarting || (['running', 'pending'].includes(currentJob?.status) && currentJob.id !== button.dataset.id)) throw new Error('새 요청이 시작되어 이전 초안은 열지 않았어요. 현재 요청이 끝난 뒤 다시 확인해 주세요.');
+        currentJob = fetched; if (currentJob.status === 'completed') { imageDraft = currentJob; tab = 'log'; app.selectView('training'); render(); } else { app.selectView('training'); await pollJob(); }
+      }
       else if (action === 'bridge-connect') await connectDialog();
-      else if (action === 'bridge-refresh') await bridge.refresh();
+      else if (action === 'bridge-refresh') { await bridge.refresh(); await refreshJobs(); }
       else if (action === 'coach-job-cancel') { await bridge.request(`/api/jobs/${currentJob.id}/cancel`, {}); await pollJob(); }
       else if (action === 'coach-job-retry') { const previous = currentJob; await startJob(previous.kind, previous.question, previous.imageHash, previous.replyTo, true); }
       else return false;

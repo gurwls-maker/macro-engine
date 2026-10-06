@@ -33,18 +33,40 @@ function createBridge(options = {}) {
     if (!fs.existsSync(stateFile)) return { state: null, digest: null };
     const state = S.validateState(D.readJson(stateFile)); return { state, digest: digest(state) };
   }
+  function validNote(value) {
+    return typeof value === 'string' && value.length <= 6000
+      && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(value)
+      && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(value);
+  }
+  function inboxEntryExists(file) {
+    try { fs.lstatSync(file); return true; }
+    catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  }
+  function readInboxItem(hash) {
+    const metadata = path.join(inbox, `${hash}.json`);
+    if (fs.lstatSync(metadata).isSymbolicLink() || !fs.statSync(metadata).isFile()) throw new Error('이미지 목록이 손상됐어요.');
+    const value = D.readJson(metadata);
+    if (!value || typeof value !== 'object' || Array.isArray(value) || value.hash !== hash
+      || !['workout', 'meal', 'body'].includes(value.kind) || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 250
+      || !Number.isInteger(value.bytes) || value.bytes <= 0 || value.bytes > 10 * 1024 * 1024
+      || !['png', 'jpg', 'webp'].includes(value.extension) || typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))
+      || (value.note !== undefined && !validNote(value.note))) throw new Error('이미지 목록이 손상됐어요. 원본은 그대로 보관했어요.');
+    return { ...value, note: value.note === undefined ? '' : value.note };
+  }
+  function publicInboxItem(value) {
+    return { hash: value.hash, name: value.name, kind: value.kind, bytes: value.bytes, createdAt: value.createdAt, note: value.note };
+  }
   function listInbox() {
     return fs.readdirSync(inbox).filter(name => /^[a-f0-9]{64}\.json$/.test(name)).map(name => {
-      try { const value = D.readJson(path.join(inbox, name)); return { hash: value.hash, name: value.name, kind: value.kind, bytes: value.bytes, createdAt: value.createdAt }; }
+      try { return publicInboxItem(readInboxItem(name.slice(0, 64))); }
       catch { return { damaged: true, hash: name.slice(0, 64) }; }
     }).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   }
   function imageFile(hash) {
     if (!idValid(hash)) throw new Error('이미지 식별자를 확인해 주세요.');
     const metadata = path.join(inbox, `${hash}.json`);
-    if (fs.existsSync(metadata)) {
-      const item = D.readJson(metadata);
-      if (!['png', 'jpg', 'webp'].includes(item.extension) || item.hash !== hash) throw new Error('이미지 목록이 손상됐어요.');
+    if (inboxEntryExists(metadata)) {
+      const item = readInboxItem(hash);
       const file = path.join(inbox, `${hash}.${item.extension}`);
       if (!fs.existsSync(file) || fs.lstatSync(file).isSymbolicLink() || D.hashFile(file) !== hash) throw new Error('이미지 원본이 변경됐어요.');
       return file;
@@ -100,16 +122,28 @@ function createBridge(options = {}) {
       } else if (req.method === 'GET' && url.pathname === '/api/inbox') json(res, 200, { images: listInbox() });
       else if (req.method === 'POST' && url.pathname === '/api/inbox') {
         const input = await body(req);
+        if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !['kind', 'name', 'base64', 'note'].includes(key))) throw new Error('이미지 요청 항목을 확인해 주세요.');
         if (!['workout', 'meal', 'body'].includes(input.kind) || typeof input.name !== 'string' || !input.name.trim() || input.name.length > 250) throw new Error('이미지 이름과 종류를 확인해 주세요.');
+        const note = input.note === undefined ? '' : input.note;
+        if (!validNote(note)) throw new Error('이미지 메모는 올바른 글자로 6,000자 이내여야 해요.');
         if (typeof input.base64 !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(input.base64)) throw new Error('이미지 데이터를 확인해 주세요.');
         const buffer = Buffer.from(input.base64, 'base64');
         if (buffer.length > 10 * 1024 * 1024 || buffer.toString('base64') !== input.base64) throw new Error('이미지는 10MB 이하의 PNG, JPG, WebP로 올려 주세요.');
         const type = imageType(buffer); if (!type) throw new Error('PNG, JPG, WebP 이미지만 지원해요.');
         const hash = crypto.createHash('sha256').update(buffer).digest('hex');
         const target = path.join(inbox, `${hash}.${type.extension}`); const metadata = path.join(inbox, `${hash}.json`);
-        if (!fs.existsSync(target)) fs.writeFileSync(target, buffer, { flag: 'wx' });
-        if (!fs.existsSync(metadata)) D.atomicJson(metadata, { hash, name: input.name, kind: input.kind, bytes: buffer.length, extension: type.extension, createdAt: new Date().toISOString() });
-        json(res, 200, { hash, name: input.name, kind: input.kind, bytes: buffer.length });
+        const result = D.locked(data, () => {
+          const reused = inboxEntryExists(metadata);
+          const stored = reused ? readInboxItem(hash) : { hash, name: input.name, kind: input.kind, bytes: buffer.length, extension: type.extension, createdAt: new Date().toISOString(), note };
+          if (stored.extension !== type.extension || stored.bytes !== buffer.length) throw new Error('이미지 목록과 원본이 맞지 않아요. 원본은 변경하지 않았어요.');
+          if (inboxEntryExists(target)) {
+            if (fs.lstatSync(target).isSymbolicLink() || !fs.statSync(target).isFile() || D.hashFile(target) !== hash) throw new Error('보관한 이미지 원본이 변경됐어요. 덮어쓰지 않았어요.');
+          } else if (reused) throw new Error('보관한 이미지 원본이 없어 자동으로 교체하지 않았어요.');
+          else fs.writeFileSync(target, buffer, { flag: 'wx' });
+          if (!reused) D.atomicJson(metadata, stored);
+          return { ...publicInboxItem(stored), reused, metadataConflict: reused && (stored.name !== input.name || stored.kind !== input.kind || stored.note !== note) };
+        });
+        json(res, 200, result);
       } else if (req.method === 'GET' && /^\/api\/images\/[a-f0-9]{64}$/.test(url.pathname)) {
         const file = imageFile(url.pathname.split('/').at(-1)); const buffer = fs.readFileSync(file); const type = imageType(buffer);
         if (!type) throw new Error('현재 원본 이미지 형식을 미리 볼 수 없어요.');

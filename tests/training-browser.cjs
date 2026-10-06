@@ -15,6 +15,19 @@ const yesterday = Insights.shiftDate(today, -1);
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=', 'base64');
 const profile = { sex: 'female', age: 35, heightCm: 165, weightKg: 65, bodyFatPct: null, bodyFatWeightKg: null, bodyFatDate: null, bodyFatMethod: 'unknown', trainingYears: 2, sport: 'strength', goal: 'maintain', activity: 'light', healthContext: 'general', proteinPreference: 'standard' };
 
+function fixtureImage(kind) {
+  // A valid ancillary PNG chunk gives each record type a distinct synthetic source hash.
+  const value = Buffer.from(`fixture\0${kind}`, 'latin1'), chunk = Buffer.alloc(value.length + 12);
+  chunk.writeUInt32BE(value.length); chunk.write('tEXt', 4); value.copy(chunk, 8);
+  let crc = 0xffffffff;
+  for (const byte of chunk.subarray(4, 8 + value.length)) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = crc >>> 1 ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  chunk.writeUInt32BE((crc ^ 0xffffffff) >>> 0, 8 + value.length);
+  return Buffer.concat([PNG.subarray(0, PNG.length - 12), chunk, PNG.subarray(PNG.length - 12)]);
+}
+
 // This boundary stub never starts Codex or reads the user's diary directory.
 function fakeRuntime() {
   const jobs = [];
@@ -63,7 +76,8 @@ async function uploadImage(page, kind) {
   await navigate(page, 'training');
   await page.locator('#trainingContent [data-action="training-image"]').click();
   await page.locator('#imageKind').selectOption(kind);
-  await page.locator('#coachImageFile').setInputFiles({ name: `synthetic-${kind}.png`, mimeType: 'image/png', buffer: PNG });
+  await page.locator('#coachImageFile').setInputFiles({ name: `synthetic-${kind}.png`, mimeType: 'image/png', buffer: fixtureImage(kind) });
+  await page.locator('#imageAnalyze').check();
   const started = page.waitForResponse(response => response.url().endsWith('/api/jobs') && response.request().method() === 'POST');
   await submit(page);
   assert.equal((await started).status(), 200);
@@ -228,29 +242,32 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     await page.route('**/api/bridge/status', offline);
     await page.goto(url);
     await navigate(page, 'coach');
-    await page.locator('#view-coach [data-action="bridge-refresh"]').waitFor();
-    assert.equal(await page.locator('[data-action="coach-provider"][data-provider="codex"]').isDisabled(), true);
+    await page.locator('.conversation-unavailable [data-action="bridge-refresh"]').waitFor();
+    assert.equal(await page.locator('#coachChatInput').isDisabled(), true);
+    assert.equal(await page.locator('#coachChatForm button[type="submit"]').isDisabled(), true);
+    assert.equal(await page.locator('[data-action="coach-provider"]').count(), 0);
     await assertLatestVisible('first conversation opening');
     const beforeRecovery = await state(page);
     await page.unroute('**/api/bridge/status', offline);
     initialOffline = false;
     const recovered = page.waitForResponse(response => response.url().endsWith('/api/bridge/status'));
-    await page.locator('#view-coach [data-action="bridge-refresh"]').click();
+    await page.locator('.conversation-unavailable [data-action="bridge-refresh"]').click();
     assert.equal((await recovered).status(), 200);
     await page.locator('#view-coach [data-action="bridge-connect"]').waitFor();
-    assert.equal(await page.locator('[data-action="coach-provider"][data-provider="codex"]').isDisabled(), false);
+    assert.equal(await page.locator('#coachChatInput').isDisabled(), false);
     assert.deepEqual(await state(page), beforeRecovery, 'server retry must not replace browser records');
     assert.equal(expectedErrors.length, 1, 'only the injected first-connection failure is expected');
 
     await page.locator('.conversation-log').evaluate(element => { element.scrollTop = 130; });
     const readingTop = (await scrollState()).top;
-    await page.locator('[data-action="coach-provider"][data-provider="local"]').click();
+    await page.locator('#view-coach [data-action="coach-question"]').first().click();
     assert.ok(Math.abs((await scrollState()).top - readingTop) <= 2, 'unchanged-history render preserves the message being read');
     await sendChat(page, '최근 운동 기록을 함께 확인해 줘.');
+    await page.locator('#view-coach [data-action="coach-job-cancel"]').waitFor();
+    runtime.complete(result('chat', { answer: '새 질문에 대한 합성 AI 응답입니다.' }));
     await waitState(page, value => value.training.messages.length === 22);
-    await assertLatestVisible('new local question and answer');
+    await assertLatestVisible('new AI question and answer');
 
-    await page.locator('[data-action="coach-provider"][data-provider="codex"]').click();
     const delayed = new Promise(resolve => { releaseStart = resolve; });
     let startRequests = 0;
     const delayStart = async route => {
@@ -268,19 +285,20 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     await page.locator('#coachChatForm').dispatchEvent('submit');
     await page.locator('#toast.toast-error').waitFor();
     assert.equal(startRequests, 1, 'a second submit cannot create a second start request');
-    assert.equal(runtime.jobs.length, 0, 'the intentionally held start has not reached the fake runtime');
+    assert.equal(runtime.jobs.length, 1, 'the intentionally held start has not reached the fake runtime');
     assert.equal((await state(page)).training.messages.length, pendingCount, 'a blocked repeat cannot append another pending message');
     releaseStart();
     await page.locator('#view-coach [data-action="coach-job-cancel"]').waitFor();
     await page.unroute('**/api/jobs', delayStart);
-    assert.equal(runtime.jobs.length, 1);
+    assert.equal(runtime.jobs.length, 2);
     await page.locator('.conversation-log').evaluate(element => { element.scrollTop = 95; });
     const waitingTop = (await scrollState()).top;
     runtime.complete(result('chat', { answer: '과거 대화를 읽는 동안 도착한 합성 AI 응답입니다.' }));
     await waitState(page, value => value.training.messages.at(-1).text.includes('과거 대화를 읽는 동안'));
     assert.ok(Math.abs((await scrollState()).top - waitingTop) <= 2, 'an arriving AI answer must not pull the user away from older messages');
-    await page.locator('[data-action="coach-provider"][data-provider="local"]').click();
     await sendChat(page, '최근 운동 기록을 다시 확인해 줘.');
+    await page.locator('#view-coach [data-action="coach-job-cancel"]').waitFor();
+    runtime.complete(result('chat', { answer: '가장 최근 질문에 대한 합성 AI 응답입니다.' }));
     await waitState(page, value => value.training.messages.length === 26);
     await assertLatestVisible('new question returns from older messages to the latest answer');
 
@@ -359,7 +377,12 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     browser = await chromium.launch({ headless: true, ...(fs.existsSync(chromium.executablePath()) ? {} : { channel: 'chrome' }) });
     if (process.argv.includes('--program-only')) { await verifyProgramWorkflow(browser, temporary, artifacts); console.log('Saved program workflow browser acceptance passed.'); return; }
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
-    const initial = Storage.createEmpty(); initial.profile = profile;
+    const initial = Storage.createEmpty(); initial.profile = profile; initial.training = TrainingStore.createEmpty();
+    const localQuestion = '최근 운동 수행 기록과 다음 훈련은 어떻게 봐야 하나요? <script>test</script>';
+    initial.training.messages = [
+      { id: 'synthetic-old-local-user', role: 'user', text: localQuestion, createdAt: `${today}T00:00:00.000Z`, source: 'local', replyTo: null, contextDigest: null, status: 'answered' },
+      { id: 'synthetic-old-local-reply', role: 'coach', text: '이전 기록 코치가 남긴 합성 안내이며 자유 대화의 응답은 아닙니다.', createdAt: `${today}T00:00:01.000Z`, source: 'local', replyTo: 'synthetic-old-local-user', contextDigest: null, status: 'answered' }
+    ];
     await context.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, value); }, { key: Storage.STORAGE_KEY, value: JSON.stringify(Storage.validateState(initial)) });
     page = await context.newPage();
     page.setDefaultTimeout(10000);
@@ -467,31 +490,30 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     assert.deepEqual((await state(page)).training.records, beforeProgram);
 
     await navigate(page, 'coach');
-    await page.locator('[data-action="coach-provider"][data-provider="local"]').click();
+    assert.equal(await page.locator('[data-action="coach-provider"]').count(), 0, 'free conversation has one AI path rather than a local answer selector');
+    assert.match(await page.locator('.coach-record-summary').innerText(), /기록 요약/);
     const draftQuestion = '아직 보내지 않은 질문: 지난 운동 다음에는 무엇을 확인하나요?';
     await page.locator('#coachChatInput').fill(draftQuestion);
     await navigate(page, 'training');
     await navigate(page, 'coach');
     assert.equal(await page.locator('#coachChatInput').inputValue(), draftQuestion, 'unsent question survives view navigation');
     const beforeChat = await state(page);
-    const localQuestion = '최근 운동 수행 기록과 다음 훈련은 어떻게 봐야 하나요? <script>test</script>';
-    await sendChat(page, localQuestion);
-    await waitState(page, value => value.training.messages.length === 2);
     saved = await state(page);
     assert.equal(saved.training.messages[1].source, 'local');
     assert.ok(saved.training.messages[1].text.length > 30);
-    assert.deepEqual(saved.days, beforeChat.days, 'local conversation is read-only coaching');
+    assert.deepEqual(saved.training.messages, initial.training.messages, 'older local conversation remains readable without generating another local answer');
+    assert.match(await page.locator('.conversation-message').last().innerText(), /이전 기록 안내/);
+    assert.deepEqual(saved.days, beforeChat.days, 'opening existing conversation is read-only');
     assert.equal(await page.locator('.conversation-log script').count(), 0);
     await page.locator('[data-action="coach-continue"]').first().click();
     assert.equal(await page.locator('#coachChatInput').inputValue(), localQuestion, 'AI continuation preserves the actual user question');
-    assert.equal(await page.locator('[data-action="coach-provider"][data-provider="codex"]').getAttribute('aria-pressed'), 'true');
     assert.equal(runtime.jobs.length, 0, 'continuation only prepares the question; it does not spend an AI request');
     for (const question of ['운동 중 무릎에 통증이 생겼어요.', '지금 흉통과 호흡곤란이 있어요.']) {
       const messageCount = (await state(page)).training.messages.length;
       await sendChat(page, question);
       await waitState(page, (value, count) => value.training.messages.length === count + 2, messageCount);
       const answer = (await state(page)).training.messages.at(-1);
-      assert.equal(answer.source, 'local', 'safety routing takes priority even when Codex is selected');
+      assert.equal(answer.source, 'local', 'safety routing takes priority in the AI-only conversation');
       assert.equal(runtime.jobs.length, 0);
       assert.match(answer.text, question.includes('흉통') ? /119/ : /중단/);
     }
@@ -532,7 +554,6 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     if (await page.locator('#trainingImportPreview').count()) await page.locator('#trainingImportPreview [data-action="training-import-cancel"]').first().click();
 
     await navigate(page, 'coach');
-    await page.locator('[data-action="coach-provider"][data-provider="codex"]').click();
     await sendChat(page, '합성 기록으로 AI 완료 흐름 확인');
     await page.locator('[data-action="coach-job-cancel"]').waitFor();
     assert.equal(runtime.jobs.length, 1);
@@ -595,7 +616,7 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     await navigate(page, 'today');
     await page.locator('#dayDate').fill(yesterday);
     await page.locator('#dayDate').dispatchEvent('change');
-    await page.locator('[data-action="measurement"]').click();
+    await page.locator('#view-today .body-summary [data-action="measurement"]').click();
     for (const [key, value] of Object.entries({ weightKg: 65, bodyFatPct: 30, skeletalMuscleKg: 25 })) await page.locator(`#entryForm [name="${key}"]`).fill(String(value));
     await page.locator('#entryForm [name="bodyFatMethod"]').selectOption('bia');
     await submit(page);
@@ -702,7 +723,7 @@ async function verifyConversationRecovery(browser, temporary, artifacts) {
     console.log('Primary training browser flow passed; checking saved programs and connection recovery.');
     await verifyProgramWorkflow(browser, temporary, artifacts);
     await verifyConversationRecovery(browser, temporary, artifacts);
-    console.log('Training browser acceptance passed: synthetic private server; manual workout, set draft/focus, equipment mapping, reuse, observed progression, nutrition link deduplication and completed snapshot lock; program drafts; chat draft retention, original-question continuation and urgent local safety; delayed-start lock, conversation scrolling and token/initial-connection recovery; JSON preview/conflict backup; fake AI completion/cancellation/retry and uncertainty; cached image resume, unknown values, body measurement merge/replacement review; PC sync failure/reconnection; six views and training tabs at 320/390/1280px; keyboard and reload.');
+    console.log('Training browser acceptance passed: synthetic private server; manual workout, set draft/focus, equipment mapping, reuse, observed progression, nutrition link deduplication and completed snapshot lock; program drafts; separate record summary, AI-only chat draft retention, preserved legacy-local original-question continuation and urgent safety; delayed-start lock, conversation scrolling and token/initial-connection recovery; JSON preview/conflict backup; fake AI completion/cancellation/retry and uncertainty; explicitly selected image analysis, cached image resume, unknown values, body measurement merge/replacement review; PC sync failure/reconnection; six views and training tabs at 320/390/1280px; keyboard and reload.');
   } catch (error) {
     if (page) await page.screenshot({ path: path.join(artifacts, 'training-failure.png'), fullPage: true }).catch(() => {});
     throw error;
