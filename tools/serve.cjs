@@ -9,7 +9,7 @@ for (const file of ['serve.cjs', 'bridge.cjs', 'coach-runtime.cjs', 'codex-binar
   runtimeHash.update(file); runtimeHash.update(fs.readFileSync(path.join(__dirname, file)));
 }
 // Include cached server-side domain modules, not the browser UI served from disk.
-for (const file of ['storage.js', 'training-store.js', 'nutrition.js', 'insights.js', 'coach.js', 'training.js', 'coach-query.js', 'coach-context.js']) {
+for (const file of ['storage.js', 'training-store.js', 'nutrition.js', 'insights.js', 'activity-coaching.js', 'coach.js', 'training-capacity.js', 'training-coaching.js', 'training.js', 'coach-query.js', 'coach-context.js']) {
   runtimeHash.update(`src/${file}`); runtimeHash.update(fs.readFileSync(path.join(root, 'src', file)));
 }
 const buildId = runtimeHash.digest('hex');

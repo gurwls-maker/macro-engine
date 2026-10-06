@@ -4,10 +4,11 @@
   const api = factory(node ? require("./nutrition.js") : root.MacroNutrition,
     node ? require("./insights.js") : root.MacroInsights,
     node ? require("./training.js") : root.MacroTraining,
-    node ? require("./storage.js") : root.MacroStorage);
+    node ? require("./storage.js") : root.MacroStorage,
+    node ? require("./activity-coaching.js") : root.MacroActivity);
   if (node) module.exports = api;
   if (root) root.MacroCoachContext = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function(N, I, T, S) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function(N, I, T, S, Activity) {
   "use strict";
   const DAY = 86400000;
   const finite = value => typeof value === "number" && Number.isFinite(value);
@@ -166,6 +167,7 @@
         focus: text(state.training?.memory?.focus), agreements: text(state.training?.memory?.agreements),
         truncated: ["constraints", "focus", "agreements"].some(key => (state.training?.memory?.[key] || "").length > 2000) },
       currentReportOverridesSavedState: false };
+    const activity = Activity.build(state, date);
     const nextObservations = [];
     const ask = (id, reason, question, action, priority = "decision") => nextObservations.push({ id, reason, question, action, priority, optional: true });
     if (["stop", "mild"].includes(training.recovery.pain)) ask("current-pain", "통증 기록은 중량 상승보다 먼저 확인합니다.", "지금도 통증이 있나요? 통증을 유발하는 동작은 중단하고 현재 상태를 확인해 주세요.", "nav-training", "safety");
@@ -185,7 +187,7 @@
       "체성분은 선택 사항이고 골격근량을 제지방량으로 대신 넣지 않습니다.",
       "새 진술·상황 키워드·과거 목표 차이에서 변경 시점이나 질환·회복 원인을 만들어 내지 않습니다.",
       "식사·훈련 기록은 같은 입력의 오류를 공유할 수 있으며 상담과 요약은 독립적인 검증이 아닙니다."];
-    return { schemaVersion: 1, date, window: { from, to: date, days: 7 }, scope, nutrition, training,
+    return { schemaVersion: 2, date, window: { from, to: date, days: 7 }, scope, nutrition, training, activity,
       checkins: { daysWithAnyCheckin: checkinRows.length, rows: checkinRows, selected: selected?.coachCheckin ? copy(selected.coachCheckin) : null },
       body: measurementContext(profile, allDays, date, selected, { plan, source }), goal, constraints, currentReport,
       nextObservations: nextObservations.slice(0, 3), limits };

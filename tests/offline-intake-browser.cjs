@@ -20,19 +20,19 @@ function fakeRuntime() {
   return {
     available: false, jobs, startError: null, attempts: [],
     status() { return { available: this.available, running: jobs.find(row => row.status === 'running')?.id || null }; },
-    start(input) {
+    start(input, imageFile, retry) {
       assert.equal(this.available, true, 'unavailable AI must not be invoked');
       this.attempts.push({ kind: input.kind, question: input.question, imageHash: input.imageHash });
       if (this.startError) { const error = this.startError; this.startError = null; throw new Error(error); }
       assert.equal(jobs.some(row => row.status === 'running'), false);
       const contextDigest = crypto.createHash('sha256').update(JSON.stringify({ input, attempt: jobs.length })).digest('hex');
-      const job = { id: contextDigest.slice(0, 32), contextDigest, kind: input.kind, question: input.question, imageHash: input.imageHash, createdAt: new Date().toISOString(), status: 'running', result: null, error: null };
+      const job = { id: contextDigest.slice(0, 32), contextDigest, kind: input.kind, question: input.question, imageHash: input.imageHash, createdAt: new Date().toISOString(), status: 'running', result: null, error: null, retry: Boolean(retry) };
       jobs.push(job); return { ...job };
     },
     get: id => jobs.find(row => row.id === id) || null,
     list: () => jobs.map(({ result, question, ...summary }) => summary).reverse(),
     complete(answer) { Object.assign(jobs.at(-1), { status: 'completed', result: { kind: 'chat', answer, questions: [], uncertainties: [], workouts: [], meal: null, body: null } }); },
-    fail() { Object.assign(jobs.at(-1), { status: 'failed', error: '합성 AI 연결 실패: 원문 질문은 남아 있어요.' }); },
+    fail(error = '합성 AI 연결 실패: 원문 질문은 남아 있어요.') { Object.assign(jobs.at(-1), { status: 'failed', result: null, error }); },
     cancel(id) { const row = jobs.find(job => job.id === id); if (row) Object.assign(row, { status: 'cancelled', error: '합성 요청 취소' }); return row; },
     close() {}
   };
@@ -249,6 +249,42 @@ async function send(page, question) { await page.locator('#coachChatInput').fill
     assert.equal(saved.training.messages.at(-1).source, 'codex'); assert.match(saved.training.messages.at(-1).text, /실패/);
     assert.deepEqual(saved.days, beforeFailure.days); assert.deepEqual(saved.training.records, beforeFailure.training.records);
     assert.equal(saved.training.messages.filter(row => row.role === 'coach' && row.source === 'local').length, 1, 'an AI failure never substitutes a fabricated local coach answer');
+
+    const languageQuestion = '최근 걷기 기록에서 다음 운동을 어떻게 이어갈까요?', beforeLanguageFailure = await state(page);
+    await send(page, languageQuestion); await page.locator('[data-action="coach-job-cancel"]').waitFor();
+    const rejectedJob = runtime.jobs.at(-1);
+    runtime.fail('한국어 상담 답변이 아니어서 표시하지 않았어요. 기록과 원본 응답은 유지됩니다. 다시 요청해 주세요.');
+    await page.locator('.conversation-message').last().filter({ hasText: '한국어 상담 답변이 아니어서' }).waitFor();
+    const rejectedState = await state(page);
+    assert.equal(rejectedState.training.messages.at(-2).text, languageQuestion);
+    assert.equal(rejectedState.training.messages.at(-1).text, rejectedJob.error, 'the failed answer states the actual reason without adding misleading connection instructions');
+    assert.doesNotMatch(rejectedState.training.messages.at(-1).text, /연결을 확인/);
+    assert.deepEqual(rejectedState.days, beforeLanguageFailure.days);
+    assert.deepEqual(rejectedState.training.records, beforeLanguageFailure.training.records);
+    assert.equal(rejectedJob.result, null);
+    for (const width of [320, 390, 1280]) {
+      await page.setViewportSize({ width, height: 900 }); await overflow(page, `${width}/language-failure`);
+      assert.equal(await page.locator('[data-action="coach-job-retry"]').isVisible(), true);
+      const retryBounds = await page.locator('[data-action="coach-job-retry"]').boundingBox();
+      assert.ok(retryBounds.width >= 72 && retryBounds.height <= 52, `retry label stays horizontal at ${width}px: ${JSON.stringify(retryBounds)}`);
+      assert.equal(await page.getByText('优先维持最近的步行安排。', { exact: true }).count(), 0);
+      const skipLink = await page.locator('.skip-link').evaluate(element => ({ focused: element === document.activeElement, bottom: element.getBoundingClientRect().bottom }));
+      assert.ok(skipLink.focused || skipLink.bottom <= 0, 'the skip link is only visible while keyboard-focused');
+      await page.locator('.job-status').screenshot({ path: path.join(artifacts, `offline-intake-language-retry-${width}.png`) });
+      await page.screenshot({ path: path.join(artifacts, `offline-intake-language-viewport-${width}.png`) });
+      await page.locator('.personal-conversation').screenshot({ path: path.join(artifacts, `offline-intake-language-panel-${width}.png`) });
+      await page.screenshot({ path: path.join(artifacts, `offline-intake-language-failure-${width}.png`), fullPage: true });
+    }
+    await page.setViewportSize({ width: 320, height: 900 });
+    const requestsBeforeRetry = jobPosts;
+    await page.locator('[data-action="coach-job-retry"]').focus(); await page.keyboard.press('Enter');
+    await page.locator('[data-action="coach-job-cancel"]').waitFor();
+    assert.equal(jobPosts, requestsBeforeRetry + 1);
+    assert.equal(runtime.jobs.at(-1).question, languageQuestion, 'retry preserves the original question');
+    assert.equal(runtime.jobs.at(-1).retry, true);
+    runtime.complete('최근 걷기 구성을 이어가고, 끝날 때의 호흡과 다음 날 몸 상태를 보고 다음 변화를 고르세요.');
+    await page.getByText('최근 걷기 구성을 이어가고, 끝날 때의 호흡과 다음 날 몸 상태를 보고 다음 변화를 고르세요.', { exact: true }).waitFor();
+    assert.deepEqual((await state(page)).training.records, beforeLanguageFailure.training.records);
     const requestsBeforeSafety = jobPosts;
     await send(page, '지금 흉통과 호흡곤란이 있어요.');
     await page.waitForFunction(key => JSON.parse(localStorage.getItem(key)).training.messages.at(-1).text.includes('119'), Storage.STORAGE_KEY);

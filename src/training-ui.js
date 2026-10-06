@@ -16,6 +16,7 @@
     let chatScrollTop = 0, lastChatMessage = null, chatNearBottom = true, chatScrollToLatest = false;
     let setupChecking = false, setupNotice = '';
     let reviewDate = null, reviewSessionId = null, reviewBlockId = null, reviewedSessionId = null;
+    let activitySelectedId = null;
     const aiPreferenceKey = 'macro-engine.codex-use';
     let aiEnabled = true;
     try { aiEnabled = localStorage.getItem(aiPreferenceKey) !== 'disabled'; } catch {}
@@ -75,7 +76,7 @@
     function analysis() {
       const state = app.getState(), date = app.getDate();
       if (state !== analyzedState || date !== analyzedDate) {
-        const value = workspace(); cachedAnalysis = T.analyze(value.records, { date, profile: state.profile, checkins: state.days, mappings: value.mappings });
+        const value = workspace(); cachedAnalysis = T.analyze(value.records, { date, profile: state.profile, checkins: state.days, mappings: value.mappings, includeCapacityHistory: true });
         analyzedState = state; analyzedDate = date; cachedProgram = null;
       }
       return cachedAnalysis;
@@ -85,7 +86,7 @@
       const date = I.dateKey();
       if (app.getDate() === date) return analysis();
       const value = workspace();
-      return T.analyze(value.records, { date, profile: app.getState().profile, checkins: app.getState().days, mappings: value.mappings });
+      return T.analyze(value.records, { date, profile: app.getState().profile, checkins: app.getState().days, mappings: value.mappings, includeCapacityHistory: true });
     }
     function program() {
       analysis();
@@ -107,6 +108,41 @@
     function options(values, selected) { return values.map(([value, label]) => `<option value="${e(value)}" ${value === selected ? 'selected' : ''}>${e(label)}</option>`).join(''); }
     function sourceBadge(record) { return `<span class="source-badge ${record.source.kind === 'legacy-ocr' ? 'source-unverified' : ''}">${e(sourceNames[record.source.kind])}</span>`; }
     function dateControl() { return `<label class="field compact-date"><span>분석 기준일</span><input type="date" id="trainingDate" min="1900-01-01" max="${I.dateKey()}" value="${app.getDate()}"></label>`; }
+    const sportLabels = { strength: '근력운동', running: '달리기', cycling: '사이클', swimming: '수영', team: '구기·팀 스포츠', mixed: '복합 운동', walking: '걷기' };
+    const actualNumber = value => value.toLocaleString('ko-KR', { maximumFractionDigits: 20 });
+    function activityRecords() {
+      const date = app.getDate();
+      return Object.values(app.getState().days).filter(day => day.date <= date).flatMap(day => day.sessions.map(session => ({ ...session, date: day.date })))
+        .sort((a, b) => b.date.localeCompare(a.date));
+    }
+    function activityAnalysisHTML() {
+      const value = root.MacroActivity?.build(app.getState(), app.getDate());
+      const all = activityRecords(), from = I.shiftDate(app.getDate(), -27), recent = all.filter(row => row.date >= from);
+      if (!all.length || !value) return '';
+      const rows = value.current.length ? value.current : value.latest || [], selected = rows.find(row => row.id === activitySelectedId) || rows[0];
+      if (selected) activitySelectedId = selected.id;
+      const totals = new Map();
+      for (const row of recent) {
+        if (!totals.has(row.sport)) totals.set(row.sport, { sessions: 0, minutes: 0, distance: 0, distanceSessions: 0 });
+        const total = totals.get(row.sport); total.sessions++; total.minutes += row.durationMin;
+        if (typeof row.details?.distanceM === 'number') { total.distance += row.details.distanceM; total.distanceSessions++; }
+      }
+      const actual = selected?.actual || {}, metrics = [];
+      if (typeof actual.durationMin === 'number') metrics.push(`전체 ${actualNumber(actual.durationMin)}분`);
+      if (typeof actual.distanceM === 'number') metrics.push(selected.sport === 'swimming' ? `${actualNumber(actual.distanceM)}m` : `${actualNumber(actual.distanceM / 1000)}km`);
+      if (typeof actual.movingMin === 'number') metrics.push(`이동 ${actualNumber(actual.movingMin)}분`);
+      if (typeof actual.effortRpe === 'number') metrics.push(`RPE ${actualNumber(actual.effortRpe)}`);
+      if (typeof actual.avgPowerW === 'number') metrics.push(`${actualNumber(actual.avgPowerW)}W`);
+      if (typeof actual.avgHeartRateBpm === 'number') metrics.push(`${actualNumber(actual.avgHeartRateBpm)}bpm`);
+      const connections = (value.connections || []).map(row => typeof row === 'string' ? row : row.body).filter(Boolean);
+      return `<section id="trainingActivityAnalysis" class="training-next-directions"><div class="section-header"><h2>시간·거리 운동</h2>${command('training-activity-coach', '앱코치에서 이어보기', 'messages-square')}</div><div class="training-summary"><div><span>최근 28일 기록한 날짜</span><strong>${new Set(recent.map(row => row.date)).size}<small>일</small></strong></div><div><span>실제 시간 기록</span><strong>${recent.length}<small>회</small></strong></div><div><span>전체 운동 시간</span><strong>${actualNumber(recent.reduce((sum, row) => sum + row.durationMin, 0))}<small>분</small></strong></div></div>${totals.size ? `<div class="progression-section">${[...totals].map(([sport, total]) => `<div class="progression-row"><strong>${e(sportLabels[sport])}</strong><span>${total.sessions}회 · ${actualNumber(total.minutes)}분${total.distanceSessions ? ` · 거리를 남긴 ${total.distanceSessions}회 합계 ${sport === 'swimming' ? `${actualNumber(total.distance)}m` : `${actualNumber(total.distance / 1000)}km`}` : ''}</span></div>`).join('')}</div>` : ''}${selected ? `<label class="field"><span>살펴볼 실제 운동 · 날짜별 기록</span><select id="trainingActivitySelect">${options(rows.map(row => [row.id, `${row.date} · ${row.label}`]), selected.id)}</select></label><div id="trainingActivityDetail" tabindex="-1" role="region" aria-labelledby="trainingActivityTitle"><h3 id="trainingActivityTitle">${e(selected.date)} · ${e(selected.label)}</h3>${metrics.length ? `<p>${metrics.map(e).join(' · ')}</p>` : ''}${actual.details?.segments?.length ? `<details class="source-details"><summary>실제 운동 구간 ${actual.details.segments.length}개</summary>${actual.details.segments.map(segment => `<p>${[segment.label, typeof segment.durationMin === 'number' ? `${actualNumber(segment.durationMin)}분` : '', typeof segment.distanceM === 'number' ? `${actualNumber(segment.distanceM)}m` : '', typeof segment.reps === 'number' ? `${actualNumber(segment.reps)}회` : '', typeof segment.loadKg === 'number' ? `${actualNumber(segment.loadKg)}kg` : ''].filter(Boolean).map(e).join(' · ')}</p>`).join('')}</details>` : ''}<p>${e(selected.assessment)}</p><strong>${e(selected.action.title)}</strong><p>${e(selected.action.body)}</p>${selected.alternatives?.length ? `<details class="source-details"><summary>다른 선택지</summary>${selected.alternatives.map(action => `<h4>${e(action.title)}</h4><p>${e(action.body)}</p>`).join('')}</details>` : ''}</div>` : ''}${connections.length ? `<div class="activity-connections">${connections.map(body => `<p>${e(body)}</p>`).join('')}</div>` : ''}</section>`;
+    }
+    function activityIndexHTML() {
+      const rows = activityRecords().filter(row => !filter || `${row.date} ${row.details?.label || ''} ${sportLabels[row.sport]}`.toLowerCase().includes(filter.toLowerCase()));
+      if (!rows.length) return '';
+      return `<section class="training-activity-index"><div class="section-header"><h2>시간·거리 기록 <small>${rows.length}</small></h2></div><div class="workout-list">${rows.slice(0, 150).map(row => `<button type="button" class="workout-list-item" data-action="training-activity-open" data-id="${e(row.id)}" data-date="${e(row.date)}"><span>${e(row.date)}</span><strong>${e(row.details?.label || sportLabels[row.sport])}</strong><small>전체 ${actualNumber(row.durationMin)}분${typeof row.details?.distanceM === 'number' ? ` · ${row.sport === 'swimming' ? `${actualNumber(row.details.distanceM)}m` : `${actualNumber(row.details.distanceM / 1000)}km`}` : ''}</small></button>`).join('')}</div></section>`;
+    }
+    function strengthComplement() { return ['running', 'cycling', 'swimming', 'team', 'mixed', 'walking'].includes(app.getState().profile?.sport); }
     function imageThumbnail(hash, className = '') { return bridge.status?.connected && hash ? `<img class="diary-thumbnail ${className}" src="/api/images/${e(hash)}" alt="기록 원본" loading="lazy" data-image-fallback>` : ''; }
     function sourceReviewHTML(hash) { return bridge.status?.connected && hash ? `<figure class="image-source-review"><a href="/api/images/${e(hash)}" target="_blank" rel="noopener" aria-label="원본 이미지 크게 보기"><img src="/api/images/${e(hash)}" alt="확인할 원본 이미지" data-image-fallback></a><figcaption>원본</figcaption></figure>` : '<p class="form-help">원본 연결이 없어 숫자를 대조할 수 없어요.</p>'; }
     function todayHTML() {
@@ -139,6 +175,27 @@
       if (pendingImport) renderImportPreview();
       if (imageDraft) renderImagePreview();
       if (tab === 'log' && record) enhanceRecord(record);
+      const content = $('trainingContent');
+      content.querySelector('.training-toolbar > .toolbar-actions')?.insertAdjacentHTML('afterbegin', command('session-add', '시간·거리 기록', 'timer'));
+      const diaryButton = content.querySelector('.training-toolbar [data-action="training-add"] span'); if (diaryButton) diaryButton.textContent = '세트 일지 기록';
+      if (tab === 'log') {
+        const index = content.querySelector('.workout-index');
+        index.querySelector('h2').innerHTML = `세트 일지 <small>${data.records.length}</small>`;
+        const activities = activityIndexHTML();
+        if (activities) {
+          index.querySelector('.workout-list')?.insertAdjacentHTML('afterend', activities);
+          if (!rows.length) index.querySelector('.empty-state').textContent = '시간·거리 운동은 아래 실제 기록에서 이어가요.';
+          if (!record) content.querySelector('.workout-detail').innerHTML = activityAnalysisHTML();
+        }
+      }
+      if (tab === 'program') {
+        const complement = strengthComplement(), template = content.querySelector('.program-template');
+        const headline = template.querySelector('h2'); if (complement) headline.textContent = `근력 보완 · ${headline.textContent}`;
+        template.querySelector('.eyebrow').textContent = complement ? '본종목 훈련을 위한 근력 보완 초안 · 아직 저장 전' : '근력운동 시작 초안 · 아직 저장 전';
+        content.querySelector('.saved-program > .section-header h2').textContent = complement ? '내 근력 보완 프로그램' : '내 근력 프로그램';
+        const meta = template.querySelector('.program-meta'); meta.children[0].textContent = `근력 ${fmt(workspace().settings.daysPerWeek)}회/주`;
+        if (complement) meta.insertAdjacentHTML('afterend', `<p class="program-reason">${e(sportLabels[app.getState().profile.sport])} 본훈련 일정과 별도로 정한 근력 보완 구성이에요. 경기·인터벌과 겹치는 날에는 양쪽 부담을 함께 늘리지 말고, 본훈련 뒤의 반응에 맞춰 근력 일정과 구성을 조정해요.</p>`);
+      }
       app.icons();
     }
     function enhanceRecord(record) {
@@ -153,23 +210,57 @@
         if (block.exerciseId) element.querySelector('.exercise-actions').insertAdjacentHTML('beforeend', command('training-reference', '장비별 중량 기록 보기', 'history', `data-record="${e(record.id)}" data-exercise="${e(exercise.id)}"`));
       });
     }
-    function referenceResultHTML(result) {
-      const title = { recorded: '선택한 장비의 최근 실제 기록', 'personal-transfer': '개인 기록으로 본 잠정 시작 범위', 'first-session': '첫 실제 기록부터 기준 잡기', unsupported: '숫자 참고보다 조건 확인이 먼저' }[result.status];
-      return `<div class="starting-reference-result" aria-live="polite"><h3>${e(title)}</h3>${result.range ? `<p class="starting-reference-range">${fmt(result.range.minKg, 1)}${result.range.maxKg === result.range.minKg ? '' : ` ~ ${fmt(result.range.maxKg, 1)}`} <small>kg · 표시 기준</small></p><p class="form-help">${result.status === 'personal-transfer' ? '서로 다른 장비에서 관찰한 개인 기록의 잠정 관계입니다. 당일 수행이나 적정 중량을 보장하지 않아요.' : '실제로 기록했던 작업 세트 범위입니다. 오늘 해야 할 중량이나 최고 기록 목표가 아닙니다.'}</p>` : ''}${result.reasons.map(line => `<p>${e(line)}</p>`).join('')}${result.transfer ? `<p class="form-help">서로 다른 날의 관찰 짝 ${fmt(result.transfer.pairCount)}개 · 덤벨/바벨 두 배 공식과 무관한 개인 표시 중량 관계</p>` : ''}${result.references.length ? `<details class="source-details"><summary>참고한 실제 세트 ${result.references.length}개</summary>${result.references.slice(0, 12).map(row => `<div class="reference-row"><strong>${e(row.date)}</strong> · ${fmt(row.loadKg, 1)}kg × ${fmt(row.reps)}회 · RIR ${row.rir === null ? '미확인' : fmt(row.rir)}${row.contextKey ? ' · 순서 맥락 확인' : ' · 순서 맥락 미확인'}</div>`).join('')}</details>` : ''}<details class="source-details"><summary>이 참고의 한계</summary>${result.limits.map(line => `<p class="form-help">${e(line)}</p>`).join('')}</details></div>`;
+    function referenceResultHTML(result, safety = null) {
+      const title = { recorded: result.referencePurpose === 'nonregular-observation' ? '별도 목적의 실제 세트' : '선택한 장비에서 수행한 세트', 'personal-transfer': '개인 기록으로 본 잠정 시작 범위', 'first-session': '첫 실제 기록부터 기준 잡기', unsupported: '숫자 참고보다 조건 확인이 먼저' }[result.status];
+      const selectionNames = { 'requested-reps-and-rir': '선택한 반복·RIR에 맞는 세트', 'requested-reps': '선택한 반복에 맞는 세트', 'requested-rir': '선택한 RIR에 맞는 세트', 'first-general': '앞쪽 일반 세트', 'first-known-general': '숫자가 있는 앞쪽 일반 세트' };
+      const selected = result.references[0], observed = result.status === 'recorded', request = result.request;
+      const repetitions = Number.isFinite(request.repsMin) && Number.isFinite(request.repsMax) ? request.repsMin === request.repsMax ? `${fmt(request.repsMin)}회` : `${fmt(request.repsMin)} ~ ${fmt(request.repsMax)}회`
+        : Number.isFinite(request.repsMin) ? `${fmt(request.repsMin)}회 이상` : Number.isFinite(request.repsMax) ? `${fmt(request.repsMax)}회 이하` : null;
+      const requested = [repetitions, Number.isFinite(request.rir) ? `RIR ${fmt(request.rir)}` : null].filter(Boolean).join(' · ');
+      const actualSet = row => {
+        const position = Number.isInteger(row.generalSetPosition) ? ` · 일반 세트 ${row.generalSetPosition}${Number.isInteger(row.generalSetCount) ? `/${row.generalSetCount}` : ''}` : '';
+        const purpose = T.intentLabels[row.trainingIntent] ? ` · ${T.intentLabels[row.trainingIntent]}` : '';
+        return `${row.date}${position}${purpose} · ${fmt(row.loadKg, 1)}kg × ${fmt(row.reps)}회${row.rir === null ? '' : ` · RIR ${fmt(row.rir)}`}`;
+      };
+      let next = observed && selected ? result.referencePurpose === 'nonregular-observation'
+        ? '이 세트는 별도 목적으로 남긴 기록이에요. 다음 평소 운동은 평소 일반 세트와 연습 세트 반응에서 시작하세요.'
+        : '연습 세트에서 오늘 반응을 확인한 뒤 같은 장비에서 이 반복을 재현해 보세요. 버거우면 부담을 낮추고, 여유가 남으면 한 세트에서만 조금 더 시도해요.'
+        : result.status === 'personal-transfer' ? '다른 장비에서 관찰한 개인 기록의 잠정 범위예요. 범위 아래쪽도 출발 후보로만 두고, 가벼운 연습 세트에서 오늘의 반응부터 확인하세요.'
+          : '가벼운 연습 세트로 범위를 확인하고 첫 일반 세트를 남겨 주세요. 다음에는 그 장비의 실제 수행에서 이어갈 수 있어요.';
+      if (result.status === 'unsupported') {
+        if (request.loadRole === 'assistance' || request.loadConvention === 'bodyweight') next = '맨몸·보조 중량은 다른 장비의 kg로 바꾸지 않아요. 해당 운동의 실제 반복과 보조량에서 다음 수행을 이어가세요.';
+        else {
+          const fields = [!request.equipmentKey ? '사용할 헬스장·기구 이름' : null, !['total', 'per-side'].includes(request.loadConvention) ? '한쪽·전체 중량 표기' : null,
+            request.loadRole !== 'external' ? '들어 올린 중량인지 보조 중량인지' : null].filter(Boolean);
+          next = fields.length ? `${fields.join(', ')}를 확인하면 그 장비의 실제 세트를 찾을 수 있어요.` : '같은 장비의 중량·반복이 남아 있는 일반 세트부터 확인해 주세요.';
+        }
+      }
+      if (observed && selected && result.referencePurpose !== 'nonregular-observation') {
+        const sameRepetitions = (!Number.isFinite(request.repsMin) || selected.reps >= request.repsMin) && (!Number.isFinite(request.repsMax) || selected.reps <= request.repsMax);
+        if (!sameRepetitions) next = `이 중량은 실제 ${selected.reps}회 기록이에요. 다음 ${repetitions} 운동은 같은 kg를 그대로 적용하기보다 연습 세트에서 그 반복을 제어할 수 있는 부담부터 확인하세요.`;
+        else if (Number.isFinite(request.rir) && selected.rir !== request.rir) next = `중량·반복은 이 실제 세트에서 이어가되, 다음에는 ${fmt(request.rir)}회 여유를 남길 수 있는 부담으로 맞춰 보세요. 표시한 kg가 그 여유 조건까지 확인된 값은 아니에요.`;
+      }
+      const notes = [...new Set([...result.reasons, ...result.limits])];
+      const references = result.references.slice(observed ? 1 : 0, 12).map(row => `<div class="reference-row">${e(actualSet(row))}${selectionNames[row.selection] ? ` · ${e(selectionNames[row.selection])}` : ''}</div>`).join('');
+      return `<div class="starting-reference-result" aria-live="polite"><h3>${e(title)}</h3><div class="reference-main">${requested ? `<p class="secondary-text">조회 조건 ${e(requested)}</p>` : ''}${result.range ? `<p class="starting-reference-range">${fmt(result.range.minKg, 1)}${result.range.maxKg === result.range.minKg ? '' : ` ~ ${fmt(result.range.maxKg, 1)}`} <small>kg · ${observed ? '실제 표시 중량' : '잠정 참고'}</small></p>` : ''}${observed && selected ? `<p class="reference-selected-set"><strong>${e(actualSet(selected))}</strong></p><p class="form-help">${e(selectionNames[selected.selection] || '선택한 실제 세트')}</p>` : ''}${safety ? `<p class="notice notice-warning">${e(safety)}</p>` : `<p>${e(next)}</p>`}</div><details class="source-details"><summary>선택 기준과 다른 장비 참고</summary>${references ? `<p class="secondary-text">함께 참고한 실제 세트 ${result.references.length - (observed ? 1 : 0)}개</p>${references}` : ''}${result.transfer ? `<p class="form-help">서로 다른 날의 관찰 짝 ${fmt(result.transfer.pairCount)}개</p>` : ''}${notes.map(line => `<p class="form-help">${e(line)}</p>`).join('')}</details></div>`;
     }
     function referenceDialog(record, exercise) {
       const description = T.describeExercise(exercise, workspace().mappings), context = T.sessionContext(record, workspace().mappings), block = context.blocks.find(row => row.blockId === exercise.id);
       const devices = [...new Set(workspace().records.flatMap(row => row.exercises.map(item => T.describeExercise(item, workspace().mappings).equipmentKey)).filter(Boolean))];
       const general = exercise.sets.filter(row => !row.marker), knownReps = general.map(row => row.reps).filter(value => value !== null), knownRir = general.map(row => row.rir).filter(value => value !== null);
-      openDialog('다음 운동에 참고할 중량', `<div class="form-grid"><label class="field full-width"><span>다음에 할 운동</span><select name="referenceExercise">${options(T.catalog.map(row => [row.id, row.label]), description.resolved.id)}</select></label><label class="field full-width"><span>다음에 쓸 장비 · 헬스장과 실제 기구</span><input name="referenceEquipment" maxlength="128" list="referenceDevices" value="${e(description.equipmentKey || '')}" placeholder="예: A헬스장 / 체스트프레스 1번"></label><datalist id="referenceDevices">${devices.map(device => `<option value="${e(device)}"></option>`).join('')}</datalist><label class="field"><span>중량 표기 · 한쪽인지 전체인지</span><select name="referenceConvention">${options([['as-recorded', '미확인'], ['total', '전체 중량'], ['per-side', '한쪽 중량'], ['bodyweight', '맨몸·추가 부하']], description.loadConvention)}</select></label><label class="field"><span>중량 종류</span><select name="referenceRole">${options([['unknown', '미확인'], ['external', '들어 올린 중량'], ['assistance', '몸을 도와주는 보조 중량']], description.loadRole)}</select></label>${field('최소 반복 수 · 선택', 'referenceRepsMin', knownReps.length ? Math.min(...knownReps) : '', { min: 1, max: 100000 })}${field('최대 반복 수 · 선택', 'referenceRepsMax', knownReps.length ? Math.max(...knownReps) : '', { min: 1, max: 100000 })}${field('더 할 수 있었던 반복 (RIR) · 선택', 'referenceRir', knownRir.length && new Set(knownRir).size === 1 ? knownRir[0] : '', { min: 0, max: 10, step: 0.5 })}</div>${block?.contextKey ? '<label class="checkbox-field"><input type="checkbox" name="sameContext">이 블록과 비슷한 순서·선행 운동 구성으로 할 예정이에요.</label>' : '<p class="form-help">이 기록의 순서·수행 방식이 미확인이라 같은 맥락의 환산 근거로는 사용하지 않습니다.</p>'}<div id="startingReferenceResult"></div>${actions('중량 기록 조회')}`, form => {
+      openDialog('다음 운동에 참고할 중량', `<div class="form-grid"><label class="field full-width"><span>다음에 할 운동</span><select name="referenceExercise">${options(T.catalog.map(row => [row.id, row.label]), description.resolved.id)}</select></label><label class="field full-width"><span>다음에 쓸 장비 · 헬스장과 실제 기구</span><input name="referenceEquipment" maxlength="128" list="referenceDevices" value="${e(description.equipmentKey || '')}" placeholder="예: A헬스장 / 체스트프레스 1번"></label><datalist id="referenceDevices">${devices.map(device => `<option value="${e(device)}"></option>`).join('')}</datalist><label class="field"><span>중량 표기 · 한쪽인지 전체인지</span><select name="referenceConvention">${options([['as-recorded', '미확인'], ['total', '전체 중량'], ['per-side', '한쪽 중량'], ['bodyweight', '맨몸·추가 부하']], description.loadConvention)}</select></label><label class="field"><span>중량 종류</span><select name="referenceRole">${options([['unknown', '미확인'], ['external', '들어 올린 중량'], ['assistance', '몸을 도와주는 보조 중량']], description.loadRole)}</select></label>${field('최소 반복 수 · 선택', 'referenceRepsMin', knownReps.length ? Math.min(...knownReps) : '', { min: 1, max: 100000 })}${field('최대 반복 수 · 선택', 'referenceRepsMax', knownReps.length ? Math.max(...knownReps) : '', { min: 1, max: 100000 })}${field('더 할 수 있었던 반복 (RIR) · 선택', 'referenceRir', knownRir.length && new Set(knownRir).size === 1 ? knownRir[0] : '', { min: 0, max: 10, step: 0.5 })}</div>${block?.contextKey ? '<label class="checkbox-field"><input type="checkbox" name="sameContext">비슷한 순서·선행 운동으로 할 예정이에요.</label>' : ''}<div id="startingReferenceResult"></div>${actions('중량 기록 조회')}`, form => {
         const request = { exerciseId: String(form.get('referenceExercise')), equipmentKey: String(form.get('referenceEquipment') || '').trim() || null, loadConvention: String(form.get('referenceConvention')), loadRole: String(form.get('referenceRole')), repsMin: numeric(form, 'referenceRepsMin'), repsMax: numeric(form, 'referenceRepsMax'), rir: numeric(form, 'referenceRir'), contextKey: form.get('sameContext') === 'on' ? block.contextKey : null,
           source: { exerciseId: description.resolved.id, equipmentKey: description.equipmentKey, loadConvention: description.loadConvention, loadRole: description.loadRole } };
         if (request.repsMin !== null && request.repsMax !== null && request.repsMin > request.repsMax) throw new Error('최소 반복이 최대 반복보다 큽니다.');
-        const result = T.startingReference(workspace().records, request, { date: I.dateKey(), mappings: workspace().mappings, recovery: currentAnalysis().recovery });
-        $('startingReferenceResult').innerHTML = referenceResultHTML(result);
+        const recovery = currentAnalysis().recovery;
+        const result = T.startingReference(workspace().records, request, { date: I.dateKey(), mappings: workspace().mappings, recovery });
+        const recordedPain = record.pain === 'stop' ? '이 일지에 중단이 필요한 통증을 기록했어요. 통증을 유발하는 운동을 멈추고 전문가 평가를 먼저 받아 주세요.'
+          : record.pain === 'mild' ? '이 일지에 통증을 기록했어요. 중량을 높이기보다 현재 증상을 먼저 확인하세요.' : null;
+        const safety = recovery.status === 'stop' ? recovery.reasons[0] : recordedPain || (recovery.status === 'review' ? recovery.reasons[0] : null);
+        $('startingReferenceResult').innerHTML = referenceResultHTML(result, safety);
         $('startingReferenceResult').scrollIntoView({ block: 'nearest' });
       });
-      $('entryForm').insertAdjacentHTML('afterbegin', `<p class="form-help">${I.dateKey()} 기준 · 선택한 장비에서 실제로 들었던 중량을 우선합니다. 다른 장비는 충분한 개인 기록이 있을 때만 잠정 범위를 보여 줍니다. 오늘의 목표 중량은 아닙니다.</p>`);
+      $('entryForm').insertAdjacentHTML('afterbegin', `<p class="form-help">조회 기준일 ${I.dateKey()}</p>`);
       const invalidate = () => {
         if ($('startingReferenceResult').children.length) $('startingReferenceResult').innerHTML = '<p class="form-help" role="status">선택한 조건이 바뀌었어요. 참고 기록을 다시 조회해 주세요.</p>';
       };
@@ -193,25 +284,40 @@
       }).join('') : '<p class="empty-state">과거 요약에 종목별 세트가 없어요. 전체 세트를 부위별로 임의 배분하지 않습니다.</p>'}${record.notes ? `<p class="workout-note">${e(record.notes)}</p>` : ''}<div class="workout-link"><span>${linked ? '이 운동 시간은 식사 목표에 이미 연결됐어요.' : '일지의 kg·Cal 표기는 식사 목표에 자동 합산되지 않습니다.'}</span>${command('training-link', linked ? '영양 연결 확인' : '운동 시간 연결', 'utensils', `data-id="${e(record.id)}"`)}</div>`;
     }
     function renderAnalysis(report) {
+      const activity = activityAnalysisHTML(), hasSets = report.sessions.some(session => session.exercises.some(exercise => exercise.sets.length));
+      let diary = '';
+      if (hasSets) diary = renderSetAnalysis(report);
+      else if (report.sessions.length) {
+        const coaching = T.coachSession(report, { preferences: workspace().reviewPreferences, priorityMuscles: workspace().settings.priorityMuscles, profile: app.getState().profile, planning: planning() });
+        diary = `<section class="training-next-directions"><div class="section-header"><h2>종목으로 남긴 운동</h2>${command('coach-review', '운동별로 살펴보기', 'list')}</div>${coaching.rows.map(row => `<div class="training-next-direction"><h3>${e(row.rawName || row.label)}</h3><p>${e(row.interpretation.summary)}</p><strong>${e(row.interpretation.nextAction.title)}</strong><p>${e(row.interpretation.nextAction.body)}</p></div>`).join('')}</section>`;
+      }
+      return `<div class="section-header"><div><h2>최근 28일의 운동</h2><span class="secondary-text">${report.windowStart} – ${report.windowEnd}</span></div>${dateControl()}</div>${activity}${diary}${!activity && !diary ? `<div class="workout-empty"><h2>다음 운동을 남길 출발점</h2><div class="form-actions">${command('session-add', '시간·거리 기록', 'timer')}${command('training-add', '세트 일지 기록', 'dumbbell')}</div></div>` : ''}`;
+    }
+    function renderSetAnalysis(report) {
       const muscleRows = report.muscles.filter(row => row.directSets || row.indirectSets).sort((a, b) => b.directSets - a.directSets);
       const max = Math.max(1, ...muscleRows.map(row => row.directSets + row.indirectSets));
-      const coaching = T.coachSession(report, { preferences: workspace().reviewPreferences, priorityMuscles: workspace().settings.priorityMuscles, profile: app.getState().profile });
-      return `<div class="section-header"><div><h2>최근 28일의 운동</h2><span class="secondary-text">${report.windowStart} – ${report.windowEnd}</span></div>${dateControl()}</div>
+      const coaching = T.coachSession(report, { preferences: workspace().reviewPreferences, priorityMuscles: workspace().settings.priorityMuscles, profile: app.getState().profile, planning: planning() });
+      const reviews = new Map(coaching.session ? [[coaching.session.id, coaching]] : []);
+      return `<div class="section-header"><h2>세트 일지 분석</h2></div>
         <div class="training-summary"><div><span>기록한 날짜</span><strong>${report.coverage.daysWithRecords}<small>일</small></strong></div><div><span>일반 세트</span><strong>${report.coverage.workingSets}<small>세트</small></strong></div><div><span>준비 세트</span><strong>${report.coverage.warmupSets}<small>세트</small></strong></div><div><span>부위 미확인</span><strong>${report.coverage.unresolvedExercises}<small>종목</small></strong></div></div>
-        <div class="training-analysis-grid"><section><div class="section-header"><h2>부위별 기록 세트</h2><span class="chart-legend"><i class="direct-key"></i>직접 <i class="indirect-key"></i>간접</span></div>${muscleRows.length ? `<div class="muscle-chart" role="img" aria-label="부위별 직접·간접 기록 세트">${muscleRows.map(row => `<div class="muscle-row"><strong>${e(row.label)}</strong><div class="muscle-track"><span class="muscle-direct" style="width:${row.directSets / max * 100}%"></span><span class="muscle-indirect" style="width:${row.indirectSets / max * 100}%"></span></div><span>${row.directSets} / ${row.indirectSets}</span></div>`).join('')}</div>` : '<p class="empty-state">종목을 확인한 세트 기록이 필요해요.</p>'}<p class="form-help">직접·간접은 자극 부위 분류이며 서로 같은 효과로 합산하지 않아요. RIR 미확인 ${report.coverage.unknownEffortSets}세트는 성장 유효량이 아닙니다.</p></section>
+        <div class="training-analysis-grid"><section><div class="section-header"><h2>부위별 기록 세트</h2><span class="chart-legend"><i class="direct-key"></i>직접 <i class="indirect-key"></i>간접</span></div>${muscleRows.length ? `<div class="muscle-chart" role="img" aria-label="부위별 직접·간접 기록 세트">${muscleRows.map(row => `<div class="muscle-row"><strong>${e(row.label)}</strong><div class="muscle-track"><span class="muscle-direct" style="width:${row.directSets / max * 100}%"></span><span class="muscle-indirect" style="width:${row.indirectSets / max * 100}%"></span></div><span>${row.directSets} / ${row.indirectSets}</span></div>`).join('')}</div>` : '<p class="empty-state">종목을 확인한 세트 기록이 필요해요.</p>'}<p class="form-help">직접·간접은 운동 부위별 기록이에요. 한 세트가 여러 부위에 표시될 수 있고, 성장률로 환산하지 않아요.</p></section>
         <section class="recovery-section"><span class="eyebrow">다음 운동 준비</span><h2>${{ stop: '통증 확인이 먼저예요', review: '부담을 늘리기 전 상태 확인', watch: '가볍게 시작하며 반응 보기', insufficient: '지금 수행에서 다음을 시작해요', okay: '이번 흐름을 이어가 보세요' }[report.recovery.status]}</h2><p>${e(['stop', 'review'].includes(report.recovery.status) ? coaching.rows[0]?.interpretation.nextAction.body || report.recovery.reasons[0] : '다음 연습 세트에서 평소처럼 움직이는지 보고, 버거우면 중량·세트를 한꺼번에 늘리지 마세요. 이번 기록은 아래에서 운동별로 이어갈 수 있어요.')}</p>${command('coach-checkin', '오늘 컨디션 남기기', 'heart-pulse')}<details class="source-details"><summary>회복 판단에 참고한 기록</summary>${report.recovery.reasons.map(reason => `<p>${e(reason)}</p>`).join('')}</details></section></div>
         ${coaching.session ? `<section class="training-next-directions"><div class="section-header"><h2>${coaching.session.date} 운동의 다음 방향</h2>${command('coach-review', '운동별로 살펴보기', 'list')}</div><p>${e(coaching.sessionCoaching.summary)}</p>${reviewIntentHTML(coaching)}${coaching.rows.map(row => `<div class="training-next-direction"><h3>${e(row.rawName || row.label)}</h3><p>${e(row.interpretation.summary)} ${e(row.interpretation.observations[0] || '')}</p><strong>${e(row.interpretation.nextAction.title)}</strong><p>${e(row.interpretation.nextAction.body)}</p></div>`).join('')}</section>` : ''}
-        <section class="progression-section"><div class="section-header"><h2>종목별 수행 변화</h2></div><p class="form-help">일반 세트 중 가장 높은 표시 중량의 반복을 비교한 관찰값이에요. 같은 중량이면 가장 많은 반복을 표시하며, 근성장률이나 최대근력 측정은 아닙니다.</p>${report.progression.length ? report.progression.map(renderProgression).join('') : '<p class="empty-state">비교할 일반 세트 기록이 아직 없어요.</p>'}</section>
+        <section class="progression-section"><div class="section-header"><h2>장비별 기록 연결</h2></div>${report.progression.length ? report.progression.map(row => renderProgression(row, report, reviews)).join('') : '<p class="empty-state">첫 기록부터 운동별 다음 방향을 볼 수 있어요.</p>'}</section>
         <details class="source-details"><summary>이 분석의 근거와 한계</summary><ul>${report.limitations.map(line => `<li>${e(line)}</li>`).join('')}</ul></details>`;
     }
-    function renderProgression(row) {
-      const point = value => value ? `${value.loadKg == null ? '부하 미확인' : `${fmt(value.loadKg, 1)}kg`} × ${value.reps == null ? '반복 미확인' : `${value.reps}회`}` : '기록 없음';
-      const coverage = row.historyCoverage;
-      const status = row.status === 'insufficient' && coverage?.otherConditionGroupCount > 0 ? '기록 있음 · 조건별 분리' : statusNames[row.status] || row.status;
-      const links = [row.previous, row.current].filter(value => value?.sessionId).map(value => command('training-open', `${value.date} 일지 보기`, 'notebook-pen', `data-id="${e(value.sessionId)}"`)).join('');
-      return `<div class="progression-row"><div><strong>${e(row.label)}</strong><span>${e(row.equipmentKey || '장비 미확인')}</span></div>
-        <div><strong>${e(row.previous ? `${point(row.previous)} → ${point(row.current)}` : `현재 ${point(row.current)}`)}</strong><span>${row.previous ? `${row.previous.date} → ` : ''}${row.current?.date || ''}</span><details class="source-details"><summary>이 수행 판정의 조건</summary>${coverage ? `<p class="progression-coverage">최근 28일 · 같은 운동 ${coverage.exerciseDayCount}일 · 이 장비·표기 ${coverage.equipmentDayCount}일 · 같은 기록 조건 ${coverage.conditionDayCount}일</p>` : ''}<p class="progression-explanation">${e(row.reason)}</p></details></div>
-        <div class="progression-actions"><span class="source-badge">${e(status)}</span>${links}</div></div>`;
+    function renderProgression(row, report, reviews) {
+      const sessionId = row.current?.sessionId;
+      if (!reviews.has(sessionId)) reviews.set(sessionId, T.coachSession(report, { sessionId, preferences: workspace().reviewPreferences, priorityMuscles: workspace().settings.priorityMuscles, profile: app.getState().profile, planning: planning() }));
+      const review = reviews.get(sessionId);
+      const observed = review.rows.find(item => item.blockId === row.current?.blockId);
+      if (!observed) return '';
+      const interpretation = observed.interpretation, reference = interpretation.reference, pair = interpretation.evidence.comparisons[0];
+      const observation = pair ? `${pair.date}: ${pair.previous} → ${review.session.date}: ${pair.current}` : interpretation.observations[0] || '';
+      const links = [reference, { sessionId: review.session.id, date: review.session.date }].filter(Boolean).map(value => command('training-open', `${value.date} 일지 보기`, 'notebook-pen', `data-id="${e(value.sessionId)}"`)).join('');
+      return `<div class="progression-row"><div><strong>${e(observed.label)}</strong><span>${e(observed.equipmentKey || '원문 장비 표기')}</span></div>
+        <div><strong>${e(interpretation.summary)}</strong><span class="progression-explanation">${e(observation)}</span>${reviewEvidenceHTML(review, observed)}</div>
+        <div class="progression-actions"><span class="source-badge">${reference ? '이전 기록 연결' : '출발 기록'}</span>${links}</div></div>`;
     }
     function renderProgram(value) {
       const settings = workspace().settings;
@@ -314,6 +420,11 @@
     }
     function blankSet() { return { id: id(), loadKg: null, reps: null, marker: null, rir: null }; }
     function blankExercise() { return { id: id(), rawName: '', exerciseId: null, equipmentKey: null, loadConvention: 'as-recorded', loadRole: 'unknown', groupKey: null, durationMinutes: null, repsTotal: null, reportedVolumeKg: null, sets: [blankSet()], notes: '' }; }
+    function coachingScope(exercise, mappings) {
+      const description = T.describeExercise(exercise, mappings);
+      return JSON.stringify([description.resolved?.id || null, description.equipmentKey, description.loadConvention,
+        description.loadRole, description.variantKey, description.ruleConflict]);
+    }
     function blankRecord() { return { id: id(), date: app.getDate(), time: null, label: '오늘 운동', durationMinutes: null, reportedSetCount: null, reportedVolumeKg: null, reportedEnergyKcal: null, source: { kind: 'manual', hash: null, paths: [], uncertainties: [], revision: null }, exercises: [], notes: '', effort: null, pain: null }; }
     function numeric(form, name) { const raw = String(form.get(name) ?? '').trim(); if (!raw) return null; const value = Number(raw); if (!Number.isFinite(value)) throw new Error('유효한 숫자를 입력해 주세요.'); return value; }
     function captureEditor(form = new FormData($('entryForm'))) {
@@ -322,8 +433,9 @@
       editor.sequence = { order: form.get('orderConfirmed') === 'on' ? 'listed' : 'unknown', structure: String(form.get('sessionStructure') || 'unknown') };
       if (form.get('trainingIntent')) editor.trainingIntent = String(form.get('trainingIntent')); else delete editor.trainingIntent;
       editor.exercises.forEach((exercise, x) => {
+        const previousScope = exercise.coachingAnswer ? coachingScope(exercise, workspace().mappings) : null;
         const name = String(form.get(`exercise-${x}`) || '').trim();
-        if (name !== exercise.rawName) { exercise.exerciseId = T.resolveExercise(name, workspace().mappings)?.id || null; exercise.equipmentKey = null; exercise.loadConvention = 'as-recorded'; exercise.loadRole = 'unknown'; delete exercise.feedback; }
+        if (name !== exercise.rawName) { exercise.exerciseId = T.resolveExercise(name, workspace().mappings)?.id || null; exercise.equipmentKey = null; exercise.loadConvention = 'as-recorded'; exercise.loadRole = 'unknown'; delete exercise.feedback; delete exercise.coachingAnswer; }
         exercise.rawName = name;
         if (form.has(`equipment-${x}`)) exercise.equipmentKey = String(form.get(`equipment-${x}`) || '').trim() || null;
         if (form.has(`convention-${x}`)) exercise.loadConvention = String(form.get(`convention-${x}`));
@@ -331,6 +443,7 @@
         if (form.has(`group-${x}`)) exercise.groupKey = String(form.get(`group-${x}`) || '').trim() || null;
         exercise.sets.forEach((set, y) => { for (const key of ['loadKg', 'reps', 'rir']) set[key] = numeric(form, `${x}-${y}-${key}`); set.marker = String(form.get(`${x}-${y}-marker`) || '').trim() || null; });
         if (exercise.feedback && !exercise.sets.some(set => set.id === exercise.feedback.setId && set.marker === null && set.loadKg === exercise.feedback.loadKg && set.reps === exercise.feedback.reps)) delete exercise.feedback;
+        if (exercise.coachingAnswer && (!TS.coachingAnswerMatches(exercise) || previousScope !== coachingScope(exercise, workspace().mappings))) delete exercise.coachingAnswer;
       });
     }
     function drawEditor(existing = true) {
@@ -374,7 +487,7 @@
         editor.sequence = { order: 'unknown', structure: 'unknown' };
         delete editor.trainingIntent;
         editor.source = blankRecord().source; editor.reportedSetCount = null; editor.reportedEnergyKcal = null; editor.reportedVolumeKg = null; editor.notes = '';
-        editor.exercises.forEach(exercise => { exercise.id = id(); delete exercise.feedback; exercise.reportedVolumeKg = null; exercise.sets.forEach(set => { set.id = id(); set.rir = null; }); });
+        editor.exercises.forEach(exercise => { exercise.id = id(); delete exercise.feedback; delete exercise.coachingAnswer; exercise.reportedVolumeKg = null; exercise.sets.forEach(set => { set.id = id(); set.rir = null; }); });
       }
       if (!editor.exercises.length && !record) editor.exercises.push(blankExercise());
       drawEditor(Boolean(record && !reuse));
@@ -398,9 +511,12 @@
         if (!T.catalog.some(row => row.id === mapping.exerciseId)) throw new Error('실제 종목을 선택해 주세요.');
         const preview = T.previewMapping(next.records, next.mappings, mapping, { recordId: record.id, exerciseId: exercise.id });
         if (!preview.valid) throw new Error(preview.error || '저장할 운동·장비 정보를 확인해 주세요.');
+        const answered = next.records.flatMap(row => row.exercises.filter(item => item.coachingAnswer).map(item => ({ exercise: item, scope: coachingScope(item, next.mappings) })));
         Object.assign(target, { exerciseId: mapping.exerciseId, equipmentKey: mapping.equipmentKey, loadConvention: mapping.loadConvention, loadRole: mapping.loadRole });
         next.mappings = preview.nextMappings;
-        if (saveWorkspace(next, '운동·장비 정보를 저장했어요. 세트 숫자는 그대로입니다.')) closeDialog();
+        let clearedAnswers = 0;
+        for (const item of answered) if (item.scope !== coachingScope(item.exercise, next.mappings)) { delete item.exercise.coachingAnswer; clearedAnswers++; }
+        if (saveWorkspace(next, `운동·장비 정보를 저장했어요. 세트 숫자는 그대로입니다.${clearedAnswers ? ' 기준이 달라진 운동의 확인 답변은 다시 선택해 주세요.' : ''}`)) closeDialog();
       });
       $('entryForm').querySelector('.form-grid').insertAdjacentHTML('beforeend', `<label class="field full-width"><span>중량 종류</span><select name="loadRole">${options([['unknown', '미확인'], ['external', '들어 올린 외부 중량'], ['assistance', '몸을 도와주는 보조 중량']], description.loadRole || 'unknown')}</select></label><p class="form-help full-width">예: A헬스장 / 체스트프레스 1번. 같은 브랜드라도 실제 기계가 다르면 장비 이름을 나눠 주세요.</p>`);
       $('entryForm').querySelector('.checkbox-field').insertAdjacentHTML('beforebegin', '<section class="mapping-reuse-preview" aria-labelledby="mappingReuseTitle"><h3 id="mappingReuseTitle">같은 운동명에 적용할 기준</h3><div id="mappingReusePreview" aria-live="polite"></div></section>');
@@ -432,6 +548,9 @@
         const next = copy(workspace()); next.settings = { daysPerWeek: numeric(form, 'daysPerWeek'), sessionMinutes: numeric(form, 'sessionMinutes'), equipment: String(form.get('equipment')), priorityMuscles: form.getAll('priorityMuscles') };
         if (saveWorkspace(next, '시간과 장비에 맞춰 시작 계획을 바꿨어요.')) closeDialog();
       });
+      $('dialogTitle').textContent = '근력운동 일정·환경';
+      $('entryForm').elements.daysPerWeek.closest('.field').querySelector('span').textContent = '주당 근력운동 가능한 날';
+      $('entryForm').elements.sessionMinutes.closest('.field').querySelector('span').textContent = '근력운동 회당 가능한 시간 (분)';
     }
     function linkedId(value) { let hash = 2166136261; for (const char of value) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619); return `workout:${(hash >>> 0).toString(16)}:${value.slice(0, 80)}`; }
     function linkDialog(record) {
@@ -710,18 +829,19 @@
     }
     function chatHTML() {
       const messages = workspace().messages.slice(-40);
+      const retrieval = app.retrievalHTML?.(messages.findLast(row => row.role === 'user')?.text || '') || '';
       const available = canAskAI(), busy = jobStarting || currentJob?.status === 'running' || currentJob?.status === 'pending';
       const sourceLabel = row => row.role === 'user' ? '나' : row.text.startsWith('상담 요청을 완료하지 못했어요.') ? '연결 안내' : row.source === 'codex' ? '개인 코치 · Codex' : /안전 안내|119|즉시|응급/.test(row.text) ? '즉시 안전 안내' : '이전 기록 안내';
       const reconnect = location.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(location.hostname) ? command('bridge-refresh', '서버 다시 확인', 'refresh-cw') : '';
       if (!available) {
         const status = connectionState();
-        return `<section class="personal-conversation conversation-offline"><div class="conversation-unavailable" role="status"><strong>기록은 지금 시작할 수 있어요</strong><p>식사·운동 직접 기록과 기록 요약은 Codex 없이 사용할 수 있어요. 자유 상담과 사진 숫자 판독만 별도 연결이 필요합니다.</p><div class="conversation-offline-actions">${command('training-add', '운동 직접 기록', 'dumbbell')}${command(app.getDay()?.complete ? 'reopen' : 'meal-add', app.getDay()?.complete ? '완료 기록 다시 열기' : '식사 직접 기록', app.getDay()?.complete ? 'pencil' : 'utensils')}${command('connection-setup', 'Codex 연결 설정', 'settings-2')}${reconnect}</div><p class="form-help">${e(status.title)}</p></div>${messages.length ? `<details class="conversation-saved"><summary>지난 대화 ${messages.length}개</summary><div class="conversation-log" role="log" aria-label="이전 코치 대화">${messages.map(row => `<div class="conversation-message conversation-${row.role}"><span>${sourceLabel(row)}${row.status === 'pending' ? ' · 답변 확인 필요' : ''}</span><p class="conversation-text">${e(row.text)}</p></div>`).join('')}</div></details>` : ''}${chatDraft ? `<details class="conversation-saved"><summary>작성 중인 질문</summary><p class="conversation-text">${e(chatDraft)}</p></details>` : ''}${jobHTML()}${connectionPanel()}</section>`;
+        return `<section class="personal-conversation conversation-offline"><div class="conversation-unavailable" role="status"><strong>기록은 지금 시작할 수 있어요</strong><p>식사·운동 직접 기록과 기록 요약은 Codex 없이 사용할 수 있어요. 자유 상담과 사진 숫자 판독만 별도 연결이 필요합니다.</p><div class="conversation-offline-actions">${command('training-add', '운동 직접 기록', 'dumbbell')}${command(app.getDay()?.complete ? 'reopen' : 'meal-add', app.getDay()?.complete ? '완료 기록 다시 열기' : '식사 직접 기록', app.getDay()?.complete ? 'pencil' : 'utensils')}${command('connection-setup', 'Codex 연결 설정', 'settings-2')}${reconnect}</div><p class="form-help">${e(status.title)}</p></div>${messages.length ? `<details class="conversation-saved"><summary>지난 대화 ${messages.length}개</summary><div class="conversation-log" role="log" aria-label="이전 코치 대화">${messages.map(row => `<div class="conversation-message conversation-${row.role}"><span>${sourceLabel(row)}${row.status === 'pending' ? ' · 답변 확인 필요' : ''}</span><p class="conversation-text">${e(row.text)}</p></div>`).join('')}</div></details>` : ''}${chatDraft ? `<details class="conversation-saved"><summary>작성 중인 질문</summary><p class="conversation-text">${e(chatDraft)}</p></details>` : ''}${retrieval}${jobHTML()}${connectionPanel()}</section>`;
       }
       const providerLabel = bridge.status.runtime?.readiness === 'ready' ? 'Codex 설치·로그인 확인됨' : 'Codex 사용 가능 · 로그인 미확인';
       return `<section class="personal-conversation"><div class="section-header"><h2>코치 상담</h2><div class="toolbar-actions"><span class="source-badge">${providerLabel}</span>${command('connection-setup', 'Codex 연결 설정', 'settings-2')}</div></div><span class="conversation-provider">${available ? `선택한 기록과 대화 일부를 전송 · ${aiUsageNote()}` : '상담은 AI 연결이 필요해요 · 이전 대화는 유지됩니다'}</span>
         <div class="conversation-log" role="log" aria-label="코치 대화">${messages.map(row => `<div class="conversation-message conversation-${row.role}"><span>${sourceLabel(row)}${row.status === 'pending' ? ' · 답변 대기' : ''}</span><p class="conversation-text">${e(row.text)}</p></div>`).join('') || (available ? '<div class="conversation-empty"><strong>지금 가장 걸리는 것은 무엇인가요?</strong><span>최근 운동과 식사, 오늘 몸 상태를 함께 살펴볼게요.</span></div>' : '')}</div>
         ${!available ? `<div class="conversation-unavailable" role="status"><strong>상담 연결이 없어요</strong><p>기록 요약·직접 기록·지난 운동 재사용·저장한 계획은 계속 사용할 수 있습니다. AI 대신 규칙 문장을 상담 답변으로 내보내지는 않아요.</p>${reconnect}</div>` : ''}
-        ${app.retrievalHTML?.(messages.findLast(row => row.role === 'user')?.text || '') || ''}<form id="coachChatForm" class="conversation-compose"><label class="sr-only" for="coachChatInput">코치에게 질문</label><textarea id="coachChatInput" rows="2" maxlength="6000" placeholder="${available ? '운동 수행이 떨어지고 허기가 심해. 오늘은 어떻게 할까?' : 'AI 연결 후 질문할 수 있어요'}" required ${available ? '' : 'disabled'}></textarea><button class="icon-button send-button" type="submit" aria-label="코치에게 보내기" title="코치에게 보내기" ${!available || busy ? 'disabled' : ''}>${icon('arrow-up')}</button></form>${jobHTML()}<div class="conversation-actions">${command('training-image', '사진 추가', 'image-plus')}${command('nav-training', '운동 일지 보기', 'dumbbell')}${command('nav-program', '운동 계획 보기', 'calendar-days')}</div>${connectionPanel()}</section>`;
+        ${retrieval}<form id="coachChatForm" class="conversation-compose"><label class="sr-only" for="coachChatInput">코치에게 질문</label><textarea id="coachChatInput" rows="2" maxlength="6000" placeholder="${available ? '운동 수행이 떨어지고 허기가 심해. 오늘은 어떻게 할까?' : 'AI 연결 후 질문할 수 있어요'}" required ${available ? '' : 'disabled'}></textarea><button class="icon-button send-button" type="submit" aria-label="코치에게 보내기" title="코치에게 보내기" ${!available || busy ? 'disabled' : ''}>${icon('arrow-up')}</button></form>${jobHTML()}<div class="conversation-actions">${command('training-image', '사진 추가', 'image-plus')}${command('nav-training', '운동 일지 보기', 'dumbbell')}${command('nav-program', '운동 계획 보기', 'calendar-days')}</div>${connectionPanel()}</section>`;
     }
     function memoryHTML() {
       const data = workspace(), memory = data.memory || TS.createEmpty().memory;
@@ -752,10 +872,14 @@
     }
     function coachContextHTML() {
       const report = analysis(), last = report.lastSession;
-      return `<section class="coach-training-context"><div class="section-header"><h2>마지막 운동 일지</h2>${last ? command('training-open', `${last.date} 일지 보기`, 'notebook-pen', `data-id="${e(last.id)}"`) : ''}</div>${last ? `<strong>${last.date} · ${e(last.label)}</strong><p>${last.exercises.map(exercise => e(exercise.label || exercise.rawName || '')).filter(Boolean).slice(0, 4).join(' · ')}</p><span class="secondary-text">${e(reviewSessionCounts(last))}</span>` : '<p>최근 운동 세트는 아직 확인하지 못했어요.</p>'}<p class="form-help">${e(report.recovery.reasons[0] || '')}</p>${command('nav-program', '다음 훈련 살펴보기', 'calendar-days')}</section>`;
+      const meaning = last ? T.coachSession(report, { sessionId: last.id, preferences: workspace().reviewPreferences, priorityMuscles: workspace().settings.priorityMuscles, profile: app.getState().profile, planning: planning() }).sessionCoaching : null;
+      const note = ['stop', 'review'].includes(report.recovery.status) ? report.recovery.reasons[0] : meaning?.summary || '';
+      return `<section class="coach-training-context"><div class="section-header"><h2>마지막 운동 일지</h2>${last ? command('training-open', `${last.date} 일지 보기`, 'notebook-pen', `data-id="${e(last.id)}"`) : ''}</div>${last ? `<strong>${last.date} · ${e(last.label)}</strong><p>${last.exercises.map(exercise => e(exercise.label || exercise.rawName || '')).filter(Boolean).slice(0, 4).join(' · ')}</p><span class="secondary-text">${e(reviewSessionCounts(last))}</span>` : '<p>아직 운동 일지가 없어요.</p>'}${note ? `<p class="form-help">${e(note)}</p>` : ''}${command('nav-program', '다음 훈련 살펴보기', 'calendar-days')}</section>`;
     }
     function reviewSessionCounts(session) {
       if (session.sourceKind === 'legacy-ocr' && session.totalSets === 0) return '종목별 세트 미확인 · 과거 OCR 원문 미검증';
+      const timed = session.exercises.filter(exercise => Number.isFinite(exercise.durationMinutes) && exercise.durationMinutes > 0);
+      if (session.totalSets === 0 && timed.length) return `${session.exercises.length}종목 · 시간 기록 ${timed.length}종목`;
       const unknownReps = session.exercises.reduce((sum, exercise) => sum + exercise.sets.filter(set => set.reps == null).length, 0);
       return `${session.exercises.length}종목 · 일반 ${session.workingSets}세트 · 준비 ${session.warmupSets}세트${session.markedSets ? ` · 별도 표기 ${session.markedSets}세트` : ''}${unknownReps ? ` · 반복 미확인 ${unknownReps}세트` : ''}`;
     }
@@ -765,13 +889,28 @@
       }
       const report = analysis();
       if (reviewSessionId && !report.sessions.some(row => row.id === reviewSessionId)) reviewSessionId = null;
-      const value = T.coachSession(report, { sessionId: reviewSessionId, preferences: workspace().reviewPreferences, priorityMuscles: workspace().settings.priorityMuscles, profile: app.getState().profile });
+      const value = T.coachSession(report, { sessionId: reviewSessionId, preferences: workspace().reviewPreferences, priorityMuscles: workspace().settings.priorityMuscles, profile: app.getState().profile, planning: planning() });
       if (value.session?.id !== reviewedSessionId) { reviewedSessionId = value.session?.id || null; reviewBlockId = null; }
       if (!value.rows.some(row => row.blockId === reviewBlockId)) reviewBlockId = value.rows[0]?.blockId || null;
       return value;
     }
     function reviewPoint(value) {
-      return value ? `${value.loadKg == null ? '중량 미확인' : `${fmt(value.loadKg, 1)}kg`} × ${value.reps == null ? '반복 미확인' : `${fmt(value.reps)}회`}` : '앞선 같은 조건 기록 없음';
+      return value ? `${value.loadKg == null ? '중량 미확인' : `${fmt(value.loadKg, 1)}kg`} × ${value.reps == null ? '반복 미확인' : `${fmt(value.reps)}회`}` : '앞선 기록 없음';
+    }
+    function reviewEvidenceHTML(value, row) {
+      const evidence = row.interpretation?.evidence;
+      if (!evidence) return '';
+      const coverage = row.progression?.historyCoverage;
+      const hasWork = row.sets.some(set => set.marker === null && Number.isInteger(set.reps) && set.reps > 0);
+      return `<details class="source-details coach-review-comparison"><summary>${e(evidence.title)}</summary>
+        <p>${e(evidence.summary)}</p>
+        ${evidence.referenceStatus === 'time-only' ? '' : `<p>${e(row.interpretation.summary)}</p>`}
+        ${row.interpretation.performance ? `<p>${e(row.interpretation.performance.summary)}</p>` : ''}
+        ${row.interpretation.observations.map(line => `<p>${e(line)}</p>`).join('')}
+        ${evidence.comparisons.map(item => `<div class="coach-comparison-pair"><strong>${e(item.label)}</strong><p>${item.date}: ${e(item.previous)} → ${value.session.date}: ${e(item.current)}</p></div>`).join('')}
+        ${evidence.context.length ? `<dl class="exercise-details">${evidence.context.map(item => `<div><dt>${e(item.label)}</dt><dd>${e(item.value)}</dd></div>`).join('')}</dl>` : ''}
+        ${coverage ? `<p class="progression-coverage">${value.windowStart} ~ ${value.windowEnd} · 같은 운동 ${coverage.exerciseDayCount}일 · 이 장비·표기 ${coverage.equipmentDayCount}일</p>` : ''}
+        ${hasWork ? '<p class="form-help">숫자의 변화와 세트 구성으로 다음 시도를 잡았어요. 근력·근성장의 측정값은 아니에요.</p>' : ''}</details>`;
     }
     function reviewStatus(row) {
       if (row.interpretation) return row.interpretation.reference ? '앞선 기록과 연결' : row.sets.length ? '이번 수행에서 시작' : '운동 기록';
@@ -795,6 +934,10 @@
       if (!row) return '';
       const session = value.session, progression = row.progression, current = progression?.current, previous = progression?.previous;
       const interpretation = row.interpretation, reference = interpretation?.reference;
+      const coaching = interpretation.coaching;
+      const meaningHTML = coaching ? `<p><strong>${e(coaching.assessment)}</strong></p>` : `<p><strong>${e(interpretation.summary)}</strong></p>${interpretation.observations.map(line => `<p>${e(line)}</p>`).join('')}`;
+      const supportHTML = (coaching?.supportingActions || []).map(action => `<div class="coach-supporting-trial"><h4>${e(action.title)}</h4><p>${e(action.body)}</p></div>`).join('');
+      const alternativeHTML = coaching?.progressionCandidate ? `<details class="source-details coach-review-alternative"><summary>이 운동의 작은 변화 선택지</summary><h4>${e(coaching.progressionCandidate.title)}</h4><p>${e(coaching.progressionCandidate.body)}</p></details>` : '';
       const convention = { total: '전체 중량', 'per-side': '한쪽 중량', bodyweight: '맨몸·추가 부하', 'as-recorded': '중량 표기 미확인' }[row.loadConvention];
       const raw = workspace().records.find(record => record.id === session.id)?.exercises.find(exercise => exercise.id === row.blockId);
       const resolved = row.exerciseKey.startsWith('exercise:') ? T.catalog.find(exercise => exercise.id === row.exerciseKey.slice(9)) : null;
@@ -802,7 +945,13 @@
       const contextBlock = session.context?.blocks.find(block => block.blockId === row.blockId);
       const index = value.rows.indexOf(row), neighbor = offset => value.rows[index + offset];
       const navigation = `<div class="coach-review-navigation">${command('coach-review-list', '운동 목록', 'list', `data-block-id="${e(row.blockId)}"`)}<div class="toolbar-actions">${iconButton('coach-review-select', '목록의 이전 운동 분석', 'chevron-left', neighbor(-1) ? `data-block-id="${e(neighbor(-1).blockId)}"` : 'disabled')}${iconButton('coach-review-select', '목록의 다음 운동 분석', 'chevron-right', neighbor(1) ? `data-block-id="${e(neighbor(1).blockId)}"` : 'disabled')}</div></div>`;
-      return `<div id="coachReviewDetail" class="coach-review-detail" role="region" tabindex="-1" aria-labelledby="coachReviewDetailTitle">${navigation}<div class="section-header"><div><span class="eyebrow">${session.date}${session.time ? ` · ${e(session.time)}` : ''} · 일지 ${row.diaryPosition}</span><h3 id="coachReviewDetailTitle">${e(row.rawName || row.label)}</h3></div><span class="source-badge">${e(reviewStatus(row))}</span></div><div class="coach-review-meaning"><p><strong>${e(interpretation.summary)}</strong></p>${interpretation.observations.map(line => `<p>${e(line)}</p>`).join('')}</div><div class="coach-review-next-trial"><h4>${e(interpretation.nextAction.title)}</h4><p>${e(interpretation.nextAction.body)}</p></div>${reviewFeedbackHTML(session, row, raw)}<dl class="exercise-details"><div><dt>장비</dt><dd>${e(row.equipmentKey || '원문 표기')}</dd></div><div><dt>중량 표기</dt><dd>${e(convention)}</dd></div><div><dt>운동 분류</dt><dd>${e(resolved?.label || row.rawName)}</dd></div><div><dt>직접 자극 부위</dt><dd>${resolved ? resolved.primaryMuscles.map(key => e(T.muscleLabels[key])).join(' · ') : '분류 후 표시'}</dd></div></dl>${row.sets.length ? `<div class="set-table" role="table" aria-label="${e(row.rawName || row.label)} 기록 세트"><div class="set-table-head" role="row"><span role="columnheader">세트</span><span role="columnheader">원문 kg</span><span role="columnheader">반복</span><span role="columnheader">RIR</span></div>${row.sets.map((set, index) => `<div class="set-table-row ${set.marker === 'W' ? 'set-warmup' : ''}" role="row"><span role="cell">${e(set.marker || String(index + 1))}</span><strong role="cell">${set.loadKg == null ? '미확인' : fmt(set.loadKg, 1)}</strong><strong role="cell">${set.reps == null ? '미확인' : fmt(set.reps)}</strong><span role="cell">${set.rir == null ? '미확인' : fmt(set.rir)}</span></div>`).join('')}</div>` : ''}${raw?.notes ? `<p class="form-help">${e(raw.notes)}</p>` : ''}<details class="source-details coach-review-comparison"><summary>수행 판정과 참고 조건</summary><p>${e(progression?.reason || '일반 세트의 숫자가 남으면 수행 비교도 이어갈 수 있어요.')}</p><p>최고 표시 세트 ${current ? e(reviewPoint(current)) : '미확인'}${previous ? ` · 같은 조건 이전 ${previous.date} ${e(reviewPoint(previous))}` : ''}</p>${interpretation.conditions.map(line => `<p>${e(line)}</p>`).join('')}${coverage ? `<p>${value.windowStart} ~ ${value.windowEnd} · 같은 운동 ${coverage.exerciseDayCount}일 · 이 장비·표기 ${coverage.equipmentDayCount}일 · 같은 기록 조건 ${coverage.conditionDayCount}일</p>` : ''}<p>${Number.isInteger(contextBlock?.executionPosition) ? `실제 순차 수행으로 확인된 일지의 ${contextBlock.executionPosition}번째 블록` : `원문 일지의 ${row.diaryPosition}번째 블록 · 실제 순차 수행 미확인`}${session.context?.sameDaySessions > 1 ? ' · 같은 날 여러 세션' : ''}. 다른 장비 중량은 합치지 않습니다. 다음 시도는 기록을 바탕으로 한 제안이며 저장한 프로그램을 자동으로 바꾸지 않아요.</p></details><div class="form-actions">${command('training-open', `${session.date} 일지 보기`, 'notebook-pen', `data-id="${e(session.id)}"`)}${reference ? command('training-open', `${reference.date} 참고 일지 보기`, 'history', `data-id="${e(reference.sessionId)}"`) : previous?.sessionId && previous.sessionId !== session.id ? command('training-open', `${previous.date} 비교 일지 보기`, 'history', `data-id="${e(previous.sessionId)}"`) : ''}</div></div>`;
+      return `<div id="coachReviewDetail" class="coach-review-detail" role="region" tabindex="-1" aria-labelledby="coachReviewDetailTitle">${navigation}<div class="section-header"><div><span class="eyebrow">${session.date}${session.time ? ` · ${e(session.time)}` : ''} · 일지 ${row.diaryPosition}</span><h3 id="coachReviewDetailTitle">${e(row.rawName || row.label)}</h3></div><span class="source-badge">${e(reviewStatus(row))}</span></div><div class="coach-review-meaning">${meaningHTML}</div><div class="coach-review-next-trial"><h4>${e(interpretation.nextAction.title)}</h4><p>${e(interpretation.nextAction.body)}</p>${supportHTML}</div>${alternativeHTML}${reviewCoachingQuestionHTML(session, row)}${reviewFeedbackHTML(session, row, raw)}<dl class="exercise-details"><div><dt>장비</dt><dd>${e(row.equipmentKey || '원문 표기')}</dd></div><div><dt>중량 표기</dt><dd>${e(convention)}</dd></div><div><dt>운동 분류</dt><dd>${e(resolved?.label || row.rawName)}</dd></div><div><dt>직접 자극 부위</dt><dd>${resolved ? resolved.primaryMuscles.map(key => e(T.muscleLabels[key])).join(' · ') : '분류 후 표시'}</dd></div></dl>${row.sets.length ? `<div class="set-table" role="table" aria-label="${e(row.rawName || row.label)} 기록 세트"><div class="set-table-head" role="row"><span role="columnheader">세트</span><span role="columnheader">원문 kg</span><span role="columnheader">반복</span><span role="columnheader">RIR</span></div>${row.sets.map((set, index) => `<div class="set-table-row ${set.marker === 'W' ? 'set-warmup' : ''}" role="row"><span role="cell">${e(set.marker || String(index + 1))}</span><strong role="cell">${set.loadKg == null ? '미확인' : fmt(set.loadKg, 1)}</strong><strong role="cell">${set.reps == null ? '미확인' : fmt(set.reps)}</strong><span role="cell">${set.rir == null ? '미확인' : fmt(set.rir)}</span></div>`).join('')}</div>` : ''}${raw?.notes ? `<p class="form-help">${e(raw.notes)}</p>` : ''}${reviewEvidenceHTML(value, row)}<div class="form-actions">${command('training-open', `${session.date} 일지 보기`, 'notebook-pen', `data-id="${e(session.id)}"`)}${reference ? command('training-open', `${reference.date} 참고 일지 보기`, 'history', `data-id="${e(reference.sessionId)}"`) : previous?.sessionId && previous.sessionId !== session.id ? command('training-open', `${previous.date} 비교 일지 보기`, 'history', `data-id="${e(previous.sessionId)}"`) : ''}</div></div>`;
+    }
+    function reviewCoachingQuestionHTML(session, row) {
+      const question = row.interpretation.coaching?.question;
+      if (!question) return '';
+      const extra = `data-record="${e(session.id)}" data-block-id="${e(row.blockId)}" data-topic="${e(question.topic)}"`;
+      return `<div class="coach-review-feedback coach-review-question"><h4>${e(question.title)} <small>선택</small></h4><div class="segmented" role="group" aria-label="${e(question.title)}">${question.choices.map(choice => `<button type="button" data-action="training-coaching-answer" data-answer="${e(choice.value)}" ${extra} aria-pressed="${question.selectedAnswer === choice.value}">${e(choice.label)}</button>`).join('')}</div>${question.selectedAnswer ? iconButton('training-coaching-answer-clear', '조언 확인 답변 지우기', 'x', extra) : ''}</div>`;
     }
     function reviewFeedbackHTML(session, row, raw) {
       const sets = row.sets.filter(set => set.marker === null && set.reps > 0);
@@ -827,7 +976,7 @@
         const main = preferences.mainExerciseKeys.indexOf(row.mainKey || row.exerciseKey), active = row.blockId === reviewBlockId;
         const rank = main >= 0 ? `메인 ${main + 1}` : { focus: '우선 부위', suggested: '복합 동작', other: '일반' }[row.priorityKind] || '일반';
         return `<li class="coach-review-row ${active ? 'is-selected' : ''}" data-block-id="${e(row.blockId)}" data-exercise-key="${e(row.exerciseKey)}"><button type="button" class="coach-review-select" data-action="coach-review-select" data-block-id="${e(row.blockId)}" aria-pressed="${active}" aria-controls="coachReviewDetail"><span class="coach-review-name"><small>${e(rank)} · 일지 ${row.diaryPosition}</small><strong>${e(row.rawName || row.label)}</strong><span>${e(row.equipmentKey || '원문 장비 표기')}</span></span><span class="coach-review-values"><strong>${row.progression?.current ? e(reviewPoint(row.progression.current)) : '이번 기록'}</strong><small>${e(row.interpretation.observations[0] || row.interpretation.summary)}</small></span><span class="coach-review-status">${e(reviewStatus(row))}${icon('chevron-right')}</span></button>${iconButton('coach-review-main', `${e(row.label)} 메인 운동 ${main >= 0 ? '해제' : '지정'}`, main >= 0 ? 'pin-off' : 'pin', `data-exercise-key="${e(row.mainKey || row.exerciseKey)}" data-block-id="${e(row.blockId)}" aria-pressed="${main >= 0}"`)}</li>`;
-      }).join('')}</ol>${reviewDetailHTML(value, selected)}` : '<p class="empty-state">이 일지에는 종목별 세트가 없어요. 전체 요약을 임의로 나누지 않습니다.</p>'}<details class="source-details coach-review-limits"><summary>관찰 기준과 정렬 근거</summary>${value.limitations.map(line => `<p>${e(line)}</p>`).join('')}<p>메인 운동 → 설정한 우선 부위에 직접 해당하는 운동 → 복합 동작 → 나머지 순서입니다. 같은 단계는 일지순이며, 중량·세트 수로 중요도를 정하지 않습니다. 복합 동작 우선은 화면 배치용 기본값이며 개인의 최적 운동이나 성장 순위가 아닙니다.</p>${selected ? `<p>${e(selected.priorityReason)}</p>` : ''}<p>일반 세트가 있으면 가장 높은 기록 중량, 같은 중량이면 가장 많은 반복을 관찰합니다. 일반 세트가 없으면 준비 세트를 제외한 별도 표기 세트의 숫자만 남기며 수행 비교는 보류합니다. 근성장률·최대근력 측정이 아니며, 별도 표기 세트와 조건 미확인은 비교를 보류합니다. 정렬·메인 지정은 실제 운동 순서나 저장한 계획을 바꾸지 않습니다.</p></details></section>`;
+      }).join('')}</ol>${reviewDetailHTML(value, selected)}` : '<p class="empty-state">이 일지에는 종목별 세트가 없어요. 전체 요약을 임의로 나누지 않습니다.</p>'}<details class="source-details coach-review-limits"><summary>관찰 기준과 정렬 근거</summary>${value.limitations.map(line => `<p>${e(line)}</p>`).join('')}<p>메인 운동 → 설정한 우선 부위에 직접 해당하는 운동 → 복합 동작 → 나머지 순서입니다. 같은 단계는 일지순이며, 중량·세트 수로 중요도를 정하지 않습니다. 복합 동작 우선은 화면 배치용 기본값이며 개인의 최적 운동이나 성장 순위가 아닙니다.</p>${selected ? `<p>${e(selected.priorityReason)}</p>` : ''}<p>일반 세트의 중량 구간과 반복 구성을 연결해 다음 시도를 제안해요. 준비·드롭 표기는 원문 그대로 남깁니다. 세트 구성의 해석은 기록상의 후보이며, 정렬·메인 지정·조언은 실제 순서나 저장한 계획을 바꾸지 않아요.</p></details></section>`;
     }
     function focusReviewAction(action, key, blockId) {
       const button = [...document.querySelectorAll('#coachWorkoutReview [data-action]')].find(row => row.dataset.action === action && (!key || row.dataset.exerciseKey === key) && (!blockId || row.dataset.blockId === blockId));
@@ -859,7 +1008,7 @@
     function answerFailure(replyTo, text) {
       if (!replyTo) { toast(text, true); return; }
       const next = copy(workspace()), user = next.messages.find(row => row.id === replyTo); if (user) user.status = 'answered';
-      next.messages.push(message('coach', `상담 요청을 완료하지 못했어요.\n\n${text}\n\n기록은 유지됩니다. 연결을 확인한 뒤 다시 요청해 주세요.`, 'codex', replyTo)); saveWorkspace(next);
+      next.messages.push(message('coach', text || '상담 요청을 완료하지 못했어요. 원래 질문과 기록은 남아 있어요. 다시 요청해 주세요.', 'codex', replyTo)); saveWorkspace(next);
     }
     async function startJob(kind, question, imageHash = null, replyTo = null, retry = false, queueEntry = null) {
       if (!canAskAI()) throw new Error('Codex에 연결할 수 없어요. 설치·로그인과 사용 한도를 확인해 주세요.');
@@ -914,8 +1063,31 @@
       const action = ({ 'today-workout-open': 'training-open', 'today-workout-reuse': 'training-reuse', 'today-workout-add': 'training-add', 'today-schedule-start': 'schedule-start' })[button.dataset.action] || button.dataset.action, data = workspace();
       const record = data.records.find(row => row.id === (button.dataset.id || button.dataset.record));
       if (action === 'connection-setup') setupDialog();
+      else if (action === 'training-activity-coach') { app.selectView('coach'); $('activityWorkoutReview')?.scrollIntoView({ block: 'start' }); $('activityReviewSelect')?.focus({ preventScroll: true }); }
+      else if (action === 'training-activity-open') {
+        const date = button.dataset.date;
+        if (!S.isValidDate(date) || date > I.dateKey() || !activityRecords().some(row => row.id === button.dataset.id && row.date === date)) throw new Error('살펴볼 실제 시간·거리 기록을 다시 선택해 주세요.');
+        activitySelectedId = button.dataset.id; tab = 'analysis'; app.setDate(date); $('trainingActivityDetail')?.focus({ preventScroll: true });
+      }
       else if (action === 'coach-review') { app.selectView('coach'); $('coachWorkoutReview')?.scrollIntoView({ block: 'start' }); $('coachReviewSession')?.focus({ preventScroll: true }); }
+      else if (action === 'training-coaching-answer' || action === 'training-coaching-answer-clear') {
+        const review = workoutReview();
+        if (review.session?.id !== button.dataset.record || reviewBlockId !== button.dataset.blockId) throw new Error('현재 보고 있는 운동의 확인 질문을 다시 선택해 주세요.');
+        const question = review.rows.find(row => row.blockId === button.dataset.blockId)?.interpretation.coaching?.question;
+        const next = copy(data), target = next.records.find(row => row.id === button.dataset.record)?.exercises.find(row => row.id === button.dataset.blockId);
+        if (!target || question?.topic !== button.dataset.topic) throw new Error('현재 운동의 확인 질문을 다시 선택해 주세요.');
+        if (action === 'training-coaching-answer-clear') delete target.coachingAnswer;
+        else {
+          if (!question.choices.some(choice => choice.value === button.dataset.answer)) throw new Error('확인 질문의 답변을 다시 선택해 주세요.');
+          target.coachingAnswer = TS.createCoachingAnswer(target, question.topic, button.dataset.answer);
+        }
+        if (!saveWorkspace(next, action === 'training-coaching-answer-clear' ? '조언 확인 답변을 지웠어요.' : '답변을 반영해 다음 운동의 방향을 맞췄어요.')) return true;
+        const replacement = [...document.querySelectorAll('#coachWorkoutReview [data-action="training-coaching-answer"]')].find(row => row.dataset.blockId === button.dataset.blockId && (action === 'training-coaching-answer-clear' || row.dataset.answer === button.dataset.answer));
+        (replacement || $('coachReviewDetail'))?.focus({ preventScroll: true });
+      }
       else if (action === 'training-feedback' || action === 'training-feedback-clear') {
+        const review = workoutReview();
+        if (review.session?.id !== button.dataset.record || reviewBlockId !== button.dataset.blockId) throw new Error('현재 보고 있는 운동의 세트를 다시 선택해 주세요.');
         const next = copy(data), target = next.records.find(row => row.id === button.dataset.record)?.exercises.find(row => row.id === button.dataset.blockId);
         if (!target) throw new Error('느낌을 남길 운동 기록을 다시 선택해 주세요.');
         if (action === 'training-feedback-clear') delete target.feedback;
@@ -1017,7 +1189,7 @@
         if (action === 'editor-add-exercise') editor.exercises.push(blankExercise());
         if (action === 'editor-remove-exercise') editor.exercises.splice(Number(button.dataset.index), 1);
         if (action === 'editor-add-set') editor.exercises[Number(button.dataset.index)].sets.push(blankSet());
-        if (action === 'editor-remove-set') { const ex = editor.exercises[Number(button.dataset.exercise)], removed = ex.sets.splice(Number(button.dataset.set), 1)[0]; if (ex.feedback?.setId === removed.id) delete ex.feedback; }
+        if (action === 'editor-remove-set') { const ex = editor.exercises[Number(button.dataset.exercise)], removed = ex.sets.splice(Number(button.dataset.set), 1)[0]; if (ex.feedback?.setId === removed.id) delete ex.feedback; delete ex.coachingAnswer; }
         $('entryDialog').close(); drawEditor();
         if (action === 'editor-add-set') { const index = Number(button.dataset.index), set = editor.exercises[index].sets.length - 1; $('entryForm').elements[`${index}-${set}-loadKg`]?.focus(); }
         else if (action === 'editor-add-exercise') $('entryForm').elements[`exercise-${editor.exercises.length - 1}`]?.focus();
@@ -1080,6 +1252,11 @@
       return true;
     }
     async function handleChange(event) {
+      if (event.target.id === 'trainingActivitySelect') {
+        const value = root.MacroActivity?.build(app.getState(), app.getDate()), rows = value?.current.length ? value.current : value?.latest || [];
+        if (!rows.some(row => row.id === event.target.value)) throw new Error('이 날짜에서 살펴볼 실제 운동을 선택해 주세요.');
+        activitySelectedId = event.target.value; render(); $('trainingActivityDetail')?.focus(); return true;
+      }
       if (event.target.id === 'coachFeedbackSet') {
         const buttons = [...document.querySelectorAll('#coachReviewDetail [data-action="training-feedback"]')], first = buttons[0];
         const feedback = workspace().records.find(row => row.id === first?.dataset.record)?.exercises.find(row => row.id === first?.dataset.blockId)?.feedback;

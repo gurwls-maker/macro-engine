@@ -56,6 +56,23 @@ test("decimal quantities cannot silently become calendar dates or override the r
   assert.deepEqual(Q.plan(state(), "2026-10-06", "9.10 기록").periods.map(row => [row.from, row.to]), [["2026-09-10", "2026-09-10"]]);
 });
 
+test("planning a future change does not demand a past comparison period, while actual comparison requests remain intact", () => {
+  const value = state(), before = structuredClone(value);
+  for (const question of ["계속 같은 기록인데 다음엔 어떻게 변화를 줄까?", "다음 운동에 변화 주고 싶어", "벤치에 변화를 줘", "식단에 변화를 주려면?"]) {
+    const planned = Q.plan(value, "2026-10-06", question);
+    assert.equal(planned.comparisonRequested, false, question);
+    assert.equal(planned.needsClarification, false, question);
+    assert.equal(planned.periods[0].basis, "default-context", question);
+  }
+  for (const question of ["최근 2주 수행 변화는 어땠고 다음엔 변화를 줄까?", "최근 2주 전후를 비교하고 다음에 변화를 줘", "최근 2주 추세를 보고 변화 주고 싶어"]) {
+    const planned = Q.plan(value, "2026-10-06", question);
+    assert.equal(planned.comparisonRequested, true, question);
+    assert.equal(planned.periods.some(period => period.basis === "split-period"), true, question);
+  }
+  assert.equal(Q.plan(value, "2026-10-06", "예전보다 변화가 있는지 비교해줘").needsClarification, true);
+  assert.deepEqual(value, before);
+});
+
 test("fresh numeric sleep reports remain raw self-report and the existing quantity guard can withhold direct quotation", () => {
   const value = state(); value.days["2026-10-06"] = day("2026-10-06", { coachCheckin: { sleep: "good", hunger: "low", energy: "good" } });
   const context = summarizeState(value, "2026-10-06", "어젯밤 3시간 잤어. 어떻게 하면 좋을까?");

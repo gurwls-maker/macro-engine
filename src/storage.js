@@ -172,6 +172,7 @@
     const sessionFields = ["sport", "durationMin", "intensity"];
     if (withId) sessionFields.push("id");
     if (plain(session) && own(session, "cardio")) sessionFields.push("cardio");
+    if (plain(session) && own(session, "details")) sessionFields.push("details");
     fields(session, sessionFields, "운동");
     if (withId) string(session.id, 128, "운동 식별자");
     string(session.sport, 100, "운동 종목");
@@ -184,7 +185,47 @@
       number(session.cardio.speedKmh, 0, 30, "유산소 속도", true);
       number(session.cardio.gradePct, 0, 20, "유산소 경사", true);
     }
+    if (own(session, "details") && session.details !== null) validateSessionDetails(session.details, session);
   }
+
+  function validateSessionDetails(details, session) {
+    const allowed = ["label", "intent", "format", "distanceM", "movingMin", "effortRpe", "avgHeartRateBpm", "avgPowerW", "routeKey", "equipmentKey", "environment", "conditions", "stroke", "poolLengthM", "notes", "sequenceConfirmed", "segments"];
+    fields(details, allowed.filter(key => plain(details) && own(details, key)), "운동 상세");
+    for (const key of ["label", "routeKey", "equipmentKey", "stroke"]) if (own(details, key) && details[key] !== null) string(details[key], 200, "운동 상세 이름", true);
+    if (own(details, "notes") && details.notes !== null) string(details.notes, 4000, "운동 상세 메모", true);
+    const options = {
+      intent: ["regular", "deload", "light", "technique", "time-limited", "return", "test"],
+      format: ["continuous", "interval", "technique", "practice", "match", "race", "hybrid"],
+      environment: ["usual", "outdoor", "treadmill", "indoor", "pool", "open-water", "different"],
+      conditions: ["usual", "hot", "cold", "windy", "hilly", "different"]
+    };
+    for (const [key, values] of Object.entries(options)) if (own(details, key) && details[key] !== null && !values.includes(details[key])) fail("운동 상세 선택값을 확인해 주세요.");
+    for (const [key, min, max] of [["distanceM", 0, 1000000], ["movingMin", 0, session.durationMin], ["effortRpe", 1, 10], ["avgHeartRateBpm", 30, 240], ["avgPowerW", 0, 3000], ["poolLengthM", 10, 100]]) {
+      if (own(details, key)) number(details[key], min, max, "운동 상세 수치", true);
+    }
+    if ((finiteDetail(details.avgPowerW) && session.sport !== "cycling") || ((details.stroke || finiteDetail(details.poolLengthM)) && session.sport !== "swimming")) fail("운동 종목에 맞는 상세 지표를 입력해 주세요.");
+    if (own(details, "sequenceConfirmed") && typeof details.sequenceConfirmed !== "boolean") fail("복합 구간 순서 확인값을 확인해 주세요.");
+    if (own(details, "segments")) {
+      if (!Array.isArray(details.segments) || details.segments.length > 64) fail("복합 운동 구간은 64개까지 저장할 수 있습니다.");
+      const ids = new Set();
+      let minutes = 0;
+      for (const segment of details.segments) {
+        const optional = ["kind", "durationMin", "distanceM", "reps", "loadKg"];
+        fields(segment, ["id", "label", ...optional.filter(key => plain(segment) && own(segment, key))], "복합 운동 구간");
+        string(segment.id, 128, "구간 식별자");
+        string(segment.label, 200, "구간 이름");
+        if (ids.has(segment.id)) fail("복합 운동 구간의 식별자가 중복되었습니다.");
+        ids.add(segment.id);
+        if (own(segment, "kind") && segment.kind !== null && !["strength", "run", "row", "ski", "carry", "other"].includes(segment.kind)) fail("구간 종류를 확인해 주세요.");
+        for (const [key, max] of [["durationMin", session.durationMin], ["distanceM", 1000000], ["reps", 100000], ["loadKg", 2000]]) if (own(segment, key)) number(segment[key], 0, max, "구간 수치", true);
+        if (finiteDetail(segment.reps) && !Number.isInteger(segment.reps)) fail("구간 반복은 정수로 입력해 주세요.");
+        if (finiteDetail(segment.durationMin)) minutes += segment.durationMin;
+      }
+      if (minutes > session.durationMin + 0.000001) fail("구간 시간의 합은 전체 운동 시간을 넘을 수 없습니다. 휴식·전환 시간은 전체 시간 안에 포함해 주세요.");
+    }
+  }
+
+  function finiteDetail(value) { return typeof value === "number" && Number.isFinite(value); }
 
   function validateSnapshot(plan) {
     if (plan === null) return;
@@ -255,18 +296,21 @@
     if (own(day, "coachCheckin") && day.coachCheckin !== null) {
       const checkinFields = ["energy", "hunger", "sleep"];
       if (plain(day.coachCheckin)) {
-        for (const name of ["trainingPlan", "mealConstraint", "performance"]) {
+        for (const name of ["trainingPlan", "mealConstraint", "performance", "illness", "pain", "fatigue", "sleepHours", "interruptionReason"]) {
           if (own(day.coachCheckin, name)) checkinFields.push(name);
         }
       }
       fields(day.coachCheckin, checkinFields, "코치 체크인");
       const checkinOptions = {
         energy: ["low", "okay", "good"], hunger: ["low", "okay", "high"], sleep: ["poor", "okay", "good"],
-        trainingPlan: ["rest", "planned"], mealConstraint: ["none", "busy", "low-appetite", "digestive"], performance: ["down", "steady", "up"]
+        trainingPlan: ["rest", "planned"], mealConstraint: ["none", "busy", "low-appetite", "digestive"], performance: ["down", "steady", "up"],
+        illness: ["none", "active", "recovering"], pain: ["none", "mild", "stop"], fatigue: ["low", "usual", "high"],
+        interruptionReason: ["travel", "illness", "schedule", "planned-break", "other"]
       };
       for (const [name, options] of Object.entries(checkinOptions)) {
         if (own(day.coachCheckin, name) && day.coachCheckin[name] !== null && !options.includes(day.coachCheckin[name])) fail("코치 체크인의 선택값을 확인해 주세요.");
       }
+      if (own(day.coachCheckin, "sleepHours")) number(day.coachCheckin.sleepHours, 0, 24, "실제 수면시간", true);
     }
     if (!isValidDate(key) || day.date !== key) fail("기록 날짜와 저장 위치가 일치하지 않습니다.");
     number(day.weightKg, 15, 500, "기록 체중", true);

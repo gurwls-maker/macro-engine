@@ -13,6 +13,7 @@ function record(id, date, exercises = [exercise()], extras = {}) {
 const leg = (id, load = 100, count = 3, reps = 10) => [exercise(id + "p", { rawName: "레그 프레스", exerciseId: "leg_press", equipmentKey: "press-A", sets: Array.from({ length: count }, (_, i) => set(id + "p" + i, load, reps)) }), exercise(id + "c", { rawName: "레그 컬", exerciseId: "leg_curl", equipmentKey: "curl-A", sets: Array.from({ length: count }, (_, i) => set(id + "c" + i, load / 2, reps)) })];
 const coach = (records, options = {}) => T.coachSession(T.analyze(records, { date: "2026-10-06", profile: options.profile, checkins: options.checkins }), options);
 const first = value => value.rows[0].interpretation;
+const actions = value => [value.coaching.primaryAction, ...value.coaching.supportingActions];
 
 test("first records produce a concrete next trial without profile, RIR or earlier sessions", () => {
   const records = [record("first", "2026-10-06")], before = JSON.stringify(records);
@@ -26,14 +27,22 @@ test("first records produce a concrete next trial without profile, RIR or earlie
 });
 test("all sets, not a highest load test, define the next starting point", () => {
   const value = coach([record("last", "2026-10-06", [exercise("b", { sets: [set("a", 50, 12), set("b", 50, 10), set("c", 50, 8), set("peak", 100, 1)] })])]);
-  assert.match(first(value).summary, /50kg × 12회.*100kg × 1회/);
-  assert.match(first(value).nextAction.body, /첫 일반 세트는 50kg × 12회/);
+  assert.match(first(value).summary, /50kg × 12·10·8회.*100kg × 1회/);
+  const interpretation = first(value), coaching = interpretation.coaching;
+  assert.deepEqual(coaching.facts.current.segments.map(segment => [segment.loadKg, segment.reps, segment.setIds]),
+    [[50, [12, 10, 8], ["a", "b", "c"]], [100, [1], ["peak"]]]);
+  assert.equal(coaching.primaryAction.kind, "restore-tail");
+  assert.deepEqual(coaching.primaryAction.focusSetIds, ["a", "b", "c"]);
+  assert.match(actions(interpretation).map(action => action.body).join(" "), /100kg.*1회/,
+    "pacing the working sets also leaves the other performed load segment clear in next-session advice");
+  assert.doesNotMatch(actions(interpretation).map(action => action.body).join(" "), /테스트|곧바로 다음 시작값으로 쓰지/);
   assert.equal(value.rows[0].progression.current.loadKg, 100);
 });
-test("a first low-rep maximum-like record does not become an instruction to repeat its load", () => {
+test("low repetitions alone do not classify normal training as a test or forbid its load", () => {
   const value = coach([record("test", "2026-10-06", [exercise("b", { sets: [set("s", 100, 1)] })])]);
-  assert.equal(first(value).nextAction.kind, "practice");
-  assert.match(first(value).nextAction.body, /곧바로 다음 시작값으로 쓰지 말고/);
+  assert.equal(first(value).nextAction.kind, "repeat");
+  assert.match(first(value).nextAction.body, /100kg × 1회.*목표/);
+  assert.doesNotMatch(first(value).nextAction.body, /테스트|곧바로 다음 시작값으로 쓰지 말고/);
 });
 test("RIR missing keeps raw change and current trial useful, without promoting strict strength judgment", () => {
   const value = coach([record("a", "2026-10-01"), record("b", "2026-10-06", [exercise("b", { sets: [set("b:s", 50, 12)] })])]);
@@ -60,8 +69,11 @@ test("separate machines keep parallel personal starting points", () => {
 test("new machine uses its actual baseline without converting the old machine's kg", () => {
   const value = coach([record("old", "2026-10-01"), record("new", "2026-10-06", [exercise("n", { equipmentKey: "rack-B", sets: [set("ns", 30)] })])]);
   assert.equal(first(value).reference, null);
-  assert.match(first(value).observations.join(" "), /이 장비의 출발 기록/);
+  assert.equal(first(value).evidence.referenceStatus, "other-device");
+  assert.equal(first(value).coaching.facts.current.sets[0].loadKg, 30);
+  assert.equal(first(value).coaching.facts.previous, null);
   assert.match(first(value).nextAction.body, /30kg/);
+  assert.doesNotMatch(first(value).nextAction.body, /50kg/);
 });
 test("repeated same-device blocks do not select an arbitrary historical counterpart", () => {
   for (const rows of [
@@ -163,7 +175,9 @@ test("a steep set repetition fall suggests pacing rather than asserting fatigue 
   const ex = exercise("b", { sets: [set("a", 50, 12), set("b", 50, 8), set("c", 50, 6)] });
   const value = first(coach([record("a", "2026-10-06", [ex])]));
   assert.match(value.summary, /12·8·6회/);
-  assert.match(value.nextAction.body, /회복 시간을 충분히/);
+  assert.equal(value.coaching.primaryAction.kind, "restore-tail");
+  assert.deepEqual(value.coaching.primaryAction.focusSetIds, ["a", "b", "c"]);
+  assert.match(value.nextAction.body, /충분히.*쉬|휴식/);
   assert.doesNotMatch(value.observations.join(" "), /피로 때문에|회복 실패/);
 });
 test("comfortable first set plus steep later rep loss gives one coherent pacing action", () => {
@@ -177,25 +191,59 @@ test("comfortable first set plus steep later rep loss gives one coherent pacing 
   assert.equal(tail.nextAction.kind, "reps-option");
   assert.match(tail.nextAction.body, /이 세트만 9회/);
 });
-test("three stable starts reflect maintain/cut goals without calling stagnation", () => {
-  for (const goal of ["maintain", "cut", "gain"]) {
+test("three stable whole workouts separate weight goals from optional training progression without calling stagnation", () => {
+  for (const goal of ["maintain", "lose", "gain"]) {
     const value = first(coach([record("a", "2026-09-26"), record("b", "2026-10-01"), record("c", "2026-10-06")], { profile: { goal } }));
-    assert.match(value.observations.join(" "), /최근 세 번/);
-    assert.match(value.nextAction.body, goal === "gain" ? /한 세트에만 1회/ : /매번 중량을 올릴 필요는/);
-    assert.doesNotMatch(value.summary, /정체/);
+    assert.equal(value.performance.model.stableWorking.observationDays, 3);
+    const stable = value.coaching.signals.find(signal => signal.kind === "stable-whole-work");
+    assert.ok(stable); assert.equal(stable.observationDays, 3);
+    assert.deepEqual(stable.dates, ["2026-09-26", "2026-10-01", "2026-10-06"]);
+    assert.deepEqual(new Set(stable.sourceRefs.map(source => source.sessionId)), new Set(["a", "b", "c"]));
+    assert.equal(value.coaching.primaryAction.kind, "progression-option");
+    assert.match(value.nextAction.body, /한 세트에서만 11회/);
+    assert.deepEqual(value.coaching.primaryAction.proposal, { kind: "single-set-reps", setId: "bench:s", loadKg: 50, baseReps: 10, targetReps: 11 });
+    if (goal !== "gain") assert.match(value.nextAction.body, /유지하는 것도 선택|회복과 세트 여유/);
+    assert.doesNotMatch(value.coaching.assessment, /정체/);
+  }
+});
+for (const goal of ["maintain", "lose"]) test(`${goal} weight goal does not bypass actual effort, safety, recovery or purpose`, () => {
+  const cases = [
+    { feedback: "hard" }, { feedback: "limit" }, { rir: 0 },
+    { profile: { healthContext: "clinical" } }, { current: { pain: "mild" } }, { current: { pain: "stop" } },
+    { current: { trainingIntent: "deload" } }, { checkins: { "2026-10-06": { energy: "low", sleep: "poor", performance: "down" } } }
+  ];
+  for (const entry of cases) {
+    const rows = [record("a", "2026-09-26"), record("b", "2026-10-01"), record("c", "2026-10-06", [exercise()], entry.current)];
+    const block = rows[2].exercises[0];
+    if (entry.feedback) block.feedback = { setId: block.sets[0].id, loadKg: 50, reps: 10, feeling: entry.feedback };
+    if (entry.rir === 0) block.sets[0].rir = 0;
+    const before = structuredClone(rows), value = first(coach(rows, { profile: { age: 30, healthContext: "general", goal, ...entry.profile }, checkins: entry.checkins }));
+    assert.ok(!["reps-option", "progression-option", "load-option"].includes(value.nextAction.kind), JSON.stringify(entry));
+    assert.equal(Object.hasOwn(value.nextAction, "proposal"), false);
+    assert.equal(Object.hasOwn(value.coaching.primaryAction, "proposal"), false);
+    if (entry.checkins) assert.equal(value.coaching.progressionCandidate.proposal.targetReps, 11);
+    assert.deepEqual(rows, before);
   }
 });
 test("repeated raw decreases without RIR still give a practical review, not a diagnosis", () => {
   const rows = [12, 10, 8].map((reps, index) => record(String(index), ["2026-09-26", "2026-10-01", "2026-10-06"][index], [exercise("b", { sets: [set("s", 50, reps)] })]));
   const value = first(coach(rows));
-  assert.equal(value.nextAction.kind, "review-recovery");
+  assert.equal(value.nextAction.kind, "reestablish-working-reps");
+  assert.ok(value.coaching.signals.some(signal => signal.kind === "whole-work-lower"));
+  assert.equal(value.coaching.facts.previous.source.sessionId, "1");
+  assert.equal(value.coaching.facts.current.source.sessionId, "2");
   assert.match(value.nextAction.body, /50kg × 8회/);
   assert.doesNotMatch(value.nextAction.body, /부상|디로드해야|회복 실패/);
 });
-test("zero RIR and test-like low reps are not overridden by stable-history suggestions", () => {
-  for (const [reps, rir, kind] of [[10, 0, "ease"], [1, null, "practice"]]) {
+test("zero RIR preserves easing while stable low repetitions remain ordinary training", () => {
+  for (const [reps, rir, kind] of [[10, 0, "ease"], [1, null, "progression-option"]]) {
     const rows = ["2026-09-26", "2026-10-01", "2026-10-06"].map((date, index) => record(String(index), date, [exercise("b", { sets: [set("s", 50, reps, { rir })] })]));
-    assert.equal(first(coach(rows)).nextAction.kind, kind);
+    const value = first(coach(rows));
+    assert.equal(value.nextAction.kind, kind);
+    assert.ok(value.coaching.signals.some(signal => signal.kind === "stable-whole-work"));
+    assert.deepEqual(value.coaching.primaryAction.focusSetIds, ["s"]);
+    assert.doesNotMatch(value.nextAction.body, /테스트|반드시.*증량|1RM.*목표/);
+    assert.ok(rows.every(record => record.exercises[0].sets[0].rir === rir));
   }
 });
 test("pain and clinical care override positive feedback and detected deload questions", () => {

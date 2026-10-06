@@ -44,7 +44,10 @@
     const muscleIds = Object.entries(muscleTerms).filter(([, words]) => words.some(word => termPresent(question, word))).map(([id]) => id);
     if (/(?:^|\s)하체(?:$|\s|는|의|운동|볼륨|비교)/.test(question)) muscleIds.push("quads", "hamstrings", "glutes", "calves");
     if (/(?:^|\s)팔(?:$|\s|은|의|운동|볼륨|비교)/.test(question)) muscleIds.push("biceps", "triceps");
-    return { exerciseIds, rawNames, muscleIds: [...new Set(muscleIds)], exercises: exerciseIds.map(id => ({ id, label: T.catalog.find(row => row.id === id).label })) };
+    const sportTerms = { running: ["달리기", "러닝", "조깅", "마라톤", "running"], cycling: ["자전거", "사이클", "라이딩", "cycling"],
+      swimming: ["수영", "swimming"], team: ["축구", "농구", "배구", "풋살", "테니스", "구기"], mixed: ["하이록스", "hyrox", "복합운동", "크로스핏"], walking: ["걷기", "산책", "walking"] };
+    const sports = Object.entries(sportTerms).filter(([, terms]) => terms.some(term => text.includes(normal(term)))).map(([sport]) => sport);
+    return { exerciseIds, rawNames, muscleIds: [...new Set(muscleIds)], sports, exercises: exerciseIds.map(id => ({ id, label: T.catalog.find(row => row.id === id).label })) };
   }
   function plan(state, date, question = "") {
     if (!valid(date)) throw new Error("질문을 조회할 기준 날짜를 확인해 주세요.");
@@ -76,7 +79,8 @@
       }
       if (foundDates.length > 4) ambiguities.push("날짜가 여러 개라 처음 범위만 조회했어요. 비교할 기간을 분리해 주세요.");
     } else if (foundDates.length === 1) add(foundDates[0], foundDates[0], "지정 날짜");
-    const comparisonRequested = /비교|전후|변화|달라|추세|compare/i.test(question);
+    const comparisonText = question.replace(/변화(?:를)?\s*(?:주|줄|줘)/g, "");
+    const comparisonRequested = /비교|전후|변화|달라|추세|compare/i.test(comparisonText);
     if (!periods.length) {
       const natural = question.match(/(어제|오늘|그제)\s*(?:부터|~|에서)\s*(어제|오늘|그제)(?:\s*까지)?/);
       if (natural) { const offset = { 오늘: 0, 어제: -1, 그제: -2 }; add(shift(date, offset[natural[1]]), shift(date, offset[natural[2]]), "지정 상대 기간", "relative-range"); }
@@ -182,7 +186,13 @@
       result.progression.push(...analysis.progression.map(row => ({ ...row, windowStart: from, windowEnd: to })));
     }
     result.coverage.daysWithRecords = dates.size; result.coverage.unknownDays = period.requestedDays - dates.size;
-    result.progression = result.progression.sort((a, b) => b.windowEnd.localeCompare(a.windowEnd)).slice(0, 8);
+    result.progression.sort((a, b) => b.windowEnd.localeCompare(a.windowEnd));
+    if (result.progression.length > 8) {
+      result.originalProgressionSummaryCount = result.progression.length;
+      result.progressionSampled = true;
+      result.progressionDetailScope = "조회 기간의 전체 수행 비교 중 최근 조각에서 최대 8개를 전달합니다. 생략한 종목·장비 비교를 모두 읽은 것으로 취급하지 않으며, 기간 전체 세트 집계는 coverage와 muscles에 보존합니다.";
+      result.progression = result.progression.slice(0, 8);
+    }
     return result;
   }
   const bounds = dates => dates.length ? { from: [...dates].sort()[0], to: [...dates].sort().at(-1) } : null;
@@ -195,6 +205,22 @@
       averageCompletedIntake: completeTotals ? Object.fromEntries(Object.entries(completeTotals).filter(([, value]) => typeof value === "number").map(([key, value]) => [key, value / completed.length])) : null,
       snapshotDays: completed.filter(day => day.planSnapshot).length,
       interpretation: "기록된 식사 합계와 식사 있는 완료일 평균입니다. 미완료 식사는 하루 섭취량으로 판정하지 않고, 식사 없는 날을 0으로 평균에 넣지 않습니다." };
+  }
+  function activityPeriod(days, selection) {
+    const all = days.flatMap(day => (day.sessions || []).map(session => ({ ...session, date: day.date })));
+    const matched = selection.sports.length ? all.filter(row => selection.sports.includes(row.sport)) : all;
+    const bySport = [...new Set(matched.map(row => row.sport))].map(sport => {
+      const rows = matched.filter(row => row.sport === sport);
+      return { sport, sessionCount: rows.length, dayCount: new Set(rows.map(row => row.date)).size,
+        durationMin: rows.reduce((sum, row) => sum + row.durationMin, 0), distanceKnownSessionCount: rows.filter(row => typeof row.details?.distanceM === "number").length,
+        recordedDistanceM: rows.some(row => typeof row.details?.distanceM === "number") ? rows.reduce((sum, row) => sum + (row.details?.distanceM ?? 0), 0) : null };
+    });
+    const sample = [...matched.slice(0, 1), ...matched.slice(-2)].filter((row, index, values) => values.findIndex(value => value.id === row.id) === index);
+    return { source: "confirmed-activity-sessions", sessionCount: matched.length, dayCount: new Set(matched.map(row => row.date)).size,
+      durationMin: matched.reduce((sum, row) => sum + row.durationMin, 0), bySport, actualRange: bounds(matched.map(row => row.date)),
+      samples: sample.map(row => ({ ...row, details: row.details ? { ...row.details, notes: (row.details.notes || "").slice(0, 400),
+        ...(row.details.segments ? { segments: row.details.segments.slice(0, 4), originalSegmentCount: row.details.segments.length, segmentsSampled: row.details.segments.length > 4 } : {}) } : null })),
+      sampled: matched.length > sample.length, interpretation: "지정 기간 전체의 실제 활동 집계입니다. 거리 합계는 거리 입력된 활동만이며 미입력을0km로 판단하지 않습니다. 종목·경로·기구·형식이 달라도 합계에는 포함되므로 수행 비교는 원문 조건별로 확인합니다. 구간 시간을 부모 운동 시간에 다시 더하지 않습니다." };
   }
   function compactRecord(record, selection, mappings, fullContext) {
     const exercises = record.exercises.map((exercise, index) => ({ exercise, index })).filter(({ exercise }) => matchingExercise(exercise, selection, mappings));
@@ -232,6 +258,7 @@
       const sample = [...sorted.slice(0, 1), ...sorted.slice(-2)].filter((row, index, values) => values.findIndex(value => value.id === row.id) === index);
       const observations = days.filter(day => [day.weightKg, day.bodyFatPct, day.skeletalMuscleKg].some(value => typeof value === "number" && Number.isFinite(value)));
       const checkins = days.filter(day => day.coachCheckin);
+      const activities = activityPeriod(days, selection);
       const unresolved = rangedRecords.flatMap(record => record.exercises).filter(exercise => !T.describeExercise(exercise, state.training?.mappings).resolved).length;
       const selectedIds = new Set([...selection.exerciseIds, ...rangedRecords.flatMap(record => record.exercises.filter(exercise => selection.rawNames.some(name => normal(name) === normal(exercise.rawName))))
         .map(exercise => T.describeExercise(exercise, state.training?.mappings).resolved?.id).filter(Boolean)]);
@@ -240,18 +267,18 @@
       const relatedRecords = relatedIds.length ? rangedRecords.map(record => ({ ...record, exercises: record.exercises.filter(exercise => matchingExercise(exercise, relatedSelection, state.training?.mappings)) })).filter(record => record.exercises.length) : [];
       const relatedSummary = relatedRecords.length ? trainingPeriod(relatedRecords, period, state, sessionContexts, sessionRecordCounts) : null;
       return { ...period, available: { training: bounds(sorted.map(row => row.date)), days: bounds(days.map(row => row.date)) },
-        training: trainingPeriod(records, period, state, sessionContexts, sessionRecordCounts), nutrition: nutritionPeriod(days, period),
+        training: trainingPeriod(records, period, state, sessionContexts, sessionRecordCounts), activities, nutrition: nutritionPeriod(days, period),
         relatedContext: { exerciseIds: relatedIds, matchedWorkoutCount: relatedRecords.length, coverage: relatedSummary?.coverage || null,
           records: relatedRecords.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)).slice(-2).map(record => compactRecord(fullRecords.get(record.id), relatedSelection, state.training?.mappings, fullContext(fullRecords.get(record.id)))),
           interpretation: "명시적으로 연결한 유사 동작의 별도 참고 기록입니다. 질문 대상의 집계에 더하지 않으며 서로 다른 종목·장비의 kg가 환산되거나 동일한 성장 자극이라는 뜻이 아닙니다." },
-        body: { measurementDays: observations.length, first: observations[0] ? { date: observations[0].date, weightKg: observations[0].weightKg ?? null, bodyFatPct: observations[0].bodyFatPct ?? null, skeletalMuscleKg: observations[0].skeletalMuscleKg ?? null, bodyFatMethod: observations[0].bodyFatMethod || "unknown" } : null,
+        body: { measurementDays: observations.length, history: I.measurementHistory(observations), first: observations[0] ? { date: observations[0].date, weightKg: observations[0].weightKg ?? null, bodyFatPct: observations[0].bodyFatPct ?? null, skeletalMuscleKg: observations[0].skeletalMuscleKg ?? null, bodyFatMethod: observations[0].bodyFatMethod || "unknown" } : null,
           last: observations.at(-1) ? { date: observations.at(-1).date, weightKg: observations.at(-1).weightKg ?? null, bodyFatPct: observations.at(-1).bodyFatPct ?? null, skeletalMuscleKg: observations.at(-1).skeletalMuscleKg ?? null, bodyFatMethod: observations.at(-1).bodyFatMethod || "unknown" } : null,
           interpretation: "기록한 측정값의 처음·마지막 관찰입니다. 측정 방법·수분·조건 차이를 통제하거나 실제 근성장·체지방 변화율을 계산한 결과가 아닙니다." },
         source: { rangedWorkoutCount: rangedRecords.length, matchedWorkoutCount: sorted.length, savedDayCount: days.length, checkinDays: checkins.length,
           unresolvedExerciseCount: unresolved,
           workoutIds: sample.map(row => row.id), dayDates: [...new Set([...days.slice(0, 2), ...days.slice(-3)].map(day => day.date))], boundedReferences: sorted.length > sample.length || days.length > 5,
           rawDetailScope: "기간 전체의 집계와 별개로 처음·마지막 일지 일부, 종목·세트 일부만 전달합니다. 선택 종목의 선행 맥락은 필터 전 세션 전체로 계산합니다." },
-        missingSignals: [sorted.length ? null : "조건에 맞는 저장 운동 기록이 없습니다. 운동하지 않았다는 뜻은 아닙니다.",
+        missingSignals: [sorted.length || activities.sessionCount ? null : "조건에 맞는 저장 운동 기록이 없습니다. 운동하지 않았다는 뜻은 아닙니다.",
           unresolved && named ? "종목을 확인하지 못한 운동은 부위 조회에 임의로 포함하지 않았습니다. 원문 이름 연결 확인이 필요합니다." : null,
           days.length ? null : "해당 기간의 식사·몸 상태 기록이 없습니다.", checkins.length ? null : "해당 기간의 컨디션 자기보고가 없습니다."].filter(Boolean),
         details: { workouts: sample.map(record => compactRecord(fullRecords.get(record.id), selection, state.training?.mappings, fullContext(fullRecords.get(record.id)))),

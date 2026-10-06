@@ -89,6 +89,8 @@ test('weight-only and unfinished days never become completed diet evidence', () 
   assert.ok(Math.abs(result.weeklyChange + 0.7) < 1e-8);
   assert.equal(result.comparable.length, 0);
   assert.equal(result.averageKcal, null);
+  assert.match(result.trendMessage, /평소 끼니.*허기·컨디션/);
+  assert.doesNotMatch(result.trendMessage, /기록이.*미만이라|조정은 아직 제안하지|2~4주 더/);
 });
 test('future dates and changed goals cannot support the active trend', () => {
   const days = {

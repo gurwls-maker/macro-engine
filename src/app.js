@@ -24,14 +24,22 @@
   let profileWeekdayDraft = {};
   let retrievalCache = null;
   let contextCache = null;
+  let activityReviewId = null;
+  let activityQuestionSnapshot = null;
   const $ = id => document.getElementById(id);
   const clone = value => JSON.parse(JSON.stringify(value));
   const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const fmt = (value, digits = 0) => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('ko-KR', { maximumFractionDigits: digits, minimumFractionDigits: digits }) : '—';
+  const activityNumber = value => value.toLocaleString('ko-KR', { maximumFractionDigits: 20 });
   const id = () => window.crypto?.randomUUID ? crypto.randomUUID() : `entry-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const sportNames = { none: '운동 없음', strength: '근력운동', running: '달리기', cycling: '사이클', swimming: '수영', team: '구기·팀 스포츠', mixed: '복합 운동', walking: '걷기' };
   const goalNames = { lose: '체지방 감량', maintain: '체중 유지', gain: '근육 증가', recomp: '체성분 개선', performance: '운동 수행' };
   const intensityNames = { easy: '가볍게', moderate: '보통', hard: '힘들게' };
+  const activityFormats = { continuous: '일정하게 이어감', interval: '인터벌', technique: '기술 연습', practice: '훈련·연습', match: '경기', race: '대회', hybrid: '종목을 섞어서 수행' };
+  const activityIntents = { regular: '평소 훈련', deload: '부담을 낮춘 기간', light: '가볍게', technique: '기술 연습', 'time-limited': '시간이 부족했음', return: '쉬었다가 복귀', test: '기록·수행 확인' };
+  const activityConditions = { usual: '평소와 비슷함', hot: '더웠음', cold: '추웠음', windy: '바람이 강했음', hilly: '오르내림이 많았음', different: '다른 조건' };
+  const activityEnvironments = { usual: '평소 환경', outdoor: '야외', treadmill: '트레드밀', indoor: '실내', pool: '수영장', 'open-water': '오픈워터', different: '다른 환경' };
+  const segmentKinds = { run: '달리기', strength: '근력', row: '로잉', ski: '스키에르그', carry: '운반', other: '기타' };
   const mealTypes = { breakfast: '아침', lunch: '점심', dinner: '저녁', snack: '간식', drinks: '술', other: '기타' };
   const titles = { today: '오늘의 기록', coach: '앱코치', training: '운동', trends: '기록과 추세', profile: '내 기준', data: '데이터' };
   const icon = name => `<i data-lucide="${name}" aria-hidden="true"></i>`;
@@ -152,11 +160,20 @@
       retrievalCache = { state, date: selectedDate, question, value: window.MacroCoachQuery.retrieve(state, selectedDate, question) };
     }
     const value = retrievalCache.value;
-    const targets = [...(value.exercises || []).map(row => row.label), ...(value.rawNames || []), ...(value.muscleIds || []).map(key => window.MacroTraining.muscleLabels[key] || key)];
+    const targets = [...new Set([...(value.sports || []).map(key => sportNames[key] || key), ...(value.exercises || []).map(row => row.label), ...(value.rawNames || []), ...(value.muscleIds || []).map(key => window.MacroTraining.muscleLabels[key] || key)])];
     const periods = (value.periods || []).map(period => {
-      const source = period.source || {}, coverage = period.training?.coverage;
-      const available = period.available?.training;
-      return `<div class="query-period"><strong>${escape(period.label)} · ${escape(period.from)} ~ ${escape(period.to)}</strong><p>해당 운동 기록 ${fmt(source.matchedWorkoutCount)}건${coverage ? ` · 일반 ${fmt(coverage.workingSets)}세트` : ''} · 식사 기록 ${fmt(period.nutrition?.daysWithMeals)}일</p><p class="form-help">${available ? `기간 내 저장된 운동 날짜: ${escape(available.from)} ~ ${escape(available.to)}` : '기간 내 해당 운동 기록 없음'} · 빈 날짜는 휴식이나 섭취 0으로 채우지 않습니다.</p></div>`;
+      const source = period.source || {}, coverage = period.training?.coverage, activity = period.activities;
+      const available = period.available?.training, ranges = [], counts = [];
+      if (activity?.sessionCount) {
+        counts.push(`시간·거리 기록 ${fmt(activity.sessionCount)}회 · ${fmt(activity.dayCount)}일 · ${activityNumber(activity.durationMin)}분`);
+        if (activity.actualRange) ranges.push(`시간·거리 기록 날짜: ${activity.actualRange.from} ~ ${activity.actualRange.to}`);
+      }
+      if (source.matchedWorkoutCount || !activity?.sessionCount) counts.push(`세트 일지 ${fmt(source.matchedWorkoutCount)}건${source.matchedWorkoutCount && coverage ? ` · 일반 ${fmt(coverage.workingSets)}세트` : ''}`);
+      counts.push(`식사 기록 ${fmt(period.nutrition?.daysWithMeals)}일`);
+      if (available) ranges.push(`세트 일지 날짜: ${available.from} ~ ${available.to}`);
+      const distances = (activity?.bySport || []).filter(row => row.distanceKnownSessionCount && typeof row.recordedDistanceM === 'number')
+        .map(row => `${sportNames[row.sport]} · 거리를 남긴 ${row.distanceKnownSessionCount}회 합계 ${row.sport === 'swimming' ? `${activityNumber(row.recordedDistanceM)}m` : `${activityNumber(row.recordedDistanceM / 1000)}km`}`);
+      return `<div class="query-period"><strong>${escape(period.label)} · ${escape(period.from)} ~ ${escape(period.to)}</strong><p>${counts.map(escape).join(' · ')}</p>${distances.length ? `<p>${distances.map(escape).join(' · ')}</p>` : ''}<p class="form-help">${ranges.length ? ranges.map(escape).join(' · ') : '이 기간에 저장된 해당 운동 기록 없음'} · 빈 날짜는 휴식이나 섭취 0으로 채우지 않습니다.</p></div>`;
     }).join('');
     const notes = [...(value.ambiguities || []), ...(value.assumptions || []), ...(value.limits || [])];
     return `<details class="coach-query-scope"><summary>마지막 질문을 현재 기준으로 조회${value.needsClarification ? ' · 조건 확인 필요' : ''}</summary><div class="coach-query-detail"><p class="form-help">조회 기준일 ${escape(selectedDate)} · 현재 저장된 기록. 이전 답변 당시의 자료 범위를 뜻하지 않습니다.</p>${targets.length ? `<p>${targets.map(escape).join(' · ')}</p>` : ''}${periods}<p class="form-help">사진 원본을 다시 판독하거나 이전 답변을 자동 수정하지 않습니다.</p>${notes.map(line => `<p class="form-help">${escape(line)}</p>`).join('')}</div></details>`;
@@ -164,13 +181,46 @@
   function quickRecordsHTML(current) {
     const frozen = current.complete;
     const scope = state.trackingScope || 'auto';
-    const entries = frozen ? `${scope !== 'nutrition' ? command('nav-training', '운동 일지', 'dumbbell') : ''}${command('reopen', '기록 다시 열기', 'pencil')}` : `${scope !== 'nutrition' ? command('training-add', '운동 직접 기록', 'dumbbell') : ''}${scope !== 'training' ? command('meal-add', '식사 추가', 'utensils') + command('meal-templates', '자주 먹는 식사', 'bookmark') : ''}`;
+    const entries = frozen ? `${scope !== 'nutrition' ? command('nav-training', '운동 일지', 'dumbbell') : ''}${command('reopen', '기록 다시 열기', 'pencil')}` : `${scope !== 'nutrition' ? command('session-add', '운동 시간 기록', 'timer') + command('training-add', '세트 일지 기록', 'dumbbell') : ''}${scope !== 'training' ? command('meal-add', '식사 추가', 'utensils') + command('meal-templates', '자주 먹는 식사', 'bookmark') : ''}`;
     return `<section class="daily-quick-records" aria-labelledby="dailyQuickRecordsTitle"><div class="section-header"><h2 id="dailyQuickRecordsTitle">빠르게 기록</h2>${frozen ? '<span class="muted">완료한 기록은 다시 열어 수정</span>' : ''}</div><div class="daily-quick-actions">${entries}${command('training-image', '사진 추가', 'image-plus')}</div></section>`;
   }
   function dailyConditionHTML(current) {
     const checkin = current.coachCheckin;
     const labels = { energy: { low: '많이 지침', okay: '보통', good: '좋음' }, hunger: { low: '별로 없음', okay: '보통', high: '많이 배고픔' }, sleep: { poor: '잘 못 잠', okay: '보통', good: '잘 잠' } };
-    return `<section class="daily-condition" aria-labelledby="dailyConditionTitle"><div class="section-header"><h2 id="dailyConditionTitle">컨디션</h2>${current.complete ? '' : command('coach-checkin', checkin ? '컨디션 수정' : '컨디션 기록', 'heart-pulse')}</div><div class="checkin-summary">${['energy', 'hunger', 'sleep'].map((key, index) => `<div><span>${['에너지', '허기', '수면'][index]}</span><strong>${labels[key][checkin?.[key]] || '미기록'}</strong></div>`).join('')}</div>${checkin?.note ? `<p class="form-help">${escape(checkin.note)}</p>` : ''}</section>`;
+    return `<section class="daily-condition" aria-labelledby="dailyConditionTitle"><div class="section-header"><h2 id="dailyConditionTitle">컨디션</h2>${current.complete ? '' : command('coach-checkin', checkin ? '컨디션 수정' : '컨디션 기록', 'heart-pulse')}</div><div class="checkin-summary">${['energy', 'hunger', 'sleep'].map((key, index) => `<div><span>${['에너지', '허기', '수면'][index]}</span><strong>${labels[key][checkin?.[key]] || '미기록'}</strong></div>`).join('')}</div>${checkinDetailHTML(checkin)}${checkin?.note ? `<p class="form-help">${escape(checkin.note)}</p>` : ''}</section>`;
+  }
+  function checkinDetailHTML(value) {
+    if (!value) return '';
+    const labels = { fatigue: { low: '피로가 적음', usual: '평소 정도의 피로', high: '피로가 큼' }, illness: { none: '아프지 않음', active: '현재 아픈 상태', recovering: '아팠다가 회복 중' }, pain: { none: '통증 없음', mild: '통증 있음', stop: '멈춰야 할 통증' }, interruptionReason: { travel: '여행·출장으로 쉬었음', illness: '아파서 쉬었음', schedule: '일정 때문에 쉬었음', 'planned-break': '계획한 휴식', other: '다른 이유로 쉬었음' } };
+    const rows = Object.entries(labels).map(([key, options]) => options[value[key]]).filter(Boolean);
+    if (typeof value.sleepHours === 'number') rows.unshift(`지난밤 ${activityNumber(value.sleepHours)}시간 수면`);
+    return rows.length ? `<p class="checkin-detail">${rows.map(escape).join(' · ')}</p>` : '';
+  }
+  function activityReviewHTML() {
+    activityQuestionSnapshot = null;
+    const value = window.MacroActivity?.build(state, selectedDate);
+    if (!value || !value.current?.length && !value.latest?.length && !value.history?.sessionCount) return '';
+    const rows = value.current?.length ? value.current : Array.isArray(value.latest) ? value.latest : [];
+    const selected = rows.find(row => row.id === activityReviewId) || rows[0] || null;
+    if (selected) activityReviewId = selected.id;
+    const actual = selected?.actual || {}, metrics = [];
+    if (typeof actual.durationMin === 'number') metrics.push(`전체 ${activityNumber(actual.durationMin)}분`);
+    if (typeof actual.distanceM === 'number') metrics.push(selected.sport === 'swimming' ? `${activityNumber(actual.distanceM)}m` : `${activityNumber(actual.distanceM / 1000)}km`);
+    if (typeof actual.movingMin === 'number') metrics.push(`이동 ${activityNumber(actual.movingMin)}분`);
+    if (typeof actual.effortRpe === 'number') metrics.push(`RPE ${activityNumber(actual.effortRpe)}`);
+    if (typeof actual.avgPowerW === 'number') metrics.push(`${activityNumber(actual.avgPowerW)}W`);
+    if (typeof actual.avgHeartRateBpm === 'number') metrics.push(`${activityNumber(actual.avgHeartRateBpm)}bpm`);
+    const connections = (Array.isArray(value.connections) ? value.connections : []).map(row => typeof row === 'string' ? row : row.body || row.summary || '').filter(Boolean);
+    const alternatives = (Array.isArray(selected?.alternatives) ? selected.alternatives : []).filter(row => row?.body);
+    const sources = (Array.isArray(selected?.sources) ? selected.sources : []).map(row => typeof row === 'string' ? row : [row.date, row.label].filter(Boolean).join(' · ')).filter(Boolean);
+    const edit = selected && !state.days[selected.date]?.complete ? command('activity-session-edit', '이 운동 기록 보완', 'pencil', `data-id="${escape(selected.id)}" data-date="${escape(selected.date)}"`) : '';
+    const context = activityContextText(actual.details), segments = activitySegmentText(actual.details);
+    const composition = segments.length ? `<section class="activity-composition" aria-label="기록한 운동 구간"><h4>${actual.details.sequenceConfirmed ? '수행한 순서와 구간' : '기록한 구간'}</h4><ul>${segments.map(segment => `<li>${segment}</li>`).join('')}</ul></section>` : '';
+    const question = selected?.question;
+    const options = question?.topic === 'intent' && !state.days[selected.date]?.complete ? (question.options || []).filter(option => activityIntents[option?.value] && typeof option.label === 'string') : [];
+    if (options.length) activityQuestionSnapshot = { viewDate: selectedDate, date: selected.date, id: selected.id, source: JSON.stringify(state.days[selected.date]?.sessions.find(row => row.id === selected.id)) };
+    const questionHTML = question?.body ? `<div class="activity-question">${options.length ? `<h4>${escape(selected.date)} 운동의 목적</h4>` : ''}<p>${escape(question.body)}</p>${options.length ? `<div class="segmented" aria-label="이 운동의 목적">${options.map(option => `<button type="button" data-action="activity-intent-answer" data-date="${escape(selected.date)}" data-id="${escape(selected.id)}" data-answer="${escape(option.value)}" aria-pressed="${actual.details.intent === option.value}">${escape(option.label)}</button>`).join('')}</div>` : ''}</div>` : '';
+    return `<section id="activityWorkoutReview" class="activity-coaching" aria-labelledby="activityWorkoutReviewTitle"><div class="section-header"><h2 id="activityWorkoutReviewTitle">시간·거리 운동 살펴보기</h2></div>${value.summary ? `<p class="activity-overview">${escape(value.summary)}</p>` : ''}${rows.length ? `<label class="field activity-review-selector"><span>살펴볼 운동 기록</span><select id="activityReviewSelect">${rows.map(row => `<option value="${escape(row.id)}" ${row.id === selected.id ? 'selected' : ''}>${escape(row.date)} · ${escape(row.label || sportNames[row.sport])}</option>`).join('')}</select></label><div id="activityReviewDetail" tabindex="-1" role="region" aria-labelledby="activityReviewDetailTitle"><h3 id="activityReviewDetailTitle">${escape(selected.label || sportNames[selected.sport])}</h3>${metrics.length ? `<p class="activity-actual">${metrics.map(escape).join(' · ')}</p>` : ''}${context.length ? `<p class="activity-conditions">${context.map(escape).join(' · ')}</p>` : ''}${composition}${selected.assessment ? `<p class="activity-assessment">${escape(selected.assessment)}</p>` : ''}${selected.action?.body ? `<div class="activity-next"><h4>${escape(selected.action.title)}</h4><p>${escape(selected.action.body)}</p></div>` : ''}${alternatives.length ? `<details class="activity-alternatives"><summary>다른 선택지</summary>${alternatives.map(row => `<h4>${escape(row.title)}</h4><p>${escape(row.body)}</p>`).join('')}</details>` : ''}${questionHTML}${edit ? `<div class="form-actions">${edit}</div>` : ''}${sources.length ? `<details class="source-details"><summary>참고한 기록</summary>${[...new Set(sources)].map(source => `<p>${escape(source)}</p>`).join('')}</details>` : ''}</div>` : ''}${connections.length ? `<div class="activity-connections">${connections.map(body => `<p>${escape(body)}</p>`).join('')}</div>` : ''}</section>`;
   }
   function coverageHTML() {
     const value = decisionContext(), food = value.nutrition.coverage, training = value.training.coverage, body = value.body;
@@ -188,6 +238,8 @@
     const first = coach.priorities[0];
     $('coachContent').innerHTML = `<div class="coaching-grid"><div class="coaching-main">${trainingUI.chatHTML()}<section class="coach-record-summary" aria-labelledby="coachRecordSummaryTitle"><div class="coach-session-meta"><span class="coach-label">${icon('notebook-pen')}<strong id="coachRecordSummaryTitle">기록 요약</strong></span><span>${selectedDate} · ${current.complete ? '저장 당시 기준' : '기록 중'}</span></div><section class="coach-brief"><span class="eyebrow">앱 계산 · 기록된 상태 기준</span><h2>${escape(coach.headline)}</h2><p>${escape(coach.summary)}</p></section>${first ? `<section class="coach-priority ${first.tone === 'attention' ? 'coach-attention' : ''}"><div class="coach-priority-heading"><span class="priority-number">01</span><h3>${escape(first.title)}</h3></div><p>${escape(first.body)}</p>${coachAction(first, true)}</section>` : ''}<section class="coach-checkin"><div class="section-header"><h2>오늘 몸은 어때요?</h2>${!current.complete ? command('coach-checkin', checkin ? '컨디션 수정' : '컨디션 기록', 'heart-pulse') : ''}</div><div class="checkin-summary">${['energy', 'hunger', 'sleep'].map((key, index) => `<div><span>${['에너지', '허기', '수면'][index]}</span><strong>${labels[key][checkin?.[key]] || '아직 모름'}</strong></div>`).join('')}</div>${!checkin ? '<p class="form-help">기록된 섭취량만으로 허기나 회복 상태를 알 수는 없어요.</p>' : ''}</section><section class="coach-conversation"><div class="section-header"><h2>기록에서 확인할 항목</h2></div><div class="coach-topics" aria-label="기록 요약 항목">${coach.questions.map(item => `<button type="button" data-action="coach-question" data-question="${escape(item.id)}" aria-pressed="${item.id === coachQuestion}">${escape(item.label)}${icon('arrow-up-right')}</button>`).join('')}</div>${selected ? `<div id="coachAnswer" class="coach-answer" role="region" tabindex="-1" aria-label="${escape(selected.label)}"><span class="eyebrow">현재 기록 · 앱 계산 기준</span><h3>${escape(selected.label)}</h3><p>${escape(selected.answer)}</p>${coachAction(selected)}</div>` : ''}</section>${coach.priorities.length > 1 ? `<section class="coach-supporting"><h2>그다음에 확인할 것</h2>${coach.priorities.slice(1).map(item => `<details><summary>${escape(item.title)}</summary><p>${escape(item.body)}</p>${coachAction(item)}</details>`).join('')}</section>` : ''}</section></div><aside class="coach-context"><span class="eyebrow">선택한 날짜의 기록</span><h2>내 기록에서 시작해요</h2><dl><div><dt>목표</dt><dd>${goalNames[plan.context?.goal || state.profile?.goal] || '아직 모름'}</dd></div><div><dt>목표에 반영한 운동 시간</dt><dd>${current.sessions.length ? current.sessions.map(item => `${sportNames[item.sport]} ${fmt(item.durationMin)}분`).join(' · ') : '연결한 시간 없음 · 세트 일지는 별도'}</dd></div><div><dt>식사</dt><dd>${current.meals.length}개 · ${fmt(I.mealTotals(current.meals).kcal)}kcal</dd></div><div><dt>하루 상태</dt><dd>${current.complete ? '완료 · 저장 당시 목표' : '진행 중 · 하루 평가 전'}</dd></div></dl><p class="form-help">입력한 정보와 앱 계산을 요약합니다. 통증·질환의 진단, 운동 자세 평가, 음식의 질과 미량영양소는 이 기록만으로 판단할 수 없어요.</p>${command('nav-trends', '최근 변화 보기', 'chart-line')}${command('nav-profile', '내 기준 살펴보기', 'sliders-horizontal')}</aside></div>`;
     $('coachContent').querySelector('.personal-conversation')?.insertAdjacentHTML('beforeend', trainingUI.memoryHTML());
+    $('coachContent').querySelector('.coach-checkin')?.insertAdjacentHTML('beforeend', checkinDetailHTML(checkin));
+    if (decisionContext().scope.trainingEnabled) $('coachContent').querySelector('.coach-record-summary .coach-brief')?.insertAdjacentHTML('afterend', activityReviewHTML());
     const reviewAnchor = $('coachContent').querySelector('.coach-record-summary > .coach-priority') || $('coachContent').querySelector('.coach-record-summary > .coach-brief');
     if (decisionContext().scope.trainingEnabled) reviewAnchor?.insertAdjacentHTML('afterend', trainingUI.workoutReviewHTML());
     if (!trainingUI.canAskAI()) {
@@ -240,6 +292,8 @@
     if (!frozen && (state.sessionPresets || []).length) movement.insertAdjacentHTML('beforeend', `<div class="form-actions">${command('session-presets', '자주 하는 운동', 'bookmark')}</div>`);
     movement.querySelectorAll('.item-row').forEach((row, index) => {
       const session = current.sessions[index];
+      if (session.details?.label) row.querySelector('.item-main > strong').textContent = session.details.label;
+      row.querySelector('.item-main').insertAdjacentHTML('beforeend', activitySummaryHTML(session));
       if (session.cardio) row.querySelector('.item-main').insertAdjacentHTML('beforeend', `<p class="form-help">${session.cardio.environment === 'treadmill' ? '트레드밀' : '야외 평지'} · ${fmt(session.cardio.speedKmh, 1)}km/h · 경사 ${fmt(session.cardio.gradePct, 1)}%</p>`);
       if (!frozen) row.querySelector('.item-actions').insertAdjacentHTML('beforeend', iconButton('session-preset-save', '자주 하는 운동으로 저장', 'bookmark-plus', `data-id="${escape(session.id)}"`));
     });
@@ -256,8 +310,6 @@
     if (state.trackingScope === 'training' && !current.meals.length) {
       main.querySelectorAll('.nutrition-overview, .meal-section, .target-section, .notice-warning').forEach(element => { element.hidden = true; });
       main.querySelector('.movement-empty')?.remove();
-      movement.querySelector('.section-header h2').textContent = '몸 상태 · 선택';
-      movement.querySelector('.section-header [data-action="session-add"]')?.remove();
     }
     if (state.trackingScope === 'nutrition' && !state.training?.records.some(row => row.date === selectedDate) && !state.training?.planning?.schedule.some(row => row.date === selectedDate) && !state.training?.followUps.some(row => row.status === 'open' && row.reviewDate <= selectedDate)) main.querySelector('.today-training-lanes')?.remove();
     const unresolved = trainingUI.intakeSummaryHTML?.() || '';
@@ -292,6 +344,8 @@
   function renderTrends() {
     const summary = I.observationSummary(state.days, selectedDate, trendPeriod);
     const trend = I.historySummary(state.days, selectedDate, state.profile?.goal);
+    const weightConnection = I.coachingConnections(state, selectedDate).connections.find(row => row.kind === 'weight-training');
+    if (weightConnection) trend.trendMessage = weightConnection.body;
     const dates = summary.list.slice().reverse();
     const nutrientNames = { kcal: '열량', protein: '단백질', carbs: '탄수화물', fat: '지방' };
     const bodyNames = { weightKg: '체중 (kg)', bodyFatPct: '체지방률 (%)', skeletalMuscleKg: '골격근량 (kg)' };
@@ -462,11 +516,16 @@
     const value = day().coachCheckin || {};
     const choices = { energy: [['low', '많이 지침'], ['okay', '보통'], ['good', '좋음']], hunger: [['low', '별로 없음'], ['okay', '보통'], ['high', '많이 배고픔']], sleep: [['poor', '잘 못 잠'], ['okay', '보통'], ['good', '잘 잠']] };
     const selects = { trainingPlan: [['rest', '오늘은 쉬기로 했어요'], ['planned', '아직 할 운동이 있어요']], mealConstraint: [['none', '특별한 어려움 없음'], ['busy', '바빠서 챙겨 먹기 어려움'], ['low-appetite', '입맛이 없어 먹기 어려움'], ['digestive', '속이 불편해서 먹기 어려움']], performance: [['down', '평소보다 떨어짐'], ['steady', '평소와 비슷함'], ['up', '평소보다 좋아짐']] };
-    openDialog('오늘 몸은 어때요?', `<p class="form-help">지금 느끼는 상태를 알려주세요. 모르는 항목은 비워두셔도 돼요.</p><div class="checkin-fields">${Object.entries(choices).map(([key, options], index) => `<fieldset><legend>${['에너지와 피로', '허기', '지난밤 수면'][index]}</legend><div class="checkin-options">${[['', '아직 모름'], ...options].map(([id, label]) => `<label><input type="radio" name="${key}" value="${id}" ${(!value[key] && !id) || value[key] === id ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div></fieldset>`).join('')}</div><details class="checkin-more"><summary>오늘의 계획과 식사 여건도 알려주기</summary><div class="form-grid">${Object.entries(selects).map(([key, options], index) => `<label class="field ${index === 1 ? 'full-width' : ''}"><span>${['앞으로 할 운동', '식사를 챙기는 여건', '최근 운동 수행'][index]}</span><select name="${key}"><option value="">아직 모름</option>${options.map(([id, label]) => `<option value="${id}" ${value[key] === id ? 'selected' : ''}>${label}</option>`).join('')}</select></label>`).join('')}</div></details>${actions('코치에게 알려주기')}`, form => {
+    const recoveryChoices = { fatigue: ['피로', [['low', '적음'], ['usual', '평소 정도'], ['high', '많음']]], illness: ['질병·몸살 등', [['none', '현재 아프지 않음'], ['active', '현재 아픈 상태'], ['recovering', '아팠다가 회복 중']]], pain: ['현재 통증', [['none', '없음'], ['mild', '있음 · 확인 필요'], ['stop', '운동을 멈춰야 함']]], interruptionReason: ['최근 운동을 쉬었던 이유', [['travel', '여행·출장'], ['illness', '질병'], ['schedule', '일정'], ['planned-break', '계획한 휴식'], ['other', '다른 이유']]] };
+    openDialog('오늘 몸은 어때요?', `<p class="form-help">지금 느끼는 상태를 알려주세요. 모르는 항목은 비워두셔도 돼요.</p><div class="checkin-fields">${Object.entries(choices).map(([key, options], index) => `<fieldset><legend>${['에너지와 피로', '허기', '지난밤 수면'][index]}</legend><div class="checkin-options">${[['', '아직 모름'], ...options].map(([id, label]) => `<label><input type="radio" name="${key}" value="${id}" ${(!value[key] && !id) || value[key] === id ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div></fieldset>`).join('')}</div><details class="checkin-more"><summary>오늘의 계획과 식사 여건도 알려주기</summary><div class="form-grid">${Object.entries(selects).map(([key, options], index) => `<label class="field ${index === 1 ? 'full-width' : ''}"><span>${['앞으로 할 운동', '식사를 챙기는 여건', '최근 운동 수행'][index]}</span><select name="${key}"><option value="">아직 모름</option>${options.map(([id, label]) => `<option value="${id}" ${value[key] === id ? 'selected' : ''}>${label}</option>`).join('')}</select></label>`).join('')}</div></details><details class="checkin-more"><summary>수면 시간·통증·회복 상태</summary><div class="form-grid">${field('실제로 잔 시간 · 지난밤 (시간)', 'sleepHours', value.sleepHours ?? '', { max: 24, step: 0.1 })}${Object.entries(recoveryChoices).map(([key, [label, options]]) => `<label class="field"><span>${label} · 선택</span><select name="${key}"><option value="">선택 안 함</option>${options.map(([id, label]) => `<option value="${id}" ${value[key] === id ? 'selected' : ''}>${label}</option>`).join('')}</select></label>`).join('')}</div></details>${actions('코치에게 알려주기')}`, form => {
       const checkin = Object.fromEntries(['energy', 'hunger', 'sleep', 'trainingPlan', 'mealConstraint', 'performance'].map(key => [key, form.get(key) || null]));
-      if (!Object.values(checkin).some(Boolean)) throw new Error('오늘 느끼는 상태나 여건을 한 가지 이상 알려주세요.');
+      for (const key of Object.keys(recoveryChoices)) if (form.get(key)) checkin[key] = String(form.get(key));
+      const sleepHours = readNumber(form, 'sleepHours', true);
+      if (sleepHours !== null) checkin.sleepHours = sleepHours;
+      if (!Object.values(checkin).some(value => value !== null)) throw new Error('오늘 느끼는 상태나 여건을 한 가지 이상 알려주세요.');
       if (mutateDay(current => { current.coachCheckin = checkin; }, '오늘 상태를 저장하고 코칭에 반영했어요.')) closeDialog();
     });
+    $('entryForm').elements.sleepHours.step = 'any';
   }
   function field(label, name, value = '', options = {}) {
     return `<label class="field"><span>${label}</span><input name="${name}" type="${options.type || 'number'}" ${options.type === 'text' ? 'maxlength="200"' : `min="${options.min ?? 0}" max="${options.max ?? 1000}" step="${options.step ?? 0.1}" inputmode="decimal"`} value="${escape(value)}" ${options.required ? 'required' : ''}></label>`;
@@ -571,15 +630,80 @@
       if (mutateDay(item => { item.note = String(form.get('note') || '').trim(); }, '하루 메모를 저장했어요.')) closeDialog();
     });
   }
+  function optionalSelect(name, label, values, value = '') {
+    return `<label class="field"><span>${label}</span><select name="${name}"><option value="">선택 안 함</option>${Object.entries(values).map(([id, label]) => `<option value="${id}" ${value === id ? 'selected' : ''}>${escape(label)}</option>`).join('')}</select></label>`;
+  }
+  function activityDetailFields(session) {
+    const value = session.details || {}, distanceUnit = session.sport === 'swimming' ? 'm' : 'km', distanceFactor = distanceUnit === 'm' ? 1 : 1000;
+    return `<details id="activityDetails" class="source-details activity-details"><summary>상세 기록 · 선택</summary><div class="form-grid">${field('구체적인 종목·훈련 이름', 'activity-label', value.label || '', { type: 'text' })}${optionalSelect('activity-format', '훈련 구성', activityFormats, value.format)}${optionalSelect('activity-intent', '오늘의 목적', activityIntents, value.intent)}<label class="field activity-distance-field"><span id="activityDistanceLabel">거리 (${distanceUnit})</span><input name="activity-distance" type="number" min="0" max="1000000" step="any" inputmode="decimal" value="${value.distanceM == null ? '' : value.distanceM / distanceFactor}"></label>${field('실제로 움직인 시간 (분)', 'activity-movingMin', value.movingMin ?? '', { max: 1440, step: 0.1 })}${field('전체 체감 강도 · RPE 1–10', 'activity-effortRpe', value.effortRpe ?? '', { min: 1, max: 10, step: 0.5 })}${field('평균 심박수 (bpm)', 'activity-avgHeartRateBpm', value.avgHeartRateBpm ?? '', { min: 30, max: 240, step: 1 })}<div class="activity-power-field">${field('평균 파워 (W)', 'activity-avgPowerW', value.avgPowerW ?? '', { max: 3000, step: 1 })}</div>${field('코스·수영장·경기장 이름', 'activity-routeKey', value.routeKey || '', { type: 'text' })}${field('사용한 기구·장비', 'activity-equipmentKey', value.equipmentKey || '', { type: 'text' })}${optionalSelect('activity-environment', '운동 환경', activityEnvironments, value.environment)}${optionalSelect('activity-conditions', '운동할 때의 조건', activityConditions, value.conditions)}<div class="activity-swimming-fields">${field('영법·수영 구성', 'activity-stroke', value.stroke || '', { type: 'text' })}${field('수영장 길이 (m)', 'activity-poolLengthM', value.poolLengthM ?? '', { min: 10, max: 100, step: 1 })}</div><label class="field full-width"><span>운동 메모</span><textarea name="activity-notes" rows="2" maxlength="4000">${escape(value.notes || '')}</textarea></label></div><div class="activity-segments-section"><div class="section-header"><h3>종목별 구간</h3>${command('activity-segment-add', '구간 추가', 'plus')}</div><label class="checkbox-field"><input type="checkbox" name="activity-sequenceConfirmed" ${value.sequenceConfirmed ? 'checked' : ''}>아래 구간 순서대로 수행했어요.</label><div id="activitySegments"></div></div></details>`;
+  }
+  function activitySegmentFields(index, segment = {}) {
+    const prefix = `segment-${index}-`;
+    return `<fieldset class="activity-segment" data-segment-index="${index}"><legend>구간 ${index + 1}</legend><div class="activity-segment-heading">${field('구간 이름', prefix + 'label', segment.label || '', { type: 'text', required: true })}${iconButton('activity-segment-remove', '이 구간 삭제', 'trash-2', `data-segment-index="${index}"`)}</div><div class="form-grid">${optionalSelect(prefix + 'kind', '구간 종목', segmentKinds, segment.kind)}${field('구간 시간 (분)', prefix + 'durationMin', segment.durationMin ?? '', { max: 1440, step: 0.1 })}${field('구간 거리 (m)', prefix + 'distanceM', segment.distanceM ?? '', { max: 1000000, step: 1 })}<div class="activity-segment-strength-fields">${field('실제 반복 수', prefix + 'reps', segment.reps ?? '', { max: 100000, step: 1 })}${field('실제 부하 (kg)', prefix + 'loadKg', segment.loadKg ?? '', { max: 2000, step: 0.1 })}</div></div></fieldset>`;
+  }
+  function activitySummaryHTML(session) {
+    const value = session.details;
+    if (!value) return '';
+    const metrics = [];
+    if (value.distanceM !== null && typeof value.distanceM === 'number') metrics.push(session.sport === 'swimming' ? `${activityNumber(value.distanceM)}m` : `${activityNumber(value.distanceM / 1000)}km`);
+    if (typeof value.movingMin === 'number') metrics.push(`이동 ${activityNumber(value.movingMin)}분`);
+    if (typeof value.effortRpe === 'number') metrics.push(`RPE ${activityNumber(value.effortRpe)}`);
+    if (typeof value.avgHeartRateBpm === 'number') metrics.push(`${activityNumber(value.avgHeartRateBpm)}bpm`);
+    if (typeof value.avgPowerW === 'number') metrics.push(`${activityNumber(value.avgPowerW)}W`);
+    metrics.push(...activityContextText(value));
+    const segments = activitySegmentText(value);
+    return `${metrics.length ? `<p class="form-help activity-record-metrics">${metrics.map(escape).join(' · ')}</p>` : ''}${segments.length || value.notes ? `<details class="activity-record-details"><summary>${segments.length ? `구간 ${segments.length}개` : '운동 메모'}</summary>${segments.map(segment => `<p>${segment}</p>`).join('')}${value.notes ? `<p>${escape(value.notes)}</p>` : ''}</details>` : ''}`;
+  }
+  function activityContextText(value = {}) {
+    return [activityFormats[value.format], activityIntents[value.intent], value.routeKey, value.equipmentKey,
+      activityEnvironments[value.environment], activityConditions[value.conditions], value.stroke,
+      typeof value.poolLengthM === 'number' ? `${activityNumber(value.poolLengthM)}m 풀` : ''].filter(Boolean);
+  }
+  function activitySegmentText(value = {}) {
+    return value.segments?.map(segment => [segment.label,
+      typeof segment.durationMin === 'number' ? `${activityNumber(segment.durationMin)}분` : '',
+      typeof segment.distanceM === 'number' ? `${activityNumber(segment.distanceM)}m` : '',
+      typeof segment.reps === 'number' ? `${activityNumber(segment.reps)}회` : '',
+      typeof segment.loadKg === 'number' ? `${activityNumber(segment.loadKg)}kg` : ''].filter(Boolean).map(escape).join(' · ')) || [];
+  }
   function sessionDialog(existing = null, preset = null) {
-    const session = existing || preset || { sport: state.profile?.sport === 'none' || !state.profile ? 'walking' : state.profile.sport, durationMin: 30, intensity: 'moderate' };
+    const session = existing || (preset ? reusableActivity(preset) : null) || { sport: state.profile?.sport === 'none' || !state.profile ? 'walking' : state.profile.sport, durationMin: 30, intensity: 'moderate' };
+    const segments = (session.details?.segments || []).map((segment, index) => ({ index, id: segment.id, segment }));
+    let nextSegmentIndex = segments.length, distanceFactor = session.sport === 'swimming' ? 1 : 1000;
     const cardioFields = `<details id="cardioOptions" class="source-details" ${session.cardio ? 'open' : ''}>
       <summary>걷기·달리기 속도와 경사</summary><label class="checkbox-field"><input type="checkbox" name="useCardio" ${session.cardio ? 'checked' : ''}>속도·경사로 추정하기</label>
       <div class="form-grid"><label class="field"><span>환경</span><select name="environment"><option value="treadmill">트레드밀</option><option value="outdoor">야외 평지</option></select></label>
       ${field('속도 (km/h)', 'speedKmh', session.cardio?.speedKmh ?? '', { min: 0, max: 30 })}${field('경사 (%)', 'gradePct', session.cardio?.gradePct ?? '', { min: 0, max: 20 })}</div>
       <p class="form-help">걷기 3~6km/h, 달리기 8.1~20km/h, 트레드밀 경사 0~15% 안에서 식을 적용해요. 그 밖은 상세 추정을 끄고 강도로 기록해 주세요. 평지는 경사 0%를 입력합니다. 야외는 평지만 지원해요. 손잡이 지지·바람은 반영하지 못합니다.</p></details>`;
-    openDialog(existing ? '운동 수정' : '운동 추가', `<div class="form-grid"><label class="field"><span>운동 종목</span><select name="sport">${Object.entries(sportNames).filter(([key]) => key !== 'none').map(([key, label]) => `<option value="${key}" ${session.sport === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label>${field('운동 시간 (분)', 'durationMin', session.durationMin, { min: 1, max: 720, step: 1, required: true })}<label class="field"><span>강도</span><select name="intensity">${Object.entries(intensityNames).map(([key, label]) => `<option value="${key}" ${session.intensity === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div>${cardioFields}<p class="form-help">실제 운동한 시간만 기록해요. 쉬는 시간을 포함한 근력운동은 전체 세션 시간으로 적어 주세요. 일상 걷기를 생활 활동량에 반영했다면 중복 추가하지 마세요.</p>${actions()}`, form => {
+    openDialog(existing ? '운동 수정' : '운동 추가', `<div class="form-grid"><label class="field"><span>운동 종목</span><select name="sport">${Object.entries(sportNames).filter(([key]) => key !== 'none').map(([key, label]) => `<option value="${key}" ${session.sport === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label>${field('전체 운동 시간 (분)', 'durationMin', session.durationMin, { min: 1, max: 720, step: 1, required: true })}<label class="field"><span>강도</span><select name="intensity">${Object.entries(intensityNames).map(([key, label]) => `<option value="${key}" ${session.intensity === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div>${activityDetailFields(session)}${cardioFields}<p class="form-help">실제로 한 전체 세션 시간을 적어 주세요. 구간을 나눠도 소모량에는 전체 시간을 한 번만 반영합니다.</p>${actions()}`, form => {
       const entry = { ...existing, id: existing?.id || id(), sport: String(form.get('sport')), durationMin: readNumber(form, 'durationMin'), intensity: String(form.get('intensity')) };
+      const details = {};
+      for (const key of ['label', 'intent', 'format', 'routeKey', 'equipmentKey', 'environment', 'conditions', 'stroke', 'notes']) {
+        const value = String(form.get(`activity-${key}`) || '').trim();
+        if (value) details[key] = value;
+      }
+      const distance = readNumber(form, 'activity-distance', true);
+      if (distance !== null) details.distanceM = distance * distanceFactor;
+      for (const key of ['movingMin', 'effortRpe', 'avgHeartRateBpm', 'avgPowerW', 'poolLengthM']) {
+        if (!form.has(`activity-${key}`)) continue;
+        const value = readNumber(form, `activity-${key}`, true);
+        if (value !== null) details[key] = value;
+      }
+      if (details.movingMin > entry.durationMin) throw new Error('실제로 움직인 시간은 전체 세션 시간을 넘을 수 없어요.');
+      const recordedSegments = segments.map(row => {
+        const prefix = `segment-${row.index}-`, segment = { id: row.id, label: String(form.get(prefix + 'label') || '').trim() };
+        if (!segment.label) throw new Error('추가한 구간의 이름을 적거나 사용하지 않는 구간을 삭제해 주세요.');
+        if (form.get(prefix + 'kind')) segment.kind = String(form.get(prefix + 'kind'));
+        for (const key of ['durationMin', 'distanceM', 'reps', 'loadKg']) {
+          if (!form.has(prefix + key)) continue;
+          const value = readNumber(form, prefix + key, true);
+          if (value !== null) segment[key] = value;
+        }
+        return segment;
+      });
+      if (recordedSegments.length) details.segments = recordedSegments;
+      if (form.get('activity-sequenceConfirmed') === 'on') details.sequenceConfirmed = true;
+      if (Object.keys(details).length) entry.details = details; else delete entry.details;
       if (['walking', 'running'].includes(entry.sport) && form.get('useCardio') === 'on') entry.cardio = { environment: String(form.get('environment')), speedKmh: readNumber(form, 'speedKmh'), gradePct: readNumber(form, 'gradePct') };
       else delete entry.cardio;
       if (entry.cardio) {
@@ -594,21 +718,60 @@
       if (mutateDay(current => { const index = current.sessions.findIndex(item => item.id === entry.id); if (index < 0) current.sessions.push(entry); else current.sessions[index] = entry; }, '운동을 저장하고 오늘 목표에 반영했어요.')) closeDialog();
     });
     const form = $('entryForm'); form.elements.environment.value = session.cardio?.environment || 'treadmill';
+    form.elements.durationMin.max = '1440'; form.elements.durationMin.step = 'any';
+    for (const key of ['movingMin', 'effortRpe', 'avgHeartRateBpm', 'avgPowerW', 'poolLengthM']) form.elements[`activity-${key}`].step = 'any';
     const update = () => {
       const supported = ['walking', 'running'].includes(form.elements.sport.value);
       $('cardioOptions').hidden = !supported;
       for (const key of ['speedKmh', 'gradePct']) { form.elements[key].disabled = !supported || !form.elements.useCardio.checked; form.elements[key].required = supported && form.elements.useCardio.checked; }
+      const factor = form.elements.sport.value === 'swimming' ? 1 : 1000, distance = form.elements['activity-distance'];
+      if (factor !== distanceFactor && distance.value.trim()) distance.value = String(Number(distance.value) * distanceFactor / factor);
+      distanceFactor = factor; $('activityDistanceLabel').textContent = `거리 (${factor === 1 ? 'm' : 'km'})`;
+      distance.max = String(1000000 / factor);
+      const powerSupported = form.elements.sport.value === 'cycling';
+      form.querySelector('.activity-power-field').hidden = !powerSupported; form.elements['activity-avgPowerW'].disabled = !powerSupported;
+      const swimming = form.elements.sport.value === 'swimming'; form.querySelector('.activity-swimming-fields').hidden = !swimming;
+      for (const key of ['stroke', 'poolLengthM']) form.elements[`activity-${key}`].disabled = !swimming;
     };
+    const updateSegment = element => {
+      const kind = element.querySelector('select').value, fields = element.querySelector('.activity-segment-strength-fields');
+      const strength = ['strength', 'carry', 'other'].includes(kind) || [...fields.querySelectorAll('input')].some(input => input.value.trim());
+      fields.hidden = !strength;
+      fields.querySelectorAll('input').forEach(input => { input.disabled = !strength; });
+      element.querySelectorAll('input[type="number"]').forEach(input => { if (!input.name.endsWith('-reps')) input.step = 'any'; });
+    };
+    for (const row of segments) $('activitySegments').insertAdjacentHTML('beforeend', activitySegmentFields(row.index, row.segment));
+    $('activitySegments').querySelectorAll('.activity-segment').forEach(updateSegment);
+    form.addEventListener('change', event => { if (event.target.closest('.activity-segment') && event.target.tagName === 'SELECT') updateSegment(event.target.closest('.activity-segment')); });
+    form.querySelector('[data-action="activity-segment-add"]').addEventListener('click', () => {
+      if (segments.length >= 20) { toast('한 세션에는 구간을 20개까지 남길 수 있어요.', true); return; }
+      const index = nextSegmentIndex++, row = { index, id: id(), segment: {} }; segments.push(row);
+      $('activitySegments').insertAdjacentHTML('beforeend', activitySegmentFields(index));
+      const element = $('activitySegments').lastElementChild; updateSegment(element); icons(); element.querySelector('input').focus();
+    });
+    form.addEventListener('click', event => {
+      const button = event.target.closest('[data-action="activity-segment-remove"]');
+      if (!button) return;
+      const element = button.closest('.activity-segment'), index = Number(element.dataset.segmentIndex), position = segments.findIndex(row => row.index === index);
+      if (position < 0) return;
+      segments.splice(position, 1); element.remove(); form.querySelector('[data-action="activity-segment-add"]').focus();
+    });
     form.elements.sport.addEventListener('change', update); form.elements.useCardio.addEventListener('change', update); update();
   }
   function saveSessionPreset(session) {
     if (!session) return;
-    openDialog('자주 하는 운동 저장', `${field('이름', 'title', `${sportNames[session.sport]} ${session.durationMin}분`, { type: 'text', required: true })}${actions()}`, form => {
-      const next = clone(state), value = { sport: session.sport, durationMin: session.durationMin, intensity: session.intensity };
-      if (session.cardio) value.cardio = clone(session.cardio);
+    openDialog('자주 하는 운동 저장', `${field('이름', 'title', `${session.details?.label || sportNames[session.sport]} ${session.durationMin}분`, { type: 'text', required: true })}${actions()}`, form => {
+      const next = clone(state), value = reusableActivity(session);
       next.sessionPresets ||= []; next.sessionPresets.push({ id: id(), title: String(form.get('title')).trim(), session: value });
       if (save(next, '자주 하는 운동으로 저장했어요. 사용 시 실제 시간은 다시 확인해 주세요.')) closeDialog();
     });
+  }
+  function reusableActivity(session) {
+    const value = { sport: session.sport, durationMin: session.durationMin, intensity: session.intensity };
+    if (session.cardio) value.cardio = clone(session.cardio);
+    const details = Object.fromEntries(['label', 'format', 'routeKey', 'equipmentKey', 'environment', 'stroke', 'poolLengthM'].filter(key => session.details?.[key] != null).map(key => [key, session.details[key]]));
+    if (Object.keys(details).length) value.details = details;
+    return value;
   }
   function sessionPresetsDialog() {
     openDialog('자주 하는 운동', `<ul class="item-list">${(state.sessionPresets || []).map(preset => `<li class="item-row"><div class="item-main"><strong>${escape(preset.title)}</strong><p class="form-help">${sportNames[preset.session.sport]} · ${fmt(preset.session.durationMin)}분</p></div><div class="item-actions">${iconButton('session-preset-use', '입력값 확인 후 사용', 'plus', `data-id="${escape(preset.id)}"`)}${iconButton('session-preset-delete', '목록에서 삭제', 'trash-2', `data-id="${escape(preset.id)}"`)}</div></li>`).join('')}</ul><div class="form-actions">${command('dialog-close', '닫기', 'x')}</div>`, () => {});
@@ -737,6 +900,27 @@
       else if (action === 'meal-delete' || action === 'session-delete') confirmDialog('기록 삭제', '선택한 기록을 삭제하고 오늘 합계를 다시 계산할까요?', '삭제', () => mutateDay(item => { const key = action === 'meal-delete' ? 'meals' : 'sessions'; item[key] = item[key].filter(entry => entry.id !== button.dataset.id); }, '기록을 삭제했어요.'));
       else if (action === 'session-add') sessionDialog();
       else if (action === 'session-edit') sessionDialog(current.sessions.find(item => item.id === button.dataset.id));
+      else if (action === 'activity-session-edit') {
+        const date = button.dataset.date;
+        if (!S.isValidDate(date) || date > I.dateKey()) throw new Error('조건을 보완할 실제 운동 기록을 다시 선택해 주세요.');
+        const entry = state.days[date]?.sessions.find(item => item.id === button.dataset.id);
+        if (!entry || state.days[date].complete) throw new Error('조건을 보완할 실제 운동 기록을 다시 선택해 주세요.');
+        selectedDate = date; render(); sessionDialog(entry);
+      }
+      else if (action === 'activity-intent-answer') {
+        const date = button.dataset.date, sessionId = button.dataset.id, answer = button.dataset.answer;
+        if (!S.isValidDate(date) || date > I.dateKey()) throw new Error('답할 운동 기록을 다시 선택해 주세요.');
+        const snapshot = activityQuestionSnapshot, entry = state.days[date]?.sessions.find(row => row.id === sessionId);
+        const review = window.MacroActivity?.build(state, selectedDate), rows = review?.current?.length ? review.current : review?.latest || [];
+        const reviewed = rows.find(row => row.id === sessionId && row.date === date);
+        if (state.days[date]?.complete || !entry
+          || !button.closest('#activityReviewDetail') || !decisionContext().scope.trainingEnabled || snapshot?.viewDate !== selectedDate || snapshot.date !== date || snapshot.id !== sessionId
+          || snapshot.source !== JSON.stringify(entry) || reviewed?.question?.topic !== 'intent' || !reviewed.question.options?.some(option => option.value === answer))
+          throw new Error('답할 운동 기록을 다시 선택해 주세요.');
+        const next = clone(state), record = next.days[date].sessions.find(row => row.id === sessionId);
+        record.details = { ...record.details, intent: answer };
+        if (save(next, '알려준 운동 목적에 맞춰 다음 운동을 다시 정했어요.')) $('activityReviewDetail')?.focus();
+      }
       else if (action === 'session-presets') sessionPresetsDialog();
       else if (action === 'session-preset-save') saveSessionPreset(current.sessions.find(item => item.id === button.dataset.id));
       else if (action === 'session-preset-use') { const preset = state.sessionPresets?.find(item => item.id === button.dataset.id); if (preset) { closeDialog(); sessionDialog(null, preset.session); } }
@@ -779,7 +963,12 @@
   $('profileForm').addEventListener('input', () => { profileDirty = true; renderProfileSummary(); $('profileSaveNote').textContent = '아직 저장하지 않은 변경이 있어요.'; });
   document.addEventListener('change', async event => {
     try { if (await trainingUI.handleChange(event)) return; } catch (error) { toast(error.message, true); return; }
-    if (event.target.id === 'trackingScope') {
+    if (event.target.id === 'activityReviewSelect') {
+      const value = window.MacroActivity?.build(state, selectedDate);
+      const rows = value?.current?.length ? value.current : value?.latest || [];
+      if (!rows.some(row => row.id === event.target.value)) { toast('현재 조회에 포함된 운동을 선택해 주세요.', true); return; }
+      activityReviewId = event.target.value; renderCoach(); $('activityReviewDetail')?.focus();
+    } else if (event.target.id === 'trackingScope') {
       const next = clone(state); next.trackingScope = event.target.value;
       if (save(next, '기록 범위를 바꿨어요. 기존 기록과 완료 당시 목표는 그대로입니다.')) $('trackingScope')?.focus();
       else { event.target.value = state.trackingScope || 'auto'; }

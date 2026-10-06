@@ -53,6 +53,9 @@ function fixture(kind = 'normal') {
   if (kind === 'safety') latest.pain = 'stop';
   if (kind === 'legacy') { latest.source.kind = 'legacy-ocr'; latest.source.hash = 'd'.repeat(64); latest.exercises = []; }
   if (kind === 'grouped') { latest.sequence = { order: 'listed', structure: 'grouped' }; latest.exercises.forEach(row => { row.groupKey = 'superset'; }); }
+  if (kind === 'unknown-order') {
+    latest.sequence = previous.sequence = { order: 'unknown', structure: 'unknown' };
+  }
   if (kind.startsWith('alias')) {
     latest.exercises[0].rawName = '개인프레스';
     state.training.reviewPreferences.mainExerciseKeys = [rawBenchKey, benchKey];
@@ -61,6 +64,10 @@ function fixture(kind = 'normal') {
     row.sets = [{ id: `${row.id}-only-d`, loadKg: 34.5, reps: 7, rir: 3, marker: 'D' }];
   }
   state.training.records = [latest, future, previous, early];
+  if (kind === 'unknown-order') {
+    const older = record('synthetic-review-older', I.shiftDate(today, -10), '19:30', '합성 순서 없는 앞선 운동', blocks('older'));
+    older.sequence = { order: 'unknown', structure: 'unknown' }; state.training.records.push(older);
+  }
   const frozen = { date: previousDate, weightKg: 65, bodyFatPct: null, skeletalMuscleKg: null, bodyFatMethod: 'unknown', carbAdjustmentG: 0,
     meals: [{ id: 'synthetic-review-frozen-meal', name: '합성 완료 식사', protein: 90, carbs: 210, fat: 55, alcoholG: 0, otherKcal: 0 }],
     sessions: [], complete: false, planSnapshot: null };
@@ -126,7 +133,7 @@ async function screenshotStart(page, locator, filename) {
   const browser = await chromium.launch({ headless: true, ...(fs.existsSync(chromium.executablePath()) ? {} : { channel: 'chrome' }) });
   const artifacts = path.join(__dirname, 'artifacts'); fs.mkdirSync(artifacts, { recursive: true });
   try {
-    for (const width of [320, 390, 1280]) for (const kind of width === 320 ? ['normal', 'no-numbers', 'no-profile', 'safety', 'legacy', 'grouped', 'scope', 'alias', 'alias-management', 'marked'] : ['normal', 'no-numbers', 'no-profile', 'safety']) {
+    for (const width of [320, 390, 1280]) for (const kind of width === 320 ? ['normal', 'no-numbers', 'no-profile', 'safety', 'legacy', 'grouped', 'unknown-order', 'scope', 'alias', 'alias-management', 'marked'] : ['normal', 'no-numbers', 'no-profile', 'safety']) {
       const context = await browser.newContext({ viewport: { width, height: 900 } }); let page;
       try {
         const data = fixture(kind), untouched = JSON.stringify(data.state), errors = [], requests = [];
@@ -209,18 +216,32 @@ async function screenshotStart(page, locator, filename) {
           assert.match(await page.locator('.coach-priority').innerText(), /통증|중단/);
           assert.match(await page.locator('#coachWorkoutReview').innerText(), /통증|중단/);
         }
-        if (kind === 'grouped') {
+        if (kind === 'grouped' || kind === 'unknown-order') {
           await page.locator('#coachReviewDetail .coach-review-comparison summary').click();
           const comparison = await page.locator('#coachReviewDetail .coach-review-comparison').innerText();
-          assert.match(comparison, /실제 순차 수행 미확인/);
-          assert.doesNotMatch(comparison, /실제 순차 수행으로 확인된/, 'listed grouped blocks do not prove sequential performance order');
+          assert.match(comparison, /이번 기록과 이전 기록/);
+          assert.match(comparison, /순서|배치/);
+          assert.doesNotMatch(comparison, /실제 순차 수행으로 확인된|같은 조건 이전|같은 기록 조건/,
+            'grouped or unknown-order records preserve observed history without presenting matched sequential conditions');
+          assert.doesNotMatch(comparison, /숫자 관찰과 근력 판정을 구분했어요|미기록 기간을 휴식으로 간주하지 않았어요|저장한 프로그램을 자동으로 바꾸지/,
+            'evidence explains this comparison rather than repeating non-actions and generic defensive conditions');
+          if (kind === 'unknown-order') {
+            assert.match(comparison, /장비.*3일|3일.*장비/,
+              'three actual days on the equipment remain available even though execution order was not recorded');
+            assert.match(await page.locator('#coachReviewDetail .coach-review-meaning').innerText(), /34\.5kg/);
+            assert.match(await page.locator('#coachReviewDetail .coach-review-next-trial').innerText(), /34\.5kg/,
+              'missing order does not turn all actionable record interpretation into a comparison hold');
+          }
         }
         if (kind === 'marked') {
           assert.match(await page.locator('#coachReviewDetail .coach-review-meaning').innerText(), /D.*34\.5kg.*7회/);
           assert.match(await page.locator('#coachReviewDetail .coach-review-next-trial').innerText(), /별도 표기.*일반 세트/);
           assert.equal(await page.locator('#coachReviewDetail [data-action="training-feedback"]').count(), 0, 'marked-only records cannot receive ordinary-set effort feedback');
           await page.locator('#coachReviewDetail .coach-review-comparison summary').click();
-          assert.match(await page.locator('#coachReviewDetail .coach-review-comparison').innerText(), /별도 문자가 표시된 세트.*일반 세트.*비교하지 않았/);
+          const markedEvidence = await page.locator('#coachReviewDetail .coach-review-comparison').innerText();
+          assert.match(markedEvidence, /D|별도 표기/);
+          assert.doesNotMatch(markedEvidence, /같은 조건 이전|같은 기록 조건|수행 향상|향상으로/,
+            'marked-set source evidence remains visible without pretending it is an ordinary-set progression judgement');
           assert.doesNotMatch(detail, /수행이 늘|수행 증가|같은.*중량.*늘었|일반 세트 관찰/, 'marked-only observations are not ordinary-set performance improvement');
         }
         if (kind === 'no-profile') assert.equal((await stored(page)).profile, null, 'review works without creating a fabricated profile');
@@ -304,6 +325,6 @@ async function screenshotStart(page, locator, filename) {
         throw error;
       } finally { await context.close(); }
     }
-    console.log('Coach review browser: all A-B-A blocks, explicit date/time session choices, priority and diary order, persisted shared main movement and reorder, duplicate alias/canonical unpin and individual-key management, marked-only comparison hold, save-failure preservation, exact keyboard detail/list/neighbor navigation, same-day sessions and historical cutoffs, no numbers/profile/safety, legacy OCR unknown-not-zero, grouped order uncertainty and explicit recording scopes, immutable original sources/sets/RIR/frozen targets and 320/390/1280px passed. No AI or private data.');
+    console.log('Coach review browser: all A-B-A blocks, explicit date/time session choices, priority and diary order, persisted shared main movement and reorder, alias/canonical unpin, marked-set source evidence, save-failure preservation, keyboard detail/list/neighbor navigation, same-day sessions and historical cutoffs, no numbers/profile/safety, legacy OCR unknown-not-zero, grouped and unknown-order honest evidence with usable equipment history, explicit recording scopes, immutable sources/sets/RIR/frozen targets and 320/390/1280px passed. No AI or private data.');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

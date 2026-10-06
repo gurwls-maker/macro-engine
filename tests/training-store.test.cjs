@@ -39,6 +39,11 @@ function withFeedback(value = workspace(), feeling = "comfortable") {
   exercise.feedback = { setId: set.id, feeling, loadKg: set.loadKg, reps: set.reps };
   return value;
 }
+function withCoachingAnswer(value = workspace(), topic = "load-change", answer = "planned") {
+  const exercise = value.records[0].exercises[0];
+  exercise.coachingAnswer = Training.createCoachingAnswer(exercise, topic, answer);
+  return value;
+}
 function message(id = "question", overrides = {}) {
   return { id, role: "user", text: "어떤 기록이 필요한가요?", createdAt: "2026-01-05T12:00:00.000Z", source: "local", replyTo: null, contextDigest: null, status: "pending", ...overrides };
 }
@@ -175,6 +180,138 @@ test("image extraction cannot create training intent, feelings or set RIR", () =
     value => { value.sessions[0].session.exercises[0].feedback = { setId: "invented", feeling: "comfortable", loadKg: 40, reps: 6 }; },
     value => { value.sessions[0].session.exercises[0].sets[1].rir = 3; }
   ]) { const value = context(); change(value); assert.throws(() => Training.fromDiaryContext(value)); }
+});
+
+test("optional coaching answers round-trip backups and exchanges without changing actual sets", () => {
+  const S = require("../src/storage.js"), old = workspace(), before = structuredClone(old);
+  assert.deepEqual(Training.validate(old), old);
+  assert.ok(old.records[0].exercises.every(exercise => !Object.hasOwn(exercise, "coachingAnswer")));
+  for (const topic of Training.COACHING_ANSWER_TOPICS) for (const answer of Training.COACHING_ANSWERS) {
+    const value = withCoachingAnswer(workspace(), topic, answer), original = structuredClone(value);
+    const exercise = value.records[0].exercises[0];
+    assert.deepEqual(exercise.coachingAnswer.sets, exercise.sets.map(({ id, loadKg, reps, marker }) => ({ id, loadKg, reps, marker })));
+    assert.deepEqual(Training.validate(value), value);
+    assert.deepEqual(Training.parseImport(Training.exportExchange(value)).records, value.records);
+    const state = S.createEmpty(); state.training = value;
+    assert.deepEqual(S.parseBackup(S.exportBackup(state)).state.training, value);
+    assert.deepEqual(value, original);
+    assert.deepEqual(exercise.sets.map(set => set.rir), [null, null, null]);
+  }
+  assert.deepEqual(old, before);
+  assert.ok(Object.isFrozen(Training.COACHING_ANSWER_TOPICS));
+  assert.ok(Object.isFrozen(Training.COACHING_ANSWERS));
+});
+
+test("coaching answers reject invalid topics, values, extra fields and malformed snapshot numbers", () => {
+  const changes = [
+    value => { value.records[0].exercises[0].coachingAnswer = null; },
+    value => { value.records[0].exercises[0].coachingAnswer.topic = "fatigue"; },
+    value => { value.records[0].exercises[0].coachingAnswer.topic = ""; },
+    value => { value.records[0].exercises[0].coachingAnswer.topic = 0; },
+    value => { value.records[0].exercises[0].coachingAnswer.answer = "yes"; },
+    value => { value.records[0].exercises[0].coachingAnswer.answer = true; },
+    value => { value.records[0].exercises[0].coachingAnswer.answer = null; },
+    value => { value.records[0].exercises[0].coachingAnswer.rir = 2; },
+    value => { delete value.records[0].exercises[0].coachingAnswer.topic; },
+    value => { delete value.records[0].exercises[0].coachingAnswer.answer; },
+    value => { value.records[0].exercises[0].coachingAnswer.sets = {}; },
+    value => { value.records[0].exercises[0].coachingAnswer.sets[1].loadKg = "40"; },
+    value => { value.records[0].exercises[0].coachingAnswer.sets[1].loadKg = -1; },
+    value => { value.records[0].exercises[0].coachingAnswer.sets[1].loadKg = 10001; },
+    value => { value.records[0].exercises[0].coachingAnswer.sets[1].reps = "6"; },
+    value => { value.records[0].exercises[0].coachingAnswer.sets[1].reps = 6.5; },
+    value => { value.records[0].exercises[0].coachingAnswer.sets[1].reps = 100001; },
+    value => { value.records[0].exercises[0].coachingAnswer.sets[1].marker = false; },
+    value => { value.records[0].exercises[0].coachingAnswer.sets[1].rir = 0; },
+    value => { delete value.records[0].exercises[0].coachingAnswer.sets[1].marker; }
+  ];
+  for (const change of changes) {
+    const value = withCoachingAnswer(); change(value);
+    assert.equal(Training.coachingAnswerMatches(value.records[0].exercises[0]), false);
+    assert.throws(() => Training.validate(value), /답변|세트/);
+  }
+  for (const [topic, answer] of [["fatigue", "planned"], ["load-change", "yes"]]) {
+    assert.throws(() => Training.createCoachingAnswer(record().exercises[0], topic, answer), /답변/);
+  }
+});
+
+test("coaching answers bind every set in order and reject changed, foreign or reused sets", () => {
+  const changes = [
+    value => { value.records[0].exercises[0].sets[0].loadKg = 21; },
+    value => { value.records[0].exercises[0].sets[1].loadKg = 41; },
+    value => { value.records[0].exercises[0].sets[1].reps = 7; },
+    value => { value.records[0].exercises[0].sets[1].marker = "W"; },
+    value => { value.records[0].exercises[0].sets[2].marker = "A"; },
+    value => { value.records[0].exercises[0].sets.reverse(); },
+    value => { value.records[0].exercises[0].sets.splice(1, 1); },
+    value => { value.records[0].exercises[0].sets.push({ id: "added", loadKg: 40, reps: 6, marker: null, rir: null }); },
+    value => { value.records[0].exercises[0].coachingAnswer.sets[1].id = value.records[0].exercises[1].sets[0].id; },
+    value => { value.records[0].exercises[0].coachingAnswer.sets[1].id = value.records[0].exercises[0].coachingAnswer.sets[0].id; },
+    value => { value.records[0].exercises[0].coachingAnswer.sets.reverse(); },
+    value => { value.records[0].exercises[0].coachingAnswer.sets = []; },
+    value => { value.records[0].exercises[0].coachingAnswer.sets = value.records[0].exercises[1].sets.map(({ id, loadKg, reps, marker }) => ({ id, loadKg, reps, marker })); },
+    value => {
+      const entry = value.records[0]; entry.id = "reused"; entry.date = "2026-01-06";
+      entry.exercises.forEach((exercise, i) => { exercise.id = `reused-exercise-${i}`; exercise.sets.forEach((set, j) => { set.id = `reused-${i}-${j}`; }); });
+    }
+  ];
+  for (const change of changes) {
+    const value = withCoachingAnswer(); change(value);
+    assert.equal(Training.coachingAnswerMatches(value.records[0].exercises[0]), false);
+    assert.throws(() => Training.validate(value), /답변/);
+    delete value.records[0].exercises[0].coachingAnswer;
+    assert.deepEqual(Training.validate(value), value);
+  }
+});
+
+test("RIR-only edits preserve the answer while unknown and zero observations remain distinct", () => {
+  const value = withCoachingAnswer(), before = structuredClone(value.records[0].exercises[0].coachingAnswer);
+  value.records[0].exercises[0].sets[1].rir = 2;
+  assert.equal(Training.coachingAnswerMatches(value.records[0].exercises[0]), true);
+  assert.deepEqual(Training.validate(value).records[0].exercises[0].coachingAnswer, before);
+  for (const loadKg of [null, 0]) for (const reps of [null, 0]) {
+    const current = workspace(), exercise = current.records[0].exercises[0];
+    exercise.sets[1].loadKg = loadKg; exercise.sets[1].reps = reps;
+    withCoachingAnswer(current, "rep-target", "unexpected");
+    assert.deepEqual(Training.validate(current), current);
+    const answer = exercise.coachingAnswer;
+    exercise.sets[1].loadKg = loadKg === null ? 0 : null;
+    assert.equal(Training.coachingAnswerMatches(exercise), false);
+    assert.equal(answer.sets[1].loadKg, loadKg);
+    assert.throws(() => Training.validate(current), /답변/);
+  }
+  assert.equal(Training.coachingAnswerMatches(record().exercises[0]), false);
+  assert.equal(Training.coachingAnswerMatches(null), false);
+});
+
+test("same source reimports preserve existing answers and changed observations never inherit them", () => {
+  const value = withCoachingAnswer(), before = structuredClone(value), incoming = record();
+  const unchanged = Training.mergeRecords(value, [incoming]);
+  assert.equal(unchanged.unchanged, 1); assert.deepEqual(unchanged.workspace, before);
+  withCoachingAnswer({ records: [incoming] }, "rep-target", "unexpected");
+  incoming.source.paths = ["moved/example.png"];
+  const moved = Training.mergeRecords(value, [incoming]);
+  assert.equal(moved.updated, 1);
+  assert.deepEqual(moved.workspace.records[0].exercises[0].coachingAnswer, before.records[0].exercises[0].coachingAnswer);
+  const stale = structuredClone(incoming); stale.exercises[0].sets[1].loadKg = 41;
+  assert.throws(() => Training.mergeRecords(value, [stale]), /답변/);
+  delete stale.exercises[0].coachingAnswer;
+  const conflict = Training.mergeRecords(value, [stale]);
+  assert.equal(conflict.conflicts.length, 1); assert.deepEqual(conflict.workspace, before);
+  assert.equal(Object.hasOwn(conflict.conflicts[0].incoming.exercises[0], "coachingAnswer"), false);
+  assert.deepEqual(value, before);
+});
+
+test("answer factories detach snapshots and image extraction cannot invent user coaching answers", () => {
+  const exercise = record().exercises[0], before = structuredClone(exercise);
+  const answer = Training.createCoachingAnswer(exercise, "load-change", "planned");
+  assert.deepEqual(exercise, before);
+  answer.sets[1].loadKg = 41;
+  assert.equal(exercise.sets[1].loadKg, 40);
+  const input = context(); input.sessions[0].session.exercises[0].coachingAnswer = answer;
+  assert.throws(() => Training.fromDiaryContext(input), /사진 판독.*답변/);
+  const clean = Training.fromDiaryContext(context()).records[0];
+  assert.ok(clean.exercises.every(item => !Object.hasOwn(item, "coachingAnswer")));
 });
 
 test("stored programs, snapshot assignments and explicit reviews survive exchange without record invention", () => {

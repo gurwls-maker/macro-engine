@@ -333,7 +333,7 @@ test("allocation and exercise-energy questions reuse the relevant coach answer, 
   const exercise = Conversation.respond("운동 소모량은 이미 들어갔어?", ctx);
   assert.equal(exercise.topic, "nutrition");
   assert.match(exercise.text, /휴식을 운동으로 바꿔 계산/);
-  assert.match(exercise.text, /한 번 더 더하지/);
+  assert.match(exercise.text, /목표에 다시 더하지/);
   const time = Conversation.respond("활동량 시간표는 어떻게 반영돼?", ctx);
   assert.equal(time.topic, "nutrition");
   assert.match(time.text, /기본 시간표.*휴식/);

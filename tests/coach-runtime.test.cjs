@@ -22,6 +22,60 @@ function fixture() {
   state.days["2026-10-05"] = { date: "2026-10-05", weightKg: null, bodyFatPct: null, skeletalMuscleKg: null, bodyFatMethod: "unknown", carbAdjustmentG: 0, meals: [], sessions: [], complete: false, planSnapshot: null };
   return state;
 }
+
+test("a stored nutrition model's kgPerWeek carries its rate unit rather than becoming a bodyweight observation", () => {
+  const state = fixture(), date = "2026-10-05", day = state.days[date];
+  day.meals = [{ id: "synthetic-meal", name: "합성 식사", protein: 20, carbs: 30, fat: 10, otherKcal: 0, alcoholG: 0 }];
+  day.complete = true;
+  day.planSnapshot = Nutrition.calculatePlan(state.profile, day);
+  day.planSnapshot.context.weightTrend = { available: true, observations: 8, days: 21, kgPerWeek: 0.4,
+    confidence: "moderate", automaticallyApplied: false };
+  const before = structuredClone(state), context = Runtime.summarizeState(state, date);
+  const rates = context.facts.filter(fact => fact.id.endsWith(".kgPerWeek"));
+  assert.ok(rates.length > 0);
+  assert.ok(rates.every(fact => fact.value === 0.4 && fact.unit === "kg/주" && fact.estimated === true));
+  assert.ok(!context.facts.some(fact => fact.id.endsWith(".kgPerWeek") && fact.unit === "kg"));
+  assert.deepEqual(state, before);
+});
+
+test("recorded-speed observations preserve speed units and source facts instead of becoming anonymous values", () => {
+  const Fixtures = require("./fixtures/coaching-scenarios.cjs");
+  const scenario = Fixtures.buildScenarios({ richActivity: true }).find(item => item.id === "running-volume-surge");
+  const state = Fixtures.asOf(scenario, "2026-09-18", { richActivity: true }), before = structuredClone(state);
+  const context = Runtime.summarizeState(state, "2026-09-18", "다음 운동은 어떻게 할까요?");
+  const speeds = context.facts.filter(fact => /\.(?:speedKmh|previousKmh|currentKmh|recordedSpeedKmh)$/.test(fact.id));
+  assert.ok(speeds.some(fact => fact.value === 10)); assert.ok(speeds.some(fact => fact.value === 11));
+  assert.ok(speeds.every(fact => fact.unit === "km/h"));
+  assert.deepEqual(state, before);
+});
+
+test("natural Korean calendar lists preserve every confirmed date without masking unconfirmed dates or durations", () => {
+  const context = { contractVersion: 2, date: "2026-09-21", facts: [],
+    records: ["2026-09-16", "2026-09-18", "2026-09-21", "2026-10-02"].map(date => ({ date })) };
+  const result = text => ({ ...answer(), answer: text, coaching: { claims: [], followUp: null } });
+  for (const text of ["9월 16일과 18일 기록을 이어서 봤어요.", "9월 16일, 18일 및 21일 기록이에요.",
+    "2026년 9월 16일와 18일 그리고 21일 기록이에요.", "9월 16일~18일의 기록이에요.",
+    "9월 16~18일과 9월 18~21일 기록이에요.", "2026년 9월 16–18일의 기록이에요.",
+    "9월 16·18·21일의 기록이에요.", "9월 16, 18, 21일의 기록이에요.",
+    "9월 16일부터 21일까지 기록이에요.", "2026년 9월 16일부터 21일까지 기록이에요.",
+    "9월 21일부터 10월 2일까지의 기록이에요.", "9월 21일~10월 2일 기록이에요."]) {
+    assert.doesNotThrow(() => Runtime.validateResult(result(text), "chat", context));
+  }
+  assert.throws(() => Runtime.validateResult(result("9월 16일과 19일 기록이에요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("9월 16~19일 기록이에요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("9월 18~16일 기록이에요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("10월 16~18일 기록이에요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("2025년 9월 16일과 18일 기록이에요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("9월 16일 기록 뒤 18일간 쉬었어요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("9월 16일과 18일간의 휴식이 있었어요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("9월 16·19·21일 기록이에요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("9월 16일부터 19일까지 기록이에요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("9월 21일부터 16일까지 기록이에요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("10월 2일부터 9월 21일까지 기록이에요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("10월 2일~9월 21일 기록이에요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("9월 21일부터 10월 3일까지 기록이에요."), "chat", context));
+  assert.throws(() => Runtime.validateResult(result("9월 16일 이후 3일 쉬었어요."), "chat", context));
+});
 function harness(t, options = {}) {
   const prefix = path.resolve(os.tmpdir(), "macro-coach-runtime-test-");
   const directory = fs.mkdtempSync(prefix);
@@ -110,6 +164,40 @@ test("AI text bounds, control characters and excessive result counts are rejecte
   }
 });
 
+test("wholly foreign-language chat is withheld but Korean explanations preserve original exercise and brand names", () => {
+  const result = text => ({ ...answer(), answer: text, coaching: { claims: [], followUp: null } });
+  for (const text of ["优先维持最近的步行安排和饮食总量，先确认步行表现变化的测量条件。", "Keep the recent walking routine and check the measurement conditions.",
+    "最近の歩行を維持してください。", "", "STA7000 HYROX RIR"]) {
+    const value = result(text), before = structuredClone(value);
+    assert.throws(() => Runtime.validateResult(value, "chat", { contractVersion: 2, facts: [] }), /한국어 상담.*표시하지.*다시 요청/);
+    assert.deepEqual(value, before);
+  }
+  for (const text of ["STA7000 漢字 브랜드의 Lat Pulldown 기록을 다음 운동의 출발점으로 삼으세요.",
+    "운동할 때 통증이 이어졌다면 지금은 중단하고 상태부터 확인해 주세요.", "비교하려는 운동이 무엇인지 알려 주세요."]) {
+    assert.doesNotThrow(() => Runtime.validateResult(result(text), "chat", { contractVersion: 2, facts: [] }));
+  }
+  assert.doesNotThrow(() => Runtime.validateResult({ ...answer("workout"), answer: "Original label: Chest Press" }, "workout"));
+});
+
+test("foreign-language raw response remains stored as a failed job with an explicit retry path", t => {
+  const h = harness(t), input = { kind: "chat", question: "다음 운동은 어떻게 할까요?", context: { contractVersion: 2, facts: [] } };
+  const original = { ...answer(), answer: "优先维持最近的步行安排。", coaching: { claims: [], followUp: null } };
+  const job = h.runtime.start(input);
+  const config = h.calls[0].args.filter((item, index, all) => index > 0 && all[index - 1] === "-c");
+  assert.ok(config.some(value => value.startsWith("developer_instructions=") && value.includes("must be in Korean")));
+  h.finish(original);
+  const finished = h.runtime.get(job.id);
+  assert.equal(finished.status, "failed"); assert.equal(finished.result, null);
+  assert.match(finished.error, /한국어 상담.*원본 응답.*유지.*다시 요청/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(h.outputPath(), "utf8")), original);
+  const retry = h.runtime.start(input, null, true);
+  assert.equal(retry.status, "running"); assert.equal(retry.id, job.id);
+  assert.equal(h.calls.length, 2);
+  assert.ok(fs.readdirSync(path.dirname(h.outputPath())).some(name => /^output-.+\.json$/.test(name)));
+  h.finish({ ...answer(), answer: "최근 기록을 출발점으로 삼고 다음 운동 뒤 상태를 확인해 주세요.", coaching: { claims: [], followUp: null } });
+  assert.equal(h.runtime.get(retry.id).status, "completed");
+});
+
 test("summary keeps unrecorded meals and body values unknown and excludes future records", () => {
   const state = fixture();
   state.days["2026-10-06"] = { ...structuredClone(state.days["2026-10-05"]), date: "2026-10-06", weightKg: 66 };
@@ -160,6 +248,54 @@ test("prompt marks contextual material untrusted and states unknown and snapshot
   assert.match(prompt, /골격근량은 제지방량이 아닙니다/);
   assert.match(prompt, /임신\/수유\/섭식장애\/질환\/미성년/);
   assert.match(prompt, /같은|동일 중량 비교/);
+});
+
+test("coaching prompt grounds each sport's next choice in relevant actual work rather than strength-only numbers", () => {
+  for (const sport of ["strength", "running", "cycling", "swimming", "team", "mixed", "walking"]) {
+    const input = { kind: "chat", question: "최근 기록에서 다음 운동을 어떻게 이어갈까요?", context: {
+      decisionContext: { activity: { latest: [{ sport, actual: { durationMin: 40, details: {
+        sequenceConfirmed: false, segments: [{ id: "actual-station", label: "합성 구간" }] } } }] } } } };
+    const before = structuredClone(input), prompt = Runtime.promptFor(input);
+    assert.match(prompt, /근력은 중량·반복/);
+    assert.match(prompt, /시간 활동은 시간·거리/);
+    assert.match(prompt, /자전거는 기록된 파워와 측정 조건/);
+    assert.match(prompt, /구기는 실제 연습 과제/);
+    assert.match(prompt, /복합 운동은 확인된 구간 순서/);
+    assert.match(prompt, /실제 구간 이름·배치.*무엇을 유지하거나 조절/);
+    assert.match(prompt, /순서가 미확인이면 나열 순서나 선행 피로를 추론하지/);
+    assert.match(prompt, /모든 지표·세트·구간을 보고서처럼 복사할 필요는 없/);
+    assert.match(prompt, /answer·questions·uncertainties.*한국어/);
+    assert.match(prompt, /현재 수행.*이전 기준.*다음에 실행할 한 가지 선택.*그 뒤 확인할 반응/);
+    assert.match(prompt, /일반론 한 문장으로 끝내지/);
+    assert.match(prompt, /안전.*억지 수치 인용이나 증량 선택을 만들지/);
+    assert.match(prompt, /검사 통과는 해석의 타당성을 보증하지/);
+    assert.deepEqual(JSON.parse(prompt.split("REQUEST_JSON (데이터):\n")[1]), input);
+    assert.deepEqual(input, before);
+  }
+});
+
+test("food coaching distinguishes reported personal tolerance from generic examples and observed intake", () => {
+  for (const memory of [
+    { constraints: "합성 식품 제한이 있다. 평소 먹을 수 있는 공급원으로 식사하고 싶다." },
+    { constraints: "합성 식품 제한이 있고, 합성식품 A를 먹은 뒤 불편했다." },
+    { constraints: "합성 식품 제한이 있고, 합성식품 B는 문제없이 먹는다고 보고했다." },
+    null
+  ]) {
+    const input = { kind: "chat", question: "다음 식사를 어떻게 이어갈까요?", context: {
+      recall: { memory, conversation: [{ role: "assistant", text: "합성식품 C를 잘 먹어왔다." }] },
+      recentDays: [{ date: "2026-10-04", intake: { protein: 95 }, meals: [{ name: "합성식품 D" }] }]
+    } };
+    const original = structuredClone(input), prompt = Runtime.promptFor(input);
+    assert.match(prompt, /개인의 섭취·반응 자기보고가 있을 때만 그 출처와 범위/);
+    assert.match(prompt, /한 번 먹은 기록만으로 내약·알레르기 안전을 확인한 것으로 바꾸지/);
+    assert.match(prompt, /이전 AI 답변.*개인 내약의 근거가 아닙니다/);
+    assert.match(prompt, /금지 항목만 피한 새 식품도 안전하다고 개별 추천하지/);
+    assert.match(prompt, /확인된 공급원이 없을 때는 식품 이름을 나열/);
+    assert.match(prompt, /끼니 구성·시간·기록된 양을 조절하는 행동을 먼저/);
+    assert.match(prompt, /일반 예시라고 밝혀 개인의 섭취 이력·안전 확인과 구분/);
+    assert.deepEqual(JSON.parse(prompt.split("REQUEST_JSON (데이터):\n")[1]), input);
+    assert.deepEqual(input, original);
+  }
 });
 
 test("fake runtime uses stdin structured-output readonly process and never runs a real account", t => {
@@ -602,6 +738,8 @@ test('bounded workout samples preserve original counts, relevant blocks and comp
   assert.equal(context.recentWorkouts.length, 4);
   assert.equal(context.recall.workouts.length, 3);
   assert.equal(context.trainingAnalysis.coverage.workingSets, 16 * 56);
+  assert.equal(context.trainingAnalysis.originalSessionSummaryCount, 16);
+  assert.equal(context.trainingAnalysis.sessionsSampled, true);
   assert.equal(context.workoutIndex[0].originalSetCount, 56);
   assert.deepEqual(context.recentWorkouts[0].uncertainties, ['머신 표시와 합산 여부 미확인']);
   assert.equal(context.facts.find(fact => fact.id === 'packet.trainingSettings.sessionMinutes').value, 60);
@@ -623,6 +761,10 @@ test('bounded workout samples preserve original counts, relevant blocks and comp
     for (const [key, child] of Object.entries(value)) {
       if (key === 'facts') continue;
       const position = `${prefix}.${key}`;
+      if (prefix.startsWith('packet.trainingCoaching.') && ['hypotheses', 'advice', 'coordination'].includes(key)) {
+        assert.ok(![...facts.keys()].some(id => id === position || id.startsWith(position + '.')), 'product hypotheses and future advice are not citeable performed facts');
+        continue;
+      }
       if (typeof child === 'number') assert.equal(facts.get(position)?.value, child, `missing citeable numeric field ${position}`);
       else if (child && typeof child === 'object') assertProjected(child, position);
     }
@@ -634,6 +776,68 @@ test('bounded workout samples preserve original counts, relevant blocks and comp
       coaching: { claims: [load, reps, rir].map(fact => ({ factId: fact.id, value: fact.value })), followUp: null } };
     assert.doesNotThrow(() => Runtime.validateResult(output, 'chat', context));
   }
+});
+
+test('early budget trimming keeps the first full progression count and scope through subsequent reductions', () => {
+  const F = require('./fixtures/coaching-scenarios.cjs'), Q = require('../src/coach-query.js');
+  const scenarios = F.buildScenarios({ suite: 'core', richActivity: true });
+  for (const [id, week] of [['cross-both-partial', 2], ['cross-deficit-preserved', 4], ['cross-surplus-fast-weight', 3]]) {
+    const scenario = scenarios.find(row => row.id === id);
+    assert.ok(scenario, id);
+    const checkpoint = scenario.checkpoints[week - 1], state = F.asOf(scenario, checkpoint.date, { richActivity: true });
+    const before = structuredClone(state), raw = Q.retrieve(state, checkpoint.date, checkpoint.question);
+    const rawBefore = structuredClone(raw), context = Runtime.summarizeState(state, checkpoint.date, checkpoint.question);
+    assert.equal(context.samplingReducedForBudget, true);
+    for (const period of context.retrieval.periods) {
+      const original = raw.periods.find(row => row.id === period.id);
+      assert.ok(original);
+      const originalCount = original.training.originalProgressionSummaryCount ?? original.training.progression.length;
+      if (period.training.progression.length < originalCount) {
+        assert.equal(period.training.originalProgressionSummaryCount, originalCount);
+        assert.equal(period.training.progressionSampled, true);
+        assert.match(period.training.progressionDetailScope, /일부 수행 비교.*전체 기간의 모든 종목·장비 비교는 아니/);
+      }
+      assert.deepEqual(period.training.coverage, original.training.coverage);
+      assert.deepEqual(period.training.muscles, original.training.muscles);
+    }
+    const T = require('../src/training.js');
+    const full = T.analyze(state.training.records, { date: checkpoint.date, profile: state.profile, checkins: state.days, mappings: state.training.mappings });
+    if (context.trainingAnalysis.progression.length < full.progression.length) {
+      assert.equal(context.trainingAnalysis.originalProgressionSummaryCount, full.progression.length);
+      assert.equal(context.trainingAnalysis.progressionSampled, true);
+    }
+    assert.deepEqual(context.trainingAnalysis.coverage, full.coverage);
+    assert.deepEqual(state, before); assert.deepEqual(raw, rawBefore);
+    const packet = { kind: 'chat', question: checkpoint.question, context };
+    const copyWithoutMetadata = structuredClone(context);
+    for (const analysis of [copyWithoutMetadata.trainingAnalysis, ...copyWithoutMetadata.retrieval.periods.map(period => period.training)]) {
+      delete analysis.originalProgressionSummaryCount; delete analysis.progressionSampled; delete analysis.progressionDetailScope;
+    }
+    assert.notEqual(Runtime.digest({ pipelineVersion: 19, input: packet }), Runtime.digest({ pipelineVersion: 19,
+      input: { ...packet, context: copyWithoutMetadata } }));
+  }
+});
+
+test('the initial twelve-comparison boundary retains its original count rather than treating twelve as the full scope', () => {
+  const state = fixture(); state.training = require('../src/training-store.js').createEmpty();
+  for (const [index, date] of ['2026-09-14', '2026-09-18'].entries()) {
+    const record = denseWorkout(date, index);
+    record.exercises = Array.from({ length: 14 }, (_, position) => ({ ...record.exercises[0],
+      id: `initial-boundary-${index}-${position}`, rawName: '벤치프레스', exerciseId: 'bench_press',
+      equipmentKey: `synthetic/initial-boundary/${position}`, loadConvention: 'total', loadRole: 'external',
+      sets: [{ id: `initial-boundary-set-${index}-${position}`, loadKg: 44, reps: 9, rir: null, marker: null }] }));
+    state.training.records.push(record);
+  }
+  const before = structuredClone(state), context = Runtime.summarizeState(state, '2026-09-18', '최근 기록에서 다음 운동');
+  assert.equal(context.trainingAnalysis.originalProgressionSummaryCount, 14);
+  assert.equal(context.trainingAnalysis.progressionSampled, true);
+  assert.ok(context.trainingAnalysis.progression.length <= 12);
+  assert.deepEqual(state, before);
+  const small = fixture(); small.training = require('../src/training-store.js').createEmpty();
+  const complete = Runtime.summarizeState(small, '2026-09-18');
+  assert.equal(complete.trainingAnalysis.progression.length, 0);
+  assert.equal(complete.trainingAnalysis.progressionSampled, undefined);
+  assert.equal(complete.trainingAnalysis.originalProgressionSummaryCount, undefined);
 });
 
 test('new name interpretation contract does not silently reuse older coaching answers', t => {
@@ -794,12 +998,34 @@ test('shared nutrition-only and both contexts distinguish partial intake, option
   assert.equal(combined.decisionContext.body.paired, null);
 });
 
-test('new session-context contract keeps old coaching history but does not reuse its completed cache', t => {
+test('new source-date validation keeps old coaching history but does not reuse its completed cache', t => {
   const h = harness(t), input = { kind: 'chat', question: 'session-context-cache-boundary' };
-  const oldId = Runtime.digest({ pipelineVersion: 6, input }).slice(0, 32);
+  const oldId = Runtime.digest({ pipelineVersion: 14, input }).slice(0, 32);
   const folder = path.join(h.directory, 'jobs', oldId); fs.mkdirSync(folder);
   const old = { id: oldId, kind: 'chat', status: 'completed', result: answer(), createdAt: '2026-10-05T00:00:00.000Z' };
   fs.writeFileSync(path.join(folder, 'job.json'), JSON.stringify(old));
   assert.notEqual(h.runtime.start(input).id, oldId);
   assert.deepEqual(h.runtime.get(oldId), old); h.finish(answer());
+});
+
+test('personal food-source coaching uses chat pipeline19 without deleting earlier answers or changing image pipeline4', t => {
+  const h = harness(t), input = { kind: 'chat', question: 'confirmed hybrid order and actual task' };
+  const earlier = [17, 18].map(pipelineVersion => {
+    const id = Runtime.digest({ pipelineVersion, input }).slice(0, 32);
+    const folder = path.join(h.directory, 'jobs', id); fs.mkdirSync(folder);
+    const job = { id, kind: 'chat', status: 'completed', result: answer(), createdAt: '2026-10-05T00:00:00.000Z' };
+    fs.writeFileSync(path.join(folder, 'job.json'), JSON.stringify(job));
+    return job;
+  });
+  const fresh = h.runtime.start(input);
+  assert.equal(fresh.id, Runtime.digest({ pipelineVersion: 19, input }).slice(0, 32));
+  for (const old of earlier) { assert.notEqual(fresh.id, old.id); assert.deepEqual(h.runtime.get(old.id), old); }
+  h.finish(answer());
+  const image = { kind: 'workout', context: { date: '2026-10-04' } };
+  const imageId = Runtime.digest({ pipelineVersion: 4, input: image }).slice(0, 32);
+  const imageFolder = path.join(h.directory, 'jobs', imageId); fs.mkdirSync(imageFolder);
+  const imageCache = { id: imageId, kind: 'workout', status: 'completed', result: answer('workout'), createdAt: '2026-10-05T00:00:00.000Z' };
+  fs.writeFileSync(path.join(imageFolder, 'job.json'), JSON.stringify(imageCache));
+  assert.deepEqual(h.runtime.start(image), imageCache);
+  for (const old of earlier) assert.deepEqual(h.runtime.get(old.id), old);
 });

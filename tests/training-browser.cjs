@@ -189,7 +189,15 @@ async function verifyProgramWorkflow(browser, temporary, artifacts) {
     const beforeSafetyChecks = await state(page);
     await navigate(page, 'training'); await page.locator('[data-action="training-tab"][data-tab="analysis"]').click();
     assert.equal(await page.locator('#trainingDate').inputValue(), pastDate);
-    assert.doesNotMatch(await page.locator('.recovery-section h2').innerText(), /통증 확인/, 'historical analysis must not import a later pain report');
+    assert.equal(await page.locator('#trainingContent .recovery-section').count(), 0, 'a date without actual set records must not invent a strength recovery panel');
+    assert.doesNotMatch(await page.locator('#trainingContent').innerText(), /통증 확인이 먼저|중단이 필요한 통증/, 'historical analysis must not import a later pain report');
+    assert.match(await page.locator('#trainingContent .workout-empty').innerText(), /다음 운동을 남길 출발점/);
+    const manualAction = page.locator('#trainingContent .workout-empty [data-action="training-add"]');
+    await manualAction.focus(); await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#entryForm [name="date"]').inputValue(), pastDate, 'the empty historical view opens a manual record for its actual selected date');
+    assert.equal(await page.locator('#entryForm button[type="submit"]').isEnabled(), true, 'manual workout recording remains available without a previous record');
+    await page.keyboard.press('Escape');
+    assert.deepEqual(await state(page), beforeSafetyChecks, 'opening and cancelling the empty-day action preserves future pain and completed nutrition snapshots');
     await page.locator('[data-action="training-tab"][data-tab="program"]').click();
     assert.equal(await page.locator('[data-action="program-save"]').count(), 0, 'past analysis selection cannot bypass current pain for a new program');
     assert.match(await page.locator('.program-template .program-reason').innerText(), /통증/);

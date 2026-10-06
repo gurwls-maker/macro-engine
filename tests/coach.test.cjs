@@ -136,7 +136,7 @@ test("mixed sessions are actual facts and exercise is already included in the ta
   assert.deepEqual(result.context.sports, ["strength", "cycling"]);
   const question = result.questions.find(row => row.id === "training");
   assert.match(question.answer, /목표에 이미 포함/);
-  assert.match(question.answer, /한 번 더 더하지/);
+  assert.match(question.answer, /목표에 다시 더하지/);
 });
 
 test("unknown experience, unspecified sex and body composition remain unknown", () => {
@@ -230,7 +230,7 @@ test("planned exercise and rest are user plans, never completed exercise or calo
     assert.equal(result.context.sessionMinutes, 0);
     assert.equal(result.context.plannedExerciseIncluded, false);
     const answer = result.questions.find(row => row.id === "training").answer;
-    assert.match(answer, trainingPlan === "planned" ? /실제 완료한 운동이 아니라/ : trainingPlan === "rest" ? /휴식 계획/ : /평소 종목을 고른 것만으로/);
+    assert.match(answer, trainingPlan === "planned" ? /식사와 물부터 준비/ : trainingPlan === "rest" ? /쉬는 날에도 끼니/ : /운동 여부와 별개/);
   }
   const conflict = buildCoach(profile, { ...day, sessions: [{ sport: "walking", durationMin: 40, intensity: "easy" }], coachCheckin: { energy: "good", hunger: "okay", sleep: "good", trainingPlan: "rest" } });
   assert.equal(conflict.context.sessionMinutes, 40);
@@ -543,10 +543,15 @@ test("whole-session coaching follows actual analyzed session IDs without choosin
   assert.equal(selected.actionLabel, "2026-10-04 일지 보기"); assert.equal(selected.title, "2026-10-04 최근 운동 전체 관찰");
   assert.doesNotMatch(selected.title + selected.body, /이전 풀업|2026-09-09|최근 대표 세트/);
   assert.match(selected.body, /운동 블록 1개.*일반 1세트/);
-  assert.match(selected.body, /55kg.*2026-09-24.*50kg/s);
-  assert.match(selected.body, /다음 선택:/);
+  assert.match(selected.body, /55kg/); assert.match(selected.body, /2026-09-24/); assert.match(selected.body, /50kg/);
+  const chosenAction = result.context.training.sessionCoaching.actions[0];
+  assert.equal(chosenAction.kind, "consolidate-raised-load");
+  assert.ok(selected.body.includes(chosenAction.body));
+  assert.match(chosenAction.body, /55kg × 10회.*이어가/s);
   assert.equal(selected.evidence.interpretationSource, "record-observations");
   assert.deepEqual(selected.evidence.interpretedBlockIds, ["latest-press-exercise"]);
+  assert.deepEqual(selected.evidence.coveredBlockIds, ["latest-press-exercise"]);
+  assert.deepEqual(selected.evidence.actionBlockIds, ["latest-press-exercise"]);
   const raw = result.context.training.progression.find(row => row.current?.sessionId === "latest-press");
   assert.equal(raw.current.loadKg, 55); assert.equal(raw.previous.loadKg, 50); assert.equal(raw.previous.sessionId, "prior-press");
   assert.match(raw.reason, /RIR이 비어 있거나 달라/);
@@ -609,7 +614,7 @@ test("latest sessions without known load or reps summarize that session instead 
     const result = trainingCoach(latestTraining(progression)), summary = result.priorities.find(row => row.id === "training-log");
     assert.ok(!result.questions.some(row => row.id === "training-progression"));
     assert.equal(summary.title, "2026-10-04 최근 운동 전체 관찰");
-    assert.match(summary.body, /최신 실제 일지의 전체 기록/);
+    assert.match(summary.body, /^2026-10-04 20:00 최신 실제 일지\./);
     assert.match(summary.body, /지난 일지를 재사용하고 실제로 한 세트만/);
     assert.equal(summary.actionRecordId, "latest"); assert.equal(summary.actionLabel, "2026-10-04 일지 보기");
     assert.equal(summary.evidence.current, null); assert.doesNotMatch(summary.body, /50kg|2026-09-24/);
@@ -702,8 +707,10 @@ test("a complete A-B-A multi-machine session remains a whole-session summary wit
   assert.match(priority.body, /2026-10-04 19:30 합성 전체 세션/);
   assert.match(priority.body, /운동 블록 3개.*일반 3세트.*준비 1세트.*별도 표시 1세트/);
   assert.match(priority.body, /80kg/); assert.match(priority.body, /45kg/);
-  assert.doesNotMatch(priority.body, /65kg|향상됐|저하됐/);
-  assert.deepEqual(priority.evidence.interpretedBlockIds, [first.id, "middle-B"]);
+  assert.doesNotMatch(priority.body, /향상됐|저하됐/);
+  assert.deepEqual(priority.evidence.coveredBlockIds, [first.id, "middle-B", "return-A"]);
+  assert.deepEqual(priority.evidence.interpretedBlockIds, [first.id, "middle-B", "return-A"]);
+  assert.deepEqual(priority.evidence.actionBlockIds, [first.id, "middle-B"]);
   const rows = result.context.training.progression.filter(row => row.current?.sessionId === latest.id);
   assert.deepEqual(new Set(rows.map(row => row.current.blockId)), new Set([first.id, "middle-B", "return-A"]));
   for (const value of [80, 45, 65]) assert.ok(buildFacts(result, day).some(row => row.id.startsWith("progression.") && row.value === value));
@@ -731,7 +738,8 @@ test("a legacy aggregate cannot become zero performed exercises or a single olde
   const summary = result.priorities.find(row => row.id === "training-log");
   assert.equal(summary.evidence.exerciseCount, null); assert.equal(summary.evidence.workingSets, null);
   assert.equal(summary.evidence.unknownEffortSets, null); assert.equal(summary.actionRecordId, "latest");
-  assert.match(summary.body, /운동 블록 수 미확인.*이전 OCR.*새로 검증한 기록이 아니/);
+  assert.match(summary.body, /운동 블록 수 미확인/);
+  assert.match(summary.body, /이전 OCR.*새로 검증한 기록이 아니/);
   assert.doesNotMatch(summary.body, /옛 운동|999kg|2026-09-24|운동 블록 0개|일반 0세트/);
   assert.ok(!result.questions.some(row => row.id === "training-progression"));
 });
@@ -760,10 +768,14 @@ test("unknown RIR still gives concrete recorded changes and a conditional next t
   const records = [previous, latest], analysis = T.analyze(records, { date: day.date });
   const before = JSON.stringify({ records, analysis, profile, day });
   const result = trainingCoach(analysis), priority = result.priorities.find(row => row.id === "training-progression");
-  assert.match(priority.body, /40kg에서 12회/);
-  assert.match(priority.body, /10회에서 12회로 늘었/);
-  assert.match(priority.body, /다음 선택:.*첫 일반 세트는 40kg × 12회/s);
-  assert.match(priority.body, /충분히 여유가 있으면 한 세트에서만 1회 더/);
+  assert.match(priority.body, /40kg/); assert.match(priority.body, /12회/);
+  assert.match(priority.body, /40kg × 10회.*40kg × 12회.*2회를 더/s);
+  const context = result.context.training.sessionCoaching.exerciseContexts[0];
+  assert.equal(context.advice.primaryAction.kind, "consolidate-improved-work");
+  assert.match(context.advice.primaryAction.body, /40kg × 12회.*먼저 이어가/s);
+  assert.match(context.advice.primaryAction.body, /반복과 증량을 동시에 겹치지는/);
+  assert.deepEqual(context.advice.primaryAction.focusSetIds, [latest.exercises[0].sets[0].id]);
+  assert.ok(context.hypotheses.signals.some(signal => signal.kind === "working-performance-improved"));
   assert.doesNotMatch(priority.body, /근력이 늘|근육이 늘|RIR.*입력해야|판단할 수 없/);
   assert.equal(result.context.training.progression[0].status, "incomparable");
   assert.equal(result.context.training.progression[0].current.rir, null);
@@ -782,8 +794,9 @@ test("workout observations are available when nutrition has no profile, invalid 
     const before = JSON.stringify({ p, d, analysis }), result = buildCoach(p, d, [], { trainingAnalysis: analysis });
     const priority = result.priorities.find(row => row.id === "training-progression");
     assert.equal(result.status, expectedStatus);
-    assert.match(priority.body, /40kg에서 10회/);
-    assert.match(priority.body, /다음 선택:/);
+    assert.match(priority.body, /40kg/); assert.match(priority.body, /10회/);
+    const action = result.context.training.sessionCoaching.actions[0];
+    assert.ok(action.body.length > 0); assert.ok(priority.body.includes(action.body));
     assert.equal(priority.actionRecordId, latest.id);
     assert.equal(result.context.targetKcal, undefined);
     if (expectedStatus === "review") {
@@ -807,9 +820,14 @@ test("record summary uses workspace main and muscle priorities on the actual lat
   const result = buildCoach(profile, day, [], { trainingAnalysis: analysis, state: { training }, selectedSessionId: old.id, sessionId: old.id });
   const priority = result.priorities.find(row => row.id === "training-progression");
   assert.equal(priority.evidence.latestSessionId, latest.id); assert.equal(priority.evidence.exerciseCount, 3);
-  assert.deepEqual(priority.evidence.interpretedBlockIds, ["priority-curl-exercise", "priority-leg-exercise"]);
-  assert.match(priority.body, /최근 머신 컬:.*25kg.*최근 레그 프레스:.*80kg/s);
-  assert.doesNotMatch(priority.body, /최근 벤치:|과거 벤치|99kg/);
+  assert.deepEqual(priority.evidence.coveredBlockIds, ["priority-curl-exercise", "priority-leg-exercise", "priority-latest-exercise"]);
+  assert.deepEqual(priority.evidence.interpretedBlockIds, priority.evidence.coveredBlockIds);
+  assert.deepEqual(priority.evidence.actionBlockIds, ["priority-latest-exercise", "priority-curl-exercise"], "a substantial performed change remains ahead of unchanged priority movements");
+  assert.match(priority.body, /25kg/); assert.match(priority.body, /40kg/);
+  const context = result.context.training.sessionCoaching.exerciseContexts;
+  assert.ok(context.some(row => row.blockId === "priority-leg-exercise" && row.actual.current.sets[0].loadKg === 80), "unfocused movements retain their entire interpretation rather than disappearing");
+  assert.ok(context.every(row => row.actual.current.source.sessionId === latest.id));
+  assert.doesNotMatch(priority.body, /과거 벤치/);
   assert.equal(JSON.stringify({ analysis, training }), before);
 });
 
@@ -833,7 +851,7 @@ test("safety retains concrete observations but replaces incremental trials with 
   const result = trainingCoach(T.analyze([latest], { date: day.date }));
   const priority = result.priorities.find(row => row.id === "training-progression");
   assert.equal(result.priorities[0].kind, "safety");
-  assert.match(priority.body, /40kg에서 12회/);
+  assert.match(priority.body, /40kg/); assert.match(priority.body, /12회/);
   assert.match(priority.body, /통증을 유발하는 운동은 멈추/);
   assert.doesNotMatch(priority.body, /13회를 시도|1회 더|최소 증량/);
   assert.equal(result.context.training.sessionCoaching.question, null);
@@ -848,4 +866,111 @@ test("recovery answers offer an executable current choice before optional inform
   const recovery = result.questions.find(row => row.id === "recovery").answer;
   assert.ok(recovery.indexOf("평소 식사와 운동") < recovery.indexOf("추가 정보를 남긴다면"));
   assert.match(recovery, /가장 달랐던 한 가지만/);
+});
+
+test("a six-block leg session has one count summary, complete composition, and at most two source-bound next actions", () => {
+  const previous = workout("leg-prior", "2026-09-18", "스쿼트", "squat", 100);
+  previous.exercises[0].sets = [10, 8, 7].map((reps, index) => ({ id: `prior-squat-${index}`, loadKg: 100, reps, rir: null, marker: null }));
+  const latest = workout("leg-complete", "2026-10-04", "Legs", "squat", 120, { time: "17:00", sequence: { order: "unknown", structure: "unknown" } });
+  const block = (id, rawName, exerciseId, loadKg, reps) => ({ id, rawName, exerciseId, equipmentKey: `${exerciseId} 실제 장비`, loadConvention: "total", loadRole: "external",
+    sets: reps.map((reps, index) => ({ id: `${id}-set-${index}`, loadKg, reps, rir: null, marker: null })) });
+  latest.exercises = [block("squat-block", "스쿼트", "squat", 100, [3, 6, 4]),
+    block("press-block", "인피니티 시티드 레그 프레스", "leg_press", 110, [15, 15]),
+    block("curl-block", "라잉 레그컬", "leg_curl", 40, [12, 10, 10]),
+    block("extension-block", "레그 익스텐션", "leg_extension", 45, [12, 12, 10]),
+    block("adductor-block", "힙 어덕션", "hip_adduction", 50, [12, 12, 12]),
+    block("calf-block", "카프 레이즈", "calf_raise", 40, [15, 15])];
+  latest.exercises[0].equipmentKey = previous.exercises[0].equipmentKey;
+  latest.exercises[0].sets[0].loadKg = 120;
+  latest.exercises[0].sets.unshift(...[20, 60, 80].map((loadKg, index) => ({ id: `warmup-${index}`, loadKg, reps: 5, rir: null, marker: "W" })));
+  const records = [previous, latest], before = JSON.stringify(records), result = trainingCoach(T.analyze(records, { date: day.date }));
+  const card = result.priorities.find(row => row.id === "training-progression"), coaching = result.context.training.sessionCoaching;
+  const ids = latest.exercises.map(row => row.id);
+  assert.match(card.body, /^2026-10-04 17:00 Legs\./);
+  assert.equal(card.body.match(/일반 16세트/g)?.length, 1);
+  assert.equal(card.body.match(/운동 블록 6개/g)?.length, 1);
+  assert.deepEqual(new Set(card.evidence.coveredBlockIds), new Set(ids));
+  assert.deepEqual(new Set(card.evidence.interpretedBlockIds), new Set(ids));
+  assert.deepEqual(new Set(coaching.composition.blocks.map(row => row.blockId)), new Set(ids));
+  assert.deepEqual(coaching.composition.blocks.map(row => row.workingSets).sort(), [2, 2, 3, 3, 3, 3]);
+  assert.ok(coaching.composition.summary.length > 0);
+  assert.ok(card.body.includes(coaching.compositionMeaning));
+  assert.match(coaching.compositionMeaning, /라잉 레그컬|햄스트링/);
+  assert.ok(!card.body.includes(coaching.composition.summary), "the full raw composition remains structured instead of repeating the report in the advice body");
+  assert.deepEqual(new Set(coaching.exerciseContexts.map(row => row.blockId)), new Set(ids));
+  assert.equal(card.evidence.actionBlockIds.length, 2);
+  for (const action of coaching.actions) assert.ok(card.body.includes(action.body));
+  assert.doesNotMatch(card.body, /고중량 기록과 평소 운동을 나누기|근력이 늘었|근성장률|RIR이 비어/);
+  assert.equal(card.actionRecordId, latest.id);
+  assert.equal(result.questions.find(row => row.id === "training-progression").answer, card.body);
+  assert.equal(JSON.stringify(records), before);
+});
+
+test("saved session purpose drives both the whole-session action and the rest-deload answer without repeating identical advice", () => {
+  for (const trainingIntent of ["deload", "light", "technique", "time-limited", "return", "test"]) {
+    const latest = workout(`purpose-${trainingIntent}`, "2026-10-04", "운동 목적 기록", "bench_press", 40, { trainingIntent });
+    latest.exercises.push(workout(`second-${trainingIntent}`, latest.date, "레그 프레스", "leg_press", 80).exercises[0]);
+    const result = trainingCoach(T.analyze([latest], { date: day.date }));
+    const card = result.priorities.find(row => row.id === "training-progression"), advice = result.context.training.sessionCoaching;
+    const answer = result.questions.find(row => row.id === "training-deload");
+    assert.equal(advice.intent, trainingIntent);
+    assert.equal(answer.actionRecordId, latest.id);
+    for (const body of new Set(advice.actions.map(row => row.body))) {
+      assert.equal(card.body.split(body).length - 1, 1, `${trainingIntent}: one shared direction should not be repeated per movement`);
+    }
+    const purposeWords = { deload: /계획한 디로드|보충하지/, light: /가볍게 운동|편하게/, technique: /동작 연습|가동범위/,
+      "time-limited": /시간이 부족|가능한 시간/, return: /복귀 단계|다음 날의 반응/, test: /기록 확인용|익숙한 부담/ };
+    assert.match(answer.answer, purposeWords[trainingIntent]);
+    assert.match(answer.answer, /2026-10-04/);
+    assert.ok(answer.evidence.sources.some(source => source.sessionId === latest.id));
+    assert.ok(!answer.answer.includes(advice.summary), "a rest decision does not paste the whole-session summary");
+    assert.doesNotMatch(answer.answer, /반드시 디로드|최대 능력을 달성|전체를 절반/);
+    assert.doesNotMatch(answer.answer, /다음 운동은 지난 구성에서 이어갈 수 있어요/);
+    assert.ok(card.evidence.actionBlockIds.length <= 2);
+  }
+});
+
+test("unknown broad reductions ask the same purpose question from the card and the rest-deload answer", () => {
+  const prior = workout("purpose-prior", "2026-09-24", "벤치 프레스", "bench_press", 80);
+  prior.exercises.push(workout("leg-prior", prior.date, "레그 프레스", "leg_press", 160).exercises[0]);
+  const latest = JSON.parse(JSON.stringify(prior)); latest.id = "purpose-reduced"; latest.date = "2026-10-04";
+  for (const exercise of latest.exercises) for (const set of exercise.sets) { set.loadKg /= 2; set.rir = null; }
+  const result = trainingCoach(T.analyze([prior, latest], { date: day.date }));
+  const coaching = result.context.training.sessionCoaching, answer = result.questions.find(row => row.id === "training-deload");
+  assert.equal(coaching.pattern, "broad-reduction"); assert.ok(coaching.question);
+  assert.ok(answer.answer.includes(coaching.question.title));
+  assert.equal(answer.actionRecordId, latest.id);
+  assert.doesNotMatch(answer.answer, /회복이 나쁘|부상|반드시 디로드/);
+});
+
+test("clinical rest-deload guidance remains individual-care even when the latest session contains no usable sets", () => {
+  const latest = workout("clinical-empty", "2026-10-04", "빈 운동 기록", "bench_press", 40); latest.exercises[0].sets = [];
+  const result = buildCoach({ ...profile, healthContext: "clinical" }, day, [], { trainingAnalysis: T.analyze([latest], { date: day.date }) });
+  const answer = result.questions.find(row => row.id === "training-deload");
+  assert.match(answer.answer, /전문가/);
+  assert.doesNotMatch(answer.answer, /1회 더|지난 구성에서 이어갈 수|최소 증량/);
+  assert.equal(answer.action, "nav-profile");
+});
+
+test("whole-session next actions use only the prescription explicitly linked to that exact performed record", () => {
+  const latest = workout("plan-linked", "2026-10-04", "벤치 프레스", "bench_press", 80);
+  latest.exercises[0].sets[0].reps = 3; latest.exercises[0].sets[0].rir = null;
+  const analysis = T.analyze([latest], { date: day.date }), training = TS.createEmpty(); training.records = [latest];
+  const program = T.createProgram(T.recommendProgram(profile, training.settings, analysis), { id: "linked-program", createdAt: "2026-10-04T00:00:00.000Z" });
+  program.days[0].exercises = [{ id: "planned-bench", exerciseId: "bench_press", label: "벤치 프레스", sets: 3,
+    repsMin: 8, repsMax: 12, rir: 2, restSeconds: 120, loadKg: 80, equipmentKey: latest.exercises[0].equipmentKey, loadConvention: "total" }];
+  const assignment = T.createAssignment(program, program.days[0].id, latest.date, "linked-assignment");
+  assignment.recordId = latest.id; assignment.status = "performed";
+  training.planning.programs = [program]; training.planning.activeProgramId = program.id; training.planning.schedule = [assignment];
+  const before = JSON.stringify({ training, analysis });
+  const result = buildCoach(profile, day, [], { trainingAnalysis: analysis, state: { training } });
+  const card = result.priorities.find(row => row.id === "training-progression");
+  assert.match(card.body, /8~12회/); assert.match(card.body, /80kg × 3회/);
+  assert.match(card.body, /의도적으로 구성을 바꿨|반복을 채우기 어려웠/);
+  assert.equal(result.context.training.sessionCoaching.actions[0].kind, "plan-check");
+  assert.equal(JSON.stringify({ training, analysis }), before);
+  const unlinked = structuredClone(training); unlinked.planning.schedule[0].recordId = null; unlinked.planning.schedule[0].status = "planned";
+  const fallback = buildCoach(profile, day, [], { trainingAnalysis: analysis, training: unlinked });
+  assert.doesNotMatch(fallback.priorities.find(row => row.id === "training-progression").body, /연결한 계획|8~12회/);
+  assert.notEqual(fallback.context.training.sessionCoaching.actions[0].kind, "plan-check");
 });

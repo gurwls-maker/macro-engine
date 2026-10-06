@@ -150,14 +150,14 @@ async function layout(page, label, dialog = false) {
         assert.equal(await storedText(page), beforeReference, 'querying actual load records must be read-only');
         assert.match(await page.locator('#startingReferenceResult').innerText(), /40.*kg/);
         assert.doesNotMatch(await page.locator('.starting-reference-range').innerText(), /20/);
-        assert.match(await page.locator('#startingReferenceResult').innerText(), /오늘 해야 할 중량.*아닙니다/);
+        assert.match(await page.locator('#startingReferenceResult').innerText(), /실제 표시 중량.*일반 세트 1\/1.*40\.0kg × 10회/s, 'the actual source set and its repetitions identify a reference, not a fabricated prescribed load');
         await page.locator('#entryForm [name="referenceEquipment"]').fill('원정 / 처음 쓰는 머신');
         assert.equal(await storedText(page), beforeReference, 'selecting another device must not change stored equipment or numbers');
         assert.equal(await page.locator('.starting-reference-range').count(), 0, 'changing target removes the prior device load immediately');
         assert.match(await page.locator('#startingReferenceResult').innerText(), /다시 조회/);
         await page.locator('#entryForm button[type="submit"]').click();
         assert.equal(await page.locator('.starting-reference-range').count(), 0, 'new machine without calibration has no fabricated load');
-        assert.match(await page.locator('#startingReferenceResult').innerText(), /첫 실제 세션/);
+        assert.match(await page.locator('#startingReferenceResult').innerText(), /첫 실제 기록.*첫 일반 세트.*그 장비의 실제 수행/s);
         assert.equal(await storedText(page), beforeReference, 'unsupported-device reference must not create or save fabricated kg');
         await layout(page, `reference dialog ${width}`, true);
         await page.screenshot({ path: path.join(artifacts, `session-reference-${width}.png`), fullPage: true });

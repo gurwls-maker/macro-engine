@@ -135,6 +135,19 @@ test("next load is a user choice with confirmed equipment, never inferred from b
   assert.throws(() => T.adjustAssignment(assignment, change));
 });
 
+test("an unknown age is not coerced to a child when explicitly reducing a saved future workout", () => {
+  const { assignment } = planned(), before = structuredClone(assignment);
+  const change = { kind: "deload", reason: "사용자가 정한 부담 감소", reviewDate: "2026-10-12", setReduction: 1, rirIncrease: 0 };
+  for (const age of [null, undefined]) {
+    const next = T.adjustAssignment(assignment, change, { profile: { ...profile, age }, recovery: { status: "watch", pain: null } });
+    assert.equal(next.prescription.exercises[0].sets, 1);
+    assert.deepEqual(next.adjustment.originalPrescription, before.prescription);
+  }
+  for (const age of [17, 81]) assert.throws(() => T.adjustAssignment(assignment, change, { profile: { ...profile, age } }), /개별 확인/);
+  assert.throws(() => T.adjustAssignment(assignment, change, { profile: { ...profile, age: null, healthContext: "clinical" } }), /개별 확인/);
+  assert.deepEqual(assignment, before);
+});
+
 test("saved preferences remove excluded exercises and use preferred movements only in supported pools", () => {
   const prefs = { excludedExerciseIds: ["bench_press"], preferredExerciseIds: ["machine_chest_press"] }, before = structuredClone(prefs);
   const gym = T.recommendProgram(profile, settings, analyze(), prefs);

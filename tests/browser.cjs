@@ -89,7 +89,7 @@ async function noHorizontalOverflow(page, label) {
     for (const key of ['energy', 'hunger', 'sleep']) {
       await page.locator(`#entryForm label:has(input[name="${key}"][value="${expectedCheckin[key]}"])`).click();
     }
-    await page.locator('#entryForm .checkin-more > summary').click();
+    await page.locator('#entryForm').getByText('오늘의 계획과 식사 여건도 알려주기', { exact: true }).click();
     for (const key of ['trainingPlan', 'mealConstraint', 'performance']) await page.locator(`#entryForm [name="${key}"]`).selectOption(expectedCheckin[key]);
     await page.locator('#entryForm button[type="submit"]').click();
     await page.locator('#entryDialog').waitFor({ state: 'hidden' });
@@ -203,6 +203,24 @@ async function noHorizontalOverflow(page, label) {
       let count = 0; for (let n = 0; n < data.length; n += 4) if (data[n + 1] > data[n] * 1.5 && data[n] < 100) count++; return count;
     });
     assert.ok(coloredPixels > 100, 'weight chart must draw nonblank real data');
+    const observedWeight = Insights.coachingConnections(seeded, today).connections.find(row => row.kind === 'weight-training');
+    assert.ok((await page.locator('#trendsContent').innerText()).includes(observedWeight.body), 'trends and coach must use the same dated weight interpretation');
+    const persistent = Storage.createEmpty(); persistent.profile = { ...baseProfile, goal: 'gain' };
+    for (let n = 0; n < 28; n++) {
+      const date = Insights.shiftDate(today, -n);
+      const day = { ...structuredClone(seeded.days[today]), date, weightKg: 65 + (3 - Math.floor(n / 7)) * 0.6 };
+      day.meals.forEach((meal, index) => { meal.id = `persistent-meal-${n}-${index}`; });
+      day.planSnapshot = Nutrition.calculatePlan(persistent.profile, day, []);
+      persistent.days[date] = day;
+    }
+    const repeatedWeight = Insights.coachingConnections(persistent, today).connections.find(row => row.kind === 'weight-training');
+    assert.equal(repeatedWeight.observations[0].followUpStage, 'current-food-review');
+    await page.evaluate(({ key, value }) => localStorage.setItem(key, value), { key: Storage.STORAGE_KEY, value: JSON.stringify(Storage.validateState(persistent)) });
+    await page.reload();
+    await page.locator('[data-view="trends"]').click();
+    const trendText = await page.locator('#trendsContent').innerText();
+    assert.ok(trendText.includes(repeatedWeight.body), 'repeated weight follow-up must reach the actual trends page');
+    assert.doesNotMatch(trendText, /식사 기록이 10일 미만이라|2~4주 더 살펴보고/);
     await page.screenshot({ path: path.join(artifacts, 'desktop-trends.png'), fullPage: true });
     for (const width of [390, 320]) {
       await page.setViewportSize({ width, height: 844 });
@@ -214,12 +232,12 @@ async function noHorizontalOverflow(page, label) {
     }
     await fillProfile(page, { ...baseProfile, age: 16 });
     await page.locator('[data-action="previous-day"]').click();
-    await page.locator('#dayDate').fill(Insights.shiftDate(today, -20));
+    await page.locator('#dayDate').fill(Insights.shiftDate(today, -30));
     await page.locator('#dayDate').dispatchEvent('change');
     assert.match(await page.locator('#todayContent').innerText(), /개별 영양 계획/);
     await addMeal(page, '기록 전용 식사');
     await confirm(page, 'complete');
-    const review = (await appState(page)).days[Insights.shiftDate(today, -20)];
+    const review = (await appState(page)).days[Insights.shiftDate(today, -30)];
     assert.equal(review.planSnapshot.status, 'review');
     assert.equal(review.planSnapshot.energy.targetKcal, null);
     assert.deepEqual(errors, [], 'no browser runtime/console errors');

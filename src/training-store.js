@@ -12,6 +12,8 @@
   const LOAD_CONVENTIONS = Object.freeze(["as-recorded", "per-side", "total", "bodyweight"]);
   const TRAINING_INTENTS = Object.freeze(["regular", "deload", "light", "technique", "time-limited", "return", "test"]);
   const FEEDBACK_FEELINGS = Object.freeze(["comfortable", "hard", "limit"]);
+  const COACHING_ANSWER_TOPICS = Object.freeze(["load-change", "rep-target"]);
+  const COACHING_ANSWERS = Object.freeze(["planned", "unexpected"]);
   const forbidden = new Set(["__proto__", "prototype", "constructor"]);
   const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
   const plain = value => value !== null && typeof value === "object" && !Array.isArray(value)
@@ -92,6 +94,39 @@
     list(values, max, label);
     values.forEach(value => text(value, size, label));
   }
+  function validateCoachingAnswer(exercise) {
+    const answer = exercise.coachingAnswer;
+    fields(answer, ["topic", "answer", "sets"], "조언 확인 답변");
+    if (!COACHING_ANSWER_TOPICS.includes(answer.topic) || !COACHING_ANSWERS.includes(answer.answer)) fail("조언 확인 질문과 답변을 확인해 주세요.");
+    list(answer.sets, LIMITS.sets, "답변 당시 세트");
+    const ids = new Set();
+    for (const set of answer.sets) {
+      fields(set, ["id", "loadKg", "reps", "marker"], "답변 당시 세트");
+      uniqueId(set.id, ids, "답변 당시 세트 식별자");
+      number(set.loadKg, 0, 10000, "답변 당시 원문 부하", true);
+      number(set.reps, 0, 100000, "답변 당시 반복 수", true, true);
+      text(set.marker, 32, "답변 당시 원문 세트 표기", true);
+    }
+    if (!Array.isArray(exercise.sets) || answer.sets.length !== exercise.sets.length || answer.sets.some((set, index) => {
+      const current = exercise.sets[index];
+      return !current || set.id !== current.id || set.loadKg !== current.loadKg || set.reps !== current.reps || set.marker !== current.marker;
+    })) fail("답변 당시 세트 구성·중량·반복이 달라졌어요. 현재 운동에 다시 답해 주세요.");
+  }
+  function createCoachingAnswer(exercise, topic, answer) {
+    const current = clone(exercise);
+    if (!plain(current) || !Array.isArray(current.sets)) fail("답변할 운동의 실제 세트를 확인해 주세요.");
+    const result = { topic, answer, sets: current.sets.map(set => ({ id: set.id, loadKg: set.loadKg, reps: set.reps, marker: set.marker })) };
+    validateCoachingAnswer({ sets: current.sets, coachingAnswer: result });
+    return result;
+  }
+  function coachingAnswerMatches(exercise) {
+    try {
+      const current = clone(exercise);
+      if (!plain(current) || !own(current, "coachingAnswer")) return false;
+      validateCoachingAnswer(current);
+      return true;
+    } catch { return false; }
+  }
   function validateRecords(records) {
     list(records, LIMITS.records, "운동 기록");
     const recordIds = new Set();
@@ -123,7 +158,7 @@
       const exerciseIds = new Set();
       const setIds = new Set();
       for (const exercise of record.exercises) {
-        fields(exercise, ["id", "rawName", "exerciseId", "equipmentKey", "loadConvention", "durationMinutes", "repsTotal", "reportedVolumeKg", "sets", "notes"], "종목", ["loadRole", "groupKey", "feedback"]);
+        fields(exercise, ["id", "rawName", "exerciseId", "equipmentKey", "loadConvention", "durationMinutes", "repsTotal", "reportedVolumeKg", "sets", "notes"], "종목", ["loadRole", "groupKey", "feedback", "coachingAnswer"]);
         uniqueId(exercise.id, exerciseIds, "종목 식별자");
         text(exercise.rawName, 300, "원문 종목명");
         text(exercise.exerciseId, 128, "연결 종목", true);
@@ -157,6 +192,7 @@
           const selected = exercise.sets.find(set => set.id === feedback.setId);
           if (!selected || selected.marker !== null || selected.loadKg !== feedback.loadKg || selected.reps !== feedback.reps) fail("체감을 기록한 일반 세트의 중량·반복이 달라졌어요. 현재 세트를 다시 확인해 주세요.");
         }
+        if (own(exercise, "coachingAnswer")) validateCoachingAnswer(exercise);
       }
     }
     return records;
@@ -417,6 +453,7 @@
         reportedVolumeKg: session.reportedVolumeKg, reportedEnergyKcal: session.reportedEnergyKcal,
         source: { kind: entry.method, hash: entry.hash, paths: entry.sourcePaths.slice(), uncertainties: [...new Set(uncertainty)], revision: entry.correctionRevision },
         exercises: session.exercises.map((exercise, index) => {
+          if (plain(exercise) && own(exercise, "coachingAnswer")) fail("사진 판독에서 조언 확인 답변을 대신 정할 수 없습니다. 가져온 뒤 직접 답해 주세요.");
           fields(exercise, ["rawName", "loadConvention", "reportedVolumeKg", "durationMinutes", "repsTotal", "sets"], "판독 종목");
           list(exercise.sets, LIMITS.sets, "판독 세트");
           const exerciseId = `${entry.id}:exercise:${index}`;
@@ -513,5 +550,5 @@
     return output;
   }
 
-  return Object.freeze({ VERSION, MAX_BYTES, LIMITS, LOAD_CONVENTIONS, TRAINING_INTENTS, FEEDBACK_FEELINGS, createEmpty, validate, validatePrescription, fromDiaryContext, mergeRecords, parseImport, exportExchange });
+  return Object.freeze({ VERSION, MAX_BYTES, LIMITS, LOAD_CONVENTIONS, TRAINING_INTENTS, FEEDBACK_FEELINGS, COACHING_ANSWER_TOPICS, COACHING_ANSWERS, createEmpty, validate, validatePrescription, createCoachingAnswer, coachingAnswerMatches, fromDiaryContext, mergeRecords, parseImport, exportExchange });
 });
