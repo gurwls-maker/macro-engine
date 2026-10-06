@@ -6,6 +6,7 @@ const S = require('../src/storage.js');
 const I = require('../src/insights.js');
 const Coach = require('../src/coach.js');
 const Nutrition = require('../src/nutrition.js');
+const Training = require('../src/training.js');
 const Diary = require('./diary.cjs');
 
 const nullableNumber = { type: ['number', 'null'] };
@@ -161,7 +162,7 @@ function maskKnownDates(value, context, followUp) {
     .replace(/(?:(\d{4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일/g, (all, year, month, day) => confirm(all, year, month, day));
 }
 
-function compactWorkout(row, score = () => 0) {
+function compactWorkout(row, score = () => 0, mappings = []) {
   const exercises = row.exercises.map((exercise, index) => ({ exercise, index, score: score(`${exercise.rawName} ${exercise.notes}`) }))
     .sort((a, b) => b.score - a.score || a.index - b.index).slice(0, 6);
   return { id: row.id, date: row.date, time: row.time, label: row.label, durationMinutes: row.durationMinutes,
@@ -170,9 +171,14 @@ function compactWorkout(row, score = () => 0) {
     uncertainties: row.source.uncertainties.slice(0, 8).map(value => value.slice(0, 400)),
     originalExerciseCount: row.exercises.length, originalSetCount: row.exercises.reduce((sum, item) => sum + item.sets.length, 0),
     sampled: row.exercises.length > 6 || row.exercises.some(item => item.sets.length > 6),
-    exercises: exercises.map(({ exercise, index }) => ({ id: exercise.id, sourceExercisePosition: index + 1, rawName: exercise.rawName, equipmentKey: exercise.equipmentKey,
-      loadConvention: exercise.loadConvention, reportedVolumeKg: exercise.reportedVolumeKg, durationMinutes: exercise.durationMinutes, repsTotal: exercise.repsTotal,
-      originalSetCount: exercise.sets.length, sampled: exercise.sets.length > 6, sets: exercise.sets.slice(0, 6), notes: exercise.notes.slice(0, 400) })) };
+    exercises: exercises.map(({ exercise, index }) => {
+      const description = Training.describeExercise(exercise, mappings);
+      return { id: exercise.id, sourceExercisePosition: index + 1, rawName: exercise.rawName, movementName: description.movementName,
+        exerciseId: description.resolved?.id || null, equipmentKey: description.equipmentKey, equipmentSource: description.equipmentSource,
+        loadConvention: description.loadConvention, loadConventionSource: description.loadConventionSource, loadRuleConflict: description.ruleConflict,
+        reportedVolumeKg: exercise.reportedVolumeKg, durationMinutes: exercise.durationMinutes, repsTotal: exercise.repsTotal,
+        originalSetCount: exercise.sets.length, sampled: exercise.sets.length > 6, sets: exercise.sets.slice(0, 6), notes: exercise.notes.slice(0, 400) };
+    }) };
 }
 function compactPlan(plan) {
   if (!plan) return null;
@@ -241,7 +247,7 @@ function recallContext(state, date, question) {
   const conversation = messages.filter(row => !recentIds.has(row.id)).map(row => ({ row, score: score(row.text) })).filter(row => row.score > 0).sort((a, b) => b.score - a.score || b.row.createdAt.localeCompare(a.row.createdAt)).slice(0, 4).map(({ row }) => ({ id: row.id, date: I.dateKey(new Date(row.createdAt)), role: row.role, text: row.text.slice(0, 1600), source: row.source }));
   const workouts = (state.training?.records || []).filter(row => row.date <= date).sort((a, b) => b.date.localeCompare(a.date));
   const recentWorkouts = new Set(workouts.slice(0, 12).map(row => row.id));
-  const olderWorkouts = workouts.filter(row => !recentWorkouts.has(row.id)).map(row => ({ row, score: score(`${row.label} ${row.notes} ${row.exercises.map(exercise => `${exercise.rawName} ${exercise.notes}`).join(' ')}`) })).filter(row => row.score > 0).sort((a, b) => b.score - a.score || b.row.date.localeCompare(a.row.date)).slice(0, 3).map(({ row }) => compactWorkout(row, score));
+  const olderWorkouts = workouts.filter(row => !recentWorkouts.has(row.id)).map(row => ({ row, score: score(`${row.label} ${row.notes} ${row.exercises.map(exercise => `${exercise.rawName} ${exercise.notes}`).join(' ')}`) })).filter(row => row.score > 0).sort((a, b) => b.score - a.score || b.row.date.localeCompare(a.row.date)).slice(0, 3).map(({ row }) => compactWorkout(row, score, state.training?.mappings));
   const days = Object.values(state.days).filter(row => row.date <= date).sort((a, b) => b.date.localeCompare(a.date));
   const recentDates = new Set(days.slice(0, 21).map(row => row.date));
   const olderDays = days.filter(row => !recentDates.has(row.date)).map(row => ({ row, score: score(`${row.note || ''} ${row.meals.map(meal => `${meal.name} ${meal.note || ''}`).join(' ')}`) })).filter(row => row.score > 0).sort((a, b) => b.score - a.score || b.row.date.localeCompare(a.row.date)).slice(0, 3).map(({ row }) => ({ date: row.date, note: (row.note || '').slice(0, 1200), complete: row.complete, intake: row.meals.length ? I.mealTotals(row.meals) : null, savedPlan: compactPlan(row.planSnapshot), meals: row.meals.filter(meal => score(`${meal.name} ${meal.note || ''}`) > 0).slice(0, 6).map(meal => ({ name: meal.name, type: meal.type || null, note: (meal.note || '').slice(0, 800) })) }));
@@ -299,7 +305,7 @@ function summarizeState(raw, date, question = '') {
     unknowns: coach.context.missingSignals, reviewSignals: coach.priorities.filter(row => row.kind === 'safety'),
     recall,
     workoutIndex: recent.map(record => ({ id: record.id, date: record.date, time: record.time, label: record.label, originalExerciseCount: record.exercises.length, originalSetCount: record.exercises.reduce((sum, exercise) => sum + exercise.sets.length, 0) })),
-    recentWorkouts: detailed.map(({ row }) => compactWorkout(row, relevance)),
+    recentWorkouts: detailed.map(({ row }) => compactWorkout(row, relevance, state.training?.mappings)),
     conversation: (state.training?.messages || []).filter(row => I.dateKey(new Date(row.createdAt)) <= date).slice(-12),
     contextScope: '최근 21개 날짜 영양 요약(날짜별 식사 메모 최대 6개), 선택일 식사 상세 최대 12개와 전체 합계, 전체 28일 훈련 집계, 최근 12개 일지 목록과 최신/질문 관련 4개 상세(각 최대 6운동·6세트), 질문 관련 과거 최대 3개 일지·3개 날짜·4개 대화. 표본으로 총량을 다시 계산하지 않습니다.',
     factValidationScope: '수치의 출처·단위 일치 확인이지 문장의 의미·인과·조언의 정확성 보증이 아닙니다. 계획 숫자는 실제 수행이나 처방 승인이 아닙니다.' };
@@ -333,6 +339,8 @@ function promptFor(input) {
     '처방 수치가 제공된 계획과 다르면 이유와 확인할 조건을 설명하세요. 임신/수유/섭식장애/질환/미성년은 자동 식단·운동 처방을 만들지 말고 담당 전문가와 조정하세요.',
     '통증·흉통·호흡곤란·심한 어지럼·실신은 훈련/식단 강화보다 중단과 적절한 진료가 우선입니다. 진단하지 마세요.',
     '장비·부하 표기·RIR가 불명확하면 동일 중량 비교나 유효 세트로 단정하지 마세요. 한두 번의 부진으로 디로딩을 확정하지 마세요.',
+    'equipmentSource가 name-prefix 또는 name-delimiter인 장비명은 운동 이름에 적힌 표기를 읽은 것입니다. 같은 브랜드·모델이라고 같은 물리적 머신·저항·중량 표기 기준이 확인된 것은 아닙니다. rawName의 변형·그립·번호를 지우거나 부하를 환산하지 마세요.',
+    'loadConventionSource가 name-rule이면 원암·덤벨을 한쪽, 바벨을 전체로 읽는 사용자 이름 규칙을 적용한 것입니다. 실제 kg는 원문 그대로이며 덤벨/원암의 kg를 두 배로 환산해 비교하거나 총운동량을 새로 만들지 마세요. 서로 충돌하는 이름 단서는 미확인입니다.',
     '가장 중요한 다음 행동 1~3개, 이유, 필요한 확인 질문을 제시하세요. 템플릿 같은 장문보다 사용자의 실제 질문에 답하세요.',
     '모든 경우를 미리 정해 둔 문구로 분류하지 마세요. 서로 다른 가능성을 비교하고, 근거가 모자라면 결론을 미룬 뒤 실제로 판단을 바꿀 질문 한두 개를 하세요. 부족한 기록을 병명·회복 원인·근성장으로 채우지 마세요.',
     'context.facts는 앱이 계산한 출처 있는 수치 목록입니다. chat의 answer에서 kg/g/kcal/분/회/세트/일/년/% 수치를 말할 때는 해당 facts의 id와 반올림 전 value를 coaching.claims에 넣으세요. 없는 수치·다른 날짜의 수치를 오늘 값으로 쓰지 마세요. 제공된 목표·수행 수치 밖의 새 처방 수치는 답변에 만들지 말고 확인할 행동으로 설명하세요.',
@@ -405,7 +413,8 @@ class CoachRuntime {
     if (this.active) throw new Error('이미 코치가 답변 중이에요. 완료하거나 취소한 뒤 요청해 주세요.');
     const prompt = promptFor(input);
     if (Buffer.byteLength(prompt, 'utf8') > 256 * 1024) throw new Error('코칭 맥락이 너무 커요. 최근 기록 범위를 줄이거나 질문을 나눠 주세요.');
-    const key = digest({ pipelineVersion: 4, input }); const jobId = key.slice(0, 32);
+    const pipelineVersion = input.kind === 'chat' ? 5 : 4;
+    const key = digest({ pipelineVersion, input }); const jobId = key.slice(0, 32);
     const previous = this.get(jobId);
     if (previous?.status === 'completed' && !retry) return previous;
     this.acquireLock(jobId);

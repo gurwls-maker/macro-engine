@@ -434,6 +434,27 @@ test('selected-day measurements use the same pure profile helper as the browser 
   assert.equal(Nutrition.profileForDay(null, day), null);
 });
 
+test('coach receives name-derived equipment and load conventions without rewriting raw workouts or kg', () => {
+  const state = fixture(); state.training = require('../src/training-store.js').createEmpty();
+  const row = (id, rawName, extra = {}) => ({ id, rawName, exerciseId: null, equipmentKey: null, loadConvention: 'as-recorded', durationMinutes: null, repsTotal: null, reportedVolumeKg: null,
+    sets: [{ id: `set-${id}`, loadKg: 20, reps: 10, rir: null, marker: null }], notes: '', ...extra });
+  state.training.records = [{ id: 'name-derived', date: '2026-10-04', time: null, label: 'Synthetic workout', durationMinutes: null, reportedSetCount: null, reportedEnergyKcal: null, reportedVolumeKg: null,
+    source: { kind: 'manual', hash: null, paths: [], uncertainties: [], revision: null }, effort: null, pain: null, notes: '',
+    exercises: [row('one', 'STA7000 케이블 원 암 랫 풀 다운'), row('two', '디랙스 테스트 미등록 운동'), row('three', 'STA7000 체스트 프레스', { equipmentKey: '직접 지정한 장비', loadConvention: 'total' }), row('four', '바벨 로우')] }];
+  const before = structuredClone(state);
+  const context = Runtime.summarizeState(state, '2026-10-05');
+  const exercises = context.recentWorkouts[0].exercises;
+  assert.equal(exercises[0].equipmentKey, 'STA7000'); assert.equal(exercises[0].equipmentSource, 'name-prefix');
+  assert.equal(exercises[0].loadConvention, 'per-side'); assert.equal(exercises[0].loadConventionSource, 'name-rule');
+  assert.equal(exercises[0].rawName, 'STA7000 케이블 원 암 랫 풀 다운'); assert.equal(exercises[0].sets[0].loadKg, 20);
+  assert.equal(exercises[1].equipmentKey, '디랙스'); assert.equal(exercises[1].exerciseId, null);
+  assert.equal(exercises[2].equipmentKey, '직접 지정한 장비'); assert.equal(exercises[2].loadConventionSource, 'record');
+  assert.equal(exercises[3].loadConvention, 'total'); assert.equal(exercises[3].sets[0].loadKg, 20);
+  assert.deepEqual(state, before);
+  const prompt = Runtime.promptFor({ kind: 'chat', question: '장비 기준 확인', context });
+  assert.match(prompt, /같은 브랜드·모델이라고 같은 물리적 머신/); assert.match(prompt, /두 배로 환산/);
+});
+
 test('recent nutrition and measurements expose citeable facts instead of rejecting correct history quantities', () => {
   const state = fixture(), day = state.days['2026-10-05'];
   state.days['2026-10-04'] = { ...structuredClone(day), date: '2026-10-04', weightKg: 64.7, bodyFatPct: 24.1,
@@ -562,9 +583,9 @@ test('bounded workout samples preserve original counts, relevant blocks and comp
   }
 });
 
-test('new runtime contract does not silently reuse pre-guard cached answers', t => {
+test('new name interpretation contract does not silently reuse older coaching answers', t => {
   const h = harness(t), input = { kind: 'chat', question: 'cache boundary' };
-  const oldId = Runtime.digest({ pipelineVersion: 3, input }).slice(0, 32);
+  const oldId = Runtime.digest({ pipelineVersion: 4, input }).slice(0, 32);
   const folder = path.join(h.directory, 'jobs', oldId); fs.mkdirSync(folder);
   fs.writeFileSync(path.join(folder, 'job.json'), JSON.stringify({ id: oldId, kind: 'chat', status: 'completed', result: answer(), createdAt: '2026-10-01T00:00:00.000Z' }));
   const current = h.runtime.start(input);
@@ -572,4 +593,15 @@ test('new runtime contract does not silently reuse pre-guard cached answers', t 
   assert.equal(current.status, 'running'); assert.equal(h.calls.length, 1);
   assert.equal(h.runtime.get(oldId).status, 'completed');
   h.finish(answer());
+});
+
+test('coaching name rules do not invalidate completed raw image transcription caches', t => {
+  const h = harness(t), input = { kind: 'workout', question: 'read source only', imageHash: 'synthetic-image-hash' };
+  const cachedId = Runtime.digest({ pipelineVersion: 4, input }).slice(0, 32);
+  const folder = path.join(h.directory, 'jobs', cachedId); fs.mkdirSync(folder);
+  const cached = { id: cachedId, kind: 'workout', status: 'completed', result: answer('workout'), createdAt: '2026-10-01T00:00:00.000Z' };
+  fs.writeFileSync(path.join(folder, 'job.json'), JSON.stringify(cached));
+  assert.deepEqual(h.runtime.start(input, path.join(h.directory, 'synthetic-image.png')), cached);
+  assert.equal(h.calls.length, 0);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(folder, 'job.json'), 'utf8')), cached);
 });
